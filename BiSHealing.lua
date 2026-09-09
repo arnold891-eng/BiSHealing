@@ -4348,16 +4348,37 @@ local CFG = { built = false, tab = "Frames", controls = {}, tabs = {}, pages = {
 -- BiSTheme if it is installed (## OptionalDeps), otherwise an inline copy of
 -- the same tokens. The addon must not care: an optional dependency that turns
 -- into a nil index is just a crash with extra steps.
-CFG.T = BiSTheme or {
-    hex = { ink = "ece8f6", ink2 = "c6bedd", muted = "968ead", dim = "8e86a6",
-            accent = "b980ff", good = "4fd0cf", warn = "f08cb0", gold = "e5c04a" },
+-- RESOLVED PER CALL, PER COLOUR NAME -- never captured at file load.
+--
+-- `CFG.T = BiSTheme or {inline}` looked right and was wrong for the life of this
+-- addon. That line runs while the file loads, and the client loads addons in
+-- alphabetical order: BiSHealing comes before BiSTheme, so _G.BiSTheme is nil
+-- at that moment, every session, on every machine. The addon has therefore been
+-- running on its own inline copy since the day it was written -- invisible only
+-- because the two palettes happen to match. The first time Arn recolours
+-- BiSTheme, BiSHealing would ignore him, which is the entire reason BiSTheme
+-- exists. BiSJC had the identical bug.
+--
+-- So nothing is captured. Each lookup asks the live global, per name, and only
+-- falls back for a name the shared addon does not define.
+CFG.FALLBACK_HEX = {
+    ink = "ece8f6", ink2 = "c6bedd", muted = "968ead", dim = "8e86a6",
+    accent = "b980ff", good = "4fd0cf", warn = "f08cb0", gold = "e5c04a",
 }
-if not CFG.T.rgb then
-    function CFG.T.rgb(name)
-        local h = CFG.T.hex[name] or CFG.T.hex.ink
-        return tonumber(h:sub(1,2),16)/255, tonumber(h:sub(3,4),16)/255, tonumber(h:sub(5,6),16)/255
+CFG.T = {}
+
+function CFG.T.rgb(name)
+    local live = _G.BiSTheme
+    if live and live.rgb and live.hex and live.hex[name] then
+        return live.rgb(name)
     end
-    function CFG.T.rgba(name, a) local r,g,b = CFG.T.rgb(name); return r, g, b, a or 1 end
+    local h = CFG.FALLBACK_HEX[name] or CFG.FALLBACK_HEX.ink
+    return tonumber(h:sub(1,2),16)/255, tonumber(h:sub(3,4),16)/255, tonumber(h:sub(5,6),16)/255
+end
+
+function CFG.T.rgba(name, a)
+    local r, g, b = CFG.T.rgb(name)
+    return r, g, b, a or 1
 end
 
 -- shades, darkest (furthest back) to lightest (most forward)
@@ -4872,6 +4893,9 @@ BiSHealingUI = {
     ConfigShownTab = function()
         for name, page in pairs(CFG.pages) do if page:IsShown() then return name end end
     end,
+    -- the resolved colour for a palette name, so the suite can prove BiSTheme
+    -- wins when it is installed and the inline copy only covers for it
+    Colour = function(name) return CFG.T.rgb(name) end,
     ConfigIDs = function()
         CFG.Build()
         local out = {}

@@ -32,6 +32,14 @@ local GetAddOnMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadat
 local VERSION = (GetAddOnMeta and GetAddOnMeta("BiSHealing", "Version")) or "?"
               -- read from the TOC: a hardcoded copy silently drifts out of date
 
+-- Forward declaration, on purpose. The options window (CFG, far below) owns the
+-- header console, and comm code up here wants to Say into it -- the version nag,
+-- for one. Without this line `CFG` up here is a nil GLOBAL: it does not error, it
+-- just reads nil forever, so `if CFG and CFG.Say` is quietly always false and the
+-- nag never reaches the header. dev/tests.lua catches exactly this, and did.
+-- Costs no extra local: the real one down there was already a main-chunk local.
+local CFG
+
 local EARTH_SHIELD = "Earth Shield"
 local CHAIN_HEAL   = "Chain Heal"
 local GIFT         = "Gift of the Naaru"   -- instant HoT, ~1085 over 15s, 3min CD
@@ -296,6 +304,7 @@ function COMM.OnMessage(prefix, message, _, sender)
     -- version nag, once, and only for a genuinely higher build
     if not COMM.nagged and COMM.VerNum(ver) > COMM.VerNum(VERSION) then
         COMM.nagged = true
+        if CFG and CFG.Say then CFG.Say(("%s has v%s"):format(short, tostring(ver)), "gold") end
         Print(("%s is running v%s -- newer than your v%s"):format(short, ver, VERSION))
     end
 end
@@ -4343,7 +4352,7 @@ BuildHealOptionsRef = BuildHealOptions
 -- The rule that keeps this honest: every control reads and writes the SAME
 -- saved-variable key the slash commands already use. There is no second copy of
 -- the settings, so the window and /bish can never disagree.
-local CFG = { built = false, tab = "Frames", controls = {}, tabs = {}, pages = {} }
+CFG = { built = false, tab = "Frames", controls = {}, tabs = {}, pages = {} }
 
 -- BiSTheme if it is installed (## OptionalDeps), otherwise an inline copy of
 -- the same tokens. The addon must not care: an optional dependency that turns
@@ -4714,8 +4723,11 @@ function CFG.BuildWheel(page)
     y = CFG.Btn(page, y, "reorder", "Reorder now",
         "Re-rank and re-lay the pyramid. Queues if you are in combat.",
         function()
-            if InCombatLockdown() then pendingReorder = true; Print("in combat -- will reorder when it ends")
-            else Relayout() end
+            if InCombatLockdown() then
+                pendingReorder = true; CFG.Say("queued for combat end", "muted")
+            else
+                Relayout(); CFG.Say("reordered", "good")
+            end
         end)
     y = CFG.Btn(page, y, "center", "Recentre",
         "Bring the pyramid back to the middle of the screen and show it.",
@@ -4727,7 +4739,7 @@ function CFG.BuildWheel(page)
         end)
     y = CFG.Btn(page, y, "rescan", "Rescan spellbook",
         "Re-read your ranks and rebuild the heal sizes.",
-        function() BuildHealOptions(); Print("heal options rebuilt") end)
+        function() BuildHealOptions(); CFG.Say("ranks rescanned", "good") end)
     y = CFG.Btn(page, y, "demo", "Demo on / off",
         "Walks every feature across your real group.",
         function() SlashCmdList.BISHEALING(demo.on and "sim off" or "sim on") end)
@@ -4738,7 +4750,7 @@ function CFG.BuildWheel(page)
         function() SlashCmdList.BISHEALING("resetsizes") end, "warn")
     y = CFG.Btn(page, y, "wipe", "Wipe learned history",
         "Throws away every fight this addon has scored. The ordering will be rough for a night.",
-        function() BiSHealingDB.players = {}; Print("learned history wiped") end, "warn")
+        function() BiSHealingDB.players = {}; CFG.Say("history wiped", "warn") end, "warn")
 end
 
 CFG.PAGES = {
@@ -4772,21 +4784,43 @@ function CFG.Build()
     CFG.tex(f, "BACKGROUND", "frame", 0.98):SetAllPoints()
     CFG.border(f, "accent", 0.55)
     if UISpecialFrames then tinsert(UISpecialFrames, "BiSHealingConfig") end
+    f:SetScript("OnUpdate", CFG.Tick)
     CFG.frame = f
 
     local head = CreateFrame("Frame", nil, f)
     head:SetPoint("TOPLEFT", 1, -1); head:SetPoint("TOPRIGHT", -1, -1); head:SetHeight(64)
     CFG.tex(head, "BACKGROUND", "header"):SetAllPoints()
-    local icon = head:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(30, 30); icon:SetPoint("LEFT", 18, 0)
-    icon:SetTexture("Interface\\Icons\\Spell_Nature_HealingWaveGreater")
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    -- THE PROMPT IS THE TITLE. No icon beside it -- "BiS>" is the brand (the
+    -- header law, BiSTheme 1.1.0). What used to be a static two-tone name is now
+    -- a console: the addon's name, then what it is actually doing, rotating.
+    --
+    -- Budget (landmine #9), left to right across a 700px window:
+    --     1   frame border
+    --     18  left inset to the prompt
+    --     ?   BiS> + the words + the blinking cursor      <- what must fit
+    --     16  right inset from the close button
+    --     28  close button
+    --     1   frame border
+    -- 700 - (1 + 18 + 16 + 28 + 1) = 636 for the whole line. Held at 600 so a
+    -- long word has air rather than touching the button; the console trims with
+    -- an ellipsis past that, which is the net, not the plan.
+    CFG.HEAD_BUDGET = 600
     local title = head:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 16, "")
-    title:SetText("|cffb980ffBiS|r |cff4fd0cfHealing|r")
-    title:SetPoint("LEFT", icon, "RIGHT", 10, 6)
+    title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 15, "")
+    title:SetPoint("LEFT", 18, 6)
     local ver = CFG.fs(head, "Settings  -  v" .. tostring(VERSION), 10, "dim")
-    ver:SetPoint("LEFT", icon, "RIGHT", 10, -9)
+    ver:SetPoint("LEFT", 18, -11)
+
+    if BiSTheme and BiSTheme.Console then
+        CFG.con = BiSTheme.Console(title, { width = CFG.HEAD_BUDGET, size = 13 })
+        CFG.con:Set("name", "Heal", "accent")
+        CFG.Slots()
+    else
+        -- Console.lua is embedded under Libs/, so this only happens if the TOC
+        -- line was lost. Say so in the header rather than showing nothing.
+        title:SetText("|cffb980ffBiS>|r |cff4fd0cfHeal|r")
+    end
     local x = CreateFrame("Button", nil, head)
     x:SetSize(28, 28); x:SetPoint("RIGHT", -16, 0)
     CFG.tex(x, "BACKGROUND", "field"):SetAllPoints()
@@ -4845,10 +4879,63 @@ function CFG.Build()
         :SetPoint("BOTTOMLEFT", 30, 8)
 end
 
+-- The standing state this addon has to show, refreshed on the window's own
+-- ticker. Slots are for state that LASTS; events go through CFG.Say.
+function CFG.Slots()
+    local con = CFG.con
+    if not con then return end
+
+    -- where my Earth Shield is, and how much of it is left
+    local charges, who
+    if esTarget then
+        local u = COMM.Unit and COMM.Unit(esTarget)
+        if u then
+            charges = COMM.Charges and select(1, COMM.Charges(u)) or nil
+            who = UnitName(u)
+        end
+    end
+    if charges and charges > 0 then
+        con:Set("shield", ("ES %d %s"):format(charges, ShortName(who) or "?"),
+                charges <= 1 and "warn" or "good")
+    else
+        con:Set("shield", nil)
+    end
+
+    -- races being lost right now: somebody else's heal lands before mine would
+    local sniped = 0
+    for _, fr in ipairs(frames) do
+        if fr:IsShown() and fr.raceLost then sniped = sniped + 1 end
+    end
+    con:Set("race", sniped > 0 and (("%d sniped"):format(sniped)) or nil, "warn")
+
+    con:Set("sim", demo.on and "sim" or nil, "accent")
+end
+
+-- An event the WINDOW wants to report. Chat is for slash answers; anything the
+-- addon says about what it is doing goes to the header instead -- and only
+-- falls back to Print when the window has never been opened.
+function CFG.Say(text, colour)
+    if CFG.con then CFG.con:Say(text, colour) else Print(text) end
+end
+
 function CFG.Open()
     CFG.Build()
     CFG.frame:Show()
     CFG.ShowTab(CFG.tab or "Frames")
+end
+
+-- The console blinks at 2 Hz and rotates every 3 s, so it needs a ticker; it
+-- only runs while the window is up, and the slots are recomputed a fifth as
+-- often as the blink because they read auras and frames.
+CFG.PAINT_EVERY, CFG.SLOTS_EVERY = 0.2, 1.0
+function CFG.Tick(_, elapsed)
+    local self = CFG
+    self.paintAt = (self.paintAt or 0) + elapsed
+    if self.paintAt < self.PAINT_EVERY then return end
+    self.paintAt = 0
+    self.slotsAt = (self.slotsAt or 0) + self.PAINT_EVERY
+    if self.slotsAt >= self.SLOTS_EVERY then self.slotsAt = 0; self.Slots() end
+    if self.con then self.con:Paint() end
 end
 
 function CFG.Toggle()
@@ -4896,6 +4983,10 @@ BiSHealingUI = {
     -- the resolved colour for a palette name, so the suite can prove BiSTheme
     -- wins when it is installed and the inline copy only covers for it
     Colour = function(name) return CFG.T.rgb(name) end,
+    -- the header console, its budget, and a hand-crank for the ticker
+    Console = function() CFG.Build(); return CFG.con end,
+    HeadBudget = function() CFG.Build(); return CFG.HEAD_BUDGET end,
+    ConsoleTick = function(elapsed) CFG.Build(); CFG.Tick(nil, elapsed or 0.2) end,
     ConfigIDs = function()
         CFG.Build()
         local out = {}

@@ -44,6 +44,7 @@ local function newRegion(kind, parent)
     function r:GetWidth() return self.__w end
     function r:GetHeight() return self.__h end
     function r:GetCenter() return 500, 400 end
+    function r:GetParent() return self.__parent end
     function r:SetAlpha(a) self.__alpha = a end
     function r:GetAlpha() return self.__alpha end
     function r:SetAllPoints() end
@@ -85,8 +86,28 @@ local function newRegion(kind, parent)
         end
         self.__textColor = {a,b,c,d}
     end
-    function r:SetFont() end
-    function r:GetFont() return "Fonts\\FRIZQT__.TTF", 10, "" end
+    -- Console.lua sizes the words FontString itself and then measures it, so the
+    -- mock has to remember what it was told. A stub that forgets returns the same
+    -- width for 8pt and 15pt and the header budget assert stops meaning anything.
+    function r:SetFont(path, size, flags)
+        self.__font = { path or STANDARD_TEXT_FONT, size or 10, flags or "" }
+    end
+    function r:GetFont()
+        local f = self.__font
+        if f then return f[1], f[2], f[3] end
+        return "Fonts\\FRIZQT__.TTF", 10, ""
+    end
+    -- STRICT ON PURPOSE, second kind. The client measures GLYPHS; "|cffb980ff" is
+    -- not glyphs. A mock that counts the escape makes `BiS> ` look ~10 characters
+    -- wider than it draws, Con:Width() lies high, and the header budget assert
+    -- passes for the wrong reason -- or worse, T.Fit trims real words to make room
+    -- for colour codes that were never on screen.
+    function r:GetStringWidth()
+        local t = self.__text or ""
+        t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")
+        local size = self.__font and self.__font[2] or 10
+        return #t * size * 0.5
+    end
     function r:SetStartPoint() end
     function r:SetEndPoint() end
     function r:SetThickness() end
@@ -500,6 +521,26 @@ end
 
 -- ------------------------------------------------------------------ run --
 _G.T_ADVANCE = AdvanceTime
+-- The TOC lists Libs\BiSTheme\Console.lua BEFORE BiSHealing.lua, so the header
+-- prompt exists whether or not the BiSTheme addon is installed. Load it here in
+-- the same order, or every console test below tests the fallback branch and the
+-- real header ships untested. Note what this means for the palette: with the
+-- BiSTheme addon absent, Console.lua installs its OWN fallback into _G.BiSTheme
+-- -- which is what happens in game too -- so the theme block further down gates
+-- on the BISTHEME env var, not on whether _G.BiSTheme merely exists.
+local consolePath = (arg[1] or "BiSHealing.lua"):gsub("[^/\\]*$", "")
+                    .. "Libs/BiSTheme/Console.lua"
+local conFile = io.open(consolePath, "r")
+if conFile then
+    conFile:close()
+    local cok, cerr = pcall(dofile, consolePath)
+    if not cok then print("!! CONSOLE LOAD ERROR: " .. tostring(cerr)); os.exit(1) end
+    print("== embedded Console.lua loaded (before the addon, as the TOC does)")
+else
+    print("!! CONSOLE: no Libs/BiSTheme/Console.lua beside the addon -- the TOC lists one")
+    os.exit(1)
+end
+
 local chunk, err = loadfile(arg[1] or "BiSHealing.lua")
 if not chunk then error(err) end
 local ok, e = pcall(chunk)
@@ -1681,6 +1722,155 @@ do
     if frame:IsShown() then BiSHealingUI.ToggleConfig() end
 end
 
+-- ----------------------------------------------------- header console ----
+-- The header law (BiSTheme 1.1.0): the window's title IS the prompt, standing
+-- state lives in slots, events go through Say, and the whole line stays inside
+-- its budget. All four are asserted here, because all four fail SILENTLY in
+-- game -- a slot that never sets just shows the addon name forever, and a line
+-- over budget draws underneath the close button rather than erroring.
+--
+-- The clock is stepped in 0.05 s SLICES, never whole seconds. A single 3 s jump
+-- expires a 3 s Say line before it is ever drawn, and the test then proves the
+-- opposite of what it says it does.
+do
+    local function cneed(cond, what)
+        if not cond then print("!! CONSOLE: " .. what); os.exit(1) end
+    end
+    local function slice(seconds, con)
+        local n = math.floor((seconds / 0.05) + 0.5)
+        for _ = 1, n do
+            AdvanceTime(0.05)
+            con:Paint()
+        end
+    end
+    -- plain text of the whole line, colour escapes stripped, as it draws
+    local function plain(con)
+        return (con:Text():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+    end
+
+    local con = BiSHealingUI.Console()
+    cneed(con, "the window built no console -- is Libs\\BiSTheme\\Console.lua in the TOC?")
+
+    -- Earlier tests clicked buttons that report through the header, so the
+    -- queue arrives here with lines in it. Drain them, or the first assert
+    -- below reads somebody else's event and calls it a failure.
+    con:Clear()
+    slice(3.4, con)
+
+    -- 1. the prompt is the title, and the addon's name is slot one
+    cneed(plain(con):find("BiS>", 1, true), "the header does not carry the BiS> prompt")
+    cneed(con.slots and con.slots.name and con.slots.name.text == "Heal",
+          "slot 1 is not the addon name")
+
+    -- 2. landmine #9: the console makes ONE extra FontString, at construction.
+    -- One made per Paint is invisible for a pull and then a 200 ms stutter.
+    local head = con.fs:GetParent()
+    local function headFS()
+        local n = 0
+        for _, fs in ipairs(ALLFS) do if fs.__parent == head then n = n + 1 end end
+        return n
+    end
+    local before = headFS()
+    slice(2.0, con)
+    cneed(headFS() == before,
+          ("the header grew %d FontStrings across 40 paints -- something builds per frame")
+          :format(headFS() - before))
+
+    -- 3. Say jumps the rotation, holds, and then the slots resume
+    con:Say("harness line", "gold")
+    slice(0.6, con)                       -- past the fade-out and fade-in
+    cneed(plain(con):find("harness line", 1, true),
+          "a Say line never reached the header: " .. plain(con))
+    slice(3.2, con)                       -- past hold, and its fade
+    cneed(not plain(con):find("harness line", 1, true),
+          "a Say line never expired -- it is standing state now, not an event")
+
+    -- 4. the fade is a SHAPE, not a hard cut: the words go to zero and come back
+    do
+        local alphas = {}
+        con:Say("fade probe", "good")
+        for _ = 1, 24 do                  -- 1.2 s in 0.05 s slices
+            AdvanceTime(0.05)
+            con:Paint()
+            alphas[#alphas + 1] = con.words:GetAlpha()
+        end
+        local lo, hi, mid = 1, 0, 0
+        for _, a in ipairs(alphas) do
+            if a < lo then lo = a end
+            if a > hi then hi = a end
+            -- the frames BETWEEN full and gone are the fade. Without counting
+            -- these the assert is blind: a hard cut also touches alpha 0, for
+            -- exactly one frame, and "lowest alpha was 0" passes anyway.
+            if a > 0.05 and a < 0.95 then mid = mid + 1 end
+        end
+        cneed(lo <= 0.05, ("the words never faded out (lowest alpha %.2f) -- hard cut"):format(lo))
+        cneed(mid >= 3, ("only %d frames landed mid-fade -- that is a cut, not a fade"):format(mid))
+        cneed(hi >= 0.95, ("the words never came back up (highest alpha %.2f)"):format(hi))
+        cneed(alphas[#alphas] >= 0.95, "the words were left mid-fade")
+    end
+
+    -- 5. the budget. A word longer than the header gets trimmed by the console,
+    -- so the line NEVER draws under the close button. 700px window, 636px of
+    -- room, held at 600 (see the budget note in BiSHealing.lua).
+    do
+        local budget = BiSHealingUI.HeadBudget()
+        cneed(budget and budget <= 636,
+              ("the header budget is %s; a 700px window only has 636px of clear run")
+              :format(tostring(budget)))
+        con:Say(("wide"):rep(60), "warn")
+        slice(0.6, con)
+        cneed(con:Width() <= budget + 0.01,
+              ("a 240-character line measured %.0f px against a %d px budget")
+              :format(con:Width(), budget))
+        con:Clear()
+        slice(3.4, con)
+    end
+
+    -- 6. slots are STATE: the demo turns one on and off, and it is gone when off
+    do
+        local was = plain(con)
+        -- the slots are recomputed once per FIVE paints, not once per tick --
+        -- they read auras and frames, and 5 Hz is plenty for state that lasts.
+        -- So drive the real cadence: five 0.2 s ticks, not one 1 s tick.
+        local function slotTick()
+            for _ = 1, 5 do
+                AdvanceTime(0.2)
+                BiSHealingUI.ConsoleTick(0.2)
+            end
+        end
+        SlashCmdList.BISHEALING("sim on")
+        slotTick()
+        cneed(con.slots.sim and con.slots.sim.text == "sim",
+              "the demo is running and the header does not say so")
+        SlashCmdList.BISHEALING("sim off")
+        slotTick()
+        cneed(con.slots.sim == nil, "the demo stopped and the sim slot stayed lit")
+        local _ = was
+    end
+
+    -- 7. the window's own events go to the header, not to chat. This is the
+    -- whole point of the console: chat is for /slash answers only.
+    do
+        local chatWas = #CHATLOG
+        con:Clear()
+        BiSHealingUI.ConfigSet("rescan")
+        local said = false
+        for _, q in ipairs(con.queue) do
+            if q.text == "ranks rescanned" then said = true end
+        end
+        if not said and con.saying and con.saying.text == "ranks rescanned" then said = true end
+        cneed(said, "the rescan button did not report through the header")
+        for i = chatWas + 1, #CHATLOG do
+            cneed(not CHATLOG[i]:find("ranks rescanned", 1, true),
+                  "the rescan button ALSO printed to chat -- pick one, and it is the header")
+        end
+        con:Clear()
+    end
+
+    print(("== header console ok (prompt, slots, say, fade, %d px budget)")
+          :format(BiSHealingUI.HeadBudget()))
+end
+
 -- ------------------------------------------------------------- theme ----
 -- Both ways: with the shared addon absent the inline copy carries the window,
 -- and with it present -- loaded LATE, as the client does -- the shared addon
@@ -1697,7 +1887,9 @@ do
     tneed(BiSHealingUI and BiSHealingUI.Colour, "no colour seam to test through")
     local r, g, b = BiSHealingUI.Colour("accent")
 
-    if _G.BiSTheme and _G.BiSTheme.hex and _G.BiSTheme.hex.accent then
+    local themeEnv = os.getenv("BISTHEME")
+    local liveTheme = themeEnv and themeEnv ~= ""
+    if liveTheme and _G.BiSTheme and _G.BiSTheme.hex and _G.BiSTheme.hex.accent then
         local tr, tg, tb = hex(_G.BiSTheme.hex.accent)
         tneed(near(r, tr) and near(g, tg) and near(b, tb),
               ("BiSTheme is loaded with accent #%s and the window still painted %.3f,%.3f,%.3f")
@@ -1720,7 +1912,7 @@ do
         tneed(near(r, fr) and near(g, fg) and near(b, fb),
               ("without BiSTheme the inline accent should be b980ff, got %.3f,%.3f,%.3f")
               :format(r, g, b))
-        print("== theme ok (no BiSTheme installed, inline palette carried it)")
+        print("== theme ok (no BiSTheme addon; the fallback palette carried it)")
     end
 end
 

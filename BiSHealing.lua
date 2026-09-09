@@ -1880,6 +1880,12 @@ end
 -- feed made-up numbers into scoring, targeting or bindings the way the old
 -- simulator did. Everything here is non-secure, so it also runs in combat,
 -- which the old sim could not (it had to rebuild frames).
+--
+-- ENDS at DemoStart, ~400 lines down. Everything after that is the heal-race
+-- engine and the bar painter, which sat under this banner for months with no
+-- header of their own -- so the file read as though the demo were 1200 lines
+-- and the snipe engine did not exist. Section headers are the map you use when
+-- deciding what is safe to move, and a wrong one is worse than none.
 local demoCaption = lineLayer:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 demoCaption:Hide()
 
@@ -2411,6 +2417,22 @@ function SNIPE.Read(unit)
     return c
 end
 
+-- ===================================================================
+-- HEAL RACE ENGINE
+-- The other half of the snipe problem, and the half with the real numbers in
+-- it. The table and the reasoning are at the top of the file (see SNIPE); these
+-- are its methods, kept down here because they need the roster helpers.
+--
+--   IncomingBoth    one HealComm read, two answers: everyone's heals (for the
+--                   bar fill) and other people's only (for the prediction, so
+--                   your own pending cast never cancels its own reason)
+--   SNIPE.Refresh   who in the group can heal at all -- class, not role: on
+--                   this client most raid members report no role, so the
+--                   popular WeakAura's role check finds nobody
+--   SNIPE.Read      does someone else's heal land before mine, and is mine
+--                   then wasted
+-- ===================================================================
+
 local function IncomingBoth(unit)
     if not unit then return 0, 0 end
     local others, total = 0, 0
@@ -2475,6 +2497,14 @@ end
 -- Is Gift of the Naaru off cooldown right now? Returns nil if he doesn't have
 -- the spell at all (not every race has it), so the badge simply never shows.
 -- (assignment, not 'local function' -- it's forward-declared up top)
+-- ===================================================================
+-- AURAS, RANGE AND THE BAR PAINTER
+-- Gift and Earth Shield charge reads (both cached -- aura scanning is the most
+-- expensive thing this addon does, ~10k lookups a second across 25 frames if
+-- left uncached), the Chain Heal range test, the colour bands, and UpdateBars,
+-- which is the hot path everything else feeds.
+-- ===================================================================
+
 GiftReady = function()
     if not ResolveGiftKnown() then return nil end
 

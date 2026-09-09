@@ -8,6 +8,7 @@
 ## X-Category: Raid Frames
 ## IconTexture: Interface\Icons\Spell_Nature_HealingWaveGreater
 
+Libs\BiSTheme\Console.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibHealComm-4.0\ChatThrottleLib.lua

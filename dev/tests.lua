@@ -521,31 +521,33 @@ end
 
 -- ------------------------------------------------------------------ run --
 _G.T_ADVANCE = AdvanceTime
--- The TOC lists Libs\BiSTheme\Console.lua BEFORE BiSHealing.lua, so the header
--- prompt exists whether or not the BiSTheme addon is installed. Load it here in
--- the same order, or every console test below tests the fallback branch and the
--- real header ships untested. Note what this means for the palette: with the
--- BiSTheme addon absent, Console.lua installs its OWN fallback into _G.BiSTheme
--- -- which is what happens in game too -- so the theme block further down gates
--- on the BISTHEME env var, not on whether _G.BiSTheme merely exists.
-local consolePath = (arg[1] or "BiSHealing.lua"):gsub("[^/\\]*$", "")
-                    .. "Libs/BiSTheme/Console.lua"
-local conFile = io.open(consolePath, "r")
-if conFile then
-    conFile:close()
-    local cok, cerr = pcall(dofile, consolePath)
-    if not cok then print("!! CONSOLE LOAD ERROR: " .. tostring(cerr)); os.exit(1) end
-    print("== embedded Console.lua loaded (before the addon, as the TOC does)")
-else
-    print("!! CONSOLE: no Libs/BiSTheme/Console.lua beside the addon -- the TOC lists one")
-    os.exit(1)
-end
+-- The addon is more than one file now, so it is loaded the way the client loads
+-- it: TOC order, each file handed the shared addon table. dev/load.lua holds
+-- that logic because dev/stress.lua needs exactly the same thing, and two copies
+-- of a loader drift the first time a file is added to one of them.
+local here = (arg[0] or "dev/tests.lua"):gsub("[^/\\]*$", "")
+dofile(here .. "load.lua")
 
-local chunk, err = loadfile(arg[1] or "BiSHealing.lua")
-if not chunk then error(err) end
-local ok, e = pcall(chunk)
-if not ok then print("!! LOAD ERROR: " .. tostring(e)); os.exit(1) end
-print("== loaded ok")
+local addonPath = arg[1] or "BiSHealing.lua"
+local RUN       = __loadAddon(addonPath)
+local addonDir  = RUN.dir
+ADDON_NS        = RUN.ns
+LOADED_FILES    = RUN.files
+ADDON_SOURCES   = RUN.sources
+
+-- Every .lua the addon ships must be in the TOC. A file split out and never
+-- listed does not error; it is just never loaded, and a quarter of the addon
+-- silently stops existing. This is the single most likely way the split breaks.
+do
+    local missing, why = __tocCoversDisk(addonDir, LOADED_FILES)
+    if missing and #missing > 0 then
+        print("!! TOC: these files ship but the TOC never loads them:")
+        for _, m in ipairs(missing) do print("!!   " .. m) end
+        os.exit(1)
+    end
+    print(missing and "== toc covers every lua file on disk"
+                  or ("-- toc coverage not checked (" .. tostring(why) .. ")"))
+end
 
 -- BISTHEME=<path> loads the shared theme addon HERE -- after BiSHealing's file
 -- has already run -- because that is the order the client uses: BiSHealing
@@ -577,8 +579,11 @@ local function tick(n, dt)
 end
 _G.fireEvent, _G.tick = fireEvent, tick
 
+-- Both checks are per FILE now. Arming on one file while five are loaded is how
+-- a forward reference in a freshly split-out file goes unnoticed: the trap only
+-- fires for names the arming pass knows are locals somewhere.
 __armLeakCheck()
-__armForwardRefCheck(arg[1] or "BiSHealing.lua")
+for _, path in ipairs(ADDON_SOURCES) do __armForwardRefCheck(path) end
 fireEvent("PLAYER_LOGIN")
 print("== login ok")
 
@@ -598,14 +603,17 @@ do
         print("!! VERSION: the login line did not carry the version from GetAddOnMetadata")
         os.exit(1)
     end
-    local src = io.open(arg[1] or "BiSHealing.lua", "r")
-    local body = src and src:read("*a") or ""
-    if src then src:close() end
-    if body:find('VERSION%s*=%s*"') then
-        print("!! VERSION: a literal version string is assigned in the addon -- read the TOC instead")
-        os.exit(1)
+    for _, path in ipairs(ADDON_SOURCES) do
+        local src = io.open(path, "r")
+        local body = src and src:read("*a") or ""
+        if src then src:close() end
+        if body:find('VERSION%s*=%s*"') then
+            print(("!! VERSION: a literal version string is assigned in %s -- read the TOC instead")
+                  :format(path))
+            os.exit(1)
+        end
     end
-    local tocPath = (arg[1] or "BiSHealing.lua"):gsub("[^/\\]*$", "") .. "BiSHealing.toc"
+    local tocPath = addonDir .. "BiSHealing.toc"
     local toc = io.open(tocPath, "r")
     if toc then
         local t = toc:read("*a"); toc:close()
@@ -1925,7 +1933,13 @@ do
         print("!! FORWARD REFS (hit at runtime): " .. table.concat(bad, ", "))
         os.exit(1)
     end
-    local static = __staticForwardRefCheck(arg[1] or "BiSHealing.lua")
+    local static = {}
+    for _, path in ipairs(ADDON_SOURCES) do
+        local short = path:gsub(".*[/\\]", "")
+        for _, line in ipairs(__staticForwardRefCheck(path)) do
+            static[#static + 1] = short .. ": " .. line
+        end
+    end
     if #static > 0 then
         print("!! FORWARD REFS -- a local is called ABOVE its own declaration, which")
         print("!! Lua reads as a nil global. This is the trap that has bitten this")

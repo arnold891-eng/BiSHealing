@@ -15,3 +15,5 @@ Libs\LibHealComm-4.0\ChatThrottleLib.lua
 Libs\LibHealComm-4.0\LibHealComm-4.0.lua
 
 BiSHealing.lua
+
+UI\options.lua

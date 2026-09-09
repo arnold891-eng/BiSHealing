@@ -1730,6 +1730,62 @@ do
     if frame:IsShown() then BiSHealingUI.ToggleConfig() end
 end
 
+-- ------------------------------------------------------ split boundary ----
+-- The addon is more than one file now, and the seam between them is a LIST:
+-- the NS block at the bottom of BiSHealing.lua. Two things have to stay true
+-- about that seam, and neither of them errors when it stops being true.
+do
+    local function bneed(cond, what)
+        if not cond then print("!! SPLIT: " .. what); os.exit(1) end
+    end
+
+    -- 1. the surface is exactly what the brain meant to publish. Widening it by
+    -- accident is how the window starts reaching into scoring: nothing breaks,
+    -- the line just quietly moves. Adding an export should mean editing this
+    -- list on purpose.
+    local EXPECTED = {
+        -- plain references: stable tables, functions and constants
+        "Print", "DB", "UIX", "frames", "anchor", "WHEEL", "SNIPE", "COMM",
+        "ES_HOLD", "demo", "ShortName", "Relayout", "BuildHealOptions",
+        "VERSION", "PULSE_CAP",
+        -- accessors: values that MOVE, so a copy would go stale
+        "ESTarget", "ApplyBinds", "QueueReorder",
+        -- the one thing the window publishes back
+        "CFG",
+    }
+    local want = {}
+    for _, k in ipairs(EXPECTED) do
+        want[k] = true
+        bneed(ADDON_NS[k] ~= nil, ("NS.%s is published in the list but never set"):format(k))
+    end
+    local extra = {}
+    for k in pairs(ADDON_NS) do if not want[k] then extra[#extra + 1] = k end end
+    table.sort(extra)
+    bneed(#extra == 0,
+          "the shell can reach names the brain never meant to publish: " ..
+          table.concat(extra, ", "))
+
+    -- 2. a zip that lost UI/ must SAY so, not throw. This is the whole reason
+    -- /bish goes through Window(): without it every single /bish is a nil index
+    -- on a fresh install that unpacked badly, and the addon looks dead.
+    do
+        local keep = ADDON_NS.CFG
+        ADDON_NS.CFG = nil
+        local was = #CHATLOG
+        local ok, err = pcall(SlashCmdList.BISHEALING, "")
+        ADDON_NS.CFG = keep
+        bneed(ok, "/bish threw when UI/options.lua was missing: " .. tostring(err))
+        local said = false
+        for i = was + 1, #CHATLOG do
+            if CHATLOG[i]:find("did not load", 1, true) then said = true end
+        end
+        bneed(said, "/bish said nothing at all when the window file was missing")
+    end
+
+    print(("== split boundary ok (%d names published, missing UI/ says so)")
+          :format(#EXPECTED))
+end
+
 -- ----------------------------------------------------- header console ----
 -- The header law (BiSTheme 1.1.0): the window's title IS the prompt, standing
 -- state lives in slots, events go through Say, and the whole line stays inside
@@ -1854,6 +1910,49 @@ do
         slotTick()
         cneed(con.slots.sim == nil, "the demo stopped and the sim slot stayed lit")
         local _ = was
+    end
+
+    -- 6b. the shield slot is the one that has to read a MOVING value: which
+    -- player carries my Earth Shield changes all night. If the window captured
+    -- it once at load -- the obvious way to write the split, and wrong -- the
+    -- header would name whoever was shielded at login and never look broken
+    -- enough to notice. So: shield somebody AFTER the window is already built.
+    do
+        local slotTick = function()
+            for _ = 1, 5 do AdvanceTime(0.2); BiSHealingUI.ConsoleTick(0.2) end
+        end
+        local shieldedUnit, shieldedName = "raid3", "Raider3"
+        ES_ON, ES_CHARGES, ES_MINE = shieldedUnit, 4, true
+        CLOG = { 0, "SPELL_AURA_APPLIED", false,
+                 "GUID-Kumlust", "Kumlust", 0, 0,
+                 "GUID-" .. shieldedName, shieldedName, 0, 0,
+                 974, "Earth Shield", 8, "BUFF" }
+        fireEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        slotTick()
+        local sh = con.slots.shield
+        cneed(sh, "Earth Shield is up and the header does not say where")
+        -- names are shortened to fit the header, so match a PREFIX of the real
+        -- name rather than hardcoding today's truncation length
+        local charges, who = sh.text:match("^ES (%d+) (.+)$")
+        cneed(charges == "4",
+              ("the shield slot reads %q -- expected 4 charges"):format(sh.text))
+        cneed(who and shieldedName:find(who, 1, true) == 1,
+              ("the shield slot names %q, which is not %s"):format(tostring(who), shieldedName))
+        cneed(sh.colour == "good", "4 charges should read as good, not a warning")
+
+        -- one charge left is the whole reason the slot is coloured
+        ES_CHARGES = 1
+        slotTick()
+        cneed(con.slots.shield and con.slots.shield.colour == "warn",
+              "the last Earth Shield charge is not flagged")
+
+        -- and when it drops, the slot goes -- a stale shield is worse than none
+        ES_ON, ES_CHARGES = nil, 0
+        slotTick()
+        cneed(con.slots.shield == nil,
+              "the shield fell off and the header still shows it")
+        ES_ON, ES_CHARGES, ES_MINE = "raid1", 4, true
+        slotTick()
     end
 
     -- 7. the window's own events go to the header, not to chat. This is the

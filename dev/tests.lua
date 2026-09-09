@@ -567,7 +567,18 @@ local anchorF = _G["BiSHealingAnchor"]
 
 -- payload matters now: CHAT_MSG_ADDON carries prefix/message/channel/sender,
 -- and dropping the extra arguments made every comm test silently pass nothing
-local function fireEvent(e, ...) if ev then ev.__scripts.OnEvent(ev, e, ...) end end
+-- Errors inside a handler are reported the same way every other failure in this
+-- suite is. Left bare, a real crash exits 1 with a raw Lua traceback and no "!!"
+-- line, which reads as "the harness broke" rather than "the addon threw", and
+-- slips past anything scanning output for failures.
+local function fireEvent(e, ...)
+    if not ev then return end
+    local ok, err = pcall(ev.__scripts.OnEvent, ev, e, ...)
+    if not ok then
+        print(("!! EVENT ERROR (%s): %s"):format(tostring(e), tostring(err)))
+        os.exit(1)
+    end
+end
 local function tick(n, dt)
     for i = 1, (n or 5) do
         AdvanceTime(dt or 0.11)
@@ -1765,7 +1776,33 @@ do
           "the shell can reach names the brain never meant to publish: " ..
           table.concat(extra, ", "))
 
-    -- 2. a zip that lost UI/ must SAY so, not throw. This is the whole reason
+    -- 2. TOC ORDER is load-bearing, in both directions, and getting it wrong
+    -- does not read as an ordering bug when it bites.
+    --
+    --   Core/ before BiSHealing.lua -- the brain assigns INTO those tables at
+    --   its own load time (COMM.Charges = ESCharges). Load comm second and
+    --   `local COMM = NS.COMM` is nil, and the failure is a nil index 2500
+    --   lines away from the line that actually caused it.
+    --
+    --   UI/ after BiSHealing.lua -- the window captures its whole world as
+    --   locals at load. Load it first and every one is silently nil: nothing
+    --   errors, the window just builds out of nothing, and you find out when
+    --   you open it.
+    do
+        local at = {}
+        for i, rel in ipairs(LOADED_FILES) do at[rel] = i end
+        local brain = at["BiSHealing.lua"]
+        bneed(brain, "BiSHealing.lua is not in the TOC at all")
+        for rel, i in pairs(at) do
+            if rel:match("^Core/") then
+                bneed(i < brain, rel .. " loads AFTER BiSHealing.lua; Core/ must come first")
+            elseif rel:match("^UI/") then
+                bneed(i > brain, rel .. " loads BEFORE BiSHealing.lua; UI/ must come after")
+            end
+        end
+    end
+
+    -- 3. a zip that lost UI/ must SAY so, not throw. This is the whole reason
     -- /bish goes through Window(): without it every single /bish is a nil index
     -- on a fresh install that unpacked badly, and the addon looks dead.
     do
@@ -1782,7 +1819,7 @@ do
         bneed(said, "/bish said nothing at all when the window file was missing")
     end
 
-    print(("== split boundary ok (%d names published, missing UI/ says so)")
+    print(("== split boundary ok (%d names published, TOC order right, missing UI/ says so)")
           :format(#EXPECTED))
 end
 

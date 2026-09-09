@@ -27,7 +27,19 @@
 --        /bish wheel      mouse-wheel heals on/off (see the bindings section)
 -- =========================================================================
 
-local ADDON = "BiSHealing"
+-- Every file the TOC loads is handed (addonName, addonTable) as `...`, and that
+-- table is the ONLY thing the files share. A `local` does not cross a chunk
+-- boundary: two files that both say `local frames = {}` get two different empty
+-- tables and neither ever sees the other's. So anything more than one file needs
+-- lives on NS, and anything only one file needs stays a local, where it is
+-- cheaper and cannot be reached by accident.
+--
+-- Nil-safe on purpose: `luac -p` and the headless harness both run this chunk
+-- with no varargs, and a nil NS here would be a nil-index crash 4000 lines down
+-- rather than an obvious one here.
+local ADDON, NS = ...
+ADDON = ADDON or "BiSHealing"
+NS = NS or {}
 local GetAddOnMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
 local VERSION = (GetAddOnMeta and GetAddOnMeta("BiSHealing", "Version")) or "?"
               -- read from the TOC: a hardcoded copy silently drifts out of date

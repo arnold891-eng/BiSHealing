@@ -40,6 +40,7 @@ local function newRegion(kind, parent)
     function r:GetWidth() return self.__w end
     function r:GetHeight() return self.__h end
     function r:GetCenter() return 500, 400 end
+    function r:GetParent() return self.__parent end
     function r:SetAlpha(a) self.__alpha = a end
     function r:GetAlpha() return self.__alpha end
     function r:SetAllPoints() end
@@ -81,8 +82,23 @@ local function newRegion(kind, parent)
         end
         self.__textColor = {a,b,c,d}
     end
-    function r:SetFont() end
-    function r:GetFont() return "Fonts\\FRIZQT__.TTF", 10, "" end
+    -- the header console sizes its own FontString and then measures it; a mock
+    -- that forgets the size measures 8pt and 15pt the same. Colour escapes are
+    -- stripped because the client measures glyphs, not "|cffb980ff".
+    function r:SetFont(path, size, flags)
+        self.__font = { path or STANDARD_TEXT_FONT, size or 10, flags or "" }
+    end
+    function r:GetFont()
+        local f = self.__font
+        if f then return f[1], f[2], f[3] end
+        return "Fonts\\FRIZQT__.TTF", 10, ""
+    end
+    function r:GetStringWidth()
+        local t = self.__text or ""
+        t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", "")
+        local size = self.__font and self.__font[2] or 10
+        return #t * size * 0.5
+    end
     function r:SetStartPoint() end
     function r:SetEndPoint() end
     function r:SetThickness() end
@@ -496,11 +512,14 @@ end
 
 -- ------------------------------------------------------------------ run --
 _G.T_ADVANCE = AdvanceTime
-local chunk, err = loadfile(arg[1] or "BiSHealing.lua")
-if not chunk then error(err) end
-local ok, e = pcall(chunk)
-if not ok then print("!! LOAD ERROR: " .. tostring(e)); os.exit(1) end
-print("== loaded ok")
+-- same loader dev/tests.lua uses: TOC order, shared addon table. See dev/load.lua.
+local here = (arg[0] or "dev/stress.lua"):gsub("[^/\\]*$", "")
+dofile(here .. "load.lua")
+
+local addonPath   = arg[1] or "BiSHealing.lua"
+local RUN         = __loadAddon(addonPath)
+ADDON_NS          = RUN.ns
+ADDON_SOURCES     = RUN.sources
 
 -- fire PLAYER_LOGIN then the OnUpdate tick, which is what actually drives
 -- UpdateBars / corners / rpm / cast counter. Slash commands alone miss these.
@@ -525,7 +544,7 @@ end
 _G.fireEvent, _G.tick = fireEvent, tick
 
 __armLeakCheck()
-__armForwardRefCheck(arg[1] or "BiSHealing.lua")
+for _, path in ipairs(ADDON_SOURCES) do __armForwardRefCheck(path) end
 fireEvent("PLAYER_LOGIN")
 print("== login ok")
 tick(5)
@@ -713,7 +732,13 @@ do
         print("!! FORWARD REFS (hit at runtime): " .. table.concat(bad, ", "))
         os.exit(1)
     end
-    local static = __staticForwardRefCheck(arg[1] or "BiSHealing.lua")
+    local static = {}
+    for _, path in ipairs(ADDON_SOURCES) do
+        local short = path:gsub(".*[/\\]", "")
+        for _, line in ipairs(__staticForwardRefCheck(path)) do
+            static[#static + 1] = short .. ": " .. line
+        end
+    end
     if #static > 0 then
         print("!! FORWARD REFS -- a local is called ABOVE its own declaration, which")
         print("!! Lua reads as a nil global. This is the trap that has bitten this")

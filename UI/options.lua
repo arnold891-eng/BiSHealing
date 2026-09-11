@@ -240,8 +240,25 @@ end
 -- The standing state this addon has to show, refreshed once a second. Slots
 -- are for state that LASTS; events go through CFG.Say.
 function CFG.Slots()
-    local con = CFG.con
-    if not con then return end
+    -- the same standing state on both prompts: the options window's and the
+    -- psi plate's above the pyramid. One tiny console object that fans out.
+    local con = CFG.fan
+    if not con then
+        con = {}
+        -- the plate does not carry the Earth Shield slot: Arn wants the HUD
+        -- for glaring issues, and the pips already show the shield
+        CFG.PLATE_SKIP = { shield = true }
+        function con:Set(k, v, c)
+            if CFG.con then CFG.con:Set(k, v, c) end
+            if UIX.plateCon and not CFG.PLATE_SKIP[k] then UIX.plateCon:Set(k, v, c) end
+        end
+        function con:Say(t, c, plateToo)
+            if CFG.con then CFG.con:Say(t, c) end
+            if UIX.plateCon and plateToo ~= false then UIX.plateCon:Say(t, c) end
+        end
+        CFG.fan = con
+    end
+    if not (CFG.con or UIX.plateCon) then return end
 
     -- where my Earth Shield is, and how much of it is left
     local charges, who
@@ -256,8 +273,43 @@ function CFG.Slots()
     if charges and charges > 0 then
         con:Set("shield", ("ES %d %s"):format(charges, ShortName(who) or "?"),
                 charges <= 1 and "warn" or "good")
+        CFG.shieldOn = who
     else
         con:Set("shield", nil)
+        -- the moment it runs out is said on the options window only; the
+        -- plate stays out of shield tracking (the pips carry it)
+        if CFG.shieldOn then
+            con:Say(("shield gone on %s"):format(ShortName(CFG.shieldOn) or "?"), "warn", false)
+            CFG.shieldOn = nil
+        end
+    end
+
+    -- Nature's Swiftness: up, or how long until it is. Said once when it
+    -- comes back, because that is the second you reach for it.
+    local ready = WHEEL.Ready()
+    if ready == nil then
+        con:Set("ns", nil)
+    elseif ready then
+        con:Set("ns", "NS up", "good")
+        if CFG.nsDown then con:Say("Nature's Swiftness up", "good") end
+        CFG.nsDown = false
+    else
+        local left = ""
+        if GetSpellCooldown then
+            local st, dur = GetSpellCooldown(WHEEL.NS)
+            if st and dur and st > 0 then left = (" %ds"):format(math.max(0, st + dur - GetTime())) end
+        end
+        con:Set("ns", "NS" .. left, "muted")
+        CFG.nsDown = true
+    end
+
+    -- mana, as a fraction: the counter says casts, this says how deep
+    if UnitPower and UnitPowerMax then
+        local m, mx = UnitPower("player", 0), UnitPowerMax("player", 0)
+        if mx and mx > 0 then
+            local pct = math.floor(m / mx * 100 + 0.5)
+            con:Set("mana", ("mana %d%%"):format(pct), pct < 30 and "warn" or "muted")
+        end
     end
 
     -- races being lost right now: somebody else's heal lands before mine would
@@ -277,7 +329,10 @@ function CFG.Slots()
     con:Set("sim", demo.on and "sim" or nil, "accent")
 end
 
-CFG.SLOTS_EVERY = 1.0
+CFG.SLOTS_EVERY = 0.5      -- Arn: "updating every 0.5 seconds"
+-- ticked by the options window's OnUpdate while it is up, and by the brain's
+-- bar tick for the plate (NS.CFG.Tick), so the plate's slots move with the
+-- options window closed
 function CFG.Tick(_, elapsed)
     CFG.slotsAt = (CFG.slotsAt or 0) + (elapsed or 0)
     if CFG.slotsAt >= CFG.SLOTS_EVERY then CFG.slotsAt = 0; CFG.Slots() end

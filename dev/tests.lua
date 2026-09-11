@@ -234,6 +234,7 @@ function UnitHealth(u) local r = ROSTER[u]; return r and r.hp or 0 end
 function UnitHealthMax(u) local r = ROSTER[u]; return r and r.hpMax or 1 end
 function UnitIsDeadOrGhost(u) return false end
 function UnitPower() return 3000 end
+function UnitPowerMax() return 5000 end
 -- ES_ON / ES_CHARGES drive whose frame carries MY Earth Shield and how much of
 -- it is left, so the "stay put while it is healthy" rule can be tested in both
 -- states instead of only the one the mock happened to hardcode.
@@ -1947,7 +1948,7 @@ do
         "ES_HOLD", "demo", "ShortName", "Relayout", "BuildHealOptions",
         "VERSION", "PULSE_CAP",
         -- accessors: values that MOVE, so a copy would go stale
-        "ESTarget", "ApplyBinds", "QueueReorder",
+        "ESTarget", "ApplyBinds", "QueueReorder", "InFight",
         -- the bind engine: the Keybinds window lists its actions and sets keys
         "BINDS",
         -- the one thing the window publishes back
@@ -2474,6 +2475,218 @@ do
           :format(tostring(seen.totem), tostring(seen.fsr), tostring(seen.dispel)))
     SlashCmdList.BISHEALING("sim off")
     print("== demo covers the three ports ok")
+end
+
+-- ------------------------------------------------------ the psi plate ----
+-- The gauge and the counter on one plate above the pyramid: a BiS> prompt
+-- carrying the same slots as the options window, fourteen psi cells lit to
+-- the needle with a spark at the tip, the counter on the bottom row.
+do
+    local function pneed(cond, what)
+        if not cond then print("!! PLATE: " .. what); os.exit(1) end
+    end
+    SlashCmdList.BISHEALING("sim off"); SlashCmdList.BISHEALING("show")
+    local plate = ADDON_NS.UIX.plate
+    pneed(plate and plate.cells and #plate.cells == 14, "the plate has no fourteen cells")
+    pneed(plate.con and plate.con.slots.name and plate.con.slots.name.text == "Heal",
+          "the plate's prompt is not BiS> Heal")
+    for _, c in ipairs(plate.cells) do pneed(c.__color, "a cell was never painted") end
+
+    -- the counter alone lights the plate; the gauge stays dark between fights
+    BiSHealingDB.castCounter, BiSHealingDB.rpm = true, true
+    AdvanceTime(6); tick(3)
+    pneed(plate:IsShown(), "the plate is hidden with a live counter")
+    pneed(not plate.gaugeLive, "the gauge reads live with no fight data")
+    pneed(not plate.spark:IsShown(), "the spark shows with no reading")
+
+    -- a reading half way: seven cells lit, the tip cell dim, the spark riding it
+    -- drive the shared painter through the demo's own path: step 7 is the
+    -- gauge, and the demo paints through RPMPaint like the live tick does
+    SlashCmdList.BISHEALING("sim on")
+    ADDON_NS.demo.step, ADDON_NS.demo.at = 6, GetTime() - 5   -- next tick rolls to 7
+    tick(2, 0.11)
+    pneed(ADDON_NS.demo.step == 7, "the demo did not land on the gauge step: " .. tostring(ADDON_NS.demo.step))
+    tick(6, 0.11)
+    pneed(plate.gaugeLive and plate:IsShown(), "the demo did not light the gauge")
+    local lit = 0
+    for _, c in ipairs(plate.cells) do
+        if c.__color and not (c.__color[1] < 0.2 and c.__color[2] < 0.2) then lit = lit + 1 end
+    end
+    pneed(lit >= 1 and lit <= 14, "no cell lit under the demo reading")
+    pneed(plate.spark:IsShown(), "the spark is not riding the needle")
+    pneed(plate.label:GetText() ~= "", "no state word over the cells")
+    SlashCmdList.BISHEALING("sim off"); tick(3)
+
+    -- a known reading through the shared painter: half = seven cells full,
+    -- the eighth nothing; full = all fourteen, and the psi cells past the hot
+    -- line brighter than the ones before it
+    -- The CELLS are the burn (how hard he spends); the colour is what lands.
+    -- The cells glide, so paint the same reading until they settle.
+    local function full(i) local c = plate.cells[i].__color; return c and (c[4] or 1) >= 0.7 and not (c[1] < 0.2 and c[2] < 0.2) end
+    local function paint(reading, waste, burn) for _ = 1, 40 do ADDON_NS.UIX.PaintGauge(reading, waste, burn) end end
+    paint(0.5, 0.1, 0.5)
+    for i = 1, 7 do pneed(full(i), ("cell %d should be lit at half burn"):format(i)) end
+    pneed(not full(8), "cell 8 should be dark at half burn")
+    paint(1.0, 0.1, 1.0)
+    for i = 1, 14 do pneed(full(i), ("cell %d should be lit at full burn"):format(i)) end
+    pneed((plate.cells[14].__color[4] or 1) > (plate.cells[1].__color[4] or 1),
+          "the cells past the hot line should burn brighter than the first")
+    -- Arn's case: max-rank heals nonstop into a full bar. Every cell lit, and
+    -- every cell RED -- the bar must never read "idle" while he casts flat out
+    paint(0.4, 1.0, 1.0)
+    for i = 1, 14 do pneed(full(i), ("cell %d should be lit while casting flat out into overheal"):format(i)) end
+    local c1 = plate.cells[1].__color
+    pneed(c1[1] > 0.9 and c1[2] < 0.4, "flat-out overhealing should paint the cells red")
+    pneed(plate.label:GetText():find("overhealing", 1, true), "the state word should say overhealing")
+    -- and cruising: barely spending, a couple of cells, blue
+    paint(0.1, 0.0, 0.1)
+    pneed(full(1) and not full(3), "cruising should light one cell, not three")
+    plate.gaugeLive = false; ADDON_NS.UIX.PlateShow()
+
+    -- the slots reach the plate's prompt too: shield somebody, read it off the plate
+    ES_ON, ES_CHARGES, ES_MINE = "raid3", 5, true
+    CLOG = { 0, "SPELL_AURA_APPLIED", false, "GUID-Kumlust", "Kumlust", 0, 0,
+             "GUID-Raider3", "Raider3", 0, 0, 974, "Earth Shield", 8, "BUFF" }
+    fireEvent("COMBAT_LOG_EVENT_UNFILTERED")
+    for _ = 1, 12 do AdvanceTime(0.11); tick(1, 0.11) end
+    -- the plate stays OUT of shield tracking (the pips carry it); the options
+    -- window's prompt still gets the slot
+    pneed(plate.con.slots.shield == nil, "the plate carries the shield slot -- it should not")
+    local ocon = BiSHealingUI.Console()
+    pneed(ocon.slots.shield and ocon.slots.shield.text:match("^ES 5"), "the options window lost the shield slot")
+
+    -- both halves off: the plate goes away entirely
+    BiSHealingDB.castCounter, BiSHealingDB.rpm = false, false
+    tick(3)
+    pneed(not plate:IsShown(), "the plate stays up with both the counter and the gauge off")
+    BiSHealingDB.castCounter, BiSHealingDB.rpm = true, true
+    tick(3)
+    pneed(plate:IsShown(), "the plate did not come back")
+    -- its own window: drag the header, the spot is saved and restored; the
+    -- pyramid's lock has no say; /bish center puts it back above the pyramid
+    local head = plate.head
+    pneed(head.__scripts.OnDragStart and head.__scripts.OnDragStop, "the plate header is not draggable")
+    BiSHealingDB.locked = true
+    head.__scripts.OnDragStart(head)
+    plate.__points = { { "TOPLEFT", UIParent, "TOPLEFT", 300, -200 } }   -- where the mouse left it
+    head.__scripts.OnDragStop(head)
+    local pp = BiSHealingDB.platePos
+    pneed(pp and pp[1] == "TOPLEFT" and pp[3] == 300 and pp[4] == -200,
+          "the drag did not save the plate's spot: " .. tostring(pp and table.concat({tostring(pp[1]), tostring(pp[3]), tostring(pp[4])}, ",")))
+    local p1 = plate.__points[1]
+    pneed(p1 and p1[2] == UIParent and p1[4] == 300, "the plate is not anchored to the saved spot")
+    -- a fresh login restores it
+    fireEvent("PLAYER_LOGIN")
+    p1 = plate.__points[1]
+    pneed(p1 and p1[2] == UIParent and p1[4] == 300 and p1[5] == -200, "login did not restore the plate's spot")
+    -- center puts it back over the pyramid
+    SlashCmdList.BISHEALING("center")
+    pneed(BiSHealingDB.platePos == nil, "center did not forget the plate's spot")
+    p1 = plate.__points[1]
+    pneed(p1 and p1[2] == _G["BiSHealingAnchor"], "center did not park the plate back above the pyramid")
+    -- the HUD header: the state word fades through it when the state MOVES
+    local function saw(con, needle, seconds)
+        local hit = false
+        for _ = 1, math.floor(seconds / 0.05) do
+            AdvanceTime(0.05); con:Paint()
+            if con:Text():find(needle, 1, true) then hit = true end
+        end
+        return hit
+    end
+    local function count(needle, fn)
+        local n = 0
+        local orig = plate.con.Say
+        plate.con.Say = function(self, text, c) if tostring(text):find(needle, 1, true) then n = n + 1 end return orig(self, text, c) end
+        fn()
+        plate.con.Say = orig
+        return n
+    end
+    plate.con:Clear()                          -- the last paint left it cruising
+    paint(0.4, 1.0, 1.0)                      -- flat out into full bars
+    pneed(saw(plate.con, "overhealing", 6.0), "the plate never said overhealing when the state moved")
+    -- same state again: nothing new to say (count the Says, since a line
+    -- already on the header holds for a while after Clear)
+    local said = 0
+    local origSay = plate.con.Say
+    plate.con.Say = function(self, text, c) if tostring(text):find("overhealing") then said = said + 1 end return origSay(self, text, c) end
+    paint(0.4, 1.0, 1.0)
+    plate.con.Say = origSay
+    pneed(said == 0, "the plate repeats the state word without a change")
+    paint(0.1, 0.0, 0.1)                      -- back to cruising
+    pneed(saw(plate.con, "cruising", 6.0), "the plate never said cruising")
+
+    -- the standing slots a healer wants mid-fight: NS, mana -- and the shield
+    -- running out is said once
+    local function slotTick() for _ = 1, 6 do AdvanceTime(0.1); tick(1, 0.1) end end
+    NS_CD = false
+    slotTick()
+    pneed(plate.con.slots.ns and plate.con.slots.ns.text == "NS up", "no NS slot: " .. tostring(plate.con.slots.ns and plate.con.slots.ns.text))
+    pneed(plate.con.slots.mana and plate.con.slots.mana.text:match("^mana %d+%%$"), "no mana slot: " .. tostring(plate.con.slots.mana and plate.con.slots.mana.text))
+    ES_ON, ES_CHARGES, ES_MINE = "raid3", 3, true
+    slotTick()
+    pneed(plate.con.slots.shield == nil, "the plate lit the shield slot")
+    plate.con:Clear()
+    ES_ON = nil
+    local plateSaid = count("shield gone", function() slotTick() end)
+    pneed(plateSaid == 0, "the plate said shield gone -- it stays out of shield tracking")
+    pneed(saw(BiSHealingUI.Console(), "shield gone", 6.0), "the options window never said shield gone")
+    -- NS coming back is said once
+    NS_CD = true; slotTick(); NS_CD = false; plate.con:Clear(); slotTick()
+    pneed(saw(plate.con, "Swiftness up", 6.0), "NS coming off cooldown was never said")
+
+    -- NUDGES: a cooldown that is up, in a fight, with somewhere to put it, is
+    -- said -- and said again while it stays unused; nothing out of combat
+    for _, u in pairs(ROSTER) do u.hp = u.hpMax end
+    ROSTER["raid5"].hp = 2000                  -- a 6000 hole: the orange corner's pick
+    BiSHealingDB.castCounter, BiSHealingDB.rpm = true, true
+    -- out of combat: nothing
+    pneed(count("Gift ready", function() tick(10, 0.11) end) == 0, "Gift was nagged out of combat")
+    -- in combat, Gift up, a target: said once, then again after NUDGE_EVERY
+    COMBAT = true; fireEvent("PLAYER_REGEN_DISABLED")
+    pneed(count("Gift ready", function() tick(10, 0.11) end) == 1, "Gift ready was not said once in combat")
+    pneed(count("Gift ready", function() tick(10, 0.11) end) == 0, "Gift ready repeated inside the quiet window")
+    AdvanceTime(ADDON_NS.UIX.NUDGE_EVERY + 1)
+    pneed(count("Gift ready", function() tick(10, 0.11) end) == 1, "Gift ready was not said again once the window passed")
+    -- Mana Tide, at 40% mana, off cooldown: said (on its own clock)
+    MANA = 2000
+    AdvanceTime(ADDON_NS.UIX.NUDGE_EVERY + 1)
+    pneed(count("Mana Tide", function() tick(10, 0.11) end) == 1, "Mana Tide up was not said with mana low and the totem ready")
+    MANA = 4500
+    AdvanceTime(ADDON_NS.UIX.NUDGE_EVERY + 1)
+    pneed(count("Mana Tide", function() tick(10, 0.11) end) == 0, "Mana Tide nagged with mana high")
+    COMBAT = false; fireEvent("PLAYER_REGEN_ENABLED"); tick(3)
+    for _, u in pairs(ROSTER) do u.hp = u.hpMax end
+
+    -- UPTIME: a fresh fight starts at 100 and sits on the header's right edge
+    -- as its own text, whole fight, no slot, no nag; standing there it falls,
+    -- casting lifts it; gone when the fight ends
+    COMBAT = true; fireEvent("PLAYER_REGEN_DISABLED")
+    tick(2, 0.1)
+    pneed(ADDON_NS.UIX.up.pct == 100, "a fresh fight should start at 100% uptime: " .. tostring(ADDON_NS.UIX.up.pct))
+    pneed((plate.uptime:GetText() or ""):find("100%%"), "the uptime text is not on the header: " .. tostring(plate.uptime:GetText()))
+    local n = count("uptime", function() tick(60, 0.1) end)       -- 6 s idle
+    pneed(n == 0, "uptime was nagged through the header -- it is a fixture now, not a nag")
+    pneed(ADDON_NS.UIX.up.pct < 100, "uptime did not fall while idle: " .. tostring(ADDON_NS.UIX.up.pct))
+    pneed(plate.con.slots.uptime == nil, "uptime is still a rotating slot")
+    local before = ADDON_NS.UIX.up.pct
+    for _ = 1, 10 do fireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", nil, 1064); tick(14, 0.1) end
+    pneed(ADDON_NS.UIX.up.pct > before, "uptime did not climb while casting")
+    -- a curable debuff is the glaring one: said once when it appears, not
+    -- again inside the quiet window, again after it
+    DEBUFFS.raid2 = { { "Toxic Spores", "Poison" } }
+    pneed(count("cure Raide", function() tick(10, 0.1) end) == 1, "a poison on raid2 was not called out once")
+    pneed(count("cure Raide", function() tick(10, 0.1) end) == 0, "the cure nag repeated inside its quiet window")
+    AdvanceTime(ADDON_NS.UIX.NUDGE_EVERY + 1)
+    pneed(count("cure Raide", function() tick(10, 0.1) end) == 1, "the cure nag did not come back while the poison sat there")
+    DEBUFFS.raid2 = nil; tick(8, 0.1)
+    -- heals and shields are never suggested through the header
+    ROSTER["raid5"].hp = 2000
+    pneed(count("heal", function() tick(30, 0.1) end) == 0, "the header suggested a heal")
+    pneed(count("shield", function() tick(30, 0.1) end) == 0, "the header suggested a shield")
+    for _, u in pairs(ROSTER) do u.hp = u.hpMax end
+    COMBAT = false; fireEvent("PLAYER_REGEN_ENABLED"); tick(3)
+    pneed((plate.uptime:GetText() or "") == "", "the uptime text stayed after the fight")
+    print("== psi plate ok (prompt + slots, cells, spark, shows for either half, drags on its own, HUD header, nudges)")
 end
 
 -- ------------------------------------------- forward-reference report ----

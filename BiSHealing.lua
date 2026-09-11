@@ -1526,9 +1526,9 @@ end
 -- Colours match the health bands: blue for the downrank, amber for max rank,
 -- so the counter reads in the same language as the frames.
 
-local castCounter = lineLayer:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-castCounter:SetPoint("BOTTOM", anchor, "TOP", 0, 4)
-castCounter:SetText("")
+-- The counter text lives on the PSI PLATE (built with the gauge, below); the
+-- FontString is made here so the painter above it can be written first.
+local castCounter              -- assigned once the plate exists, below
 
 -- FIVE-SECOND RULE. Technique from the WA library (claude/wa-patterns-05
 -- §1.4, the Shaman UI's FSR tick bar): "did that cast cost mana" is answered
@@ -1555,14 +1555,14 @@ UpdateCastCounter = function()
     -- Taken before the early outs: the rule runs whether or not the counter
     -- is showing.
     UIX.fsr.mana = mana
-    if not DB().castCounter then castCounter:SetText("") return end
-    if #healOptions == 0 then castCounter:SetText("") return end
+    if not DB().castCounter then castCounter:SetText(""); UIX.PlateShow(); return end
+    if #healOptions == 0 then castCounter:SetText(""); UIX.PlateShow(); return end
     local down = healOptions[1]
     local top  = healOptions[#healOptions]
 
     local dCost = (down and down.cost) or 0
     local mCost = (top and top.cost) or 0
-    if dCost <= 0 and mCost <= 0 then castCounter:SetText("") return end
+    if dCost <= 0 and mCost <= 0 then castCounter:SetText(""); UIX.PlateShow(); return end
 
     local x = (dCost > 0) and math.floor(mana / dCost) or 0
     local y = (mCost > 0) and math.floor(mana / mCost) or 0
@@ -1598,6 +1598,7 @@ UpdateCastCounter = function()
     local fsr = (fsrLeft > 0) and (" |cffff9944%.1fs|r"):format(fsrLeft) or ""
     castCounter:SetText(("|cff%s%d|r |cff888888|||r |cff%s%d|r |cff888888|||r |cff%s+%.1f|r%s")
         :format(xc, x, yc, y, zc, z, fsr))
+    UIX.PlateShow()
 end
 
 
@@ -1610,32 +1611,149 @@ end
 -- DOWN by cruising (low burn -- ending at 80% mana, the real failure) and
 -- dragged toward "wasteful" by overheal (spending, but into full health bars).
 
+-- THE PSI PLATE. Arn, 11 Sep: "think badass protoss" -- the gauge and the
+-- counter share one plate above the pyramid: a 16 px BiS> prompt header (the
+-- header law -- and it carries the same slots as the options window: ES,
+-- sniped, to cure, sim), a row of fourteen psi cells that light left to right
+-- with the burn and a crystal spark riding the needle, then the counter line.
+-- Chrome is the house shade with a gold bevel and gold corner brackets --
+-- BiSTheme's gold and its psi-cyan `good`, so it is Protoss in shape and BiS
+-- in palette. Widths are fixed so nothing here needs measuring at paint time.
 local rpmFrame = CreateFrame("Frame", nil, lineLayer)
-rpmFrame:SetSize(140, 16)
-rpmFrame:SetPoint("BOTTOM", anchor, "TOP", 0, 20)
+rpmFrame.W, rpmFrame.H, rpmFrame.CELLS = 240, 54, 14
+rpmFrame:SetSize(rpmFrame.W, rpmFrame.H)
+rpmFrame:SetMovable(true)
+rpmFrame:SetClampedToScreen(true)
 rpmFrame:Hide()
 
--- dark track
+-- ITS OWN WINDOW (Arn, 11 Sep: "lets leave that [the lock] for the pyramid and
+-- lets separate what we just did into its own draggable window"). Sits above
+-- the pyramid until he drags it by its header; then it lives where he left it,
+-- saved in db.platePos, whatever the pyramid's lock says. Nothing here is
+-- secure, so the drag works mid-fight too. /bish center puts it back.
+function UIX.PlacePlate()
+    local db = DB()
+    rpmFrame:ClearAllPoints()
+    if db.platePos then
+        rpmFrame:SetPoint(db.platePos[1], UIParent, db.platePos[2], db.platePos[3], db.platePos[4])
+    else
+        rpmFrame:SetPoint("BOTTOM", anchor, "TOP", 0, 34)   -- clear of the drag bar
+    end
+end
+UIX.PlacePlate()
+
+-- body + bevel: one dark plate, a 1 px gold edge with a darker line inside it
 rpmFrame.track = rpmFrame:CreateTexture(nil, "BACKGROUND")
 rpmFrame.track:SetAllPoints()
-rpmFrame.track:SetColorTexture(0.08, 0.08, 0.10, 0.85)
+rpmFrame.track:SetColorTexture(0.05, 0.04, 0.09, 0.92)
+UIX.GOLD = { 0.90, 0.75, 0.29 }        -- BiSTheme gold e5c04a (redline colour)
+UIX.PSI  = { 0.31, 0.82, 0.81 }        -- BiSTheme good 4fd0cf: the crystal blue
+-- one quiet 1 px edge in the house shade; Arn tried the gold bevel and brackets
+-- for a night and had them taken off ("lets get rid of them")
+do
+    local function edge(p1, p2, w, h)
+        local t = rpmFrame:CreateTexture(nil, "BORDER")
+        t:SetColorTexture(0.23, 0.20, 0.38, 0.9)     -- edge 3a3260
+        t:SetPoint(p1); t:SetPoint(p2)
+        if w then t:SetWidth(w) else t:SetHeight(h) end
+    end
+    edge("TOPLEFT", "TOPRIGHT", nil, 1); edge("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
+    edge("TOPLEFT", "BOTTOMLEFT", 1); edge("TOPRIGHT", "BOTTOMRIGHT", 1)
+end
 
--- the fill: grows left-to-right with how hard you're working the mana bar
-rpmFrame.fill = rpmFrame:CreateTexture(nil, "ARTWORK")
-rpmFrame.fill:SetPoint("TOPLEFT", 1, -1)
-rpmFrame.fill:SetPoint("BOTTOMLEFT", 1, 1)
-rpmFrame.fill:SetWidth(1)
+-- header: the prompt, with the same slots the options window shows
+rpmFrame.head = CreateFrame("Frame", nil, rpmFrame)
+rpmFrame.head:SetPoint("TOPLEFT", 1, -1); rpmFrame.head:SetPoint("TOPRIGHT", -1, -1)
+rpmFrame.head:SetHeight(16)
+rpmFrame.head:EnableMouse(true)
+rpmFrame.head:RegisterForDrag("LeftButton")
+rpmFrame.head:SetScript("OnDragStart", function() rpmFrame:StartMoving() end)
+rpmFrame.head:SetScript("OnDragStop", function()
+    rpmFrame:StopMovingOrSizing()
+    local p, _, rp, x, y = rpmFrame:GetPoint()
+    DB().platePos = { p, rp, x, y }
+    -- re-anchor to UIParent explicitly: GetPoint after a drag is relative to
+    -- the screen already, and saving it this way is what PlacePlate restores
+    UIX.PlacePlate()
+end)
+do
+    local t = rpmFrame.head:CreateTexture(nil, "BACKGROUND")
+    t:SetAllPoints(); t:SetColorTexture(0.08, 0.07, 0.15, 0.9)
+    local hair = rpmFrame.head:CreateTexture(nil, "BORDER")
+    hair:SetPoint("BOTTOMLEFT"); hair:SetPoint("BOTTOMRIGHT"); hair:SetHeight(1)
+    hair:SetColorTexture(0.23, 0.20, 0.38, 0.9)
+end
+rpmFrame.title = rpmFrame.head:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+rpmFrame.title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+rpmFrame.title:SetPoint("LEFT", rpmFrame.head, "LEFT", 6, 0)
+if BiSTheme and BiSTheme.Console then
+    rpmFrame.con = BiSTheme.Console(rpmFrame.title, { width = rpmFrame.W - 12, size = 9 })
+    rpmFrame.con:Set("name", "Heal", "accent")
+else
+    rpmFrame.title:SetText("|cffb980ffBiS>|r Heal")
+end
+UIX.plateCon = rpmFrame.con        -- the options window's Slots() writes here too
+-- uptime, right edge of the header, its own text -- shown for the fight
+rpmFrame.uptime = rpmFrame.head:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+rpmFrame.uptime:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+rpmFrame.uptime:SetPoint("RIGHT", rpmFrame.head, "RIGHT", -6, 0)
+rpmFrame.uptime:SetJustifyH("RIGHT")
+rpmFrame.uptime:SetText("")
+if rpmFrame.con then rpmFrame.con.width = rpmFrame.W - 12 - 46 end   -- leave the number its room
+UIX.plate = rpmFrame               -- and the harness reads the cells off it
 
--- sweet-spot zone marker: a brighter band showing where you WANT to sit (hot).
--- Two thin lines at ~60% and ~100% frame the "running hot is good" region.
-rpmFrame.W = 138
-rpmFrame.zoneA = rpmFrame:CreateTexture(nil, "OVERLAY")
-rpmFrame.zoneA:SetColorTexture(1, 1, 1, 0.35)
-rpmFrame.zoneA:SetSize(1, 16)
-rpmFrame.zoneA:SetPoint("LEFT", rpmFrame, "LEFT", 1 + rpmFrame.W * 0.55, 0)
-
+-- the psi cells: fourteen segments with a 1 px gap, lit left to right
+rpmFrame.cells = {}
+do
+    local W = rpmFrame.W - 12
+    local gap = 1
+    local cw = (W - (rpmFrame.CELLS - 1) * gap) / rpmFrame.CELLS
+    rpmFrame.cellW = cw
+    for i = 1, rpmFrame.CELLS do
+        local c = rpmFrame:CreateTexture(nil, "ARTWORK")
+        c:SetSize(cw, 11)
+        c:SetPoint("TOPLEFT", rpmFrame, "TOPLEFT", 6 + (i - 1) * (cw + gap), -21)
+        c:SetColorTexture(0.14, 0.12, 0.24, 0.9)     -- unlit
+        rpmFrame.cells[i] = c
+    end
+    -- the hot line: where "running hot is good" begins
+    rpmFrame.zoneA = rpmFrame:CreateTexture(nil, "OVERLAY")
+    rpmFrame.zoneA:SetColorTexture(1, 1, 1, 0.35)
+    rpmFrame.zoneA:SetSize(1, 13)
+    rpmFrame.zoneA:SetPoint("TOPLEFT", rpmFrame, "TOPLEFT", 6 + W * 0.55, -20)
+end
+-- the crystal spark that rides the needle tip
+rpmFrame.spark = rpmFrame:CreateTexture(nil, "OVERLAY")
+rpmFrame.spark:SetTexture(UIX.SPARK_TEX)
+rpmFrame.spark:SetBlendMode("ADD")
+rpmFrame.spark:SetSize(18, 18)
+rpmFrame.spark:SetVertexColor(UIX.PSI[1], UIX.PSI[2], UIX.PSI[3], 1)
+rpmFrame.spark:Hide()
+-- the bottom row is the counter. The gauge's state WORD is not painted
+-- anywhere: it is said through the header prompt when it changes (Arn, 11
+-- Sep: "utilize the header for the overhealing / cruising msg fading in and
+-- out") -- an event, not a fixture, so the eye is only pulled when the
+-- reading actually moved. `label` stays as a hidden FontString so the
+-- painter and the harness keep one place to read the current word.
+castCounter = rpmFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+castCounter:SetPoint("BOTTOM", rpmFrame, "BOTTOM", 0, 4)
+castCounter:SetText("")
 rpmFrame.label = rpmFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-rpmFrame.label:SetPoint("BOTTOM", rpmFrame, "TOP", 0, 1)
+rpmFrame.label:Hide()
+
+-- The plate shows when either half has something to say; the gauge row alone
+-- goes dark between fights. Called by both painters, so neither has to know
+-- what the other decided.
+rpmFrame.gaugeLive = false
+function UIX.PlateShow()
+    local counterOn = DB().castCounter and (castCounter:GetText() or "") ~= ""
+    if counterOn or rpmFrame.gaugeLive then rpmFrame:Show() else rpmFrame:Hide() end
+    if not rpmFrame.gaugeLive then
+        for i = 1, rpmFrame.CELLS do rpmFrame.cells[i]:SetColorTexture(0.14, 0.12, 0.24, 0.9) end
+        rpmFrame.spark:Hide()
+        rpmFrame.label:SetText("")
+    end
+end
 
 -- returns needle fraction 0..1 and an overheal fraction 0..1
 local function ComputeRPM()
@@ -1692,9 +1810,13 @@ local function ComputeRPM()
 end
 
 UpdateRPM = function()
-    if not DB().rpm then rpmFrame:Hide(); return end
-    if not InCombatLockdown() and #rpmWindow == 0 then rpmFrame:Hide(); return end
-    rpmFrame:Show()
+    if not DB().rpm or (not InCombatLockdown() and #rpmWindow == 0) then
+        rpmFrame.gaugeLive = false
+        UIX.PlateShow()
+        return
+    end
+    rpmFrame.gaugeLive = true
+    UIX.PlateShow()
 
     local target, waste, burn = ComputeRPM()
 
@@ -1706,11 +1828,19 @@ UpdateRPM = function()
     RPMPaint(rpmSmoothed, waste, burn)
 end
 
--- Bar width, colour and label from an already-eased reading. Split out of
+-- Cells, colour and label from an already-eased reading. Split out of
 -- UpdateRPM so the sim preview can drive exactly the same painting code --
 -- a preview that renders through a different path is a preview of nothing.
+--
+-- The CELLS show burn -- how hard you are spending -- and the COLOUR shows
+-- what is landing. Arn, rc52: nonstop max-rank Healing Wave into a full bar
+-- lit five cells of fourteen, because the old reading (burn pulled down by
+-- overheal) folded both facts into one number and the bar read "idle" while
+-- he was casting flat out. Now that is fourteen red cells: spending everything,
+-- into nothing. The eased reading still picks the state word.
 RPMPaint = function(reading, waste, burn)
-    rpmFrame.fill:SetWidth(math.max(1, rpmFrame.W * reading))
+    rpmFrame.gaugeLive = true
+    rpmFrame:Show()
 
     -- Label hysteresis: only change the WORD when the reading crosses a boundary
     -- by a margin, so it doesn't flicker between two states on the edge.
@@ -1724,22 +1854,60 @@ RPMPaint = function(reading, waste, burn)
     if rpmState == "cruising"   and newState ~= "cruising"   and burn < 0.33 then newState = "cruising" end
     if rpmState == "redline"    and newState == "sweetspot"  and reading > 0.66 then newState = "redline" end
     if rpmState == "sweetspot"  and newState == "redline"    and reading < 0.78 then newState = "sweetspot" end
+    local changed = (newState ~= rpmState)
     rpmState = newState
 
+    local col
     if rpmState == "cruising" then
-        rpmFrame.fill:SetColorTexture(0.30, 0.55, 1.00, 0.9)
+        col = { 0.30, 0.55, 1.00 }
         rpmFrame.label:SetText("|cff6699ffcruising|r")
     elseif rpmState == "overhealing" then
-        rpmFrame.fill:SetColorTexture(1.00, 0.30, 0.30, 0.95)
+        col = { 1.00, 0.30, 0.30 }
         rpmFrame.label:SetText("|cffff4d4doverhealing|r")
     elseif rpmState == "redline" then
-        rpmFrame.fill:SetColorTexture(0.95, 0.75, 0.20, 0.95)
-        rpmFrame.label:SetText("|cffffd24dredline|r")
+        col = UIX.GOLD
+        rpmFrame.label:SetText("|cffe5c04aredline|r")
     else
-        rpmFrame.fill:SetColorTexture(0.30, 0.90, 0.40, 0.95)
-        rpmFrame.label:SetText("|cff4dff88sweet spot|r")
+        col = UIX.PSI
+        rpmFrame.label:SetText("|cff4fd0cfsweet spot|r")
     end
+    rpmFrame.colour = col
+    -- the word fades through the header when the state moves, in its colour
+    if changed and rpmFrame.con then
+        local tone = ({ cruising = "muted", overhealing = "warn", redline = "gold" })[rpmState] or "good"
+        rpmFrame.con:Say((rpmFrame.label:GetText() or rpmState):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""), tone)
+    end
+
+    -- the cells: lit up to the needle, the tip cell partly lit; the psi cells
+    -- past the hot line burn brighter, which is the whole point of the zone
+    -- ease the burn the same way the reading is eased, so the cells glide
+    rpmFrame.burn = (rpmFrame.burn or 0) + ((burn or reading) - (rpmFrame.burn or 0)) * 0.15
+    if (burn or reading) > rpmFrame.burn + 0.5 then rpmFrame.burn = burn or reading end   -- a spike shows at once
+    if math.abs((burn or reading) - rpmFrame.burn) < 0.01 then rpmFrame.burn = burn or reading end  -- settle, do not creep
+    local n = rpmFrame.CELLS
+    local lit01 = rpmFrame.burn
+    local pos = lit01 * n
+    for i = 1, n do
+        local c = rpmFrame.cells[i]
+        local lit = pos - (i - 1)
+        if lit >= 1 then
+            local hot = (i / n) > 0.55
+            c:SetColorTexture(col[1], col[2], col[3], hot and 1 or 0.75)
+        elseif lit > 0 then
+            c:SetColorTexture(col[1], col[2], col[3], 0.25 + 0.5 * lit)
+        else
+            c:SetColorTexture(0.14, 0.12, 0.24, 0.9)
+        end
+    end
+    -- the spark rides the tip and breathes
+    local x = 6 + math.min(rpmFrame.W - 12, (rpmFrame.W - 12) * lit01)
+    rpmFrame.spark:ClearAllPoints()
+    rpmFrame.spark:SetPoint("CENTER", rpmFrame, "TOPLEFT", x, -26.5)
+    local breath = 0.6 + 0.4 * (0.5 + 0.5 * math.sin(GetTime() * 6))
+    rpmFrame.spark:SetVertexColor(col[1], col[2], col[3], breath)
+    if lit01 > 0.02 then rpmFrame.spark:Show() else rpmFrame.spark:Hide() end
 end
+UIX.PaintGauge = RPMPaint      -- the harness paints a known reading and counts cells
 
 -- ------------------------------------------------------- target scoring --
 -- One answer per role: of everyone worth healing right now, THIS is the
@@ -2763,6 +2931,87 @@ GiftReady = function()
     return true
 end
 
+-- NUDGES. Arn, 11 Sep: "a cooldown tracker thing like it throws up a
+-- suggestion, gift of the Naaru that I always forget to use." A cooldown that
+-- is UP, in a fight, with somewhere to put it, is said through the plate's
+-- prompt -- and said again every NUDGE_EVERY seconds while it stays unused,
+-- because a nag that fires once is a nag that fired while he was mid-cast.
+-- Out of combat nothing is said: there is nothing to forget.
+UIX.NUDGE_EVERY = 20
+UIX.nudgeAt = {}
+-- UPTIME. Arn, 11 Sep: "start at 100% and as I'm standing there doing nothing
+-- show you only have 90% uptime, do something." Busy = a cast bar up, or the
+-- 1.5 s after any successful cast (an instant is a GCD's worth of doing
+-- something). Uptime = busy seconds over fight seconds, sampled every bar
+-- tick; painted on the plate header's right edge, always, for the whole
+-- fight -- its own text, not a slot, so it never waits its turn (Arn: "keep
+-- the activity timer separate but always showing").
+UIX.up = { busy = 0, busyUntil = 0, lastActive = 0, pct = 100 }
+UIX.MANA_TIDE = "Mana Tide Totem"
+
+local function CooldownUp(spell)
+    local start, dur
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local ci = C_Spell.GetSpellCooldown(spell)
+        if ci then start, dur = ci.startTime, ci.duration end
+    elseif GetSpellCooldown then
+        start, dur = GetSpellCooldown(spell)
+    end
+    if not start then return true end
+    if dur and dur > 1.5 and start > 0 then return false end
+    return true
+end
+
+function UIX.Uptime(now, dt)
+    local up = UIX.up
+    if not inFight then rpmFrame.uptime:SetText(""); return up.pct end
+    local casting = (UnitCastingInfo and UnitCastingInfo("player") ~= nil) or now < up.busyUntil
+    if casting then up.busy = up.busy + (dt or 0); up.lastActive = now end
+    local fought = now - (fightStart or now)
+    up.pct = (fought < 1) and 100 or math.floor(math.min(1, up.busy / fought) * 100 + 0.5)
+    local col = (up.pct >= 90) and "4fd0cf" or ((up.pct >= 75) and "968ead" or "f08cb0")
+    rpmFrame.uptime:SetText(("|cff%s%d%%|r"):format(col, up.pct))
+    return up.pct
+end
+
+function UIX.Nudge(now)
+    if not inFight or not rpmFrame.con then return end
+    local function nag(key, text, tone, every)
+        if (UIX.nudgeAt[key] or -1000) + (every or UIX.NUDGE_EVERY) > now then return end
+        UIX.nudgeAt[key] = now
+        rpmFrame.con:Say(text, tone)
+        if NS.CFG and NS.CFG.con then NS.CFG.con:Say(text, tone) end
+    end
+    -- a debuff you can cure is the glaring one: said when it appears, again
+    -- every NUDGE_EVERY while it sits there. Heals and shields are NOT
+    -- suggested here (Arn, 11 Sep: "keep it for glaring issues" -- the corners
+    -- already say where the heal goes, and a header that re-suggests every
+    -- half second is noise)
+    for _, f in ipairs(frames) do
+        if f:IsShown() and f.dispelName and f.unit then
+            nag("cure:" .. f.unit .. f.dispelName,
+                ("cure %s (%s)"):format(ShortName(UnitName(f.unit)) or "?", f.dispelKind or f.dispelName), "warn")
+        end
+    end
+    -- Gift of the Naaru: up, and somebody the corner would put it on
+    local gf = giftBullTarget
+    if gf and gf.unit and GiftReady() == true then
+        nag("gift", ("Gift ready -- %s"):format(ShortName(UnitName(gf.unit)) or "?"), "gold")
+    else
+        UIX.nudgeAt.gift = nil          -- used, or nobody to put it on: the clock resets
+    end
+    -- Mana Tide: up and the tank of mana is below 70%
+    if UIX.tideKnown == nil then
+        UIX.tideKnown = (GetSpellInfo and GetSpellInfo(UIX.MANA_TIDE) ~= nil) and true or false
+    end
+    if UIX.tideKnown and UnitPower and UnitPowerMax then
+        local m, mx = UnitPower("player", 0), UnitPowerMax("player", 0)
+        if mx and mx > 0 and m / mx < 0.7 and CooldownUp(UIX.MANA_TIDE) then
+            nag("tide", "Mana Tide up", "gold")
+        end
+    end
+end
+
 -- Nature's Swiftness off cooldown? Same shape as GiftReady, same GCD guard:
 -- a duration at or under 1.5s is the global cooldown showing through, not the
 -- real 3 minutes.
@@ -3165,6 +3414,13 @@ local function UpdateBars(_, dt)
     if UpdateSparks then UpdateSparks() end
     if UpdateCastCounter then UpdateCastCounter() end
     if UpdateRPM then UpdateRPM() end
+    if rpmFrame.con and rpmFrame:IsShown() then
+        -- the slots are the window's to compute; the paint and the nudges are ours
+        if NS.CFG and NS.CFG.Tick then NS.CFG.Tick(nil, 0.1) end
+        UIX.Uptime(GetTime(), 0.1)
+        UIX.Nudge(GetTime())
+        rpmFrame.con:Paint()
+    end
 
     -- per-tick values (not per-frame): checking Gift's cooldown 25x a tick is
     -- wasteful when the answer is identical for every frame
@@ -3837,6 +4093,7 @@ local function StartFight()
     inFight = true
     wipe(hpSample)
     fightStart = GetTime()
+    UIX.up.busy, UIX.up.busyUntil, UIX.up.lastActive, UIX.up.pct = 0, 0, GetTime(), 100
     lastManaSample = nil
     rpmSmoothed = 0
     rpmState = "cruising"
@@ -3940,7 +4197,11 @@ ev:SetScript("OnEvent", function(_, event, ...)
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- the five-second rule clock: did that cast cost mana?
-        if (...) == "player" then UIX.FSRCast() end
+        if (...) == "player" then
+            UIX.FSRCast()
+            UIX.up.busyUntil = GetTime() + 1.5      -- an instant is a GCD of doing something
+            UIX.up.lastActive = GetTime()
+        end
 
     elseif event == "PLAYER_TOTEM_UPDATE" then
         AURAS.RefreshTotems()
@@ -3971,6 +4232,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         -- cached at login, so without dropping it here the wheel keeps casting a
         -- talent he no longer has -- or refuses to use one he just took.
         WHEEL.known = nil
+        UIX.tideKnown = nil
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         RebuildGuidMap()
@@ -4027,6 +4289,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
             anchor:ClearAllPoints()
             anchor:SetPoint(db.pos[1], UIParent, db.pos[2], db.pos[3], db.pos[4])
         end
+        UIX.PlacePlate()          -- the plate's own saved spot, if he moved it
         Relayout()
         COMM.Tick(true)
         local vis = 0
@@ -4681,6 +4944,7 @@ NS.BINDS                     = BINDS      -- the Keybinds window reads the actio
 function NS.ESTarget() return esTarget end
 function NS.ApplyBinds() if ApplyBindsRef then return ApplyBindsRef() end end
 function NS.QueueReorder() pendingReorder = true end
+function NS.InFight() return inFight end
 
 -- /bish opens a window that lives in another file now. If a packaged zip ever
 -- ships without UI/, that is a nil index on every single /bish; say it once, in
@@ -5069,8 +5333,10 @@ SlashCmdList.BISHEALING = function(msg)
 
     elseif msg == "center" then
         DB().pos = nil
+        DB().platePos = nil
         anchor:ClearAllPoints()
         anchor:SetPoint("CENTER", 0, -220)
+        UIX.PlacePlate()
         DB().shown = true
         if not InCombatLockdown() then Relayout() end
         Print("anchor recentred and frames shown")

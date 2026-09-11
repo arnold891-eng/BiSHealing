@@ -316,6 +316,12 @@ function CFG.BuildFrames(page)
     y = CFG.Slider(page, y, "pulseCap", "How many may pulse at once", 1, 6, 1,
         function(v) return tostring(v) end,
         function() return DB().pulseCap or PULSE_CAP end, function(v) DB().pulseCap = v end)
+    y = CFG.Check(page, y, "totemRange", "Totem reach",
+        "Violet right edge on a party member standing outside a buff totem of yours -- judged from the missing buff.",
+        function() return DB().totemRange ~= false end, function(v) DB().totemRange = v end)
+    y = CFG.Check(page, y, "dispel", "Curable debuffs",
+        "A small square low on the right, in the debuff's colour, for anything your class can cure. /bish dispel lists what each zone has thrown.",
+        function() return DB().dispel ~= false end, function(v) DB().dispel = v end)
     y = y - 6
     y = CFG.Caption(page, y, "Roster")
     y = CFG.Check(page, y, "shown", "Show the frames",
@@ -360,6 +366,9 @@ function CFG.BuildChain(page)
     y = CFG.Check(page, y, "castCounter", "Castable-heals counter",
         "The X | Y | +Z readout above the pyramid.",
         function() return DB().castCounter end, function(v) DB().castCounter = v end)
+    y = CFG.Check(page, y, "fsr", "Five-second rule",
+        "The counter's +Z column counts spirit regen only once five seconds have passed since a cast that cost mana, and shows the seconds until then.",
+        function() return DB().fsr ~= false end, function(v) DB().fsr = v end)
     y = CFG.Check(page, y, "rpm", "Mana gauge",
         "Burn against overheal, so you can see when you are spending into a full bar.",
         function() return DB().rpm end, function(v) DB().rpm = v end)
@@ -605,6 +614,13 @@ function CFG.Slots()
         if fr:IsShown() and fr.raceLost then sniped = sniped + 1 end
     end
     con:Set("race", sniped > 0 and (("%d sniped"):format(sniped)) or nil, "warn")
+
+    -- debuffs on the frames that are mine to cure
+    local curable = 0
+    for _, fr in ipairs(frames) do
+        if fr:IsShown() and fr.dispelName then curable = curable + 1 end
+    end
+    con:Set("cure", curable > 0 and (("%d to cure"):format(curable)) or nil, "warn")
 
     con:Set("sim", demo.on and "sim" or nil, "accent")
 end

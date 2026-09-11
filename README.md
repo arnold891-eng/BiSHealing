@@ -155,7 +155,8 @@ checkbox or a button — no commands to memorise:
 - Checkboxes for every feature: frames, lock, role corner markers, pulse,
   incoming fill, cast counter, bounce lines, gold chains, celebration, Gift
   badge, mana RPM gauge, pets, firing trinkets on shift+left, mouse-wheel heals,
-  and the Nature's Swiftness pip. Toggle any of them off if they get busy.
+  the Nature's Swiftness pip, totem reach, curable debuffs and the five-second
+  rule. Toggle any of them off if they get busy.
 - Buttons: Reorder now, Recenter, Rescan spells, Wipe history.
 
 The typed commands below still work as shortcuts.
@@ -179,6 +180,7 @@ The typed commands below still work as shortcuts.
 | `/bish wheel` | Turn mouse-wheel heals on or off (`on` / `off` / `strict`) |
 | `/bish bind` | Print every click and wheel binding as it is actually set |
 | `/bish esplan` | Who should carry your Earth Shield, and who should carry the other shaman's |
+| `/bish dispel` | Every curable debuff met so far, per zone, most seen first |
 
 ## First session checklist
 
@@ -426,8 +428,15 @@ Above the pyramid sits `X | Y | +Z`:
 - **X** (blue) — how many downranked Chain Heals your mana covers right now
 - **Y** (amber) — how many max rank Chain Heals your mana covers right now
 - **+Z** (green) — how many downranked Chain Heals your regen earns back every 5
-  seconds while casting. Green when you're gaining ground, grey at +0 (bleeding
-  out). This is your sustain at a glance — pairs with the RPM bar.
+  seconds. Green when you're gaining ground, grey at +0 (bleeding out). This is
+  your sustain at a glance — pairs with the RPM bar.
+- **5.0s … 0.1s** (orange, only sometimes) — the five-second rule. A cast that
+  cost mana stops spirit regen for five seconds; this is how long is left. While
+  it shows, +Z is your while-casting regen (MP5 gear and the like); once it is
+  gone, +Z counts full spirit regen again. Whether a cast cost mana is read off
+  the mana bar itself — before and after the cast — so a free proc or a totem
+  drop that costs nothing never restarts the clock. Untick "Five-second rule"
+  under Chain Heal to get the old always-while-casting number back.
 
 Either number turns red at zero, so you see the button stop working before you
 press it. It recalculates every tick, so regen and Water Shield ticks are
@@ -474,6 +483,33 @@ One toggle, "Role corner markers", drives all three colours together.
 
 `/bish bull` prints who holds the green mark and why.
 
+## Totem reach
+
+A violet bar down the RIGHT edge of a frame means a buff totem of yours is down
+and that party member is not carrying its buff — he is standing outside it. No
+range API is involved: in TBC every aura totem is a plain party buff, so the
+buff being missing *is* the range check. Only totems that put a buff on people
+can be judged (Healing Stream, Mana Spring, Mana Tide, Strength of Earth,
+Stoneskin, Grace of Air, Windfury, Wrath of Air, Tranquil Air, Totem of Wrath,
+Flametongue, the three resistances); Tremor, Grounding, Searing and friends
+have nothing to look for. It is your own party only — totems never reach past
+the subgroup — and the tooltip names which buff is missing. The technique is
+the Shaman UI WeakAura's "totem out of range" icons, rebuilt.
+
+## Curable debuffs
+
+A small square low on the right of a frame, in the client's own colour for the
+debuff type (green poison, brown disease), for anything your class can cure. A
+shaman clears Poison and Disease; the mark never lights for a curse or a magic
+debuff you cannot touch. The header says `N to cure` while any are up, and the
+tooltip names the debuff.
+
+Every curable debuff met is banked under the zone it landed in, one count per
+sighting, so after a night in a raid `/bish dispel` prints what each place
+throws and how often — the per-boss dispel lists that the raid-frame WeakAuras
+carry, except written by what actually hit your raid rather than typed in from
+someone else's pack.
+
 ## Earth Shield charge pips
 
 Six small amber dashes along the bottom edge of a full-width frame: one lit per
@@ -489,8 +525,9 @@ corners, the amber Earth Shield corner, the charge pips counting down and
 flashing on the last one, the orange Gift corner, all three roles landing on one
 frame, bounce lines and the full-chain burst, the mana gauge sweeping from
 cruising to overhealing, the damage pulse, the Nature's Swiftness pip in both
-states side by side, and a readout of what each wheel direction casts on your
-current gear and training. `/bish sim off` stops it.
+states side by side, a readout of what each wheel direction casts on your
+current gear and training, the totem-reach edge, the five-second rule running
+out, and the curable-debuff mark in both colours. `/bish sim off` stops it.
 
 It runs on your real party or raid — there is no fake roster. Demo mode only
 draws; it never feeds invented numbers into ranking, targeting or your click

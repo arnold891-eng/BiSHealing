@@ -100,19 +100,21 @@ local WHEEL = {
 -- A Gift candidate is an ISOLATED target that took a real hit but has since
 -- settled: healing them with Chain Heal would waste a hard cast on one person,
 -- while Gift's HoT tops them over 15s and frees the chain for a clumped group.
-local GIFT_HOT_TOTAL   = 1085   -- so we don't flag someone a full HoT would overheal
-local GIFT_MIN_DEFICIT = 700    -- must be down enough for the HoT to mostly land
-local GIFT_MAX_BOUNCE  = 1.4    -- low bounce avg = isolated, not worth a chain
+local GIFT_RULE = {}   -- folded from 3 chunk locals (Lua 5.1 budget)
+GIFT_RULE.hotTotal   = 1085   -- so we don't flag someone a full HoT would overheal
+GIFT_RULE.minDeficit = 700    -- must be down enough for the HoT to mostly land
+GIFT_RULE.maxBounce  = 1.4    -- low bounce avg = isolated, not worth a chain
 
 -- Scoring knobs -----------------------------------------------------------
-local HISTORY_KEEP   = 40     -- encounters remembered per player
-local DECAY_PER_FIGHT = 0.88  -- weight of each older encounter (0.88^n)
-local CONSISTENCY_W  = 0.45   -- how much "shows up high often" beats raw total
-local BOUNCE_W       = 0.20   -- how much Chain Heal bounce quality nudges rank
-local DPS_W          = 0.08   -- small: boss-DPS only breaks ties between people
+local SCORE = {}   -- folded from 6 chunk locals (Lua 5.1 budget)
+SCORE.keep   = 40     -- encounters remembered per player
+SCORE.decay = 0.88  -- weight of each older encounter (0.88^n)
+SCORE.consistencyW  = 0.45   -- how much "shows up high often" beats raw total
+SCORE.bounceW       = 0.20   -- how much Chain Heal bounce quality nudges rank
+SCORE.dpsW          = 0.08   -- small: boss-DPS only breaks ties between people
                               -- taking similar damage. Healers do ~0 and are
                               -- unaffected; this never outweighs actual damage taken
-local MIN_FIGHT_TIME = 8      -- ignore fights shorter than this (trash pulls)
+SCORE.minFight = 8      -- ignore fights shorter than this (trash pulls)
 
 -- Layout knobs ------------------------------------------------------------
 -- The pyramid proper is only four rows deep. Everyone past that is overflow:
@@ -122,10 +124,11 @@ local MIN_FIGHT_TIME = 8      -- ignore fights shorter than this (trash pulls)
 -- pyramid: apex, pair, then 6 half-width. Anything past row 3 REPEATS row 3
 -- (6 per row at half width) for as many rows as the roster needs -- consistent
 -- squares all the way down instead of an ever-smaller quarter row + overflow.
-local ROW_SIZES   = { 1, 2, 6 }
-local ROW_SCALE   = { 1.0, 1.0, 0.5 }
-local TAIL_COUNT  = 6      -- per-row count for every row after the defined ones
-local TAIL_SCALE  = 0.5    -- and their width scale (matches row 3)
+local LAYOUT = {}   -- folded from 4 chunk locals (Lua 5.1 budget)
+LAYOUT.rowSizes   = { 1, 2, 6 }
+LAYOUT.rowScale   = { 1.0, 1.0, 0.5 }
+LAYOUT.tailCount  = 6      -- per-row count for every row after the defined ones
+LAYOUT.tailScale  = 0.5    -- and their width scale (matches row 3)
 local FRAME_W, FRAME_H = 84, 34
 local PAD = 3
 
@@ -435,6 +438,9 @@ local function DB()
     if db.plainBars    == nil then db.plainBars    = true end
     if db.critBrag     == nil then db.critBrag     = true end
     if db.healRace     == nil then db.healRace     = true end
+    if db.totemRange   == nil then db.totemRange   = true end
+    if db.dispel       == nil then db.dispel       = true end
+    if db.fsr          == nil then db.fsr          = true end
 
     -- One-time history scrub. Up to rc34 the hit counts behind the Earth Shield
     -- plan counted self-inflicted damage (Life Tap, Hellfire), so a warlock read
@@ -451,6 +457,23 @@ local function DB()
     dbCache = db
     return db
 end
+
+-- ONE table for every aura scan the addon does and its caches. Four chunk
+-- locals used to sit here (two caches, two TTLs); they were folded onto this
+-- table when the totem-reach and dispel scans arrived, because the file was at
+-- 190 of Lua 5.1's 200 locals and two more scans would have been four more.
+-- Declared this early because the demo painter reads AURAS.down long before
+-- the scanners themselves are defined, and a local read above its own line is
+-- a nil global -- the harness caught exactly that on the first run.
+-- Aura scanning is the single most expensive thing this addon does, so every
+-- reader here is cached: 25 frames at 10 Hz is 250 sweeps a second uncached.
+local AURAS = {
+    esCache   = {},  ES_TTL   = 0.3,   -- unit -> { at =, charges =, mine = }
+    giftCache = {},  GIFT_TTL = 0.3,   -- unit -> { at =, on = }
+    totemCache = {}, TOTEM_TTL = 1.0,  -- unit -> { at =, reach = }
+    dispelCache = {}, DISPEL_TTL = 0.5,-- unit -> { at =, name =, kind = }
+    down = {},                         -- buff names of my aura totems now down
+}
 
 -- Names, cut to fit. Realm suffix off first, then five CHARACTERS -- not five
 -- bytes: an accented name is multi-byte in UTF-8 and a blind string.sub can cut
@@ -473,6 +496,10 @@ local UIX = {
     RACE_WIN    = { 0.55, 0.55, 0.58 },
     RACE_LOSE   = { 0.85, 0.15, 0.15 },
     RACE_UNSURE = { 0.85, 0.40, 0.30 },
+    TOTEM_OUT   = { 0.62, 0.42, 0.95, 0.9 },-- right edge: my totem is not reaching him
+    -- five-second rule: mana and the moment the last mana-costing cast landed
+    fsr = { mana = nil, at = -100 },
+    FSR = 5,
     bragAt    = 0,
     BRAG_GAP  = 15,                        -- seconds between brags, so it is a
                                            -- moment and not a chat log
@@ -581,7 +608,7 @@ local function Score(name)
     local wSum, dpsSum, topSum, doneSum = 0, 0, 0, 0
     -- fights[1] is the most recent
     for i, f in ipairs(rec.fights) do
-        local w = DECAY_PER_FIGHT ^ (i - 1)
+        local w = SCORE.decay ^ (i - 1)
         wSum    = wSum + w
         dpsSum  = dpsSum + w * (f.dps or 0)
         topSum  = topSum + w * (f.top and 1 or 0)
@@ -627,10 +654,10 @@ local function RankRoster()
         local d = (maxDone > 0) and (e.dmgDone / maxDone) or 0
         -- keep the weighted pieces so the out-of-combat tooltip can explain
         -- exactly why this person landed where they did in the pyramid
-        e.cVol    = v * (1 - CONSISTENCY_W)
-        e.cCons   = e.cons * CONSISTENCY_W
-        e.cBounce = b * BOUNCE_W
-        e.cDps    = d * DPS_W          -- small tiebreaker toward boss damage
+        e.cVol    = v * (1 - SCORE.consistencyW)
+        e.cCons   = e.cons * SCORE.consistencyW
+        e.cBounce = b * SCORE.bounceW
+        e.cDps    = d * SCORE.dpsW          -- small tiebreaker toward boss damage
         e.score = e.cVol + e.cCons + e.cBounce + e.cDps
     end
 
@@ -795,6 +822,18 @@ local function ShowFrameTooltip(f)
             end
         end
     end
+    -- the two WA-library marks explain themselves here, outside the fight-data
+    -- branch: they are true whether or not this player has a history yet
+    if f.totemOut and f.totemOut:IsShown() then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Outside your totems -- missing " .. table.concat(AURAS.down, ", ") .. ".",
+                            0.62, 0.42, 0.95)
+    end
+    if f.dispelName then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(("%s (%s) -- you can cure this."):format(f.dispelName, f.dispelKind or "?"),
+                            0.3, 0.9, 0.3)
+    end
 
     GameTooltip:Show()
 end
@@ -897,6 +936,26 @@ local function MakeFrame(i)
     f.chainIn:SetPoint("TOPLEFT", 1, -1)
     f.chainIn:SetPoint("BOTTOMLEFT", 1, 1)
     f.chainIn:Hide()
+
+    -- MY TOTEM IS NOT REACHING HIM. A violet bar down the RIGHT edge, the
+    -- mirror of the teal chain bar on the left: news, not advice. Lit when a
+    -- buff totem of mine is down and this party member does not carry its
+    -- buff -- he is standing outside it (ported from the Shaman UI WA).
+    f.totemOut = f:CreateTexture(nil, "OVERLAY")
+    f.totemOut:SetDrawLayer("OVERLAY", 6)
+    f.totemOut:SetWidth(3)
+    f.totemOut:SetPoint("TOPRIGHT", -1, -1)
+    f.totemOut:SetPoint("BOTTOMRIGHT", -1, 1)
+    f.totemOut:Hide()
+
+    -- A DEBUFF I CAN CURE. A small square low on the right, between the race
+    -- number and the pips, in the client's colour for the debuff type (green
+    -- poison, brown disease). Only types this class can clear ever light it.
+    f.dispelMark = f:CreateTexture(nil, "OVERLAY")
+    f.dispelMark:SetDrawLayer("OVERLAY", 6)
+    f.dispelMark:SetSize(7, 7)
+    f.dispelMark:SetPoint("BOTTOMRIGHT", -5, 8)
+    f.dispelMark:Hide()
 
     -- Unified ROLE-CORNER reticle: four corners (TL, TR, BL, BR), each an L of
     -- two textures. Coloured per tick by which "best target" role this frame
@@ -1138,8 +1197,8 @@ local function Relayout()
 
     while idx <= #ranked do
         -- rows 1-3 use the defined sizes; every row after repeats row 3
-        local n     = ROW_SIZES[row] or TAIL_COUNT
-        local scale = ROW_SCALE[row] or TAIL_SCALE
+        local n     = LAYOUT.rowSizes[row] or LAYOUT.tailCount
+        local scale = LAYOUT.rowScale[row] or LAYOUT.tailScale
         local count = math.min(n, #ranked - idx + 1)
         -- width scales to fit more per row, but HEIGHT stays full so every row
         -- lines up cleanly with the top two instead of looking choppy
@@ -1380,11 +1439,33 @@ local castCounter = lineLayer:CreateFontString(nil, "OVERLAY", "GameFontNormalLa
 castCounter:SetPoint("BOTTOM", anchor, "TOP", 0, 4)
 castCounter:SetText("")
 
+-- FIVE-SECOND RULE. Technique from the WA library (claude/wa-patterns-05
+-- §1.4, the Shaman UI's FSR tick bar): "did that cast cost mana" is answered
+-- by comparing mana before and after UNIT_SPELLCAST_SUCCEEDED -- no spell-cost
+-- lookup, so a free proc or a totem drop that costs nothing never restarts the
+-- clock. The counter's regen column then shows the regen you are ACTUALLY
+-- getting: while-casting regen inside the five seconds, full spirit regen once
+-- they are up, with the seconds left shown until they are.
+function UIX.FSRCast()
+    local m = UnitPower("player", 0)
+    if UIX.fsr.mana and m < UIX.fsr.mana then UIX.fsr.at = GetTime() end
+    UIX.fsr.mana = m
+end
+-- seconds of the rule still to run; 0 once spirit regen is back
+function UIX.FSRLeft()
+    local left = UIX.FSR - (GetTime() - UIX.fsr.at)
+    return (left > 0) and left or 0
+end
+
 UpdateCastCounter = function()
+    local mana = UnitPower("player", 0)
+    -- the pre-cast sample the five-second rule compares against, kept fresh
+    -- at 10 Hz so the next cast's before/after is a tenth of a second apart.
+    -- Taken before the early outs: the rule runs whether or not the counter
+    -- is showing.
+    UIX.fsr.mana = mana
     if not DB().castCounter then castCounter:SetText("") return end
     if #healOptions == 0 then castCounter:SetText("") return end
-
-    local mana = UnitPower("player", 0)
     local down = healOptions[1]
     local top  = healOptions[#healOptions]
 
@@ -1402,9 +1483,15 @@ UpdateCastCounter = function()
     -- and other always-on regen. It answers "am I earning casts back or bleeding
     -- out" -- pairs with the RPM bar.
     local castingRegen = 0
+    local fsrLeft = (DB().fsr ~= false) and UIX.FSRLeft() or 0
     if GetPowerRegen then
-        local _, whileCasting = GetPowerRegen()
+        local base, whileCasting = GetPowerRegen()
         castingRegen = whileCasting or 0
+        -- five seconds after the last mana-costing cast, spirit is back: show
+        -- the regen you are really getting, not the mid-fight floor
+        if DB().fsr ~= false and fsrLeft <= 0 and base and base > castingRegen then
+            castingRegen = base
+        end
     end
     local per5 = castingRegen * 5
     local z = (dCost > 0) and (per5 / dCost) or 0
@@ -1416,8 +1503,10 @@ UpdateCastCounter = function()
     -- regen column in green when you're earning at least one back per 5s, grey
     -- when you're not gaining ground
     local zc = (z >= 0.1) and "4dff88" or "888888"
-    castCounter:SetText(("|cff%s%d|r |cff888888|||r |cff%s%d|r |cff888888|||r |cff%s+%.1f|r")
-        :format(xc, x, yc, y, zc, z))
+    -- the rule's countdown in orange while it runs; nothing once regen is back
+    local fsr = (fsrLeft > 0) and (" |cffff9944%.1fs|r"):format(fsrLeft) or ""
+    castCounter:SetText(("|cff%s%d|r |cff888888|||r |cff%s%d|r |cff888888|||r |cff%s+%.1f|r%s")
+        :format(xc, x, yc, y, zc, z, fsr))
 end
 
 
@@ -1436,26 +1525,26 @@ rpmFrame:SetPoint("BOTTOM", anchor, "TOP", 0, 20)
 rpmFrame:Hide()
 
 -- dark track
-local rpmTrack = rpmFrame:CreateTexture(nil, "BACKGROUND")
-rpmTrack:SetAllPoints()
-rpmTrack:SetColorTexture(0.08, 0.08, 0.10, 0.85)
+rpmFrame.track = rpmFrame:CreateTexture(nil, "BACKGROUND")
+rpmFrame.track:SetAllPoints()
+rpmFrame.track:SetColorTexture(0.08, 0.08, 0.10, 0.85)
 
 -- the fill: grows left-to-right with how hard you're working the mana bar
-local rpmFill = rpmFrame:CreateTexture(nil, "ARTWORK")
-rpmFill:SetPoint("TOPLEFT", 1, -1)
-rpmFill:SetPoint("BOTTOMLEFT", 1, 1)
-rpmFill:SetWidth(1)
+rpmFrame.fill = rpmFrame:CreateTexture(nil, "ARTWORK")
+rpmFrame.fill:SetPoint("TOPLEFT", 1, -1)
+rpmFrame.fill:SetPoint("BOTTOMLEFT", 1, 1)
+rpmFrame.fill:SetWidth(1)
 
 -- sweet-spot zone marker: a brighter band showing where you WANT to sit (hot).
 -- Two thin lines at ~60% and ~100% frame the "running hot is good" region.
-local RPM_W = 138
-local rpmZoneA = rpmFrame:CreateTexture(nil, "OVERLAY")
-rpmZoneA:SetColorTexture(1, 1, 1, 0.35)
-rpmZoneA:SetSize(1, 16)
-rpmZoneA:SetPoint("LEFT", rpmFrame, "LEFT", 1 + RPM_W * 0.55, 0)
+rpmFrame.W = 138
+rpmFrame.zoneA = rpmFrame:CreateTexture(nil, "OVERLAY")
+rpmFrame.zoneA:SetColorTexture(1, 1, 1, 0.35)
+rpmFrame.zoneA:SetSize(1, 16)
+rpmFrame.zoneA:SetPoint("LEFT", rpmFrame, "LEFT", 1 + rpmFrame.W * 0.55, 0)
 
-local rpmLabel = rpmFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-rpmLabel:SetPoint("BOTTOM", rpmFrame, "TOP", 0, 1)
+rpmFrame.label = rpmFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+rpmFrame.label:SetPoint("BOTTOM", rpmFrame, "TOP", 0, 1)
 
 -- returns needle fraction 0..1 and an overheal fraction 0..1
 local function ComputeRPM()
@@ -1530,7 +1619,7 @@ end
 -- UpdateRPM so the sim preview can drive exactly the same painting code --
 -- a preview that renders through a different path is a preview of nothing.
 RPMPaint = function(reading, waste, burn)
-    rpmFill:SetWidth(math.max(1, RPM_W * reading))
+    rpmFrame.fill:SetWidth(math.max(1, rpmFrame.W * reading))
 
     -- Label hysteresis: only change the WORD when the reading crosses a boundary
     -- by a margin, so it doesn't flicker between two states on the edge.
@@ -1547,17 +1636,17 @@ RPMPaint = function(reading, waste, burn)
     rpmState = newState
 
     if rpmState == "cruising" then
-        rpmFill:SetColorTexture(0.30, 0.55, 1.00, 0.9)
-        rpmLabel:SetText("|cff6699ffcruising|r")
+        rpmFrame.fill:SetColorTexture(0.30, 0.55, 1.00, 0.9)
+        rpmFrame.label:SetText("|cff6699ffcruising|r")
     elseif rpmState == "overhealing" then
-        rpmFill:SetColorTexture(1.00, 0.30, 0.30, 0.95)
-        rpmLabel:SetText("|cffff4d4doverhealing|r")
+        rpmFrame.fill:SetColorTexture(1.00, 0.30, 0.30, 0.95)
+        rpmFrame.label:SetText("|cffff4d4doverhealing|r")
     elseif rpmState == "redline" then
-        rpmFill:SetColorTexture(0.95, 0.75, 0.20, 0.95)
-        rpmLabel:SetText("|cffffd24dredline|r")
+        rpmFrame.fill:SetColorTexture(0.95, 0.75, 0.20, 0.95)
+        rpmFrame.label:SetText("|cffffd24dredline|r")
     else
-        rpmFill:SetColorTexture(0.30, 0.90, 0.40, 0.95)
-        rpmLabel:SetText("|cff4dff88sweet spot|r")
+        rpmFrame.fill:SetColorTexture(0.30, 0.90, 0.40, 0.95)
+        rpmFrame.label:SetText("|cff4dff88sweet spot|r")
     end
 end
 
@@ -1578,7 +1667,8 @@ end
 -- holder by a clear margin before the mark moves, which kills the flicker you
 -- would otherwise get between two near-equal targets.
 
-local BULL_HYSTERESIS = 1.15   -- challenger must be 15% better to steal the mark
+local TUNE = {}   -- folded from 5 chunk locals (Lua 5.1 budget)
+TUNE.bullHysteresis = 1.15   -- challenger must be 15% better to steal the mark
 
 -- (rc29) The three old standalone reticle frames -- the gold Chain Heal
 -- bullseye, the purple Gift bracket and the pink Earth Shield U -- are GONE.
@@ -1644,7 +1734,7 @@ local function GiftBullScore(f)
     -- is off cooldown -- no isolation/sustained/bounce gates any more. Just needs
     -- someone actually down enough to be worth the instant HoT.
     local predicted = f.predicted or 0
-    if predicted < GIFT_MIN_DEFICIT then return 0 end
+    if predicted < GIFT_RULE.minDeficit then return 0 end
     return predicted
 end
 
@@ -1662,7 +1752,7 @@ end
 -- real hole), the shield's mitigation is wasted there -- move it to someone
 -- taking damage who ISN'T getting healed. Never recommend a target the OTHER
 -- shaman already shields. Returns a score; 0 = never put it here.
-local ES_OVERHEAL_INC = 2000    -- inbound heals above this = "being looked after"
+TUNE.esOverhealInc = 2000    -- inbound heals above this = "being looked after"
 local function ESBullScore(f, other)
     if not f or not f:IsShown() then return 0 end
     if f.isPet or f.isDead or f.outOfRange then return 0 end
@@ -1688,7 +1778,7 @@ local function ESBullScore(f, other)
     -- OVERHEAL penalty: if lots of healing is already landing on them and their
     -- real hole is small, they don't need the shield -- knock the tank way down
     -- so a neglected damage-taker can win.
-    local overhealed = (incoming >= ES_OVERHEAL_INC and deficit < 400)
+    local overhealed = (incoming >= TUNE.esOverhealInc and deficit < 400)
     if overhealed then base = base * 0.25 end
 
     -- a neglected damage-taker: real hole open AND little incoming -> boost
@@ -1823,7 +1913,7 @@ UpdateCornerReticles = function()
     -- doesn't flicker between two near-equal targets
     if chOn and bullTarget and bullTarget ~= chBest and bullTarget:IsShown() then
         local holder = BullScore(bullTarget)
-        if holder > 0 and chScore < holder * BULL_HYSTERESIS then
+        if holder > 0 and chScore < holder * TUNE.bullHysteresis then
             chBest, chScore = bullTarget, holder
         end
     end
@@ -1917,6 +2007,9 @@ local DEMO_STEPS = {
     "Second shaman -- who is answering on the addon comm",
     "Their Chain Heal -- full bar where they aimed, stub for a bounce",
     "Heal race -- how many others are casting here, and who lands first",
+    "Totem reach -- violet right edge: your totem is not reaching him",
+    "Five-second rule -- the counter's regen column, and the seconds until spirit is back",
+    "Curable debuff -- the square low on the right, in the debuff's colour",
 }
 
 -- visible frames, and the full-width ones (pips and numbers only live there)
@@ -1936,6 +2029,8 @@ local function DemoClear(all)
         for _, ck in ipairs({ "TL", "TR", "BL", "BR" }) do CornerKit.hide(f, ck) end
         if f.esPips then for i = 1, 6 do f.esPips[i]:Hide() end end
         if f.nsPip then f.nsPip:Hide() end
+        if f.totemOut then f.totemOut:Hide() end
+        if f.dispelMark then f.dispelMark:Hide() end
     end
 end
 
@@ -2244,6 +2339,62 @@ DemoPaint = function()
         demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n|cff33ccccfull teal bar|r = they aimed there   |cff2a8a8adim stub|r = only catching a bounce, half size   |cff8888aagrey pips|r = their Earth Shield")
             :format(step, #DEMO_STEPS, DEMO_STEPS[step]))
 
+    elseif step == 17 then
+        -- Totem reach: the violet right edge on two frames, painted directly.
+        -- The caption names what the live check needs -- a buff totem down and
+        -- a party member missing its buff -- because the demo cannot drop a
+        -- totem for you and must not pretend to.
+        local tc = UIX.TOTEM_OUT
+        for k = 0, math.min(1, #all - 1) do
+            local f = all[((demo.spot + k) % #all) + 1]
+            if f.totemOut then
+                f.totemOut:SetColorTexture(tc[1], tc[2], tc[3], tc[4])
+                f.totemOut:Show()
+            end
+        end
+        local down = (#AURAS.down > 0) and ("down now: " .. table.concat(AURAS.down, ", "))
+                     or "no buff totem down right now"
+        demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n|cff888888judged from the totem's buff, your own party only  --  %s|r")
+            :format(step, #DEMO_STEPS, DEMO_STEPS[step], down))
+
+    elseif step == 18 then
+        -- Five-second rule: the counter is real, so the demo runs a fake clock
+        -- through it -- 5.0 down to 0, then the column turning green as spirit
+        -- regen is counted again. Nothing is written to the live clock.
+        local ph = (now - demo.at) / DEMO_STEP           -- 0..1 across the step
+        local left = 5 - ph * 7                          -- runs out at ~70%
+        if left < 0 then left = 0 end
+        local line
+        if left > 0 then
+            line = ("|cffff9944%.1fs|r |cff888888until spirit regen counts again -- the +N column is your while-casting regen|r"):format(left)
+        else
+            line = "|cff4dff88regen is back|r |cff888888-- the +N column now shows full spirit regen; the next mana-costing cast restarts the five seconds|r"
+        end
+        demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n%s")
+            :format(step, #DEMO_STEPS, DEMO_STEPS[step], line))
+
+    elseif step == 19 then
+        -- Curable debuff: both colours this class can clear, side by side, so
+        -- green-means-poison and brown-means-disease is learnt here and not
+        -- during a Vashj pull. Painted directly onto the mark textures.
+        local kinds = {}
+        for kind in pairs(AURAS.CAN_CURE[select(2, UnitClass("player")) or ""] or { Poison = true }) do
+            kinds[#kinds + 1] = kind
+        end
+        table.sort(kinds)
+        local shown = {}
+        for k = 1, math.min(#kinds, #all) do
+            local f = all[((demo.spot + k) % #all) + 1]
+            local kc = AURAS.KIND_COLOUR[kinds[k]] or AURAS.KIND_COLOUR.Poison
+            if f.dispelMark then
+                f.dispelMark:SetColorTexture(kc[1], kc[2], kc[3], 1)
+                f.dispelMark:Show()
+            end
+            shown[#shown + 1] = ("|cff%02x%02x%02x%s|r"):format(kc[1] * 255, kc[2] * 255, kc[3] * 255, kinds[k])
+        end
+        demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n%s  |cff888888-- only the types you can cure ever light it; /bish dispel lists what each zone has thrown|r")
+            :format(step, #DEMO_STEPS, DEMO_STEPS[step], table.concat(shown, "   ")))
+
     else
         -- The race counter, both outcomes side by side. A number on the right
         -- edge is how many OTHER healers have a cast in the air at that target;
@@ -2543,19 +2694,17 @@ COMM.Charges = nil    -- assigned just below, once ESCharges exists
 
 -- Earth Shield charges remaining on a unit, and whether it's mine. Read live
 -- from the aura so the badge is honest even if I lost track of the GUID.
-local esChargeCache = {}    -- unit -> { at =, charges =, mine = }
-local ES_CACHE_TTL = 0.3
+-- (AURAS -- the aura-scan table with these caches -- is declared up by UIX,
+-- because the demo reads it 400 lines above this point)
 
 -- Is MY Gift of the Naaru HoT currently on this unit? Cached briefly like the
 -- ES scan so it doesn't cost a full aura sweep per frame per tick.
-local giftActiveCache = {}
-local GIFT_CACHE_TTL = 0.3
 -- (assignment, not 'local function' -- forward-declared up top)
 GiftActive = function(unit)
     if not unit or not UnitExists(unit) then return false end
-    local c = giftActiveCache[unit]
+    local c = AURAS.giftCache[unit]
     local now = GetTime()
-    if c and (now - c.at) < GIFT_CACHE_TTL then return c.on end
+    if c and (now - c.at) < AURAS.GIFT_TTL then return c.on end
     local on = false
     for i = 1, 40 do
         if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
@@ -2572,7 +2721,7 @@ GiftActive = function(unit)
             if name == GIFT and (src7 == "player" or src8 == "player") then on = true break end
         else break end
     end
-    giftActiveCache[unit] = { at = now, on = on }
+    AURAS.giftCache[unit] = { at = now, on = on }
     return on
 end
 
@@ -2583,9 +2732,9 @@ ESCharges = function(unit)
     -- Aura scanning is the single most expensive thing this addon does. At 10Hz
     -- across 25 frames it was ~10k lookups a second for a badge that only needs
     -- to be right a few times a second.
-    local c = esChargeCache[unit]
+    local c = AURAS.esCache[unit]
     local now = GetTime()
-    if c and (now - c.at) < ES_CACHE_TTL then return c.charges, c.mine end
+    if c and (now - c.at) < AURAS.ES_TTL then return c.charges, c.mine end
     for i = 1, 40 do
         local name, _, count, _, _, _, _, _, _, spellId, _, _, _, _, _, srcUnit, srcAlt
         if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
@@ -2593,7 +2742,7 @@ ESCharges = function(unit)
             if not a then break end
             if a.name == EARTH_SHIELD then
                 local n, mine = a.applications or a.charges or 0, a.sourceUnit == "player"
-                esChargeCache[unit] = { at = now, charges = n, mine = mine }
+                AURAS.esCache[unit] = { at = now, charges = n, mine = mine }
                 return n, mine
             end
         elseif UnitAura then
@@ -2604,20 +2753,179 @@ ESCharges = function(unit)
             if not name then break end
             if name == EARTH_SHIELD then
                 local n, mine = count or 0, (srcUnit == "player" or srcAlt == "player")
-                esChargeCache[unit] = { at = now, charges = n, mine = mine }
+                AURAS.esCache[unit] = { at = now, charges = n, mine = mine }
                 return n, mine
             end
         else
             break
         end
     end
-    esChargeCache[unit] = { at = now, charges = nil, mine = nil }
+    AURAS.esCache[unit] = { at = now, charges = nil, mine = nil }
     return nil
 end
 -- Both hung on COMM here, where they exist. COMM.State is defined near the top
 -- of the file and needs them; a bare name up there is a nil global, silently.
 COMM.Charges = ESCharges
 COMM.Unit = GuidToUnit
+
+-- ----------------------------------------------------------- totem reach --
+-- Technique from the WA library (claude/wa-patterns-05 §1.2, the Shaman UI's
+-- "totem OOR" icons), rebuilt here rather than pasted: a totem that is DOWN
+-- whose buff is MISSING from a party member means he is standing outside it.
+-- No range API needed -- in TBC every aura totem is a plain party buff, so the
+-- buff's absence is the range check. Only totems that grant a buff can be
+-- judged (Tremor, Grounding, Searing and friends have no aura to look for),
+-- and only on my own party: totems never reach past the subgroup.
+--
+-- Totem name from the client -> the buff it puts on people. The rank suffix
+-- and the word "Totem" come off first, so "Windfury Totem V" reads "Windfury".
+AURAS.TOTEM_BUFF = {
+    ["Healing Stream"]   = "Healing Stream",
+    ["Mana Spring"]      = "Mana Spring",
+    ["Mana Tide"]        = "Mana Tide",
+    ["Strength of Earth"]= "Strength of Earth",
+    ["Stoneskin"]        = "Stoneskin",
+    ["Grace of Air"]     = "Grace of Air",
+    ["Windfury"]         = "Windfury Totem",
+    ["Wrath of Air"]     = "Wrath of Air Totem",
+    ["Tranquil Air"]     = "Tranquil Air",
+    ["Totem of Wrath"]   = "Totem of Wrath",
+    ["Flametongue"]      = "Flametongue Totem",
+    ["Fire Resistance"]  = "Fire Resistance",
+    ["Frost Resistance"] = "Frost Resistance",
+    ["Nature Resistance"]= "Nature Resistance",
+}
+
+-- Re-read the four totem slots. Runs on PLAYER_TOTEM_UPDATE and at login; the
+-- per-unit cache is dropped so a fresh totem is judged on the next tick.
+function AURAS.RefreshTotems()
+    wipe(AURAS.down)
+    wipe(AURAS.totemCache)
+    if not GetTotemInfo then return end
+    for slot = 1, 4 do
+        local have, name = GetTotemInfo(slot)
+        if have and name and name ~= "" then
+            local base = name:gsub("%s+[IVX]+$", ""):gsub("%s+Totem$", "")
+            local buff = AURAS.TOTEM_BUFF[base]
+            if buff then AURAS.down[#AURAS.down + 1] = buff end
+        end
+    end
+end
+
+-- nil = nothing to judge (no aura totem down, not my party, dead)
+-- true = every down totem's buff is on him; false = one is missing: out of reach
+function AURAS.TotemReach(unit)
+    if #AURAS.down == 0 or not unit or not UnitExists(unit) then return nil end
+    local c = AURAS.totemCache[unit]
+    local now = GetTime()
+    if c and (now - c.at) < AURAS.TOTEM_TTL then return c.reach end
+    local reach = nil
+    local mine = UnitIsUnit(unit, "player") or (UnitInParty and UnitInParty(unit))
+    if mine and not UnitIsDeadOrGhost(unit) then
+        local has = {}
+        for i = 1, 40 do
+            local name
+            if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+                local a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")
+                name = a and a.name
+            elseif UnitAura then
+                name = UnitAura(unit, i, "HELPFUL")
+            end
+            if not name then break end
+            has[name] = true
+        end
+        reach = true
+        for _, buff in ipairs(AURAS.down) do
+            if not has[buff] then reach = false break end
+        end
+    end
+    AURAS.totemCache[unit] = { at = now, reach = reach }
+    return reach
+end
+
+-- ---------------------------------------------------------------- dispel --
+-- Technique from the WA library (claude/wa-patterns-05 §2.3, the T5/T6/Kara
+-- raid-frame packs): the class decides which debuff TYPES are yours to clear,
+-- and a frame only lights for those. The client already names every debuff's
+-- type, so no list of spell ids is needed to know what you can cure -- what
+-- the raid-frame packs add is the per-boss knowledge of what shows up, and
+-- that is LEARNED here from what actually lands (db.dispelSeen, per zone)
+-- rather than typed in from a third-party pack and trusted.
+AURAS.CAN_CURE = {
+    SHAMAN  = { Poison = true, Disease = true },
+    PALADIN = { Poison = true, Disease = true, Magic = true },
+    PRIEST  = { Disease = true, Magic = true },
+    DRUID   = { Poison = true, Curse = true },
+    MAGE    = { Curse = true },
+}
+AURAS.KIND_COLOUR = {   -- the client's DebuffTypeColor, with a fallback
+    Poison  = { 0.00, 0.60, 0.00 },
+    Disease = { 0.60, 0.40, 0.00 },
+    Magic   = { 0.20, 0.60, 1.00 },
+    Curse   = { 0.60, 0.00, 1.00 },
+}
+function AURAS.CanCure(kind)
+    if not AURAS.cure then
+        local _, class = UnitClass("player")
+        AURAS.cure = AURAS.CAN_CURE[class or ""] or {}
+    end
+    return kind and AURAS.cure[kind] or false
+end
+
+-- The first debuff on this unit that I can cure: name, kind. Cached like the
+-- rest. Every hit is also banked per zone, which is how the per-boss list
+-- writes itself: after one night in a raid, /bish dispel says what showed up.
+function AURAS.Dispel(unit)
+    if not unit or not UnitExists(unit) then return nil end
+    local c = AURAS.dispelCache[unit]
+    local now = GetTime()
+    if c and (now - c.at) < AURAS.DISPEL_TTL then return c.name, c.kind end
+    local hitName, hitKind
+    for i = 1, 40 do
+        local name, kind
+        if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+            local a = C_UnitAuras.GetAuraDataByIndex(unit, i, "HARMFUL")
+            if not a then break end
+            name, kind = a.name, a.dispelName
+        elseif UnitAura then
+            local n, _, _, k = UnitAura(unit, i, "HARMFUL")
+            if not n then break end
+            name, kind = n, k
+        else
+            break
+        end
+        if kind and AURAS.CanCure(kind) then
+            hitName, hitKind = name, kind
+            break
+        end
+    end
+    -- a new sighting, not every re-read of the same debuff still sitting there
+    if hitName and not (c and c.name == hitName) then AURAS.Bank(hitName, hitKind) end
+    AURAS.dispelCache[unit] = { at = now, name = hitName, kind = hitKind }
+    return hitName, hitKind
+end
+
+-- Bank a cured-type debuff under the zone it was met in. Capped so a season
+-- of trash cannot grow the saved variables without bound.
+AURAS.SEEN_CAP = 40
+function AURAS.Bank(name, kind)
+    local db = DB()
+    db.dispelSeen = db.dispelSeen or {}
+    local zone = (GetRealZoneText and GetRealZoneText()) or "?"
+    if zone == "" then zone = "?" end
+    local z = db.dispelSeen[zone]
+    if not z then z = {}; db.dispelSeen[zone] = z end
+    local rec = z[name]
+    if not rec then
+        local n = 0
+        for _ in pairs(z) do n = n + 1 end
+        if n >= AURAS.SEEN_CAP then return end
+        rec = { kind = kind, n = 0 }
+        z[name] = rec
+    end
+    rec.n = rec.n + 1
+    rec.last = time and time() or 0
+end
 
 -- Range, measured against Chain Heal itself rather than a hardcoded yardage --
 -- if the spell can't reach them, clicking is wasted motion. Note the bare
@@ -2795,6 +3103,9 @@ local function UpdateBars(_, dt)
             if f.giftIcon then f.giftIcon:Hide() end
             if f.esIcon then f.esIcon:Hide() end
             if f.es then f.es:SetText("") end
+            if f.totemOut then f.totemOut:Hide() end
+            if f.dispelMark then f.dispelMark:Hide() end
+            f.dispelName = nil
         end
         if f:IsShown() and f.unit and UnitExists(f.unit) then
             local guid = UnitGUID(f.unit)
@@ -2853,6 +3164,40 @@ local function UpdateBars(_, dt)
                 else
                     f.race:SetText("")
                     f.raceLost, f.raceWho, f.raceUnknown = nil, nil, nil
+                end
+            end
+
+            -- totem reach: the violet right edge, only when a buff totem of
+            -- mine is down and this party member is missing its buff
+            if f.totemOut then
+                -- an if, not `cond and X or nil`: the answer that matters here
+                -- IS false, and `and/or` swallows a false into the `or` arm
+                local reach = nil
+                if DB().totemRange ~= false and not dead and not f.isPet then
+                    reach = AURAS.TotemReach(f.unit)
+                end
+                if reach == false then
+                    local tc = UIX.TOTEM_OUT
+                    f.totemOut:SetColorTexture(tc[1], tc[2], tc[3], tc[4])
+                    f.totemOut:Show()
+                else
+                    f.totemOut:Hide()
+                end
+            end
+
+            -- a debuff this class can cure: the square in the client's colour
+            if f.dispelMark then
+                local dn, dk
+                if DB().dispel ~= false and not dead then dn, dk = AURAS.Dispel(f.unit) end
+                f.dispelName, f.dispelKind = dn, dk
+                if dn then
+                    local col = (DebuffTypeColor and DebuffTypeColor[dk]) or nil
+                    local kc = AURAS.KIND_COLOUR[dk] or AURAS.KIND_COLOUR.Poison
+                    if col and col.r then f.dispelMark:SetColorTexture(col.r, col.g, col.b, 1)
+                    else f.dispelMark:SetColorTexture(kc[1], kc[2], kc[3], 1) end
+                    f.dispelMark:Show()
+                else
+                    f.dispelMark:Hide()
                 end
             end
 
@@ -3420,7 +3765,7 @@ local function EndFight()
     FlushChainHeal()
 
     local dur = GetTime() - fightStart
-    if dur >= MIN_FIGHT_TIME then
+    if dur >= SCORE.minFight then
         -- rank this fight to mark who finished in the top third (by damage TAKEN,
         -- which drives healing priority). Include anyone who took damage OR dealt
         -- boss damage, so a ranged/pet that took nothing still logs its boss-DPS.
@@ -3448,13 +3793,13 @@ local function EndFight()
                 -- took-no-damage units are never "top third" for healing purposes
                 local top = (not r.noTaken) and (i <= topCut) or false
                 table.insert(rec.fights, 1, { dps = r.dmg / dur, done = done, top = top })
-                while #rec.fights > HISTORY_KEEP do table.remove(rec.fights) end
+                while #rec.fights > SCORE.keep do table.remove(rec.fights) end
             end
         end
     end
 
     -- fold this fight's health-depth and hit-rate samples into history
-    if dur >= MIN_FIGHT_TIME then
+    if dur >= SCORE.minFight then
         for nm, h in pairs(hpSample) do
             local rec = PlayerRec(nm)
             rec.depth = rec.depth or { n = 0, deficit = 0, hits = 0, secs = 0 }
@@ -3484,6 +3829,7 @@ local EVENTS = {
     "GROUP_ROSTER_UPDATE", "COMBAT_LOG_EVENT_UNFILTERED",
     "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED", "PLAYER_EQUIPMENT_CHANGED",
     "CHAT_MSG_ADDON", "UNIT_SPELLCAST_SENT", "UNIT_HEAL_PREDICTION",
+    "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_TOTEM_UPDATE",
 }
 if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
     pcall(C_ChatInfo.RegisterAddonMessagePrefix, COMM.PREFIX)
@@ -3500,6 +3846,13 @@ ev:SetScript("OnEvent", function(_, event, ...)
         -- fires whenever anyone's inbound heals change: drop the cached race so
         -- the next paint reads it fresh, rather than polling every tick
         wipe(SNIPE.cache)
+
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- the five-second rule clock: did that cast cost mana?
+        if (...) == "player" then UIX.FSRCast() end
+
+    elseif event == "PLAYER_TOTEM_UPDATE" then
+        AURAS.RefreshTotems()
 
     elseif event == "UNIT_SPELLCAST_SENT" then
         local unit, target, _, spellID = ...
@@ -3542,6 +3895,7 @@ ev:SetScript("OnEvent", function(_, event, ...)
         playerGUID = UnitGUID("player")
         RebuildGuidMap()
         SNIPE.Refresh()
+        AURAS.RefreshTotems()      -- a reload mid-fight does not lose the totems
         -- HealComm fires these as heals start/change/land; we don't need the
         -- args, just a nudge that inbound changed. The next visual tick re-reads
         -- the live amounts, so a no-op handler is enough to stay current.
@@ -3715,8 +4069,8 @@ end
 -- often than every 4 seconds adds nothing. That is why "the tank who gets hit
 -- most" is the wrong answer and depth of health is the right one.
 
-local ES_ICD = 4.0            -- measured min gap between charges
-local ES_MAX_CPM = 60 / ES_ICD
+TUNE.esIcd = 4.0            -- measured min gap between charges
+TUNE.esMaxCpm = 60 / TUNE.esIcd
 
 local function CasterHeal(name)
     -- A peer running BiSHealing tells us their charge size outright. That beats
@@ -3750,12 +4104,12 @@ TargetProfile = function(name)
         cpm = (rec.es.charges / rec.es.secs) * 60      -- measured while shielded
     end
     if rec.depth and rec.depth.secs and rec.depth.secs > 10 then
-        cpm = cpm or math.min(ES_MAX_CPM, (rec.depth.hits / rec.depth.secs) * 60)
+        cpm = cpm or math.min(TUNE.esMaxCpm, (rec.depth.hits / rec.depth.secs) * 60)
         if rec.depth.n > 0 then depth = rec.depth.deficit / rec.depth.n end
     end
     if not cpm then return nil end
 
-    return { cpm = math.min(cpm, ES_MAX_CPM), depth = depth or 0,
+    return { cpm = math.min(cpm, TUNE.esMaxCpm), depth = depth or 0,
              measured = (rec.es and rec.es.apps or 0) }
 end
 
@@ -3878,7 +4232,7 @@ end
 -- does not save mana on its own -- it wins by not dumping 1600 healing into a
 -- 700 point hole. That is exactly what these bands pick for you.
 
-local DOWNRANK_STEPS = 2
+TUNE.downrankSteps = 2
 
 -- HEALSZ's methods are defined down with BuildHealOptions, but the TABLE has to
 -- exist up here: the combat log handler calls HEALSZ.Learn six hundred lines
@@ -4132,7 +4486,7 @@ local function BuildHealOptions()
     if hwList and #hwList > 0 then
         table.sort(hwList, function(a, b) return a.rank < b.rank end)
         local hwMax  = hwList[#hwList]
-        local hwDown = hwList[math.max(1, #hwList - DOWNRANK_STEPS)]
+        local hwDown = hwList[math.max(1, #hwList - TUNE.downrankSteps)]
         WHEEL.max     = ("%s(Rank %d)"):format(WHEEL.HW, hwMax.rank)
         WHEEL.maxId   = hwMax.id
         WHEEL.maxBase = hwMax.heal or 0
@@ -4149,7 +4503,7 @@ local function BuildHealOptions()
     if lhList and #lhList > 0 then
         table.sort(lhList, function(a, b) return a.rank < b.rank end)
         local lhMax  = lhList[#lhList]
-        local lhDown = lhList[math.max(1, #lhList - DOWNRANK_STEPS)]
+        local lhDown = lhList[math.max(1, #lhList - TUNE.downrankSteps)]
         WHEEL.lMax  = ("%s(Rank %d)"):format(WHEEL.LHW, lhMax.rank)
         WHEEL.lDown = (lhDown and lhDown ~= lhMax)
                       and ("%s(Rank %d)"):format(WHEEL.LHW, lhDown.rank)
@@ -4161,7 +4515,7 @@ local function BuildHealOptions()
     if list and #list > 0 then
         table.sort(list, function(a, b) return a.rank < b.rank end)
         local maxE = list[#list]
-        local downE = list[math.max(1, #list - DOWNRANK_STEPS)]
+        local downE = list[math.max(1, #list - TUNE.downrankSteps)]
         if downE and downE ~= maxE and downE.heal > 0 then
             opts[#opts + 1] = { spell = CHAIN_HEAL, rank = downE.rank, id = downE.id,
                                 base = downE.heal, max = false,
@@ -4391,7 +4745,7 @@ SlashCmdList.BISHEALING = function(msg)
             Print("bullseye: nobody needs a max rank chain heal right now")
         end
         Print(("  hysteresis %.0f%% -- a challenger must beat the holder by that much")
-              :format((BULL_HYSTERESIS - 1) * 100))
+              :format((TUNE.bullHysteresis - 1) * 100))
 
     elseif msg == "bands" then
         if #healOptions == 0 then
@@ -4566,6 +4920,26 @@ SlashCmdList.BISHEALING = function(msg)
         end
         if #ranked == 0 then Print("  nobody in range") end
 
+    elseif msg == "dispel" then
+        -- the per-zone list, written by what actually landed on the raid
+        local seen = DB().dispelSeen or {}
+        local zones = {}
+        for z in pairs(seen) do zones[#zones + 1] = z end
+        table.sort(zones)
+        if #zones == 0 then
+            Print("no curable debuffs met yet -- the list writes itself as they land")
+        end
+        for _, z in ipairs(zones) do
+            local names = {}
+            for name in pairs(seen[z]) do names[#names + 1] = name end
+            table.sort(names, function(a, b) return seen[z][a].n > seen[z][b].n end)
+            Print(("%s:"):format(z))
+            for _, name in ipairs(names) do
+                local rec = seen[z][name]
+                Print(("  %s  (%s, seen %d)"):format(name, rec.kind or "?", rec.n or 0))
+            end
+        end
+
     elseif msg == "reorder" then
         if InCombatLockdown() then
             pendingReorder = true
@@ -4628,6 +5002,6 @@ SlashCmdList.BISHEALING = function(msg)
         end
 
     else
-        Print("unknown command -- open the settings window with /bish or /bish config, or: show | hide | center | frames | bands | bind | wheel | peers | snipe | resetsizes | bull | inc | sim on/off | score | esplan")
+        Print("unknown command -- open the settings window with /bish or /bish config, or: show | hide | center | frames | bands | bind | wheel | peers | snipe | resetsizes | bull | inc | sim on/off | score | esplan | dispel")
     end
 end

@@ -118,6 +118,14 @@ local function newRegion(kind, parent)
     function r:RegisterForDrag() end
     function r:RegisterForClicks() end
     function r:StartMoving() end
+    -- what the options kit and the Keybinds window ask a frame for
+    function r:StopMovingOrSizing() end
+    function r:SetClampedToScreen() end
+    function r:EnableKeyboard(on) self.__keyboard = on and true or false end
+    function r:IsKeyboardEnabled() return self.__keyboard == true end
+    function r:SetPropagateKeyboardInput(on) self.__propagate = on end
+    function r:EnableMouseWheel() end
+    function r:GetFrameLevel() return 1 end
     function r:StopMovingOrSizing() end
     function r:SetBackdrop() end
     function r:SetMinMaxValues(lo, hi) self.__min, self.__max = lo, hi end
@@ -285,6 +293,9 @@ function IsInRaid() return true end
 function IsInGroup() return true end
 function GetNumGroupMembers() return GROUP_SIZE end
 function InCombatLockdown() return COMBAT == true end
+function IsShiftKeyDown() return SHIFT_DOWN == true end
+function IsControlKeyDown() return false end
+function IsAltKeyDown() return false end
 function IsSpellInRange() return 1 end
 function GetPowerRegen() return 30, 12 end
 -- The client this addon targets shows BASE healing in spellbook tooltips, with
@@ -331,9 +342,15 @@ end
 -- that silently never lands is a test failure instead of a raid surprise.
 OVERRIDES = {}
 function SetOverrideBindingClick(owner, prio, key, btnName, mouseBtn)
-    OVERRIDES[key] = { button = btnName, click = mouseBtn }
+    OVERRIDES[key] = { button = btnName, click = mouseBtn, owner = owner }
 end
-function ClearOverrideBindings() OVERRIDES = {} end
+-- per owner, as the client does: the bind engine clears each hidden button's
+-- own bindings, and a mock that wiped everything would hide a leak between them
+function ClearOverrideBindings(owner)
+    for k, v in pairs(OVERRIDES) do
+        if owner == nil or v.owner == owner then OVERRIDES[k] = nil end
+    end
+end
 function SetBindingClick() end
 function GetSpellPowerCost() return { { type = 0, cost = 500 } } end
 function GetAddOnMetadata(_, k) if k == "Version" then return "1.0-test" end end
@@ -413,7 +430,7 @@ local KNOWN = {}
 for k in pairs(_G) do KNOWN[k] = true end
 -- the harness's own switches are not addon leaks: they are how the tests drive
 -- combat state, the log feed and the Nature's Swiftness cooldown
-for _, k in ipairs({ "COMBAT", "CLOG", "NS_CD", "NS_UNKNOWN", "OVERRIDES", "ALLLINES", "ALLTEX", "ES_ON", "ES_CHARGES", "ES_MINE", "SENT", "HEAL_SIZE", "TOOLTIP_INDEX", "SPELL_POWER", "TALENTS", "CHATLOG", "ADDON_SENT", "C_ChatInfo", "HC_CB", "SPELLID_NAME", "FWD_REFS", "INCOMING", "CASTEND", "HC_PER" }) do
+for _, k in ipairs({ "COMBAT", "CLOG", "NS_CD", "NS_UNKNOWN", "OVERRIDES", "ALLLINES", "ALLTEX", "ES_ON", "ES_CHARGES", "ES_MINE", "SENT", "HEAL_SIZE", "TOOLTIP_INDEX", "SPELL_POWER", "TALENTS", "CHATLOG", "ADDON_SENT", "C_ChatInfo", "HC_CB", "SPELLID_NAME", "FWD_REFS", "INCOMING", "CASTEND", "HC_PER", "SHIFT_DOWN", "TOTEMS", "BUFFS", "DEBUFFS", "PARTY", "MANA", "DebuffTypeColor", "GetRealZoneText", "GetTotemInfo", "UnitInParty" }) do
     KNOWN[k] = true
 end
 LEAKED = {}
@@ -650,7 +667,7 @@ print("== tick ok (live roster)")
 -- every slash command
 local CMDS = { "", "ranks", "score", "reorder", "lock", "bands", "bind", "inc",
                "bull", "bounce", "es", "rawes", "esplan", "frames", "center",
-               "show", "hide", "sim on", "sim off", "demo", "sim 25", "garbage" }
+               "show", "hide", "sim on", "sim off", "demo", "sim 25", "dispel", "keys", "keys", "garbage" }
 for _, c in ipairs(CMDS) do
     local ok, err = pcall(SlashCmdList.BISHEALING, c)
     if not ok then print(("!! SLASH ERROR (%s): %s"):format(c, tostring(err))); os.exit(1) end
@@ -659,47 +676,128 @@ print("== slash ok")
 tick(20)
 print("== tick ok (demo mode)")
 
--- ------------------------------------------------------- wheel bindings --
--- A bind that never lands is invisible in game until the moment you need it,
--- so assert on the recorded overrides rather than trusting "no error".
+-- ------------------------------------------------------- the bind engine --
+-- Ten actions, each on a key. A bind that never lands is invisible in game
+-- until the moment you need it, so assert on the recorded overrides and the
+-- frame attributes rather than trusting "no error".
+local BINDS = ADDON_NS.BINDS
 local function need(cond, what)
-    if not cond then print("!! WHEEL: " .. what); os.exit(1) end
+    if not cond then print("!! BINDS: " .. what); os.exit(1) end
 end
-need(OVERRIDES["MOUSEWHEELUP"], "scroll up never bound")
-need(OVERRIDES["SHIFT-MOUSEWHEELUP"], "shift+scroll up never bound")
-need(OVERRIDES["MOUSEWHEELUP"].click == "LeftButton", "scroll up bound to the wrong click")
-need(OVERRIDES["SHIFT-MOUSEWHEELUP"].click == "RightButton", "shift+scroll bound to the wrong click")
+need(BINDS and #BINDS.ACTIONS == 10, "ten actions expected")
+local function liveFrame()
+    for i = 1, 12 do
+        local f = _G["BiSHealingUnit" .. i]
+        if f and f:IsShown() and f.unit and UnitExists(f.unit) then return f end
+    end
+end
+SlashCmdList.BISHEALING("sim off"); SlashCmdList.BISHEALING("show"); tick(3)
+local lf = liveFrame()
+need(lf, "no live frame to read binds off")
 
-local wb = _G["BiSHealingWheel"]
-need(wb, "wheel button never created")
-local m1 = wb:GetAttribute("*macrotext1")
-local m2 = wb:GetAttribute("*macrotext2")
-need(m1 and m1:match("stopmacro"), "plain scroll macro has no mouseover gate")
-need(m1 and m1:match("Healing Wave%\(Rank 10%\)"), "plain scroll is not max-2 Healing Wave: " .. tostring(m1))
+-- mouse buttons land as frame attributes, aimed at that frame's unit
+need(lf:GetAttribute("*type1") == "macro", "left click is not a macro")
+need((lf:GetAttribute("*macrotext1") or ""):match("Chain Heal%(Rank 3%)") and
+     (lf:GetAttribute("*macrotext1") or ""):match("@" .. lf.unit),
+     "left click is not a downranked Chain Heal at the frame's unit: " .. tostring(lf:GetAttribute("*macrotext1")))
+need(not (lf:GetAttribute("*macrotext1") or ""):match("/use 13"), "plain left click is burning trinkets")
+local sm = lf:GetAttribute("shift-macrotext1") or ""
+need(sm:match("/use 13") and sm:match("/use 14") and sm:match("Chain Heal%(Rank 5%)"),
+     "shift+left is not trinkets + max Chain Heal: " .. sm)
+need((lf:GetAttribute("*macrotext2") or ""):match("Earth Shield"), "right click is not Earth Shield")
+need((lf:GetAttribute("*macrotext4") or ""):match("Gift of the Naaru"), "button 4 is not Gift")
+-- the two cures, Button5 and shift+Button5 (Arn, 11 Sep)
+need((lf:GetAttribute("*macrotext5") or ""):match("Cure Poison") and
+     (lf:GetAttribute("*macrotext5") or ""):match("@" .. lf.unit), "button 5 is not Cure Poison at the unit")
+need((lf:GetAttribute("shift-macrotext5") or ""):match("Cure Disease"), "shift+button 5 is not Cure Disease")
+print("== click binds ok (left / shift+left / right / button4 / button5 / shift+button5)")
+
+-- keys and the wheel: one hidden button each, an override binding, a mouseover gate
+local function hidden(key) return _G["BiSHealingBind_" .. key] end
+need(OVERRIDES["MOUSEWHEELUP"] and OVERRIDES["MOUSEWHEELUP"].button == "BiSHealingBind_hwDown",
+     "scroll up is not bound to the hwDown button")
+need(OVERRIDES["SHIFT-MOUSEWHEELUP"] and OVERRIDES["SHIFT-MOUSEWHEELUP"].button == "BiSHealingBind_hwMax",
+     "shift+scroll up is not bound to the hwMax button")
+need(OVERRIDES["MOUSEWHEELDOWN"] and OVERRIDES["MOUSEWHEELDOWN"].button == "BiSHealingBind_lhwDown", "scroll down never bound")
+need(OVERRIDES["SHIFT-MOUSEWHEELDOWN"] and OVERRIDES["SHIFT-MOUSEWHEELDOWN"].button == "BiSHealingBind_lhwMax", "shift+scroll down never bound")
+local m1 = hidden("hwDown"):GetAttribute("*macrotext1")
+local m2 = hidden("hwMax"):GetAttribute("*macrotext1")
+local m3 = hidden("lhwDown"):GetAttribute("*macrotext1")
+local m4 = hidden("lhwMax"):GetAttribute("*macrotext1")
+need(m1 and m1:match("stopmacro") and m1:match("@mouseover"), "plain scroll macro has no mouseover gate")
+need(m1 and m1:match("Healing Wave%(Rank 10%)"), "plain scroll is not max-2 Healing Wave: " .. tostring(m1))
 need(m2 and m2:match("Nature's Swiftness"), "shift+scroll never casts Nature's Swiftness")
-need(m2 and m2:match("Healing Wave%\(Rank 12%\)"), "shift+scroll is not max-rank Healing Wave")
-need(wb:GetAttribute("*type1") == "macro" and wb:GetAttribute("*type2") == "macro",
-     "wheel button types not set to macro")
-
--- scroll DOWN: Lesser Healing Wave, max-2 plain and max on shift (+ trinkets)
-need(OVERRIDES["MOUSEWHEELDOWN"], "scroll down never bound")
-need(OVERRIDES["SHIFT-MOUSEWHEELDOWN"], "shift+scroll down never bound")
-need(OVERRIDES["MOUSEWHEELDOWN"].click == "MiddleButton", "scroll down bound to the wrong click")
-need(OVERRIDES["SHIFT-MOUSEWHEELDOWN"].click == "Button4", "shift+scroll down bound to the wrong click")
-local m3 = wb:GetAttribute("*macrotext3")
-local m4 = wb:GetAttribute("*macrotext4")
-need(m3 and m3:match("Lesser Healing Wave%\(Rank 5%\)"), "scroll down is not LHW max-2: " .. tostring(m3))
-need(m4 and m4:match("Lesser Healing Wave%\(Rank 7%\)"), "shift+scroll down is not max LHW: " .. tostring(m4))
+need(m2 and m2:match("Healing Wave%(Rank 12%)"), "shift+scroll is not max-rank Healing Wave")
+need(m2:match("/use 13") and m2:match("/use 14"), "shift+scroll up does not fire trinkets")
+need(m3 and m3:match("Lesser Healing Wave%(Rank 5%)"), "scroll down is not LHW max-2: " .. tostring(m3))
+need(m4 and m4:match("Lesser Healing Wave%(Rank 7%)"), "shift+scroll down is not max LHW: " .. tostring(m4))
 need(m4:match("/use 13") and m4:match("/use 14"), "shift+scroll down does not fire trinkets")
 need(not m3:match("/use 13"), "unshifted scroll down is burning trinkets")
 need(m3:match("stopmacro") and m4:match("stopmacro"), "scroll down lost the mouseover gate")
-need(wb:GetAttribute("*type3") == "macro" and wb:GetAttribute("*type4") == "macro",
-     "scroll down types not set to macro")
+for _, k in ipairs({ "hwDown", "hwMax", "lhwDown", "lhwMax" }) do
+    need(hidden(k):GetAttribute("*type1") == "macro", k .. " button type not macro")
+end
 print("== wheel binds ok")
 print("   scroll:       " .. m1:gsub("\n", " | "))
 print("   shift+scroll: " .. m2:gsub("\n", " | "))
-print("   scroll dn:    " .. m3:gsub("\n", " | "))
-print("   shift+dn:     " .. m4:gsub("\n", " | "))
+
+-- REBINDING. Cure Poison onto a keyboard key: the frame attribute goes, a
+-- hidden button appears with the mouseover gate, the key normalises.
+do
+    local ok, stolen = BINDS.Set("curePoison", "shift-ctrl-q")
+    need(ok and not stolen, "rebind refused or stole from nobody")
+    need(BINDS.Get("curePoison") == "CTRL-SHIFT-Q", "key not normalised to CTRL-SHIFT-Q: " .. tostring(BINDS.Get("curePoison")))
+    need(OVERRIDES["CTRL-SHIFT-Q"] and OVERRIDES["CTRL-SHIFT-Q"].button == "BiSHealingBind_curePoison",
+         "Cure Poison never reached an override binding")
+    local m = hidden("curePoison"):GetAttribute("*macrotext1")
+    need(m and m:match("stopmacro") and m:match("@mouseover%] Cure Poison"), "hover macro wrong: " .. tostring(m))
+    need(lf:GetAttribute("*macrotext5") == nil and lf:GetAttribute("*type5") == nil,
+         "button 5 still carries Cure Poison after it moved to a key")
+    need(BiSHealingDB.binds.curePoison == "CTRL-SHIFT-Q", "the key was not saved")
+    -- back to the default: the override is forgotten, not stored
+    BINDS.Set("curePoison", "BUTTON5")
+    need(BiSHealingDB.binds.curePoison == nil, "a default key should not be stored as an override")
+    need((lf:GetAttribute("*macrotext5") or ""):match("Cure Poison"), "button 5 did not come back")
+    need(OVERRIDES["CTRL-SHIFT-Q"] == nil, "the old key binding was not cleared")
+    print("== rebind ok (key normalised, saved, applied, default forgotten)")
+
+    -- ONE KEY, ONE JOB: binding Cure Disease onto Button4 takes it off Gift
+    local ok2, stolen2 = BINDS.Set("cureDisease", "BUTTON4")
+    need(ok2 and stolen2 == "Gift of the Naaru", "stealing Button4 should name Gift: " .. tostring(stolen2))
+    need(BINDS.Get("gift") == false, "Gift should be unbound after the steal")
+    need((lf:GetAttribute("*macrotext4") or ""):match("Cure Disease"), "button 4 is not Cure Disease now")
+    need(lf:GetAttribute("shift-macrotext5") == nil, "shift+button 5 still carries Cure Disease")
+    -- unbind outright
+    BINDS.Set("cureDisease", false)
+    need(BINDS.Get("cureDisease") == false and lf:GetAttribute("*macrotext4") == nil, "unbind left the attribute")
+    BINDS.ResetAll()
+    need(BINDS.Get("gift") == "BUTTON4" and BINDS.Get("cureDisease") == "SHIFT-BUTTON5", "reset did not restore the defaults")
+    need((lf:GetAttribute("*macrotext4") or ""):match("Gift"), "Gift not back on button 4 after reset")
+    print("== conflict + unbind + reset ok")
+
+    -- COMBAT: nothing moves mid-fight, everything lands when it ends
+    COMBAT = true
+    BINDS.Set("curePoison", "F")
+    need(OVERRIDES["F"] == nil, "a bind changed during combat")
+    need((lf:GetAttribute("*macrotext5") or ""):match("Cure Poison"), "the old bind was cleared during combat")
+    COMBAT = false
+    fireEvent("PLAYER_REGEN_ENABLED")
+    need(OVERRIDES["F"] and OVERRIDES["F"].button == "BiSHealingBind_curePoison", "the deferred bind never landed")
+    need(lf:GetAttribute("*macrotext5") == nil, "button 5 not cleared once combat ended")
+    BINDS.ResetAll()
+    print("== binds wait for combat to end ok")
+
+    -- the wheel switch still gates the four wheel actions and nothing else
+    BiSHealingDB.wheel = false
+    BINDS.Apply()
+    need(OVERRIDES["MOUSEWHEELUP"] == nil and OVERRIDES["SHIFT-MOUSEWHEELDOWN"] == nil, "wheel off left wheel binds")
+    need((lf:GetAttribute("*macrotext5") or ""):match("Cure Poison"), "wheel off took the cures with it")
+    BiSHealingDB.wheel = true
+    BINDS.Apply()
+    need(OVERRIDES["MOUSEWHEELUP"], "wheel on did not restore the wheel binds")
+    print("== wheel switch ok")
+end
+
 
 if #LEAKED > 0 then
     print("!! GLOBAL LEAKS: " .. table.concat(LEAKED, ", "))
@@ -1610,24 +1708,43 @@ end
 
 
 -- ------------------------------------------------- the options window ----
--- Fojji-flat settings panel. Every control must write the SAME saved variable
--- the slash commands already set -- if the two ever drift, the window is
--- lying. Driven headless through BiSHealingUI:ConfigSet / ConfigGet.
---
--- The strict SetColorTexture stub above is half of this test: the recipe's
--- known trap is a branch that passes one truncated value instead of r,g,b, and
--- a permissive mock would sail straight past it while the live client threw.
+-- BiSTheme's kit (Libs/BiSTheme/Options.lua) wearing this addon's option list.
+-- The kit itself is proven by dev/options.lua (61 checks, dropped in from
+-- Nebbinator unchanged); this block proves the LIST: every control writes the
+-- SAME saved variable the slash commands already set -- if the two ever drift,
+-- the window is lying. Driven headless through BiSHealingUI.ConfigSet / Get.
 do
     local function oneed(cond, what)
         if not cond then print("!! OPTIONS: " .. what); os.exit(1) end
     end
     oneed(BiSHealingUI, "the addon published no UI handle")
+    oneed(BiSTheme and BiSTheme.OPTIONS_MINOR == 2,
+          "the embedded options kit is not minor 2: " .. tostring(BiSTheme and BiSTheme.OPTIONS_MINOR))
+
+    -- the embed is byte-identical to canon when canon is beside us
+    do
+        local function slurp(p) local h = io.open(p, "rb"); if not h then return nil end local b = h:read("*a"); h:close(); return b end
+        local mine = slurp(addonDir .. "Libs/BiSTheme/Options.lua")
+        local canon = slurp(addonDir .. "../BiSTheme/Options.lua")
+        oneed(mine, "Libs/BiSTheme/Options.lua is missing")
+        if canon then
+            oneed(mine == canon, "Libs/BiSTheme/Options.lua drifted from BiSTheme/Options.lua -- run sync.ps1")
+        else
+            print("-- (BiSTheme not beside the addon; embed bytes not compared)")
+        end
+        -- and the TOC loads it, after Console.lua
+        local toc = slurp(addonDir .. "BiSHealing.toc") or ""
+        local c, o = toc:find("Libs\\BiSTheme\\Console.lua", 1, true), toc:find("Libs\\BiSTheme\\Options.lua", 1, true)
+        oneed(o, "the TOC never loads Libs\\BiSTheme\\Options.lua")
+        oneed(c and c < o, "Options.lua must come after Console.lua in the TOC")
+    end
 
     -- building it must not throw -- that is the SetColorTexture trap
     local ok, err = pcall(BiSHealingUI.OpenConfig)
     oneed(ok, "opening the settings window threw: " .. tostring(err))
-    local frame = _G["BiSHealingConfig"]
+    local frame = _G["BiSHealingOptions"]
     oneed(frame and frame:IsShown(), "the window did not open")
+    oneed(frame:GetWidth() == BiSTheme.OPTIONS.W, "the window is not the kit's 230 px")
 
     -- toggling closes it, and the same call opens it again
     BiSHealingUI.ToggleConfig()
@@ -1635,109 +1752,97 @@ do
     BiSHealingUI.ToggleConfig()
     oneed(frame:IsShown(), "the toggle did not reopen the window")
 
-    -- every tab switches, and exactly one page is up at a time
-    local tabs = BiSHealingUI.ConfigTabs()
-    oneed(#tabs == 4, ("expected 4 tabs, got %d"):format(#tabs))
-    for _, tab in ipairs(tabs) do
-        BiSHealingUI.ConfigTab(tab)
-        oneed(BiSHealingUI.ConfigShownTab() == tab,
-              ("switching to %q left %q showing"):format(tab, tostring(BiSHealingUI.ConfigShownTab())))
-    end
-    BiSHealingUI.ConfigTab("Frames")
-
-    -- the controls the window is supposed to have
+    -- the rows the window is supposed to have, and no more: a row that grows
+    -- past ~32 is the Innervate ceiling and wants a slash command instead
     local EXPECT = {
-        "bars", "redPct", "nameLen", "corners", "pulse", "pulseCap", "shown", "locked", "pets",
+        "shown", "locked", "pets", "nameLen", "bars", "redPct", "corners", "pulse", "pulseCap",
+        "totemRange", "dispel",
         "bounceLines", "goldChains", "celebrate", "critBrag", "bragGap", "healRace",
-        "incomingFill", "castCounter", "rpm",
-        "esQuiet", "nsPip", "giftBadge", "esplan", "peers",
-        "wheelMode", "trinkets", "reorder", "center", "rescan", "demo", "resetsizes", "wipe",
+        "incomingFill", "castCounter", "fsr", "rpm",
+        "esQuiet", "nsPip", "giftBadge",
+        "wheelMode", "trinkets", "keybinds", "demo",
     }
     local have = {}
     for _, id in ipairs(BiSHealingUI.ConfigIDs()) do have[id] = true end
-    for _, id in ipairs(EXPECT) do
-        oneed(have[id], ("no control with id %q"):format(id))
+    for _, id in ipairs(EXPECT) do oneed(have[id], ("no control with key %q"):format(id)) end
+    oneed(#BiSHealingUI.ConfigIDs() == #EXPECT,
+          ("%d controls, expected %d -- a new row wants adding to the list on purpose")
+          :format(#BiSHealingUI.ConfigIDs(), #EXPECT))
+    oneed(#frame.rows == #EXPECT + 4, ("expected %d rows (28 options + 4 sections), got %d"):format(#EXPECT + 4, #frame.rows))
+    oneed(frame:GetHeight() <= BiSTheme.OPTIONS.HEADER + 33 * BiSTheme.OPTIONS.ROW + BiSTheme.OPTIONS.PAD,
+          "the window is taller than the family's tallest (Innervate, 29 rows) allows")
+    -- every label inside the kit's budget, untrimmed
+    for _, r in ipairs(frame.rows) do
+        local budget = r.isSection and (BiSTheme.OPTIONS.W - 6 - BiSTheme.OPTIONS.CTL) or (BiSTheme.OPTIONS.W - BiSTheme.OPTIONS.INDENT - BiSTheme.OPTIONS.CTL)
+        oneed(r.name:GetStringWidth() <= budget, "label over budget: " .. tostring(r.name:GetText()))
     end
-    print(("== options window ok (%d controls)"):format(#BiSHealingUI.ConfigIDs()))
+    print(("== options window ok (%d controls on the BiSTheme kit)"):format(#EXPECT))
 
-    -- CHECKBOXES round-trip into the db the slash commands read
+    -- TOGGLES round-trip into the db the slash commands read
     local CHECKS = {
         { "corners", "corners" }, { "pulse", "pulse" }, { "pets", "pets" },
         { "bounceLines", "bounceLines" }, { "goldChains", "goldChains" },
         { "celebrate", "celebrate" }, { "critBrag", "critBrag" }, { "healRace", "healRace" },
         { "incomingFill", "incomingFill" }, { "castCounter", "castCounter" }, { "rpm", "rpm" },
         { "nsPip", "nsPip" }, { "giftBadge", "giftBadge" }, { "trinkets", "trinkets" },
-        { "locked", "locked" },
+        { "totemRange", "totemRange" }, { "dispel", "dispel" }, { "fsr", "fsr" },
+        { "shown", "shown" }, { "locked", "locked" },
     }
-    for _, pair in ipairs(CHECKS) do
-        local id, key = pair[1], pair[2]
-        BiSHealingUI.ConfigSet(id, true)
-        oneed(BiSHealingDB[key] == true, ("%s = true did not reach BiSHealingDB.%s"):format(id, key))
-        oneed(BiSHealingUI.ConfigGet(id) == true, ("%s did not read back true"):format(id))
+    for _, c in ipairs(CHECKS) do
+        local id, key = c[1], c[2]
         BiSHealingUI.ConfigSet(id, false)
-        oneed(BiSHealingDB[key] == false, ("%s = false did not reach BiSHealingDB.%s"):format(id, key))
-        oneed(BiSHealingUI.ConfigGet(id) == false, ("%s did not read back false"):format(id))
+        oneed(BiSHealingDB[key] == false, ("%s off did not write db.%s"):format(id, key))
+        oneed(BiSHealingUI.ConfigGet(id) == false, ("%s off did not read back"):format(id))
         BiSHealingUI.ConfigSet(id, true)
+        oneed(BiSHealingDB[key] == true, ("%s on did not write db.%s"):format(id, key))
     end
-    print(("== checkbox round-trip ok (%d)"):format(#CHECKS))
+    print("== toggle round-trip ok (19 switches, same keys as /bish)")
 
-    -- SLIDERS write numbers, clamp, and are actually consumed by the addon
+    -- STEPPERS write the key, and clamp
     BiSHealingUI.ConfigSet("nameLen", 8)
-    oneed(BiSHealingDB.nameLen == 8, "the name-length slider did not write the db")
-    SlashCmdList.BISHEALING("reorder"); tick(4)
-    local longest = 0
-    for i = 1, 12 do
-        local f = _G["BiSHealingUnit" .. i]
-        if f and f:IsShown() and f.name then longest = math.max(longest, #(f.name:GetText() or "")) end
-    end
-    oneed(longest > 5, ("name length 8 still clipped every name to %d"):format(longest))
-    BiSHealingUI.ConfigSet("nameLen", 5)
-
-    BiSHealingUI.ConfigSet("pulseCap", 6)
-    oneed(BiSHealingDB.pulseCap == 6, "the pulse-cap slider did not write the db")
-    BiSHealingUI.ConfigSet("esQuiet", 4)
-    oneed(BiSHealingDB.esQuiet == 4, "the quiet-charges slider did not write the db")
-    BiSHealingUI.ConfigSet("bragGap", 60)
-    oneed(BiSHealingDB.bragGap == 60, "the brag-throttle slider did not write the db")
-    BiSHealingUI.ConfigSet("redPct", 1.25)
-    oneed(math.abs((BiSHealingDB.redPct or 0) - 1.25) < 0.001, "the red-threshold slider did not write the db")
-    -- and out-of-range input is clamped, not stored raw
+    oneed(BiSHealingDB.nameLen == 8 and ADDON_NS.UIX.NAME_MAX == 8, "name length did not reach the frames")
     BiSHealingUI.ConfigSet("nameLen", 99)
-    oneed(BiSHealingDB.nameLen <= 12, ("name length was not clamped: %s"):format(tostring(BiSHealingDB.nameLen)))
+    oneed(BiSHealingDB.nameLen == 12, "name length did not clamp at 12")
     BiSHealingUI.ConfigSet("nameLen", 5)
+    BiSHealingUI.ConfigSet("redPct", 1.25)
+    oneed(math.abs(BiSHealingDB.redPct - 1.25) < 0.001, "redPct did not write")
     BiSHealingUI.ConfigSet("redPct", 1)
-    BiSHealingUI.ConfigSet("esQuiet", 2)
-    BiSHealingUI.ConfigSet("bragGap", 15)
-    BiSHealingUI.ConfigSet("pulseCap", 3)
-    print("== slider round-trip ok (writes, clamps, and is read by the addon)")
+    BiSHealingUI.ConfigSet("pulseCap", 2)
+    oneed(BiSHealingDB.pulseCap == 2, "pulseCap did not write")
+    BiSHealingUI.ConfigSet("bragGap", 30)
+    oneed(BiSHealingDB.bragGap == 30, "bragGap did not write")
+    BiSHealingUI.ConfigSet("esQuiet", 3)
+    oneed(BiSHealingDB.esQuiet == 3, "esQuiet did not write")
+    BiSHealingUI.ConfigSet("esQuiet", 0)
+    oneed(BiSHealingDB.esQuiet == 1, "esQuiet did not clamp at 1")
+    print("== stepper round-trip ok (writes and clamps)")
 
-    -- SEGMENTED controls, including the one that drives two keys at once
+    -- SEGS: the bar colour and the three-way wheel mode
     BiSHealingUI.ConfigSet("bars", "bands")
-    oneed(BiSHealingDB.plainBars == false, "bar-colour segment did not clear plainBars")
-    oneed(BiSHealingUI.ConfigGet("bars") == "bands", "bar-colour segment did not read back")
+    oneed(BiSHealingDB.plainBars == false, "bar-colour seg did not clear plainBars")
     BiSHealingUI.ConfigSet("bars", "black")
-    oneed(BiSHealingDB.plainBars == true, "bar-colour segment did not set plainBars")
-
+    oneed(BiSHealingDB.plainBars == true, "bar-colour seg did not set plainBars")
     BiSHealingUI.ConfigSet("wheelMode", "off")
-    oneed(BiSHealingDB.wheel == false, "wheel segment did not turn the wheel off")
-    BiSHealingUI.ConfigSet("wheelMode", "strict")
-    oneed(BiSHealingDB.wheel == true and BiSHealingDB.wheelStrict == true, "wheel segment did not set strict")
-    oneed(BiSHealingUI.ConfigGet("wheelMode") == "strict", "wheel segment did not read back strict")
-    BiSHealingUI.ConfigSet("wheelMode", "combo")
-    oneed(BiSHealingDB.wheel == true and BiSHealingDB.wheelStrict == false, "wheel segment did not set combo")
-    -- and the binds actually followed it
-    local wb = _G["BiSHealingWheel"]
-    oneed(wb:GetAttribute("*macrotext2"):match("Nature's Swiftness"),
-          "the wheel segment did not re-apply the binds")
-    print("== segment round-trip ok (including the two-key wheel mode)")
+    oneed(BiSHealingDB.wheel == false, "wheel seg did not turn the wheel off")
+    oneed(OVERRIDES["MOUSEWHEELUP"] == nil, "wheel off through the window left the wheel bound")
+    BiSHealingUI.ConfigSet("wheelMode", "two")
+    oneed(BiSHealingDB.wheel == true and BiSHealingDB.wheelStrict == true, "wheel seg did not set two-press")
+    oneed(BiSHealingUI.ConfigGet("wheelMode") == "two", "wheel seg did not read back two")
+    oneed((_G["BiSHealingBind_hwMax"]:GetAttribute("*macrotext1") or ""):match("castsequence"),
+          "two-press did not re-apply the binds")
+    BiSHealingUI.ConfigSet("wheelMode", "one")
+    oneed(BiSHealingDB.wheel == true and BiSHealingDB.wheelStrict == false, "wheel seg did not set one-press")
+    print("== seg round-trip ok (including the three-way wheel mode)")
 
-    -- ACTION BUTTONS run their slash equivalent without throwing
-    for _, id in ipairs({ "reorder", "center", "rescan", "esplan", "peers", "resetsizes" }) do
-        local ok3, err3 = pcall(BiSHealingUI.ConfigSet, id, true)
-        oneed(ok3, ("the %s button threw: %s"):format(id, tostring(err3)))
-    end
-    oneed(not next(BiSHealingDB.healSeen), "the reset-sizes button did not wipe the measurements")
-    print("== action buttons ok")
+    -- the two buttons: keybinds opens its window, demo toggles the demo
+    BiSHealingUI.ConfigSet("keybinds", true)
+    oneed(_G["BiSHealingKeybinds"] and _G["BiSHealingKeybinds"]:IsShown(), "the keybinds button did not open its window")
+    BiSHealingUI.Keybinds(false)
+    BiSHealingUI.ConfigSet("demo", true)
+    oneed(ADDON_NS.demo.on, "the demo button did not start the demo")
+    BiSHealingUI.ConfigSet("demo", true)
+    oneed(not ADDON_NS.demo.on, "the demo button did not stop the demo")
+    print("== buttons ok")
 
     -- and the window survives being driven while the pyramid is in combat
     COMBAT = true; fireEvent("PLAYER_REGEN_DISABLED")
@@ -1747,7 +1852,80 @@ do
     BiSHealingUI.ConfigSet("corners", true)
     COMBAT = false; fireEvent("PLAYER_REGEN_ENABLED"); tick(4)
     print("== settings survive combat lockdown ok")
-    if frame:IsShown() then BiSHealingUI.ToggleConfig() end
+end
+
+-- ------------------------------------------------- the Keybinds window ----
+-- Click a key, press the new one. Driven the way the client would drive it:
+-- the row starts listening, then a key / mouse button / wheel turn arrives.
+do
+    local function kneed(cond, what)
+        if not cond then print("!! KEYBINDS: " .. what); os.exit(1) end
+    end
+    local BINDS = ADDON_NS.BINDS
+    local win = BiSHealingUI.Keybinds(true)
+    kneed(win and win:IsShown(), "the keybinds window did not open")
+    local rows = BiSHealingUI.BindRows()
+    kneed(#rows == #BINDS.ACTIONS, "one row per action expected")
+    local function rowFor(key)
+        for _, r in ipairs(rows) do if r.action.key == key then return r end end
+    end
+    kneed(rowFor("curePoison").key.label:GetText() == "button 5", "Cure Poison row does not read button 5: " .. tostring(rowFor("curePoison").key.label:GetText()))
+    kneed(rowFor("cureDisease").key.label:GetText() == "shift+button 5", "Cure Disease row does not read shift+button 5")
+    kneed(rowFor("hwDown").key.label:GetText() == "wheel up", "hwDown row does not read wheel up")
+    kneed(not win:IsKeyboardEnabled(), "the window listens for keys before anyone asked")
+
+    -- a keyboard key with a modifier held
+    SHIFT_DOWN = true
+    BiSHealingUI.Capture("curePoison")
+    kneed(BiSHealingUI.Capturing() == "curePoison", "capture did not start")
+    kneed(win:IsKeyboardEnabled() and win.cover:IsShown(), "listening did not turn the keyboard and the cover on")
+    kneed(rowFor("curePoison").key.label:GetText() == "listening...", "the row does not say it is listening")
+    BiSHealingUI.Heard("LSHIFT")               -- the modifier alone is not a key
+    kneed(BiSHealingUI.Capturing() == "curePoison", "a bare modifier ended the capture")
+    BiSHealingUI.Heard("Q")
+    SHIFT_DOWN = false
+    kneed(BiSHealingUI.Capturing() == nil and not win:IsKeyboardEnabled() and not win.cover:IsShown(),
+          "capture did not end after the key")
+    kneed(BINDS.Get("curePoison") == "SHIFT-Q", "shift+Q did not bind: " .. tostring(BINDS.Get("curePoison")))
+    kneed(rowFor("curePoison").key.label:GetText() == "shift+q", "the row does not show the new key")
+    kneed(OVERRIDES["SHIFT-Q"] and OVERRIDES["SHIFT-Q"].button == "BiSHealingBind_curePoison", "the new key never reached a binding")
+    print("== keybind capture ok (shift+Q onto Cure Poison)")
+
+    -- a mouse button, stealing from another row -- and the header says so
+    BiSHealingUI.Capture("cureDisease")
+    BiSHealingUI.HeardMouse("Button4")
+    kneed(BINDS.Get("cureDisease") == "BUTTON4" and BINDS.Get("gift") == false, "Button4 did not move from Gift to Cure Disease")
+    kneed(rowFor("gift").key.label:GetText() == "-- unbound --", "Gift's row does not read unbound")
+    -- the earlier Say is still holding the header; the steal line is queued
+    -- behind it, so walk the clock past a full hold in 0.05 s slices
+    local named = false
+    for _ = 1, 160 do
+        AdvanceTime(0.05); win.con:Paint()
+        if win.con:Text():find("Gift of the Naaru", 1, true) then named = true end
+    end
+    kneed(named, "the header never named who lost the key: " .. win.con:Text())
+    -- the wheel
+    BiSHealingUI.Capture("gift")
+    BiSHealingUI.HeardWheel(-1)
+    kneed(BINDS.Get("gift") == "MOUSEWHEELDOWN" and BINDS.Get("lhwDown") == false, "wheel down did not move from LHW to Gift")
+    -- Escape keeps, Backspace unbinds
+    BiSHealingUI.Capture("chainDown")
+    BiSHealingUI.Heard("ESCAPE")
+    kneed(BINDS.Get("chainDown") == "BUTTON1" and BiSHealingUI.Capturing() == nil, "Escape did not keep the old key")
+    BiSHealingUI.Capture("chainDown")
+    BiSHealingUI.Heard("BACKSPACE")
+    kneed(BINDS.Get("chainDown") == false, "Backspace did not unbind")
+    -- reset all puts every default back
+    win.resetBtn.__scripts.OnClick(win.resetBtn)
+    kneed(BINDS.Get("chainDown") == "BUTTON1" and BINDS.Get("gift") == "BUTTON4" and BINDS.Get("curePoison") == "BUTTON5",
+          "reset all did not restore the defaults")
+    kneed(rowFor("curePoison").key.label:GetText() == "button 5", "rows did not repaint after reset")
+    -- a key heard while nobody is listening does nothing
+    BiSHealingUI.Heard("F")
+    kneed(BINDS.Get("curePoison") == "BUTTON5", "a stray key changed a bind with no row listening")
+    BiSHealingUI.Keybinds(false)
+    kneed(not win:IsShown(), "the keybinds window did not close")
+    print("== keybinds window ok (mouse, wheel, steal, escape, backspace, reset)")
 end
 
 -- ------------------------------------------------------ split boundary ----
@@ -1770,6 +1948,8 @@ do
         "VERSION", "PULSE_CAP",
         -- accessors: values that MOVE, so a copy would go stale
         "ESTarget", "ApplyBinds", "QueueReorder",
+        -- the bind engine: the Keybinds window lists its actions and sets keys
+        "BINDS",
         -- the one thing the window publishes back
         "CFG",
     }
@@ -1920,12 +2100,12 @@ do
     end
 
     -- 5. the budget. A word longer than the header gets trimmed by the console,
-    -- so the line NEVER draws under the close button. 700px window, 636px of
-    -- room, held at 600 (see the budget note in BiSHealing.lua).
+    -- so the line NEVER draws under the close button. The kit's 16 px bar:
+    -- 4 + prompt + the 12 px x at -3 (the header law).
     do
         local budget = BiSHealingUI.HeadBudget()
-        cneed(budget and budget <= 636,
-              ("the header budget is %s; a 700px window only has 636px of clear run")
+        cneed(budget and budget == BiSTheme.OPTIONS.W - 15 - 8,
+              ("the header budget is %s; the kit's 230 px bar has W - 15 - 8 of clear run")
               :format(tostring(budget)))
         con:Say(("wide"):rep(60), "warn")
         slice(0.6, con)
@@ -2002,21 +2182,28 @@ do
     end
 
     -- 7. the window's own events go to the header, not to chat. This is the
-    -- whole point of the console: chat is for /slash answers only.
+    -- whole point of the console: chat is for /slash answers only. The kit says
+    -- it on the CLICK, so click the row's own control, as a hand would.
     do
         local chatWas = #CHATLOG
         con:Clear()
-        BiSHealingUI.ConfigSet("rescan")
+        local row
+        for _, r in ipairs(_G["BiSHealingOptions"].rows) do
+            if r.opt and r.opt.key == "corners" then row = r end
+        end
+        cneed(row and row.ctl and row.ctl.__scripts.OnClick, "no corners row to click")
+        row.ctl.__scripts.OnClick(row.ctl)
         local said = false
         for _, q in ipairs(con.queue) do
-            if q.text == "ranks rescanned" then said = true end
+            if q.text:find("role corner markers", 1, true) then said = true end
         end
-        if not said and con.saying and con.saying.text == "ranks rescanned" then said = true end
-        cneed(said, "the rescan button did not report through the header")
+        if not said and con.saying and con.saying.text:find("role corner markers", 1, true) then said = true end
+        cneed(said, "a toggle click did not report through the header")
         for i = chatWas + 1, #CHATLOG do
-            cneed(not CHATLOG[i]:find("ranks rescanned", 1, true),
-                  "the rescan button ALSO printed to chat -- pick one, and it is the header")
+            cneed(not CHATLOG[i]:find("corner", 1, true),
+                  "the toggle ALSO printed to chat -- pick one, and it is the header")
         end
+        row.ctl.__scripts.OnClick(row.ctl)      -- back on
         con:Clear()
     end
 

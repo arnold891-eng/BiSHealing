@@ -147,17 +147,46 @@ unrestricted.
 Nothing here picks a target for you. You hover or click; your hand is the
 input.
 
-## Settings panel
+## Settings window
 
-Type `/bish` with nothing after it to open the settings window. Everything is a
-checkbox or a button — no commands to memorise:
+Type `/bish` with nothing after it. It is the same narrow window every BiS
+addon wears (BiSTheme's kit): one column, four sections — frames, chain heal,
+earth shield, wheel and keys — every feature a box, every number a `< >`
+stepper, the bar colour and the wheel mode a two-or-three-way switch. Every
+change says itself in the header prompt, never in chat. Escape closes it.
 
-- Checkboxes for every feature: frames, lock, role corner markers, pulse,
-  incoming fill, cast counter, bounce lines, gold chains, celebration, Gift
-  badge, mana RPM gauge, pets, firing trinkets on shift+left, mouse-wheel heals,
-  the Nature's Swiftness pip, totem reach, curable debuffs and the five-second
-  rule. Toggle any of them off if they get busy.
-- Buttons: Reorder now, Recenter, Rescan spells, Wipe history.
+Two buttons at the bottom: **keybinds** opens the Keybinds window (below) and
+**demo** walks every feature across your real group. The actions that used to
+be buttons are the slash commands they always were: `/bish reorder`, `center`,
+`rescan`, `resetsizes`, `esplan`, `peers`.
+
+## Keybinds — click the key, press the new one
+
+`/bish keys` (or the keybinds button). One row per action, the key it sits on
+beside it. Click the key and the row listens: the next keyboard key, mouse
+button or wheel turn becomes the bind. Escape keeps the old one, Backspace or
+Delete unbinds it, **reset all** puts every default back. A key another action
+held moves over, and the header says whose it was — one key, one job.
+
+| Action | Default |
+|---|---|
+| Chain Heal, two ranks down | left click |
+| Chain Heal, max rank (+ trinkets) | shift + left |
+| Earth Shield | right click |
+| Gift of the Naaru | button 4 |
+| Healing Wave, two ranks down | wheel up |
+| Nature's Swiftness + max Healing Wave (+ trinkets) | shift + wheel up |
+| Lesser Healing Wave, two ranks down | wheel down |
+| Lesser Healing Wave, max rank (+ trinkets) | shift + wheel down |
+| Cure Poison | button 5 |
+| Cure Disease | shift + button 5 |
+
+Any key works on any action. A mouse button lands on the frame you click; a
+keyboard key or the wheel fires on the frame under the cursor and does nothing
+anywhere else (the macro stops dead unless the cursor is over a living friend).
+Modifiers combine — `ctrl+shift+Q` is a fine bind. Keys are saved per
+character. Nothing here can change during a fight: a bind set mid-pull lands
+the moment combat ends, and the header says so.
 
 The typed commands below still work as shortcuts.
 
@@ -181,6 +210,7 @@ The typed commands below still work as shortcuts.
 | `/bish bind` | Print every click and wheel binding as it is actually set |
 | `/bish esplan` | Who should carry your Earth Shield, and who should carry the other shaman's |
 | `/bish dispel` | Every curable debuff met so far, per zone, most seen first |
+| `/bish keys` | The Keybinds window — click a key, press the new one |
 
 ## First session checklist
 
@@ -326,8 +356,9 @@ max-rank Healing Wave. Respec and it re-checks itself; you do not need to
 reload.
 
 The bindings are *override* bindings: they never touch your saved keybind
-profile, and they clear on `/reload`. All four wheel directions are taken, so
-camera zoom needs to live somewhere else — rebind it, or turn this off with
+profile, and they clear on `/reload`. All four wheel directions are taken by
+default, so camera zoom needs to live somewhere else — move any of the four to
+another key in the Keybinds window (`/bish keys`), or turn the wheel off with
 `/bish wheel off`.
 
 ### Nature's Swiftness pip

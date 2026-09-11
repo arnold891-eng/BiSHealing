@@ -109,6 +109,14 @@ local function newRegion(kind, parent)
     function r:RegisterForDrag() end
     function r:RegisterForClicks() end
     function r:StartMoving() end
+    -- what the options kit and the Keybinds window ask a frame for
+    function r:StopMovingOrSizing() end
+    function r:SetClampedToScreen() end
+    function r:EnableKeyboard(on) self.__keyboard = on and true or false end
+    function r:IsKeyboardEnabled() return self.__keyboard == true end
+    function r:SetPropagateKeyboardInput(on) self.__propagate = on end
+    function r:EnableMouseWheel() end
+    function r:GetFrameLevel() return 1 end
     function r:StopMovingOrSizing() end
     function r:SetBackdrop() end
     function r:SetMinMaxValues(lo, hi) self.__min, self.__max = lo, hi end
@@ -648,8 +656,16 @@ print("== reset ok")
 local function wneed(cond, what)
     if not cond then print("!! WHEEL: " .. what); os.exit(1) end
 end
-local wb = _G["BiSHealingWheel"]
-wneed(wb, "wheel button never created")
+-- the bind engine gives each wheel action its own hidden button; `wb` reads
+-- them by the old slot numbers so the cases below read as they always did
+local WSLOT = { "hwDown", "hwMax", "lhwDown", "lhwMax" }
+local wb = {}
+function wb:GetAttribute(attr)
+    local n = tonumber(attr:match("(%d)$"))
+    local b = _G["BiSHealingBind_" .. WSLOT[n]]
+    return b and b:GetAttribute((attr:gsub("%d$", "1")))
+end
+wneed(_G["BiSHealingBind_hwDown"], "wheel button never created")
 
 -- strict mode: two-press castsequence, and it must still be mouseover-gated
 BiSHealingDB.wheel, BiSHealingDB.wheelStrict = true, true

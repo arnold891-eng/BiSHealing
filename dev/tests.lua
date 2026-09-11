@@ -458,8 +458,17 @@ local function StaticForwardRefCheck(path)
         if #name > 2 then
             for i = 1, line - 1 do
                 local c = code[i]
-                -- a bare use: not a field (.name / :name) and not a table key
+                -- a bare use: not a field (.name / :name) and not a table key.
+                -- Called or subscripted anywhere; for a CHUNK local (column 0)
+                -- also `X.f` / `X:m` -- a table read above its own `local` line
+                -- is the same nil global as a call. The demo read AURAS.down 400
+                -- lines early and only the runtime tick caught it; now the
+                -- static pass does too. Indented locals are function-scoped and
+                -- reuse names (`page` is a parameter in one builder and a local
+                -- in another), so the field form is not applied to them.
+                local chunk = code[line]:find("^local%s")     -- column 0 = chunk local
                 local at = c:find("[^%w_.:]" .. name .. "%s*[(%[]")
+                       or (chunk and c:find("[^%w_.:]" .. name .. "%s*[%.:]"))
                 if at and not c:find("local%s+[%w_%s,]*" .. name) then
                     bad[#bad + 1] = ("%s used on line %d, declared on line %d")
                                     :format(name, i, line)
@@ -2058,6 +2067,226 @@ do
               :format(r, g, b))
         print("== theme ok (no BiSTheme addon; the fallback palette carried it)")
     end
+end
+
+-- ------------------------------------------ the WA-library ports ----
+-- Three techniques ported from the WA library (claude/wa-patterns-05): totem
+-- reach, the five-second rule, and curable debuffs. Each is proven the way the
+-- rest of this suite is: drive the client's side of it through the mock, tick,
+-- and read the pixels and the text -- never the function that computed them.
+do
+    local function wneed(cond, what)
+        if not cond then print("!! WA PORT: " .. what); os.exit(1) end
+    end
+    SlashCmdList.BISHEALING("sim off"); SlashCmdList.BISHEALING("show"); tick(3)
+    local function frameOf(unit)
+        for i = 1, 12 do
+            local f = _G["BiSHealingUnit" .. i]
+            if f and f.unit == unit and f:IsShown() then return f end
+        end
+    end
+
+    -- the mock grows the two things these ports read: totem slots, and auras
+    -- that honour the HELPFUL/HARMFUL filter. BUFFS/DEBUFFS[unit] are lists of
+    -- { name, kind } pairs on top of what the old mock already handed back.
+    TOTEMS = {}                      -- slot -> totem name as the client spells it
+    BUFFS, DEBUFFS = {}, {}
+    PARTY = { raid1 = true, raid2 = true, raid3 = true, raid4 = true }
+    function GetTotemInfo(slot)
+        local n = TOTEMS[slot]
+        if n then return true, n, 0, 300 end
+        return false, "", 0, 0
+    end
+    function UnitInParty(u) return PARTY[u] == true end
+    GetRealZoneText = function() return "Serpentshrine Cavern" end
+    local oldAura = UnitAura
+    function UnitAura(unit, i, filter)
+        if filter == "HARMFUL" then
+            local d = DEBUFFS[unit] and DEBUFFS[unit][i]
+            if d then return d[1], nil, 1, d[2] end
+            return nil
+        end
+        -- HELPFUL: the old mock's Earth Shield first, then this unit's extras
+        local base = { oldAura(unit, i, filter) }
+        if base[1] then return unpack(base) end
+        local extra = BUFFS[unit] and BUFFS[unit][i - ((ES_ON == unit) and 1 or 0)]
+        if extra then return extra[1] end
+        return nil
+    end
+
+    -- 1. TOTEM REACH ------------------------------------------------------
+    -- Healing Stream is down. raid2 carries its buff, raid3 does not, raid6 is
+    -- not in my party and must not be judged at all.
+    TOTEMS[1] = "Healing Stream Totem VI"
+    BUFFS.raid2 = { { "Healing Stream" } }
+    BUFFS.raid3 = { { "Water Shield" } }
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    local f2, f3, f6 = frameOf("raid2"), frameOf("raid3"), frameOf("raid6")
+    wneed(f2 and f3 and f6, "the roster frames for raid2/3/6 are not all up")
+    wneed(f3.totemOut:IsShown(), "raid3 has no Healing Stream buff while the totem is down -- the violet edge should be lit")
+    wneed(not f2.totemOut:IsShown(), "raid2 carries the buff -- the violet edge should be off")
+    wneed(not f6.totemOut:IsShown(), "raid6 is outside my party -- totems never reach him, so he must not be judged")
+    local c = f3.totemOut.__color
+    wneed(c and math.abs(c[1] - 0.62) < 0.01, "the edge is not painted in the totem colour")
+    -- tooltip explains the edge, naming the buff that is missing
+    print("== totem reach ok (missing buff = outside the totem; own party only)")
+
+    -- the rank suffix and the word Totem both come off: "Windfury Totem V"
+    -- looks for the "Windfury Totem" buff, and one missing buff is enough
+    TOTEMS[2] = "Windfury Totem V"
+    BUFFS.raid2 = { { "Healing Stream" } }         -- has stream, lacks windfury
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    wneed(f2.totemOut:IsShown(), "raid2 lacks the Windfury Totem buff now that Windfury is down -- edge should be lit")
+    BUFFS.raid2 = { { "Healing Stream" }, { "Windfury Totem" } }
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    wneed(not f2.totemOut:IsShown(), "raid2 carries both buffs -- edge should be off")
+    print("== totem names ok (rank and the word Totem stripped; every down totem checked)")
+
+    -- a totem with no party buff (Tremor) is never a range check
+    TOTEMS = { "Tremor Totem" }
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    wneed(not f3.totemOut:IsShown(), "Tremor has no buff to look for -- nothing should be judged")
+    -- the toggle
+    TOTEMS = { "Healing Stream Totem VI" }
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    wneed(f3.totemOut:IsShown(), "edge should be back with Healing Stream down again")
+    BiSHealingUI.ConfigSet("totemRange", false)
+    tick(12)
+    wneed(not f3.totemOut:IsShown(), "totemRange off must hide the edge")
+    BiSHealingUI.ConfigSet("totemRange", true)
+    tick(12)
+    wneed(f3.totemOut:IsShown(), "totemRange on must bring the edge back")
+    -- totems gone: nothing lit
+    TOTEMS = {}
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    tick(12)
+    wneed(not f3.totemOut:IsShown(), "no totem down -- edge must clear")
+    print("== totem reach toggles ok")
+
+    -- 2. FIVE-SECOND RULE --------------------------------------------------
+    -- The counter's regen column: while-casting regen (12/s -> +0.1 a downrank
+    -- per 5s at a 500 cost) inside the rule, full regen (30/s -> +0.3) once it
+    -- has run out. A cast that did not cost mana must not restart it.
+    MANA = 3000
+    function UnitPower() return MANA end
+    local counter
+    for _, fs in ipairs(ALLFS) do
+        local t = fs.__text
+        if t and t:find("|||r", 1, true) then counter = fs end
+    end
+    BiSHealingUI.ConfigSet("castCounter", true)
+    BiSHealingUI.ConfigSet("fsr", true)
+    AdvanceTime(6); tick(2)
+    for _, fs in ipairs(ALLFS) do
+        local t = fs.__text
+        if t and t:find("|||r", 1, true) then counter = fs end
+    end
+    wneed(counter, "no castable-heals counter text found")
+    wneed(counter.__text:find("+0.3", 1, true), "outside the rule the column should count full regen (+0.3): " .. counter.__text)
+    wneed(not counter.__text:find("s|r", 1, true), "no countdown should show outside the rule: " .. counter.__text)
+    -- a cast that cost mana: the clock starts
+    MANA = 2500
+    fireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", nil, 1064)
+    tick(2)
+    wneed(counter.__text:find("+0.1", 1, true), "inside the rule the column should be while-casting regen (+0.1): " .. counter.__text)
+    wneed(counter.__text:find("%d%.%ds|r"), "the seconds left should show inside the rule: " .. counter.__text)
+    -- 5s on: back to full regen, countdown gone
+    AdvanceTime(5.2); tick(2)
+    wneed(counter.__text:find("+0.3", 1, true), "five seconds after the cast the column should be full regen again: " .. counter.__text)
+    wneed(not counter.__text:find("s|r", 1, true), "the countdown should be gone: " .. counter.__text)
+    -- a free cast (mana unchanged) must not restart the clock
+    fireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", nil, 8143)
+    tick(2)
+    wneed(counter.__text:find("+0.3", 1, true), "a cast that cost nothing restarted the rule: " .. counter.__text)
+    -- the toggle: off means the old behaviour, while-casting regen always
+    MANA = 2000
+    fireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", nil, 1064)
+    BiSHealingUI.ConfigSet("fsr", false)
+    tick(2)
+    wneed(counter.__text:find("+0.1", 1, true) and not counter.__text:find("s|r", 1, true),
+          "fsr off should read as it always did (+0.1, no countdown): " .. counter.__text)
+    BiSHealingUI.ConfigSet("fsr", true)
+    print("== five-second rule ok (mana delta starts it, free casts do not, regen column follows)")
+
+    -- 3. CURABLE DEBUFFS ---------------------------------------------------
+    -- A shaman clears Poison and Disease. raid2 has a poison, raid3 a curse,
+    -- raid4 a disease behind a magic debuff. The mark is the client's colour.
+    DEBUFFS.raid2 = { { "Toxic Spores", "Poison" } }
+    DEBUFFS.raid3 = { { "Curse of Tongues", "Curse" } }
+    DEBUFFS.raid4 = { { "Holy Fire", "Magic" }, { "Vile Sludge", "Disease" } }
+    DebuffTypeColor = { Poison = { r = 0, g = 0.6, b = 0 }, Disease = { r = 0.6, g = 0.4, b = 0 } }
+    tick(8)
+    local f4 = frameOf("raid4")
+    wneed(f2.dispelMark:IsShown(), "raid2's poison should light the mark")
+    wneed(not f3.dispelMark:IsShown(), "a curse is not a shaman's to cure -- no mark on raid3")
+    wneed(f4.dispelMark:IsShown() and f4.dispelName == "Vile Sludge",
+          "raid4's disease behind a magic debuff should be found: " .. tostring(f4.dispelName))
+    local pc = f2.dispelMark.__color
+    wneed(pc and pc[2] > 0.5 and pc[1] < 0.1, "the poison mark should be the client's green")
+    local dc = f4.dispelMark.__color
+    wneed(dc and dc[1] > 0.5 and dc[2] > 0.3, "the disease mark should be the client's brown")
+    -- the header slot counts them
+    local con = BiSHealingUI.Console()
+    if con then
+        for _ = 1, 6 do BiSHealingUI.ConsoleTick(0.2) end   -- slots refresh once a second
+        wneed(con.slots and con.slots.cure and tostring(con.slots.cure.text):find("2 to cure", 1, true),
+              "the header should say 2 to cure: " .. tostring(con.slots and con.slots.cure and con.slots.cure.text))
+    end
+    -- /bish dispel lists them under the zone, disease and poison both
+    CHATLOG = {}
+    SlashCmdList.BISHEALING("dispel")
+    local body = table.concat(CHATLOG, "\n")
+    wneed(body:find("Serpentshrine Cavern", 1, true), "/bish dispel should name the zone: " .. body)
+    wneed(body:find("Toxic Spores", 1, true) and body:find("Vile Sludge", 1, true),
+          "/bish dispel should list both curable debuffs: " .. body)
+    wneed(not body:find("Curse of Tongues", 1, true), "/bish dispel must not bank a curse a shaman cannot cure")
+    -- a debuff that sits there is one sighting, not one per re-read
+    tick(30)
+    wneed(BiSHealingDB.dispelSeen["Serpentshrine Cavern"]["Toxic Spores"].n == 1,
+          "the same poison sitting on raid2 was banked more than once")
+    -- clears when cured, and the toggle hides it
+    DEBUFFS.raid2 = nil
+    tick(8)
+    wneed(not f2.dispelMark:IsShown(), "cured -- the mark should clear")
+    BiSHealingUI.ConfigSet("dispel", false)
+    tick(8)
+    wneed(not f4.dispelMark:IsShown(), "dispel off should hide the mark")
+    BiSHealingUI.ConfigSet("dispel", true)
+    tick(8)
+    wneed(f4.dispelMark:IsShown(), "dispel on should bring the mark back")
+    print("== curable debuffs ok (class-gated, client colour, per-zone list, one sighting each)")
+
+    -- 4. THE DEMO SHOWS ALL THREE -----------------------------------------
+    -- every feature gets a demo step; these three are steps 17-19 and must
+    -- paint without a live totem, cast or debuff behind them
+    DEBUFFS = {}; TOTEMS = {}
+    fireEvent("PLAYER_TOTEM_UPDATE")
+    SlashCmdList.BISHEALING("sim on")
+    local seen = {}
+    for _ = 1, 20 do
+        AdvanceTime(4.05); tick(2)
+        for _, fs in ipairs(ALLFS) do
+            -- the demo CAPTION only ("n/N  words"), not the settings window,
+            -- whose control labels use the same words
+            local t = fs.__text or ""
+            local words = t:match("^|cff44dd88%d+/%d+|r  (.*)")
+            if words then
+                if words:find("^Totem reach") then seen.totem = true end
+                if words:find("^Five%-second rule") then seen.fsr = true end
+                if words:find("^Curable debuff") then seen.dispel = true end
+            end
+        end
+    end
+    wneed(seen.totem and seen.fsr and seen.dispel,
+          ("the demo never reached all three new steps (totem %s, fsr %s, dispel %s)")
+          :format(tostring(seen.totem), tostring(seen.fsr), tostring(seen.dispel)))
+    SlashCmdList.BISHEALING("sim off")
+    print("== demo covers the three ports ok")
 end
 
 -- ------------------------------------------- forward-reference report ----

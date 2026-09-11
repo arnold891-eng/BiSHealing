@@ -2,7 +2,7 @@
 ## Title: BiS Healing
 ## Notes: Pyramid raid frames. Ranks by who actually takes damage, learns after every fight.
 ## Author: Kumlust
-## Version: 1.0-rc49
+## Version: 1.0-rc50
 ## OptionalDeps: BiSTheme
 ## SavedVariables: BiSHealingDB
 ## X-Category: Raid Frames

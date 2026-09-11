@@ -438,23 +438,55 @@ The prediction window tracks your **live** Chain Heal cast time, so Bloodlust an
 haste trinkets are accounted for — at 2.1s the addon predicts less far ahead than
 at 2.5s.
 
-## Mana RPM gauge
+## The psi plate — mana gauge and cast counter
 
-A horizontal bar for your healing (demo mode sweeps it through all four states
-so you can see the colours without a raid), built around the idea that burning mana is fine —
-mana tide and potions refill it — so the failure is *under*-spending. A near-empty bar
-(cruising, ending the fight at 80% mana) reads blue as the warning; a nearly full
-bar with heals landing reads amber "redline" as praise. A tick marks where the
-sweet spot begins. The one real red is
-"overhealing" — spending hard but into full health bars, the only kind of burn
-worth stopping.
+Above the pyramid sits one plate: a `BiS> Heal` prompt on top, a row of
+fourteen psi cells under it, and the cast counter along the bottom. It shows
+whenever either half has something to say and goes away when both are off.
 
-It reads your mana spend rate against a full-tilt reference and discounts by how
-much of your recent healing overhealed, so the needle rewards spend that lands.
+The prompt is the heads-up line. Standing state rotates through it every few
+seconds, refreshed twice a second: `NS up` / `NS 34s`, `mana 62%` (red under
+30), `2 sniped`, `3 to cure`, `sim`. Events cut in, fade, and the rotation
+resumes: the gauge's state word when it changes (`overhealing`, `cruising`,
+`sweet spot`, `redline`), `Nature's Swiftness up` the second it comes back.
+Nothing repeats itself. Earth Shield is not tracked here — the pips carry it,
+and the settings window's prompt still says `ES 4 Tanky` and `shield gone`.
 
-## Cast counter
+The nudges are for the glaring things only — never a heal or a shield, the
+corners already say where those go: in a fight, `cure Kumlu (Poison)` the
+moment a debuff you can clear lands (again every 20 s while it sits there),
+`Gift ready -- Kumlu` whenever Gift of the Naaru is up and there is someone
+worth it, `Mana Tide up` when the totem is ready and you are under 70% mana.
+Nothing out of combat.
 
-Above the pyramid sits `X | Y | +Z`:
+**Uptime** sits on the header's right edge for the whole fight, its own
+number, never in the rotation: busy seconds over fight seconds — a cast bar
+up, or the 1.5 s after any cast (an instant is a global cooldown of doing
+something). Starts at 100%, falls while you stand there, climbs while you
+cast. Green at 90 and up, grey to 75, red under.
+
+### The gauge
+
+Two facts, kept apart on purpose. The **cells** are how hard you are spending
+— mana per second against nonstop max-rank casting — lit left to right with a
+spark riding the tip. The **colour** is what is landing. So nonstop max-rank
+heals into a full health bar is fourteen red cells: spending everything, into
+nothing. The faint line at 55% is where "running hot" begins; cells past it
+burn brighter, because that is where you want to sit.
+
+- **cruising** (blue) — spending softly. Ending a fight at 80% mana is the
+  real failure, and this is what it looks like on the way there.
+- **sweet spot** (crystal blue) — spending hard, heals landing.
+- **redline** (gold) — flat out; fine for a burn phase, not for a whole fight.
+- **overhealing** (red) — spending hard into full health bars.
+
+The cells glide rather than snap (a spike still shows at once), and the word
+only changes when the reading crosses a line by a margin, so nothing flickers
+on the edge. The cells go dark between fights; the counter keeps the plate up.
+
+### The counter
+
+The bottom row of the plate reads `X | Y | +Z`:
 
 - **X** (blue) — how many downranked Chain Heals your mana covers right now
 - **Y** (amber) — how many max rank Chain Heals your mana covers right now

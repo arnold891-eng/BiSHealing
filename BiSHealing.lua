@@ -1023,82 +1023,23 @@ local function MakeFrame(i)
 end
 
 -- ------------------------------------------------------------- bindings --
---   left click        Chain Heal, two ranks down
---   shift + left      Chain Heal, max rank
---   right click       Earth Shield, max rank -- works in combat
+-- THE BIND ENGINE. Ten actions, each with a key. A key is a Blizzard binding
+-- string ("BUTTON1", "SHIFT-BUTTON5", "MOUSEWHEELUP", "CTRL-Q"); false = unbound.
+-- Defaults are the keys this addon always had, plus Button5 / shift+Button5 for
+-- the two cures (Arn, 11 Sep). Every key is changeable in the Keybinds window
+-- (click the key, press the new one) and lives in db.binds.
 --
--- Plain spell attributes, no macro conditional: right-click is meant to land
--- Earth Shield on that target mid-fight, whenever you decide to move it.
-local function ApplyBinds()
-    if InCombatLockdown() then return end
-    ResolveGiftKnown()
-    for _, f in ipairs(frames) do
-        local unit = f.unit
-        -- Left click: plain downranked Chain Heal, no trinkets on small heals.
-        f:SetAttribute("*type1", "spell")
-        f:SetAttribute("*spell1", chDownCast or CHAIN_HEAL)
-        f:SetAttribute("*macrotext1", nil)
-
-        -- Shift+left: the big heal. Fire both trinket slots first, then max-rank
-        -- Chain Heal on this unit. The /use lines are dumb on purpose -- a slot
-        -- that's on cooldown or holds a passive trinket is a harmless no-op, so
-        -- whatever is ready pops and nothing is ever held back. Trinket uses are
-        -- off the GCD, so the heal casts the same instant.
-        if unit and DB().trinkets and (chMaxCast or CHAIN_HEAL) then
-            f:SetAttribute("shift-type1", "macro")
-            -- slot 13 and 14 are the two trinkets; /use on a slot fires its
-            -- on-use, and is a silent no-op on a passive or one on cooldown.
-            -- Trinkets are off the GCD so the /cast lands the same press.
-            f:SetAttribute("shift-macrotext1",
-                ("/use 13\n/use 14\n/cast [@%s] %s"):format(unit, chMaxCast or CHAIN_HEAL))
-            f.shiftMacro = ("/use 13 | /use 14 | /cast [@%s] %s"):format(unit, chMaxCast or CHAIN_HEAL)
-        else
-            -- trinkets off, or sim frame: plain max-rank cast
-            f:SetAttribute("shift-type1", "spell")
-            f:SetAttribute("shift-spell1", chMaxCast or CHAIN_HEAL)
-            f:SetAttribute("shift-macrotext1", nil)
-        end
-
-        if unit and esMaxCast then
-            f:SetAttribute("*type2", "spell")
-            f:SetAttribute("*spell2", esMaxCast)
-            f:SetAttribute("*macrotext2", nil)
-            f:SetAttribute("unit", unit)
-        else
-            f:SetAttribute("*type2", nil)
-        end
-
-        -- Mouse button 4: Gift of the Naaru on this unit, same click-cast idea
-        -- as the others. Only bound if he actually has the spell; otherwise the
-        -- button stays free. Instant HoT, so no rank suffix needed.
-        if unit and giftKnown then
-            f:SetAttribute("*type4", "spell")
-            f:SetAttribute("*spell4", GIFT)
-            f:SetAttribute("*macrotext4", nil)
-        else
-            f:SetAttribute("*type4", nil)
-        end
-    end
-    if WHEEL.Apply then WHEEL.Apply() end
-end
-ApplyBindsRef = ApplyBinds
-
--- ------------------------------------------------------- wheel bindings --
---   scroll up             Healing Wave, two ranks down
---   shift + scroll up     Nature's Swiftness (if up) + max-rank Healing Wave
---   scroll down           Lesser Healing Wave, two ranks down
---   shift + scroll down   Lesser Healing Wave, max rank
---
--- The rule for trinkets is his, and it is a good one: any SHIFT press is a
--- press that matters, so both shifted wheel directions fire slots 13 and 14
--- exactly like shift+left does. The unshifted directions never do.
---
--- Both are MOUSEOVER ONLY: the macro stops dead unless the cursor is over a
--- living friendly unit, so scrolling anywhere else costs nothing. A wheel
--- "click" is not a real click -- the wheel cannot be handled by a secure frame
--- directly -- so the binding points at this one hidden secure button and the
--- modifier picks which mouse button it pretends was pressed. Left = plain,
--- right = shift.
+-- Two ways a key reaches the frames, picked by what the key IS:
+--   * a MOUSE BUTTON (BUTTONn) becomes a secure attribute on every frame --
+--     `shift-type5 = macro`, `shift-macrotext5 = /cast [@raid7] Cure Disease`.
+--     A click lands on the frame under the cursor, so no gate is needed.
+--   * a KEYBOARD key or the WHEEL cannot land on a frame, so each such action
+--     gets one hidden SecureActionButton and an OVERRIDE binding to it; its
+--     macro is gated on @mouseover so the key only fires over a living friend
+--     and stays free for whatever else it does elsewhere. Override bindings
+--     never touch his saved keybind profile and a /reload clears them.
+-- Attributes and override bindings are both locked in combat: a change asked
+-- for mid-fight is remembered and applied at PLAYER_REGEN_ENABLED.
 --
 -- Why NS and the heal live on the SAME press instead of two: attributes cannot
 -- be rewritten in combat, so the addon has no way to notice mid-fight that NS
@@ -1106,81 +1047,231 @@ ApplyBindsRef = ApplyBinds
 -- it also STALLS when NS is down -- the press does nothing at all, which is the
 -- one outcome that cannot happen on a tank at 10%. NS is off the GCD, so one
 -- press fires it and the instant Healing Wave together; when NS is on cooldown
--- the same press just hard-casts, and nothing is ever swallowed. /bish wheel
--- strict switches to the true two-press castsequence for anyone who wants it.
-WHEEL.btn = CreateFrame("Button", "BiSHealingWheel", UIParent,
-                        "SecureActionButtonTemplate")
-WHEEL.btn:SetSize(1, 1)
-WHEEL.btn:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -100, -100)
-WHEEL.btn:SetAlpha(0)
-WHEEL.btn:EnableMouse(false)           -- invisible and unclickable by hand;
-WHEEL.btn:RegisterForClicks("AnyDown") -- only the binding ever presses it
-WHEEL.btn:Show()                       -- a hidden button is not click-routable
+-- the same press just hard-casts. /bish wheel strict switches to the true
+-- two-press castsequence for anyone who wants it.
+local BINDS = { applied = {}, buttons = {} }
 
--- Stop unless the cursor is on a living friendly. Every wheel macro opens with
--- this, so scrolling over the world stays free for whatever else you bound.
+-- Stop unless the cursor is on a living friendly. Every hover macro opens with
+-- this, so a key over the world stays free for whatever else you bound.
 WHEEL.gate = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]"
 
-function WHEEL.Apply()
-    if not (SetOverrideBindingClick and ClearOverrideBindings) then return end
+-- `cast(at)` returns the macro body for a target token ("raid7" on a frame,
+-- "mouseover" on a hidden button). `pop` = trinkets ride it when the trinket
+-- switch is on: a slot on cooldown or holding a passive is a silent no-op, and
+-- trinket uses are off the GCD so the heal casts the same press.
+BINDS.ACTIONS = {
+    { key = "chainDown",  label = "Chain Heal, two ranks down", default = "BUTTON1",
+      cast = function(at) return ("/cast [@%s] %s"):format(at, chDownCast or CHAIN_HEAL) end },
+    { key = "chainMax",   label = "Chain Heal, max rank", default = "SHIFT-BUTTON1", pop = true,
+      cast = function(at) return ("/cast [@%s] %s"):format(at, chMaxCast or CHAIN_HEAL) end },
+    { key = "earthShield", label = "Earth Shield", default = "BUTTON2",
+      cast = function(at) return esMaxCast and ("/cast [@%s] %s"):format(at, esMaxCast) or nil end },
+    { key = "gift",       label = "Gift of the Naaru", default = "BUTTON4",
+      cast = function(at) return giftKnown and ("/cast [@%s] %s"):format(at, GIFT) or nil end },
+    { key = "hwDown",     label = "Healing Wave, two ranks down", default = "MOUSEWHEELUP",
+      cast = function(at) return ("/cast [@%s] %s"):format(at, WHEEL.down or WHEEL.max or WHEEL.HW) end },
+    { key = "hwMax",      label = "Nature's Swiftness + max Healing Wave", default = "SHIFT-MOUSEWHEELUP", pop = true,
+      cast = function(at)
+          local big = WHEEL.max or WHEEL.HW
+          if not WHEEL.ResolveKnown() then return ("/cast [@%s] %s"):format(at, big) end
+          if DB().wheelStrict then
+              -- true two-press: first press NS, second press the heal. Stalls
+              -- if NS is on cooldown -- that is the trade, and it is opt-in.
+              return ("/castsequence [@%s] reset=8/target %s, %s"):format(at, WHEEL.NS, big)
+          end
+          return ("/cast %s\n/cast [@%s] %s"):format(WHEEL.NS, at, big)
+      end },
+    { key = "lhwDown",    label = "Lesser Healing Wave, two ranks down", default = "MOUSEWHEELDOWN",
+      cast = function(at) return ("/cast [@%s] %s"):format(at, WHEEL.lDown or WHEEL.lMax or WHEEL.LHW) end },
+    { key = "lhwMax",     label = "Lesser Healing Wave, max rank", default = "SHIFT-MOUSEWHEELDOWN", pop = true,
+      cast = function(at) return ("/cast [@%s] %s"):format(at, WHEEL.lMax or WHEEL.LHW) end },
+    { key = "curePoison", label = "Cure Poison", default = "BUTTON5",
+      cast = function(at) return ("/cast [@%s] Cure Poison"):format(at) end },
+    { key = "cureDisease", label = "Cure Disease", default = "SHIFT-BUTTON5",
+      cast = function(at) return ("/cast [@%s] Cure Disease"):format(at) end },
+}
+-- the wheel family is gated by the wheel switch, as it always was
+BINDS.WHEEL_KEYS = { hwDown = true, hwMax = true, lhwDown = true, lhwMax = true }
+
+function BINDS.Action(key)
+    for _, a in ipairs(BINDS.ACTIONS) do if a.key == key then return a end end
+end
+
+-- the key an action currently has: db first, the default until he changes it,
+-- false once he has unbound it on purpose
+function BINDS.Get(key)
+    local a = BINDS.Action(key)
+    if not a then return nil end
+    local db = DB()
+    db.binds = db.binds or {}
+    local v = db.binds[key]
+    if v == nil then return a.default end
+    return v
+end
+
+-- Normalise a key string the way the client spells it: modifiers in ALT, CTRL,
+-- SHIFT order, upper case, base key last. "shift-ctrl-q" -> "CTRL-SHIFT-Q".
+function BINDS.Norm(keystr)
+    if not keystr or keystr == "" then return false end
+    keystr = keystr:upper()
+    local parts = {}
+    for p in keystr:gmatch("[^%-]+") do parts[#parts + 1] = p end
+    -- a literal "-" key comes through as an empty base; nothing binds to it
+    local base = table.remove(parts)
+    if not base then return false end
+    local has = {}
+    for _, m in ipairs(parts) do has[m] = true end
+    local out = {}
+    for _, m in ipairs({ "ALT", "CTRL", "SHIFT" }) do if has[m] then out[#out + 1] = m end end
+    out[#out + 1] = base
+    return table.concat(out, "-")
+end
+
+-- Split a normalised key into the secure-attribute modifier prefix the client
+-- resolves ("shift-ctrl-alt-" in THAT order, "*" for none) and the mouse-button
+-- number, or nil when the key is not a mouse button.
+function BINDS.Parse(keystr)
+    local parts = {}
+    for p in keystr:gmatch("[^%-]+") do parts[#parts + 1] = p end
+    local base = table.remove(parts)
+    local has = {}
+    for _, m in ipairs(parts) do has[m] = true end
+    local prefix = ""
+    for _, m in ipairs({ "SHIFT", "CTRL", "ALT" }) do if has[m] then prefix = prefix .. m:lower() .. "-" end end
+    if prefix == "" then prefix = "*" end
+    local n = base and tonumber(base:match("^BUTTON(%d+)$"))
+    return prefix, n, base
+end
+
+-- the macro for one action at one target token, trinkets folded in; nil when
+-- the spell is not his (Gift on a non-Draenei, Earth Shield before the rank
+-- probe) so the key stays free rather than casting an error
+function BINDS.Macro(a, at)
+    local body = a.cast(at)
+    if not body then return nil end
+    local pop = (a.pop and DB().trinkets) and "/use 13\n/use 14\n" or ""
+    if at == "mouseover" then return WHEEL.gate .. "\n" .. pop .. body end
+    return pop .. body
+end
+
+-- the hidden button a keyboard/wheel action presses; made once, on demand
+function BINDS.Button(a)
+    local b = BINDS.buttons[a.key]
+    if b then return b end
+    b = CreateFrame("Button", "BiSHealingBind_" .. a.key, UIParent, "SecureActionButtonTemplate")
+    b:SetSize(1, 1)
+    b:SetPoint("BOTTOMLEFT", UIParent, "BOTTOMLEFT", -100, -100)
+    b:SetAlpha(0)
+    b:EnableMouse(false)           -- invisible and unclickable by hand;
+    b:RegisterForClicks("AnyDown") -- only the binding ever presses it
+    b:Show()                       -- a hidden button is not click-routable
+    BINDS.buttons[a.key] = b
+    return b
+end
+
+-- Put every action where its key says. OUT OF COMBAT ONLY: attributes and
+-- override bindings are both locked once the pull starts, so the call is
+-- remembered and PLAYER_REGEN_ENABLED makes it.
+function BINDS.Apply()
     if InCombatLockdown() then WHEEL.pending = true; return end
-    ClearOverrideBindings(WHEEL.btn)
-    for i = 1, 4 do WHEEL.btn:SetAttribute("*type" .. i, nil) end
-    WHEEL.plainMacro, WHEEL.shiftMacro = nil, nil
-    WHEEL.dnMacro, WHEEL.dnShiftMacro = nil, nil
-    if not DB().wheel then return end
-
+    ResolveGiftKnown()
     WHEEL.ResolveKnown()
-    local down = WHEEL.down or WHEEL.max or WHEEL.HW
-    local big  = WHEEL.max or WHEEL.HW
-    -- trinkets ride the emergency press for the same reason they ride
-    -- shift+left: a slot on cooldown or holding a passive is a silent no-op.
-    local pop  = DB().trinkets and "/use 13\n/use 14\n" or ""
+    local db = DB()
 
-    WHEEL.plainMacro = ("%s\n/cast [@mouseover] %s"):format(WHEEL.gate, down)
-
-    if not WHEEL.known then
-        WHEEL.shiftMacro = ("%s\n%s/cast [@mouseover] %s")
-                           :format(WHEEL.gate, pop, big)
-    elseif DB().wheelStrict then
-        -- true two-press: first press NS, second press the heal. Stalls if NS
-        -- is on cooldown -- that is the trade, and it is opt-in.
-        WHEEL.shiftMacro = ("%s\n%s/castsequence [@mouseover] reset=8/target %s, %s")
-                           :format(WHEEL.gate, pop, WHEEL.NS, big)
-    else
-        WHEEL.shiftMacro = ("%s\n%s/cast %s\n/cast [@mouseover] %s")
-                           :format(WHEEL.gate, pop, WHEEL.NS, big)
+    -- clear what the previous pass put on the frames, then every hidden button
+    for _, f in ipairs(frames) do
+        for _, at in ipairs(BINDS.applied) do
+            f:SetAttribute(at[1] .. "type" .. at[2], nil)
+            f:SetAttribute(at[1] .. "macrotext" .. at[2], nil)
+            f:SetAttribute(at[1] .. "spell" .. at[2], nil)
+        end
+        if f.unit then f:SetAttribute("unit", f.unit) end
     end
+    wipe(BINDS.applied)
+    for _, b in pairs(BINDS.buttons) do
+        if ClearOverrideBindings then ClearOverrideBindings(b) end
+        b:SetAttribute("*type1", nil)
+        b:SetAttribute("*macrotext1", nil)
+    end
+    -- what the demo and /bish bind read back
+    WHEEL.plainMacro, WHEEL.shiftMacro, WHEEL.dnMacro, WHEEL.dnShiftMacro = nil, nil, nil, nil
 
-    -- Scroll DOWN: the fast heal. Same mouseover gate, same trinket rule --
-    -- shift pops them, plain does not.
-    local lDown = WHEEL.lDown or WHEEL.lMax or WHEEL.LHW
-    local lBig  = WHEEL.lMax or WHEEL.LHW
-    WHEEL.dnMacro      = ("%s\n/cast [@mouseover] %s"):format(WHEEL.gate, lDown)
-    WHEEL.dnShiftMacro = ("%s\n%s/cast [@mouseover] %s"):format(WHEEL.gate, pop, lBig)
+    for _, a in ipairs(BINDS.ACTIONS) do
+        local keystr = BINDS.Get(a.key)
+        local off = BINDS.WHEEL_KEYS[a.key] and not db.wheel
+        if keystr and not off then
+            local prefix, n = BINDS.Parse(keystr)
+            if n then
+                -- a mouse button: an attribute on every frame, aimed at its unit
+                BINDS.applied[#BINDS.applied + 1] = { prefix, n }
+                for _, f in ipairs(frames) do
+                    local m = f.unit and BINDS.Macro(a, f.unit)
+                    if m then
+                        f:SetAttribute(prefix .. "type" .. n, "macro")
+                        f:SetAttribute(prefix .. "macrotext" .. n, m)
+                    end
+                end
+                if a.key == "chainMax" then
+                    for _, f in ipairs(frames) do
+                        f.shiftMacro = f.unit and (BINDS.Macro(a, f.unit) or ""):gsub("\n", " | ") or nil
+                    end
+                end
+            elseif SetOverrideBindingClick then
+                -- a key or the wheel: its own hidden button, gated on mouseover
+                local m = BINDS.Macro(a, "mouseover")
+                if m then
+                    local b = BINDS.Button(a)
+                    b:SetAttribute("*type1", "macro")
+                    b:SetAttribute("*macrotext1", m)
+                    SetOverrideBindingClick(b, true, keystr, "BiSHealingBind_" .. a.key, "LeftButton")
+                    if a.key == "hwDown" then WHEEL.plainMacro = m
+                    elseif a.key == "hwMax" then WHEEL.shiftMacro = m
+                    elseif a.key == "lhwDown" then WHEEL.dnMacro = m
+                    elseif a.key == "lhwMax" then WHEEL.dnShiftMacro = m end
+                end
+            end
+        end
+    end
+end
+-- the names the rest of the file grew up with
+WHEEL.Apply = BINDS.Apply
+ApplyBindsRef = BINDS.Apply
 
-    WHEEL.btn:SetAttribute("*type1", "macro")
-    WHEEL.btn:SetAttribute("*macrotext1", WHEEL.plainMacro)
-    WHEEL.btn:SetAttribute("*type2", "macro")
-    WHEEL.btn:SetAttribute("*macrotext2", WHEEL.shiftMacro)
-    WHEEL.btn:SetAttribute("*type3", "macro")
-    WHEEL.btn:SetAttribute("*macrotext3", WHEEL.dnMacro)
-    WHEEL.btn:SetAttribute("*type4", "macro")
-    WHEEL.btn:SetAttribute("*macrotext4", WHEEL.dnShiftMacro)
+-- Give an action a key (or false to unbind it). Another action holding that
+-- key loses it -- one key, one job -- and its name comes back so the window
+-- can say so. Returns ok, stolenFromLabel.
+function BINDS.Set(key, keystr)
+    local a = BINDS.Action(key)
+    if not a then return false end
+    local db = DB()
+    db.binds = db.binds or {}
+    keystr = keystr and BINDS.Norm(keystr) or false
+    local stolen
+    if keystr then
+        for _, o in ipairs(BINDS.ACTIONS) do
+            if o.key ~= key and BINDS.Get(o.key) == keystr then
+                db.binds[o.key] = false
+                stolen = o.label
+            end
+        end
+    end
+    -- back on its default = forget the override, so a later default change reaches him
+    if keystr == a.default then db.binds[key] = nil else db.binds[key] = keystr end
+    BINDS.Apply()
+    return true, stolen
+end
 
-    -- Override bindings, not SetBinding: they never touch his saved keybind
-    -- profile, and a /reload clears them if anything here is wrong.
-    -- One button, four pretend mouse buttons: the suffix in the attribute name
-    -- is what the secure code resolves the click to (1 left, 2 right, 3 middle,
-    -- 4 button4), so the direction and the modifier together pick the macro.
-    SetOverrideBindingClick(WHEEL.btn, true, "MOUSEWHEELUP",
-                            "BiSHealingWheel", "LeftButton")
-    SetOverrideBindingClick(WHEEL.btn, true, "SHIFT-MOUSEWHEELUP",
-                            "BiSHealingWheel", "RightButton")
-    SetOverrideBindingClick(WHEEL.btn, true, "MOUSEWHEELDOWN",
-                            "BiSHealingWheel", "MiddleButton")
-    SetOverrideBindingClick(WHEEL.btn, true, "SHIFT-MOUSEWHEELDOWN",
-                            "BiSHealingWheel", "Button4")
+function BINDS.ResetAll()
+    DB().binds = {}
+    BINDS.Apply()
+end
+
+-- "SHIFT-BUTTON5" -> "shift+button5", for the window and the demo
+function BINDS.Pretty(keystr)
+    if not keystr then return "-- unbound --" end
+    local s = keystr:lower():gsub("mousewheelup", "wheel up"):gsub("mousewheeldown", "wheel down")
+                  :gsub("button(%d)", "button %1"):gsub("%-", "+")
+    return s
 end
 
 -- Lay the pyramid out. OUT OF COMBAT ONLY -- SetPoint on a secure frame is
@@ -1281,7 +1372,7 @@ local function Relayout()
     bullTarget, bullScore = nil, 0
     esBullTarget, giftBullTarget = nil, nil
 
-    ApplyBinds()
+    BINDS.Apply()
 
     local unlocked = not DB().locked
     anchorLabel:SetText(unlocked and "BiS Healing -- drag me" or "")
@@ -2000,7 +2091,7 @@ local DEMO_STEPS = {
     "Mana RPM gauge -- cruising through to overhealing",
     "Pulse -- who is under sustained damage",
     "Nature's Swiftness pip -- shift+scroll emergency (white = NS up)",
-    "Wheel binds -- what each scroll direction casts",
+    "Keybinds -- every action and the key it sits on (change them: /bish keys)",
     "Earth Shield stays put -- no new advice until the last pip",
     "Bar colours -- black, red when a downrank fits, flashing under fire",
     "Heal sizes -- tooltip vs what your casts actually land for",
@@ -2168,28 +2259,28 @@ DemoPaint = function()
         end
 
     elseif step == 10 then
-        -- The wheel binds have no artwork of their own -- they are four macros.
-        -- What the demo CAN show is the one thing worth forgetting: which rank
-        -- each direction actually casts on your current gear and training. So
-        -- the caption cycles the four of them, read live off the button.
-        local lines = {
-            ("scroll up  --  %s"):format(WHEEL.down or WHEEL.HW),
-            ("shift+scroll up  --  %s%s"):format(
-                (WHEEL.ResolveKnown() and not DB().wheelStrict)
-                    and (WHEEL.NS .. " + ") or "",
-                WHEEL.max or WHEEL.HW),
-            ("scroll down  --  %s"):format(WHEEL.lDown or WHEEL.LHW),
-            ("shift+scroll down  --  %s"):format(WHEEL.lMax or WHEEL.LHW),
-        }
-        local which = (math.floor((now - demo.at) / (DEMO_STEP / 4)) % 4) + 1
-        local shifted = (which % 2 == 0)
-        demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n|cffffff00%s|r%s")
-            :format(step, #DEMO_STEPS, DEMO_STEPS[step], lines[which],
-                    (shifted and DB().trinkets) and "  |cff888888(+ trinkets 13/14)|r" or ""))
-        if DB().wheel == false then
-            demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n|cffff5555wheel heals are OFF -- /bish wheel on|r")
-                :format(step, #DEMO_STEPS, DEMO_STEPS[step]))
+        -- The binds have no artwork of their own -- they are macros. What the
+        -- demo CAN show is the one thing worth forgetting: which key does what,
+        -- and which rank it actually casts on your current gear and training.
+        -- The caption walks the ten actions, read live off the bind engine.
+        local n = #BINDS.ACTIONS
+        local which = (math.floor((now - demo.at) / (DEMO_STEP / n)) % n) + 1
+        local a = BINDS.ACTIONS[which]
+        local keystr = BINDS.Get(a.key)
+        local off = BINDS.WHEEL_KEYS[a.key] and not DB().wheel
+        local what = (a.cast("target") or "(spell not known)")
+                         :gsub("\n", " + "):gsub("/cast ", ""):gsub("%[@target%] ", "")
+        local line
+        if off then
+            line = ("|cff888888%s  --  wheel heals are off (/bish wheel on)|r"):format(a.label)
+        elseif not keystr then
+            line = ("|cff888888%s  --  unbound|r"):format(a.label)
+        else
+            line = ("|cffffff00%s|r  --  %s%s"):format(BINDS.Pretty(keystr), what,
+                    (a.pop and DB().trinkets) and "  |cff888888(+ trinkets 13/14)|r" or "")
         end
+        demoCaption:SetText(("|cff44dd88%d/%d|r  %s\n%s")
+            :format(step, #DEMO_STEPS, DEMO_STEPS[step], line))
 
     elseif step == 11 then
         -- The Earth Shield hand-off, played out: a healthy shield draining its
@@ -4580,6 +4671,7 @@ NS.ES_HOLD, NS.demo          = ES_HOLD, demo
 NS.ShortName, NS.Relayout    = ShortName, Relayout
 NS.BuildHealOptions          = BuildHealOptions
 NS.VERSION, NS.PULSE_CAP     = VERSION, PULSE_CAP
+NS.BINDS                     = BINDS      -- the Keybinds window reads the actions and sets keys
 
 -- Three that a plain reference would get WRONG, because they are not values
 -- that sit still. Copying `esTarget` onto NS once hands the window whoever was
@@ -4920,6 +5012,9 @@ SlashCmdList.BISHEALING = function(msg)
         end
         if #ranked == 0 then Print("  nobody in range") end
 
+    elseif msg == "keys" or msg == "binds" or msg == "keybinds" then
+        local W = Window(); if W then W.ToggleBinds() end
+
     elseif msg == "dispel" then
         -- the per-zone list, written by what actually landed on the raid
         local seen = DB().dispelSeen or {}
@@ -5002,6 +5097,6 @@ SlashCmdList.BISHEALING = function(msg)
         end
 
     else
-        Print("unknown command -- open the settings window with /bish or /bish config, or: show | hide | center | frames | bands | bind | wheel | peers | snipe | resetsizes | bull | inc | sim on/off | score | esplan | dispel")
+        Print("unknown command -- open the settings window with /bish or /bish config, or: show | hide | center | frames | bands | bind | wheel | peers | snipe | resetsizes | bull | inc | sim on/off | score | esplan | dispel | keys")
     end
 end

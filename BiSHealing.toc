@@ -2,13 +2,14 @@
 ## Title: BiS Healing
 ## Notes: Pyramid raid frames. Ranks by who actually takes damage, learns after every fight.
 ## Author: Kumlust
-## Version: 1.0-rc50
+## Version: 1.0-rc51
 ## OptionalDeps: BiSTheme
 ## SavedVariables: BiSHealingDB
 ## X-Category: Raid Frames
 ## IconTexture: Interface\Icons\Spell_Nature_HealingWaveGreater
 
 Libs\BiSTheme\Console.lua
+Libs\BiSTheme\Options.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibHealComm-4.0\ChatThrottleLib.lua

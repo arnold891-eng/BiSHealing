@@ -1,15 +1,26 @@
 -- =========================================================================
--- BiS Healing -- UI/options.lua : the /bish settings window
+-- BiS Healing -- UI/options.lua : the /bish settings window, and the Keybinds
 --
--- Split out of BiSHealing.lua on 9 Sep 2026. Nothing here decides anything: it
--- reads and writes saved variables, paints chrome, and carries the header
--- console. Every judgement -- who to shield, who is losing a heal race, what a
--- rank is worth -- stays in BiSHealing.lua and is only ever READ from here.
+-- Two windows since 11 Sep 2026:
 --
--- The line between the two is the NS block at the bottom of BiSHealing.lua. If
--- a name is not published there, this file cannot reach it, and that is the
--- point. Anything this file needs that is not in that block is a sign the
--- window is about to start deciding something, which is not its job.
+--   * OPTIONS -- BiSTheme's shared kit (Libs\BiSTheme\Options.lua, the 230 px
+--     window every BiS addon wears; [[bis-options]] is the law). Every setting
+--     that is a switch, a stepper, a seg or a button lives here. The old
+--     700x500 four-tab panel is gone; what used to be a slider is a stepper
+--     (exact, and it clamps), and the six action buttons are the slash commands
+--     they always were (/bish reorder, center, rescan, resetsizes, esplan, peers).
+--
+--   * KEYBINDS -- the one thing the four kinds cannot do: click a key, press the
+--     new one. Ten actions from the bind engine (NS.BINDS in BiSHealing.lua),
+--     each on a mouse button, a wheel direction or a keyboard key. Own chrome,
+--     same shades as the kit, opened from the options window's "keybinds" row.
+--
+-- Nothing here decides anything: it reads and writes saved variables, paints
+-- chrome, and carries the header console. Every judgement -- who to shield,
+-- who is losing a heal race, what a rank is worth -- stays in BiSHealing.lua
+-- and is only ever READ from here. The line between the two is the NS block at
+-- the bottom of BiSHealing.lua. If a name is not published there, this file
+-- cannot reach it, and that is the point.
 -- =========================================================================
 
 local ADDON, NS = ...
@@ -18,8 +29,7 @@ NS = NS or {}
 
 -- Captured as locals at load, which is safe ONLY because the TOC runs
 -- BiSHealing.lua before this file: every one of these is already published by
--- the time this line runs. Load this file first and they are all silently nil,
--- the window builds out of empty tables, and nothing errors until you open it.
+-- the time this line runs. Load this file first and they are all silently nil.
 local Print, DB, UIX            = NS.Print, NS.DB, NS.UIX
 local frames, anchor            = NS.frames, NS.anchor
 local WHEEL, SNIPE, COMM        = NS.WHEEL, NS.SNIPE, NS.COMM
@@ -27,45 +37,20 @@ local ES_HOLD, demo             = NS.ES_HOLD, NS.demo
 local ShortName, Relayout       = NS.ShortName, NS.Relayout
 local BuildHealOptions          = NS.BuildHealOptions
 local VERSION, PULSE_CAP        = NS.VERSION, NS.PULSE_CAP
+local BINDS                     = NS.BINDS
 
 -- Anything that MOVES is fetched through a function instead -- see the note on
 -- NS.ESTarget in BiSHealing.lua. A local copy of a moving value is a bug that
 -- looks like working code.
 
--- ------------------------------------------------------- options window --
---
--- Flat, layered, FojjiCore-shaped, BiS-coloured: surfaces step a shade lighter
--- as they come forward, borders are four 1px textures, every widget is
--- hand-built. No Blizzard templates -- the old panel used
--- InterfaceOptionsCheckButtonTemplate and inherited its label quirks on three
--- different clients.
---
--- ONE chunk local for the whole window. This file sits a handful of names under
--- Lua 5.1's 200-local ceiling (bislint's local-budget rule), and the reference
--- implementation in BiS Gamba declares about twenty locals for the same job --
--- which here would simply refuse to load. Everything hangs off CFG.
---
--- The rule that keeps this honest: every control reads and writes the SAME
--- saved-variable key the slash commands already use. There is no second copy of
--- the settings, so the window and /bish can never disagree.
-local CFG = { built = false, tab = "Frames", controls = {}, tabs = {}, pages = {} }
+-- ONE chunk local for the whole file, as before: everything hangs off CFG.
+local CFG = { built = false, byKey = {} }
 
--- BiSTheme if it is installed (## OptionalDeps), otherwise an inline copy of
--- the same tokens. The addon must not care: an optional dependency that turns
--- into a nil index is just a crash with extra steps.
--- RESOLVED PER CALL, PER COLOUR NAME -- never captured at file load.
---
--- `CFG.T = BiSTheme or {inline}` looked right and was wrong for the life of this
--- addon. That line runs while the file loads, and the client loads addons in
--- alphabetical order: BiSHealing comes before BiSTheme, so _G.BiSTheme is nil
--- at that moment, every session, on every machine. The addon has therefore been
--- running on its own inline copy since the day it was written -- invisible only
--- because the two palettes happen to match. The first time Arn recolours
--- BiSTheme, BiSHealing would ignore him, which is the entire reason BiSTheme
--- exists. BiSJC had the identical bug.
---
--- So nothing is captured. Each lookup asks the live global, per name, and only
--- falls back for a name the shared addon does not define.
+-- ------------------------------------------------------------ palette --
+-- BiSTheme if it is installed, otherwise an inline copy of the same tokens.
+-- RESOLVED PER CALL, PER COLOUR NAME -- never captured at file load: the client
+-- loads addons alphabetically, BiSHealing before BiSTheme, so _G.BiSTheme is
+-- nil while this file runs, every session, on every machine.
 CFG.FALLBACK_HEX = {
     ink = "ece8f6", ink2 = "c6bedd", muted = "968ead", dim = "8e86a6",
     accent = "b980ff", good = "4fd0cf", warn = "f08cb0", gold = "e5c04a",
@@ -86,15 +71,13 @@ function CFG.T.rgba(name, a)
     return r, g, b, a or 1
 end
 
--- shades, darkest (furthest back) to lightest (most forward)
+-- the five chrome shades, the same values the kit carries
 function CFG.hx(h)
     return tonumber(h:sub(1,2),16)/255, tonumber(h:sub(3,4),16)/255, tonumber(h:sub(5,6),16)/255
 end
 CFG.SH = {
     frame   = { CFG.hx("0d0b18") },
     header  = { CFG.hx("141127") },
-    sidebar = { CFG.hx("191531") },
-    content = { CFG.hx("1f1a3a") },
     field   = { CFG.hx("17132e") },
     hair    = { CFG.hx("2a2446") },
     edge    = { CFG.hx("3a3260") },
@@ -103,32 +86,12 @@ function CFG.shade(name, a) local c = CFG.SH[name]; return c[1], c[2], c[3], a o
 
 function CFG.tex(parent, layer, name, a)
     local t = parent:CreateTexture(nil, layer)
-    -- Both branches pass a FULL argument list on purpose. Writing this as
-    -- `t:SetColorTexture(cond and select(1, T.rgba(n,a)) or CFG.shade(n,a))`
-    -- truncates to one value and the client throws, killing the whole window --
-    -- the trap the Gamba build hit. The harness now errors on it too.
+    -- Both branches pass a FULL argument list on purpose: `cond and select(1,
+    -- T.rgba(n,a)) or CFG.shade(n,a)` truncates to one value and the client
+    -- throws, killing the whole window. The harness errors on it too.
     if CFG.SH[name] then t:SetColorTexture(CFG.shade(name, a))
     else t:SetColorTexture(CFG.T.rgba(name, a)) end
     return t
-end
-
-function CFG.border(f, name, a)
-    local col = {}
-    local function bar()
-        local b = f:CreateTexture(nil, "BORDER")
-        b:SetColorTexture(CFG.T.rgba(name, a or 1))
-        return b
-    end
-    col.top = bar();    col.top:SetPoint("TOPLEFT");       col.top:SetPoint("TOPRIGHT");       col.top:SetHeight(1)
-    col.bottom = bar(); col.bottom:SetPoint("BOTTOMLEFT"); col.bottom:SetPoint("BOTTOMRIGHT"); col.bottom:SetHeight(1)
-    col.left = bar();   col.left:SetPoint("TOPLEFT");      col.left:SetPoint("BOTTOMLEFT");    col.left:SetWidth(1)
-    col.right = bar();  col.right:SetPoint("TOPRIGHT");    col.right:SetPoint("BOTTOMRIGHT");  col.right:SetWidth(1)
-    function col:set(n, aa)
-        for _, b in pairs(self) do
-            if type(b) == "table" and b.SetColorTexture then b:SetColorTexture(CFG.T.rgba(n, aa or 1)) end
-        end
-    end
-    return col
 end
 
 function CFG.fs(parent, text, size, colorName)
@@ -139,10 +102,10 @@ function CFG.fs(parent, text, size, colorName)
     return f
 end
 
+-- ----------------------------------------------------------- effects --
 -- Live effects. Anything a setting changes that is not just a colour next tick
 -- happens here -- and siblings are reached through the tables they live on
--- (WHEEL, SNIPE, UIX), never a bare name, because half of them are declared
--- lower in the file than this block.
+-- (WHEEL, SNIPE, UIX), never a bare name.
 function CFG.Apply()
     local db = DB()
     UIX.NAME_MAX = db.nameLen or UIX.NAME_MAX
@@ -156,444 +119,133 @@ function CFG.Apply()
     wipe(SNIPE.cache)
 end
 
-CFG.ROW_H = 30
-
-function CFG.Check(page, y, id, label, tip, get, set)
-    local row = CreateFrame("Button", nil, page)
-    row:SetSize(page.w, CFG.ROW_H); row:SetPoint("TOPLEFT", 0, y)
-    local box = CreateFrame("Frame", nil, row)
-    box:SetSize(18, 18); box:SetPoint("LEFT", 0, 0)
-    local bg = CFG.tex(box, "BACKGROUND", "field"); bg:SetAllPoints()
-    local bd = CFG.border(box, "edge")
-    local fill = CFG.tex(box, "ARTWORK", "accent")
-    fill:SetPoint("TOPLEFT", 4, -4); fill:SetPoint("BOTTOMRIGHT", -4, 4)
-    local lbl = CFG.fs(row, label, 12, "ink"); lbl:SetPoint("LEFT", box, "RIGHT", 10, 0)
-    local function paint()
-        if get() then fill:Show(); bd:set("accent", 0.8) else fill:Hide(); bd:set("edge") end
-    end
-    local ctrl = { paint = paint }
-    function ctrl.set(v) set(v and true or false); paint(); CFG.Apply() end
-    function ctrl.get() return get() and true or false end
-    row:SetScript("OnClick", function() ctrl.set(not get()) end)
-    row:SetScript("OnEnter", function()
-        bd:set("accent", 0.8)
-        if tip and not GameTooltip:IsForbidden() then
-            GameTooltip:SetOwner(row, "ANCHOR_TOPLEFT")
-            GameTooltip:SetText(label)
-            GameTooltip:AddLine(tip, 0.6, 0.63, 0.67, true)
-            GameTooltip:Show()
-        end
-    end)
-    row:SetScript("OnLeave", function() paint(); if not GameTooltip:IsForbidden() then GameTooltip:Hide() end end)
-    paint()
-    CFG.controls[id] = ctrl
-    return y - CFG.ROW_H
+-- An event the WINDOW wants to report. Chat is for slash answers; anything the
+-- addon says about what it is doing goes to the header instead -- and only
+-- falls back to Print when the window has never been opened.
+function CFG.Say(text, colour)
+    if CFG.con then CFG.con:Say(text, colour) else Print(text) end
 end
 
-function CFG.Seg(page, y, id, label, options, get, set)
-    local row = CreateFrame("Frame", nil, page)
-    row:SetSize(page.w, CFG.ROW_H); row:SetPoint("TOPLEFT", 0, y)
-    CFG.fs(row, label, 12, "ink"):SetPoint("LEFT", 0, 0)
-    local pills, x = {}, 0
-    local function paint()
-        for v, p in pairs(pills) do
-            local on = (get() == v)
-            if on then p.bg:SetColorTexture(CFG.T.rgba("accent", 0.18))
-            else p.bg:SetColorTexture(CFG.shade("field")) end
-            p.bd:set(on and "accent" or "edge", on and 0.8 or 1)
-            p.lbl:SetTextColor(CFG.T.rgb(on and "accent" or "muted"))
-        end
-    end
-    local ctrl = { paint = paint }
-    function ctrl.set(v) set(v); paint(); CFG.Apply() end
-    function ctrl.get() return get() end
-    for i = #options, 1, -1 do
-        local opt = options[i]
-        local w = opt.w or 58
-        local p = CreateFrame("Button", nil, row)
-        p:SetSize(w, 20); p:SetPoint("RIGHT", -x, 0)
-        p.bg = CFG.tex(p, "BACKGROUND", "field"); p.bg:SetAllPoints()
-        p.bd = CFG.border(p, "edge")
-        p.lbl = CFG.fs(p, opt.label, 11, "muted"); p.lbl:SetPoint("CENTER")
-        p:SetScript("OnClick", function() ctrl.set(opt.v) end)
-        p:SetScript("OnEnter", function() if get() ~= opt.v then p.bd:set("accent", 0.6) end end)
-        p:SetScript("OnLeave", function() paint() end)
-        pills[opt.v] = p
-        x = x + w + 4
-    end
-    paint()
-    CFG.controls[id] = ctrl
-    return y - CFG.ROW_H
+-- ------------------------------------------------------- the option list --
+-- Labels are plain words under ~24 characters: the kit's budget is W - 12 - 110
+-- and BiSTheme.Fit is the net, not the plan. `key` is what ConfigSet / ConfigGet
+-- address; every toggle's `set` writes the same saved-variable key the slash
+-- commands read, then CFG.Apply for the side effects.
+local function tog(key, label, dbKey, default)
+    return { key = key, kind = "toggle", label = label,
+        get = function(db) local v = db[dbKey]; if v == nil then return default end; return v end,
+        set = function(db, on) db[dbKey] = on and true or false; CFG.Apply() end }
 end
 
-function CFG.Slider(page, y, id, label, lo, hi, step, fmt, get, set)
-    local row = CreateFrame("Frame", nil, page)
-    row:SetSize(page.w, CFG.ROW_H + 6); row:SetPoint("TOPLEFT", 0, y)
-    CFG.fs(row, label, 12, "ink"):SetPoint("TOPLEFT", 0, 0)
-    local val = CFG.fs(row, "", 12, "accent"); val:SetPoint("TOPRIGHT", 0, 0)
-    local track = CreateFrame("Frame", nil, row)
-    track:SetPoint("TOPLEFT", 0, -18); track:SetPoint("TOPRIGHT", 0, -18); track:SetHeight(6)
-    CFG.tex(track, "BACKGROUND", "field"):SetAllPoints()
-    CFG.border(track, "edge")
-    local sl = CreateFrame("Slider", nil, track)
-    sl:SetAllPoints(); sl:SetOrientation("HORIZONTAL")
-    sl:SetMinMaxValues(lo, hi); sl:SetValueStep(step)
-    if sl.SetObeyStepOnDrag then sl:SetObeyStepOnDrag(true) end
-    local thumb = sl:CreateTexture(nil, "OVERLAY")
-    thumb:SetColorTexture(CFG.T.rgba("accent", 1)); thumb:SetSize(10, 16)
-    sl:SetThumbTexture(thumb)
-    local guard = false
-    local function show(v) val:SetText(fmt and fmt(v) or tostring(v)) end
-    local ctrl = {}
-    function ctrl.set(v)
-        v = math.max(lo, math.min(hi, v))
-        -- guard so a programmatic SetValue does not bounce back through
-        -- OnValueChanged and write the db a second time
-        guard = true; sl:SetValue(v); guard = false
-        set(v); show(v); CFG.Apply()
-    end
-    function ctrl.get() return get() end
-    sl:SetScript("OnValueChanged", function(_, v)
-        if guard then return end
-        if step >= 1 then v = math.floor(v + 0.5) end
-        set(v); show(v); CFG.Apply()
-    end)
-    guard = true; sl:SetValue(get()); guard = false; show(get())
-    CFG.controls[id] = ctrl
-    return y - (CFG.ROW_H + 12)
+function CFG.OptionSections()
+    return {
+        { title = "frames", options = {
+            tog("shown", "show the frames", "shown", true),
+            tog("locked", "lock the anchor", "locked", true),
+            tog("pets", "show pets", "pets", true),
+            { key = "nameLen", kind = "step", label = "name length", min = 3, max = 12, step = 1,
+              get = function(db) return db.nameLen or UIX.NAME_MAX end,
+              set = function(db, v) db.nameLen = v; CFG.Apply() end,
+              show = function(db) return (db.nameLen or UIX.NAME_MAX) .. " letters" end },
+            { key = "bars", kind = "seg", label = "bar colour", values = { "black", "bands" },
+              get = function(db) return db.plainBars and "black" or "bands" end,
+              set = function(db, v) db.plainBars = (v == "black"); CFG.Apply() end },
+            { key = "redPct", kind = "step", label = "red at this much of a downrank", min = 0.5, max = 1.5, step = 0.05,
+              get = function(db) return db.redPct or 1 end,
+              set = function(db, v) db.redPct = v end,
+              show = function(db) return ("%.0f%%"):format((db.redPct or 1) * 100) end },
+            tog("corners", "role corner markers", "corners", true),
+            tog("pulse", "pulse under damage", "pulse", true),
+            { key = "pulseCap", kind = "step", label = "how many may pulse", min = 1, max = 6, step = 1,
+              get = function(db) return db.pulseCap or PULSE_CAP end,
+              set = function(db, v) db.pulseCap = v end,
+              show = function(db) return tostring(db.pulseCap or PULSE_CAP) end },
+            tog("totemRange", "totem reach", "totemRange", true),
+            tog("dispel", "curable debuffs", "dispel", true),
+        } },
+        { title = "chain heal", options = {
+            tog("bounceLines", "bounce lines", "bounceLines", true),
+            tog("goldChains", "gold on a full chain", "goldChains", true),
+            tog("celebrate", "celebrate a full chain", "celebrate", true),
+            tog("critBrag", "announce a triple crit", "critBrag", true),
+            { key = "bragGap", kind = "step", label = "not more often than", min = 5, max = 120, step = 5,
+              get = function(db) return db.bragGap or UIX.BRAG_GAP end,
+              set = function(db, v) db.bragGap = v end,
+              show = function(db) return (db.bragGap or UIX.BRAG_GAP) .. " s" end },
+            tog("healRace", "heal race counter", "healRace", true),
+            tog("incomingFill", "incoming-heal fill", "incomingFill", true),
+            tog("castCounter", "castable-heals counter", "castCounter", true),
+            tog("fsr", "five-second rule", "fsr", true),
+            tog("rpm", "mana gauge", "rpm", true),
+        } },
+        { title = "earth shield", options = {
+            { key = "esQuiet", kind = "step", label = "quiet above", min = 1, max = 6, step = 1,
+              get = function(db) return db.esQuiet or ES_HOLD.quiet end,
+              set = function(db, v) db.esQuiet = v end,
+              show = function(db) local v = db.esQuiet or ES_HOLD.quiet; return v .. (v == 1 and " charge" or " charges") end },
+            tog("nsPip", "Nature's Swiftness pip", "nsPip", true),
+            tog("giftBadge", "Gift badge", "giftBadge", true),
+        } },
+        { title = "wheel and keys", options = {
+            { key = "wheelMode", kind = "seg", label = "wheel heals", values = { "off", "one", "two" },
+              get = function(db)
+                  if not db.wheel then return "off" end
+                  return db.wheelStrict and "two" or "one"
+              end,
+              set = function(db, v)
+                  db.wheel = (v ~= "off"); db.wheelStrict = (v == "two"); CFG.Apply()
+              end },
+            tog("trinkets", "trinkets on shift", "trinkets", true),
+            { key = "keybinds", kind = "button", label = "click a key, press a new one", button = "keybinds",
+              action = function() CFG.ToggleBinds(true) end },
+            { key = "demo", kind = "button", label = "walk every feature", button = "demo",
+              action = function() SlashCmdList.BISHEALING(demo.on and "sim off" or "sim on") end },
+        } },
+    }
 end
 
-function CFG.Btn(page, y, id, label, tip, onclick, colorName)
-    local b = CreateFrame("Button", nil, page)
-    b:SetSize(160, 22); b:SetPoint("TOPLEFT", 0, y)
-    CFG.tex(b, "BACKGROUND", "field"):SetAllPoints()
-    local bd = CFG.border(b, "edge")
-    local lbl = CFG.fs(b, label, 12, colorName or "ink2"); lbl:SetPoint("CENTER")
-    b:SetScript("OnClick", function() onclick() end)
-    b:SetScript("OnEnter", function()
-        bd:set(colorName == "warn" and "warn" or "accent", 0.8)
-        if tip and not GameTooltip:IsForbidden() then
-            GameTooltip:SetOwner(b, "ANCHOR_TOPLEFT")
-            GameTooltip:SetText(tip, nil, nil, nil, nil, true)
-            GameTooltip:Show()
-        end
-    end)
-    b:SetScript("OnLeave", function() bd:set("edge"); if not GameTooltip:IsForbidden() then GameTooltip:Hide() end end)
-    if id then CFG.controls[id] = { click = onclick, get = function() return true end } end
-    return y - 30
-end
-
-function CFG.Caption(page, y, text)
-    CFG.fs(page, string.upper(text), 10, "muted"):SetPoint("TOPLEFT", 0, y)
-    return y - 20
-end
-
--- pages ---------------------------------------------------------------------
-
-function CFG.BuildFrames(page)
-    local db = DB()
-    local y = 0
-    y = CFG.Caption(page, y, "Bars")
-    y = CFG.Seg(page, y, "bars", "Bar colour",
-        { { v = "black", label = "black", w = 58 }, { v = "bands", label = "rank bands", w = 76 } },
-        function() return DB().plainBars and "black" or "bands" end,
-        function(v) DB().plainBars = (v == "black") end)
-    y = CFG.Slider(page, y, "redPct", "Red at this much of a downrank", 0.5, 1.5, 0.05,
-        function(v) return ("%.0f%%"):format(v * 100) end,
-        function() return DB().redPct or 1 end, function(v) DB().redPct = v end)
-    y = CFG.Slider(page, y, "nameLen", "Name length", 3, 12, 1,
-        function(v) return v .. " letters" end,
-        function() return DB().nameLen or UIX.NAME_MAX end,
-        function(v) DB().nameLen = v; UIX.NAME_MAX = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Markers")
-    y = CFG.Check(page, y, "corners", "Role corner markers",
-        "Green for the Chain Heal target, amber for Earth Shield, orange for Gift of the Naaru.",
-        function() return DB().corners end, function(v) DB().corners = v end)
-    y = CFG.Check(page, y, "pulse", "Pulse under sustained damage",
-        "Flashes red over the bar of whoever is still being hit -- different from the steady red that only means the hole is big.",
-        function() return DB().pulse end, function(v) DB().pulse = v end)
-    y = CFG.Slider(page, y, "pulseCap", "How many may pulse at once", 1, 6, 1,
-        function(v) return tostring(v) end,
-        function() return DB().pulseCap or PULSE_CAP end, function(v) DB().pulseCap = v end)
-    y = CFG.Check(page, y, "totemRange", "Totem reach",
-        "Violet right edge on a party member standing outside a buff totem of yours -- judged from the missing buff.",
-        function() return DB().totemRange ~= false end, function(v) DB().totemRange = v end)
-    y = CFG.Check(page, y, "dispel", "Curable debuffs",
-        "A small square low on the right, in the debuff's colour, for anything your class can cure. /bish dispel lists what each zone has thrown.",
-        function() return DB().dispel ~= false end, function(v) DB().dispel = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Roster")
-    y = CFG.Check(page, y, "shown", "Show the frames",
-        "The whole pyramid. Same as /bish show and /bish hide.",
-        function() return DB().shown ~= false end, function(v) DB().shown = v end)
-    y = CFG.Check(page, y, "locked", "Lock the anchor",
-        "Unlocked shows a green drag bar and the settings button above the pyramid.",
-        function() return DB().locked end, function(v) DB().locked = v end)
-    y = CFG.Check(page, y, "pets", "Show pets",
-        "Half-size frames for pets. They often sit between tank and melee and make a good Chain Heal bridge.",
-        function() return DB().pets ~= false end, function(v) DB().pets = v end)
-end
-
-function CFG.BuildChain(page)
-    local y = 0
-    y = CFG.Caption(page, y, "Bounce lines")
-    y = CFG.Check(page, y, "bounceLines", "Draw the bounces",
-        "A fading line from each target to the next as a chain resolves.",
-        function() return DB().bounceLines end, function(v) DB().bounceLines = v end)
-    y = CFG.Check(page, y, "goldChains", "Gold on a full 3-target chain",
-        "Repaints that cast's lines gold once the cluster closes.",
-        function() return DB().goldChains end, function(v) DB().goldChains = v end)
-    y = CFG.Check(page, y, "celebrate", "Celebrate a full chain",
-        "Sparks from the primary target. Three targets AND three crits gets the big gold-white burst.",
-        function() return DB().celebrate end, function(v) DB().celebrate = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Bragging")
-    y = CFG.Check(page, y, "critBrag", "Announce a triple crit",
-        "Three targets and three crits says so in PARTY chat -- your subgroup only, throttled.",
-        function() return DB().critBrag end, function(v) DB().critBrag = v end)
-    y = CFG.Slider(page, y, "bragGap", "Not more often than", 5, 120, 5,
-        function(v) return v .. "s" end,
-        function() return DB().bragGap or UIX.BRAG_GAP end, function(v) DB().bragGap = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Other healers")
-    y = CFG.Check(page, y, "healRace", "Heal race counter",
-        "How many heals are converging on a target, yours included. Red means someone else lands first.",
-        function() return DB().healRace ~= false end, function(v) DB().healRace = v end)
-    y = CFG.Check(page, y, "incomingFill", "Incoming-heal fill",
-        "Shows on the bar where inbound heals will land.",
-        function() return DB().incomingFill end, function(v) DB().incomingFill = v end)
-    y = CFG.Check(page, y, "castCounter", "Castable-heals counter",
-        "The X | Y | +Z readout above the pyramid.",
-        function() return DB().castCounter end, function(v) DB().castCounter = v end)
-    y = CFG.Check(page, y, "fsr", "Five-second rule",
-        "The counter's +Z column counts spirit regen only once five seconds have passed since a cast that cost mana, and shows the seconds until then.",
-        function() return DB().fsr ~= false end, function(v) DB().fsr = v end)
-    y = CFG.Check(page, y, "rpm", "Mana gauge",
-        "Burn against overheal, so you can see when you are spending into a full bar.",
-        function() return DB().rpm end, function(v) DB().rpm = v end)
-end
-
-function CFG.BuildShield(page)
-    local y = 0
-    y = CFG.Caption(page, y, "When to say anything")
-    y = CFG.Slider(page, y, "esQuiet", "Stay quiet above this many charges", 1, 6, 1,
-        function(v) return v .. (v == 1 and " charge" or " charges") end,
-        function() return DB().esQuiet or ES_HOLD.quiet end, function(v) DB().esQuiet = v end)
-    CFG.fs(page, "A shield with charges left is not a decision. Below this the amber corner comes back and the current holder keeps a 1.5x edge.",
-        10, "dim"):SetPoint("TOPLEFT", 0, y + 4)
-    y = y - 30
-    y = CFG.Caption(page, y, "Markers")
-    y = CFG.Check(page, y, "nsPip", "Nature's Swiftness pip",
-        "Marks anyone whose hole is past what a max-rank Chain Heal fixes. White when NS is up, grey when it is not.",
-        function() return DB().nsPip end, function(v) DB().nsPip = v end)
-    y = CFG.Check(page, y, "giftBadge", "Gift of the Naaru badge",
-        "Lit icon confirms your HoT is ticking on that target.",
-        function() return DB().giftBadge end, function(v) DB().giftBadge = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Advice")
-    y = CFG.Btn(page, y, "esplan", "Who should carry it",
-        "Prints the Earth Shield plan -- same as /bish esplan.",
-        function() SlashCmdList.BISHEALING("esplan") end)
-    y = CFG.Btn(page, y, "peers", "Other BiSHealing shamans",
-        "Who is answering on the addon comm -- same as /bish peers.",
-        function() SlashCmdList.BISHEALING("peers") end)
-end
-
-function CFG.BuildWheel(page)
-    local y = 0
-    y = CFG.Caption(page, y, "Mouse wheel")
-    y = CFG.Seg(page, y, "wheelMode", "Wheel heals",
-        { { v = "off", label = "off", w = 44 },
-          { v = "combo", label = "one press", w = 68 },
-          { v = "strict", label = "two press", w = 68 } },
-        function()
-            local db = DB()
-            if not db.wheel then return "off" end
-            return db.wheelStrict and "strict" or "combo"
-        end,
-        function(v)
-            local db = DB()
-            db.wheel = (v ~= "off")
-            db.wheelStrict = (v == "strict")
-        end)
-    CFG.fs(page, "One press fires Nature's Swiftness and the heal together and never stalls. Two press is the castsequence -- and does nothing at all while NS is on cooldown.",
-        10, "dim"):SetPoint("TOPLEFT", 0, y + 4)
-    y = y - 30
-    y = CFG.Check(page, y, "trinkets", "Trinkets on any shift press",
-        "Slots 13 and 14 fire before the heal on shift+click and shift+scroll. Unshifted presses never touch them.",
-        function() return DB().trinkets end, function(v) DB().trinkets = v end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Now")
-    y = CFG.Btn(page, y, "reorder", "Reorder now",
-        "Re-rank and re-lay the pyramid. Queues if you are in combat.",
-        function()
-            if InCombatLockdown() then
-                NS.QueueReorder(); CFG.Say("queued for combat end", "muted")
-            else
-                Relayout(); CFG.Say("reordered", "good")
-            end
-        end)
-    y = CFG.Btn(page, y, "center", "Recentre",
-        "Bring the pyramid back to the middle of the screen and show it.",
-        function()
-            DB().pos = nil
-            anchor:ClearAllPoints(); anchor:SetPoint("CENTER", 0, -220)
-            DB().shown = true
-            if not InCombatLockdown() then Relayout() end
-        end)
-    y = CFG.Btn(page, y, "rescan", "Rescan spellbook",
-        "Re-read your ranks and rebuild the heal sizes.",
-        function() BuildHealOptions(); CFG.Say("ranks rescanned", "good") end)
-    y = CFG.Btn(page, y, "demo", "Demo on / off",
-        "Walks every feature across your real group.",
-        function() SlashCmdList.BISHEALING(demo.on and "sim off" or "sim on") end)
-    y = y - 6
-    y = CFG.Caption(page, y, "Start over")
-    y = CFG.Btn(page, y, "resetsizes", "Forget measured heal sizes",
-        "Back to the coefficient estimate until four clean casts land.",
-        function() SlashCmdList.BISHEALING("resetsizes") end, "warn")
-    y = CFG.Btn(page, y, "wipe", "Wipe learned history",
-        "Throws away every fight this addon has scored. The ordering will be rough for a night.",
-        function() BiSHealingDB.players = {}; CFG.Say("history wiped", "warn") end, "warn")
-end
-
-CFG.PAGES = {
-    { name = "Frames",       build = CFG.BuildFrames },
-    { name = "Chain Heal",   build = CFG.BuildChain  },
-    { name = "Earth Shield", build = CFG.BuildShield },
-    { name = "Wheel & Data", build = CFG.BuildWheel  },
-}
-
-function CFG.ShowTab(name)
-    CFG.tab = name
-    for _, t in ipairs(CFG.tabs) do
-        local on = (t.name == name)
-        t.indicator:SetShown(on)
-        t.glow:SetShown(on)
-        t.label:SetTextColor(CFG.T.rgb(on and "ink" or "muted"))
-        CFG.pages[t.name]:SetShown(on)
-    end
-end
-
+-- ---------------------------------------------------- the options window --
 function CFG.Build()
-    if CFG.built then return end
+    if CFG.built then return CFG.frame end
+    if not (BiSTheme and BiSTheme.Options) then
+        -- Options.lua is embedded under Libs/, so this only happens if the TOC
+        -- line was lost. Say so once rather than throwing on every /bish.
+        Print("Libs\\BiSTheme\\Options.lua did not load -- reinstall the addon")
+        return nil
+    end
     CFG.built = true
-
-    local f = CreateFrame("Frame", "BiSHealingConfig", UIParent)
-    f:SetSize(700, 500); f:SetPoint("CENTER"); f:SetFrameStrata("DIALOG"); f:SetFrameLevel(120)
-    f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", f.StartMoving); f:SetScript("OnDragStop", f.StopMovingOrSizing)
-    if f.SetClampedToScreen then f:SetClampedToScreen(true) end
-    f:Hide()
-    CFG.tex(f, "BACKGROUND", "frame", 0.98):SetAllPoints()
-    CFG.border(f, "accent", 0.55)
-    if UISpecialFrames then tinsert(UISpecialFrames, "BiSHealingConfig") end
-    f:SetScript("OnUpdate", CFG.Tick)
+    local f = BiSTheme.Options("BiSHealingOptions", BiSTheme.OPTIONS.W, "Heal")
     CFG.frame = f
-
-    local head = CreateFrame("Frame", nil, f)
-    head:SetPoint("TOPLEFT", 1, -1); head:SetPoint("TOPRIGHT", -1, -1); head:SetHeight(64)
-    CFG.tex(head, "BACKGROUND", "header"):SetAllPoints()
-
-    -- THE PROMPT IS THE TITLE. No icon beside it -- "BiS>" is the brand (the
-    -- header law, BiSTheme 1.1.0). What used to be a static two-tone name is now
-    -- a console: the addon's name, then what it is actually doing, rotating.
-    --
-    -- Budget (landmine #9), left to right across a 700px window:
-    --     1   frame border
-    --     18  left inset to the prompt
-    --     ?   BiS> + the words + the blinking cursor      <- what must fit
-    --     16  right inset from the close button
-    --     28  close button
-    --     1   frame border
-    -- 700 - (1 + 18 + 16 + 28 + 1) = 636 for the whole line. Held at 600 so a
-    -- long word has air rather than touching the button; the console trims with
-    -- an ellipsis past that, which is the net, not the plan.
-    CFG.HEAD_BUDGET = 600
-    local title = head:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 15, "")
-    title:SetPoint("LEFT", 18, 6)
-    local ver = CFG.fs(head, "Settings  -  v" .. tostring(VERSION), 10, "dim")
-    ver:SetPoint("LEFT", 18, -11)
-
-    if BiSTheme and BiSTheme.Console then
-        CFG.con = BiSTheme.Console(title, { width = CFG.HEAD_BUDGET, size = 13 })
-        CFG.con:Set("name", "Heal", "accent")
-        CFG.Slots()
-    else
-        -- Console.lua is embedded under Libs/, so this only happens if the TOC
-        -- line was lost. Say so in the header rather than showing nothing.
-        title:SetText("|cffb980ffBiS>|r |cff4fd0cfHeal|r")
+    f:Recenter(60)
+    for _, section in ipairs(CFG.OptionSections()) do
+        f:Section(section.title)
+        for _, opt in ipairs(section.options) do
+            f:Row(opt, DB())
+            CFG.byKey[opt.key] = opt
+        end
     end
-    local x = CreateFrame("Button", nil, head)
-    x:SetSize(28, 28); x:SetPoint("RIGHT", -16, 0)
-    CFG.tex(x, "BACKGROUND", "field"):SetAllPoints()
-    local xbd = CFG.border(x, "edge")
-    local xt = CFG.fs(x, "x", 15, "muted"); xt:SetPoint("CENTER", 0, 1)
-    x:SetScript("OnEnter", function() xbd:set("accent", 0.8); xt:SetTextColor(CFG.T.rgb("ink")) end)
-    x:SetScript("OnLeave", function() xbd:set("edge"); xt:SetTextColor(CFG.T.rgb("muted")) end)
-    x:SetScript("OnClick", function() f:Hide() end)
-    local hsep = CFG.tex(f, "ARTWORK", "hair")
-    hsep:SetPoint("TOPLEFT", 1, -65); hsep:SetPoint("TOPRIGHT", -1, -65); hsep:SetHeight(1)
-
-    local body = CreateFrame("Frame", nil, f)
-    body:SetPoint("TOPLEFT", 1, -66); body:SetPoint("BOTTOMRIGHT", -1, 1)
-    local side = CreateFrame("Frame", nil, body)
-    side:SetPoint("TOPLEFT"); side:SetPoint("BOTTOMLEFT"); side:SetWidth(168)
-    CFG.tex(side, "BACKGROUND", "sidebar"):SetAllPoints()
-    local cont = CreateFrame("Frame", nil, body)
-    cont:SetPoint("TOPLEFT", side, "TOPRIGHT"); cont:SetPoint("BOTTOMRIGHT")
-    CFG.tex(cont, "BACKGROUND", "content"):SetAllPoints()
-    local divide = CFG.tex(body, "ARTWORK", "edge")
-    divide:SetPoint("TOPLEFT", side, "TOPRIGHT"); divide:SetPoint("BOTTOMLEFT", side, "BOTTOMRIGHT")
-    divide:SetWidth(1)
-
-    for i, spec in ipairs(CFG.PAGES) do
-        local b = CreateFrame("Button", nil, side)
-        b:SetSize(168, 44); b:SetPoint("TOPLEFT", 0, -14 - (i - 1) * 44)
-        b.name = spec.name
-        b.glow = CFG.tex(b, "BACKGROUND", "accent", 0.10); b.glow:SetAllPoints(); b.glow:Hide()
-        b.indicator = CFG.tex(b, "ARTWORK", "accent", 1)
-        b.indicator:SetPoint("TOPLEFT"); b.indicator:SetPoint("BOTTOMLEFT")
-        b.indicator:SetWidth(3); b.indicator:Hide()
-        b.label = CFG.fs(b, spec.name, 13, "muted"); b.label:SetPoint("LEFT", 24, 0)
-        b:SetScript("OnEnter", function()
-            if CFG.tab ~= spec.name then
-                b.glow:SetColorTexture(1, 1, 1, 0.03); b.glow:Show()
-                b.label:SetTextColor(CFG.T.rgb("ink2"))
-            end
-        end)
-        b:SetScript("OnLeave", function()
-            if CFG.tab ~= spec.name then
-                b.glow:Hide(); b.label:SetTextColor(CFG.T.rgb("muted"))
-            end
-        end)
-        b:SetScript("OnClick", function() CFG.ShowTab(spec.name) end)
-        CFG.tabs[i] = b
-
-        local page = CreateFrame("Frame", nil, cont)
-        page:SetPoint("TOPLEFT", 30, -26); page:SetPoint("BOTTOMRIGHT", -30, 24)
-        page.w = 700 - 168 - 60
-        page:Hide()
-        spec.build(page)
-        CFG.pages[spec.name] = page
-    end
-
-    CFG.fs(cont, "Everything here is also a /bish command", 10, "dim")
-        :SetPoint("BOTTOMLEFT", 30, 8)
+    f:Fit()
+    CFG.con = f.con
+    CFG.HEAD_BUDGET = BiSTheme.OPTIONS.W - 15 - 8
+    -- The standing state rides the header prompt, as it did on the old window:
+    -- the kit paints its console at 10 Hz on its own ticker; the slots are read
+    -- off frames and auras, so they refresh a fifth as often, here.
+    f:HookScript("OnUpdate", function(_, dt) CFG.Tick(nil, dt) end)
+    -- a repaint elsewhere when a row changes: the Keybinds window shows the
+    -- trinket rule in its hint line, and the wheel seg gates four of its rows
+    f.onChange = function() if CFG.binds and CFG.binds:IsShown() then CFG.PaintBinds() end end
+    return f
 end
 
--- The standing state this addon has to show, refreshed on the window's own
--- ticker. Slots are for state that LASTS; events go through CFG.Say.
+-- The standing state this addon has to show, refreshed once a second. Slots
+-- are for state that LASTS; events go through CFG.Say.
 function CFG.Slots()
     local con = CFG.con
     if not con then return end
 
     -- where my Earth Shield is, and how much of it is left
     local charges, who
-    -- read fresh every time: whoever is shielded RIGHT NOW, not at login
-    local esTarget = NS.ESTarget()
+    local esTarget = NS.ESTarget()      -- read fresh: whoever is shielded NOW
     if esTarget then
         local u = COMM.Unit and COMM.Unit(esTarget)
         if u then
@@ -625,92 +277,306 @@ function CFG.Slots()
     con:Set("sim", demo.on and "sim" or nil, "accent")
 end
 
--- An event the WINDOW wants to report. Chat is for slash answers; anything the
--- addon says about what it is doing goes to the header instead -- and only
--- falls back to Print when the window has never been opened.
-function CFG.Say(text, colour)
-    if CFG.con then CFG.con:Say(text, colour) else Print(text) end
+CFG.SLOTS_EVERY = 1.0
+function CFG.Tick(_, elapsed)
+    CFG.slotsAt = (CFG.slotsAt or 0) + (elapsed or 0)
+    if CFG.slotsAt >= CFG.SLOTS_EVERY then CFG.slotsAt = 0; CFG.Slots() end
 end
 
 function CFG.Open()
-    CFG.Build()
-    CFG.frame:Show()
-    CFG.ShowTab(CFG.tab or "Frames")
-end
-
--- The console blinks at 2 Hz and rotates every 3 s, so it needs a ticker; it
--- only runs while the window is up, and the slots are recomputed a fifth as
--- often as the blink because they read auras and frames.
-CFG.PAINT_EVERY, CFG.SLOTS_EVERY = 0.2, 1.0
-function CFG.Tick(_, elapsed)
-    local self = CFG
-    self.paintAt = (self.paintAt or 0) + elapsed
-    if self.paintAt < self.PAINT_EVERY then return end
-    self.paintAt = 0
-    self.slotsAt = (self.slotsAt or 0) + self.PAINT_EVERY
-    if self.slotsAt >= self.SLOTS_EVERY then self.slotsAt = 0; self.Slots() end
-    if self.con then self.con:Paint() end
+    local f = CFG.Build()
+    if f then f:Toggle(true); f:Paint() end
 end
 
 function CFG.Toggle()
-    CFG.Build()
-    if CFG.frame:IsShown() then CFG.frame:Hide() else CFG.Open() end
+    local f = CFG.Build()
+    if f then f:Toggle() if f:IsShown() then f:Paint() end end
 end
+
+-- ---------------------------------------------------- the Keybinds window --
+-- One row per action: its name, and the key it sits on as a flat button.
+-- Click the key and the window listens: the next key, mouse button or wheel
+-- turn becomes the bind; Escape cancels; Backspace or Delete unbinds. A key
+-- another action held moves here and the header says whose it was.
+--
+-- Keyboard capture is the window's own OnKeyDown, turned on only while a row
+-- is listening, with propagation off so the key does not also move him.
+-- Mouse buttons and the wheel are caught by a full-window overlay that only
+-- exists while listening, so the rows underneath cannot be clicked meanwhile.
+CFG.BINDS_W, CFG.BINDS_ROW, CFG.BINDS_KEY_W = 300, 16, 118
+
+CFG.MOUSE = { LeftButton = 1, RightButton = 2, MiddleButton = 3, Button4 = 4, Button5 = 5 }
+CFG.IGNORE_KEYS = {
+    LSHIFT = true, RSHIFT = true, LCTRL = true, RCTRL = true, LALT = true, RALT = true,
+    UNKNOWN = true,
+}
+
+-- the modifier keys held right now, in the client's ALT-CTRL-SHIFT order
+function CFG.Mods()
+    local m = ""
+    if IsAltKeyDown and IsAltKeyDown() then m = m .. "ALT-" end
+    if IsControlKeyDown and IsControlKeyDown() then m = m .. "CTRL-" end
+    if IsShiftKeyDown and IsShiftKeyDown() then m = m .. "SHIFT-" end
+    return m
+end
+
+function CFG.BuildBinds()
+    if CFG.binds then return CFG.binds end
+    local W, ROW = CFG.BINDS_W, CFG.BINDS_ROW
+    local f = CreateFrame("Frame", "BiSHealingKeybinds", UIParent)
+    f:SetSize(W, ROW)
+    f:SetFrameStrata("MEDIUM")
+    f:SetMovable(true)
+    f:EnableMouse(true)
+    f:SetClampedToScreen(true)
+    CFG.tex(f, "BACKGROUND", "frame", 0.45):SetAllPoints()
+    CFG.binds = f
+
+    -- header: the prompt, one x -- the header law, same 16 px bar as the kit
+    local head = CreateFrame("Frame", nil, f)
+    head:SetPoint("TOPLEFT"); head:SetPoint("TOPRIGHT"); head:SetHeight(ROW)
+    CFG.tex(head, "BACKGROUND", "header", 0.5):SetAllPoints()
+    local hair = CFG.tex(head, "BORDER", "edge")
+    hair:SetPoint("BOTTOMLEFT"); hair:SetPoint("BOTTOMRIGHT"); hair:SetHeight(1)
+    local title = CFG.fs(head, "", 8, "ink")
+    title:SetPoint("LEFT", head, "LEFT", 4, 0)
+    if BiSTheme and BiSTheme.Console then
+        f.con = BiSTheme.Console(title, { width = W - 15 - 8 })
+        f.con:Set("name", "Keybinds", "accent")
+    else
+        title:SetText("|cffb980ffBiS>|r Keybinds")
+    end
+    head:EnableMouse(true)
+    head:RegisterForDrag("LeftButton")
+    head:SetScript("OnDragStart", function() if not InCombatLockdown() then f:StartMoving() end end)
+    head:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
+    local x = CreateFrame("Button", nil, head)
+    x:SetSize(12, 12); x:SetPoint("RIGHT", head, "RIGHT", -3, 0)
+    CFG.tex(x, "BACKGROUND", "field"):SetAllPoints()
+    local xt = CFG.fs(x, "x", 8, "warn"); xt:SetPoint("CENTER", 0, 0)
+    x:SetScript("OnClick", function() CFG.ToggleBinds(false) end)
+
+    -- one row per action
+    f.rows = {}
+    local y = -ROW
+    for i, a in ipairs(BINDS.ACTIONS) do
+        local row = CreateFrame("Frame", nil, f)
+        row:SetPoint("TOPLEFT", 0, y); row:SetPoint("TOPRIGHT", 0, y); row:SetHeight(ROW)
+        if i % 2 == 0 then CFG.tex(row, "BACKGROUND", "field", 0.35):SetAllPoints() end
+        row.name = CFG.fs(row, a.label, 8, "ink2")
+        row.name:SetPoint("LEFT", row, "LEFT", 6, 0)
+        row.name:SetJustifyH("LEFT")
+        local kb = CreateFrame("Button", nil, row)
+        kb:SetSize(CFG.BINDS_KEY_W, 12); kb:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        CFG.tex(kb, "BACKGROUND", "field"):SetAllPoints()
+        kb.label = CFG.fs(kb, "", 8, "ink"); kb.label:SetPoint("CENTER", 0, 0)
+        kb:SetScript("OnClick", function() CFG.Capture(a.key) end)
+        kb:SetScript("OnEnter", function() if not CFG.capturing then kb.label:SetTextColor(CFG.T.rgb("accent")) end end)
+        kb:SetScript("OnLeave", function() CFG.PaintBinds() end)
+        row.key, row.action = kb, a
+        f.rows[i] = row
+        y = y - ROW
+    end
+
+    -- foot: the hint line, and reset
+    local foot = CreateFrame("Frame", nil, f)
+    foot:SetPoint("TOPLEFT", 0, y); foot:SetPoint("TOPRIGHT", 0, y); foot:SetHeight(ROW)
+    f.hint = CFG.fs(foot, "", 8, "dim")
+    f.hint:SetPoint("LEFT", foot, "LEFT", 6, 0)
+    local reset = CreateFrame("Button", nil, foot)
+    reset:SetSize(60, 12); reset:SetPoint("RIGHT", foot, "RIGHT", -6, 0)
+    CFG.tex(reset, "BACKGROUND", "field"):SetAllPoints()
+    local rt = CFG.fs(reset, "reset all", 8, "warn"); rt:SetPoint("CENTER", 0, 0)
+    reset:SetScript("OnClick", function()
+        CFG.StopCapture()
+        BINDS.ResetAll()
+        CFG.PaintBinds()
+        CFG.BindsSay("every key back to its default", "warn")
+    end)
+    f.resetBtn = reset
+    f:SetHeight(ROW + #BINDS.ACTIONS * ROW + ROW + 4)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
+
+    -- the listener: keyboard on the window itself, mouse on an overlay that
+    -- only shows while a row is listening
+    f:EnableKeyboard(false)
+    f:SetScript("OnKeyDown", function(_, key) CFG.Heard(key) end)
+    local cover = CreateFrame("Frame", nil, f)
+    cover:SetAllPoints()
+    cover:SetFrameLevel((f:GetFrameLevel() or 1) + 20)
+    cover:EnableMouse(true)
+    cover:EnableMouseWheel(true)
+    cover:SetScript("OnMouseDown", function(_, button) CFG.HeardMouse(button) end)
+    cover:SetScript("OnMouseWheel", function(_, delta) CFG.HeardWheel(delta) end)
+    cover:Hide()
+    f.cover = cover
+
+    if UISpecialFrames then
+        local listed = false
+        for _, n in ipairs(UISpecialFrames) do if n == "BiSHealingKeybinds" then listed = true end end
+        if not listed then table.insert(UISpecialFrames, "BiSHealingKeybinds") end
+    end
+    if f.con then
+        f:SetScript("OnUpdate", function(_, dt)
+            f.elapsed = (f.elapsed or 0) + dt
+            if f.elapsed >= 0.1 then f.elapsed = 0; f.con:Paint() end
+        end)
+    end
+    f:Hide()
+    CFG.PaintBinds()
+    return f
+end
+
+function CFG.BindsSay(text, tone)
+    local f = CFG.binds
+    if f and f.con then f.con:Say(text, tone) else Print(text) end
+end
+
+-- every row from the engine: the key it has, dimmed when the wheel switch has
+-- that family off, "listening..." on the one being set
+function CFG.PaintBinds()
+    local f = CFG.binds
+    if not f then return end
+    local db = DB()
+    for _, row in ipairs(f.rows) do
+        local a = row.action
+        local keystr = BINDS.Get(a.key)
+        local off = BINDS.WHEEL_KEYS[a.key] and not db.wheel
+        if CFG.capturing == a.key then
+            row.key.label:SetText("listening...")
+            row.key.label:SetTextColor(CFG.T.rgb("accent"))
+        else
+            row.key.label:SetText(BINDS.Pretty(keystr))
+            row.key.label:SetTextColor(CFG.T.rgb(
+                (not keystr) and "dim" or (off and "muted" or "ink")))
+        end
+        row.name:SetTextColor(CFG.T.rgb(off and "dim" or "ink2"))
+    end
+    f.hint:SetText(CFG.capturing
+        and "press a key, a mouse button or the wheel -- Esc cancels, Backspace unbinds"
+        or ("click a key to change it" .. (db.trinkets and " -- shift presses fire trinkets" or "")))
+end
+
+function CFG.Capture(key)
+    local f = CFG.BuildBinds()
+    if not f then return end
+    CFG.capturing = key
+    f:EnableKeyboard(true)
+    if f.SetPropagateKeyboardInput then f:SetPropagateKeyboardInput(false) end
+    f.cover:Show()
+    CFG.PaintBinds()
+end
+
+function CFG.StopCapture()
+    local f = CFG.binds
+    CFG.capturing = nil
+    if not f then return end
+    f:EnableKeyboard(false)
+    if f.SetPropagateKeyboardInput then f:SetPropagateKeyboardInput(true) end
+    f.cover:Hide()
+    CFG.PaintBinds()
+end
+
+-- the one place a heard key becomes a bind
+function CFG.Bind(keystr)
+    local key = CFG.capturing
+    if not key then return end
+    local a = BINDS.Action(key)
+    local ok, stolen = BINDS.Set(key, keystr)
+    CFG.StopCapture()
+    if not ok then return end
+    local shown = keystr and BINDS.Pretty(BINDS.Get(key)) or "unbound"
+    if stolen then
+        CFG.BindsSay(("%s = %s, taken off %s"):format(a.label, shown, stolen), "warn")
+    elseif InCombatLockdown() then
+        CFG.BindsSay(("%s = %s -- lands when the fight ends"):format(a.label, shown), "gold")
+    else
+        CFG.BindsSay(("%s = %s"):format(a.label, shown), "good")
+    end
+end
+
+function CFG.Heard(key)
+    if not CFG.capturing then return end
+    if key == "ESCAPE" then CFG.StopCapture(); CFG.BindsSay("kept as it was", "muted"); return end
+    if key == "BACKSPACE" or key == "DELETE" then CFG.Bind(false); return end
+    if CFG.IGNORE_KEYS[key] then return end       -- a modifier alone is not a key
+    CFG.Bind(CFG.Mods() .. key)
+end
+
+function CFG.HeardMouse(button)
+    if not CFG.capturing then return end
+    local n = CFG.MOUSE[button]
+    if not n then return end
+    CFG.Bind(CFG.Mods() .. "BUTTON" .. n)
+end
+
+function CFG.HeardWheel(delta)
+    if not CFG.capturing then return end
+    CFG.Bind(CFG.Mods() .. ((delta or 0) > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"))
+end
+
+function CFG.ToggleBinds(want)
+    local f = CFG.BuildBinds()
+    if not f then return end
+    if want == nil then want = not f:IsShown() end
+    if want then CFG.PaintBinds(); f:Show() else CFG.StopCapture(); f:Hide() end
+end
+
+-- ------------------------------------------------------------ the seam --
+-- The drag-bar button is created near the top of the brain, long before CFG
+-- exists. It calls through this field rather than naming CFG directly.
+UIX.ToggleConfig = CFG.Toggle
 
 -- The handle the harness drives, and the only thing this addon publishes to the
 -- global namespace besides its saved variables and its named frames.
--- The drag-bar button is created near the top of the file, long before CFG
--- exists. It calls through this field rather than naming CFG directly -- a bare
--- CFG up there would be a nil global, the trap that has bitten this addon five
--- times (bislint's forward-ref rule), and a new chunk local would eat one of the
--- eleven slots this file has left.
-UIX.ToggleConfig = CFG.Toggle
-
 BiSHealingUI = {
     OpenConfig = CFG.Open,
     ToggleConfig = CFG.Toggle,
-    ConfigSet = function(id, v)
+    -- the same rows by key: each goes through the row's own setter, never the
+    -- saved variable, so the tests and the window cannot disagree
+    ConfigSet = function(key, v)
         CFG.Build()
-        local c = CFG.controls[id]
-        if c and c.set then c.set(v) elseif c and c.click then c.click() end
+        local opt = CFG.byKey[key]
+        if not opt then return false end
+        if opt.action then opt.action(DB()); return true end
+        if opt.kind == "step" then
+            v = tonumber(v) or opt.min
+            if v < opt.min then v = opt.min elseif v > opt.max then v = opt.max end
+        end
+        opt.set(DB(), v)
+        if CFG.frame and CFG.frame:IsShown() then CFG.frame:Paint() end
+        return true
     end,
-    ConfigGet = function(id)
+    ConfigGet = function(key)
         CFG.Build()
-        local c = CFG.controls[id]
-        return c and c.get and c.get()
+        local opt = CFG.byKey[key]
+        return opt and opt.get and opt.get(DB())
     end,
-    -- tab switching, exposed for the same reason the controls are: a window
-    -- that cannot be driven headless gets tested by opening it and squinting
-    ConfigTab = function(name)
+    ConfigIDs = function()
         CFG.Build()
-        CFG.ShowTab(name)
-        return CFG.tab
-    end,
-    ConfigTabs = function()
         local out = {}
-        for _, spec in ipairs(CFG.PAGES) do out[#out + 1] = spec.name end
+        for key in pairs(CFG.byKey) do out[#out + 1] = key end
+        table.sort(out)
         return out
-    end,
-    ConfigShownTab = function()
-        for name, page in pairs(CFG.pages) do if page:IsShown() then return name end end
     end,
     -- the resolved colour for a palette name, so the suite can prove BiSTheme
     -- wins when it is installed and the inline copy only covers for it
     Colour = function(name) return CFG.T.rgb(name) end,
-    -- the header console, its budget, and a hand-crank for the ticker
+    -- the header console, its budget, and a hand-crank for the slot ticker
     Console = function() CFG.Build(); return CFG.con end,
     HeadBudget = function() CFG.Build(); return CFG.HEAD_BUDGET end,
     ConsoleTick = function(elapsed) CFG.Build(); CFG.Tick(nil, elapsed or 0.2) end,
-    ConfigIDs = function()
-        CFG.Build()
-        local out = {}
-        for id in pairs(CFG.controls) do out[#out + 1] = id end
-        table.sort(out)
-        return out
-    end,
+    -- the Keybinds window, driven headless: open it, start listening on a row,
+    -- and feed it what the client would
+    Keybinds = function(want) CFG.ToggleBinds(want); return CFG.binds end,
+    Capture = CFG.Capture,
+    Heard = CFG.Heard,
+    HeardMouse = CFG.HeardMouse,
+    HeardWheel = CFG.HeardWheel,
+    Capturing = function() return CFG.capturing end,
+    BindRows = function() CFG.BuildBinds(); return CFG.binds.rows end,
 }
 
 -- The brain talks back to the window through this one field: the version nag in
--- the comm code says things here, and it only ever runs at play time, long after
--- both files have loaded.
+-- the comm code says things here, and it only ever runs at play time.
 NS.CFG = CFG

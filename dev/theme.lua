@@ -18,7 +18,10 @@
 -- only a wrong-on-purpose one can tell them apart.
 
 local addon = arg[1] or "BiSHealing.lua"
-local synth = os.getenv("TMPDIR") or "/tmp"
+-- Windows has no /tmp and Git Bash sets TMP/TEMP, not TMPDIR; "." is the last resort so the
+-- harness never fails for want of a scratch file (the file is written, loaded and removed).
+local synth = os.getenv("TMPDIR") or os.getenv("TMP") or os.getenv("TEMP") or "/tmp"
+if not io.open(synth, "r") and not os.rename(synth, synth) then synth = "." end
 synth = synth .. "/bish-theme-probe.lua"
 
 local f = assert(io.open(synth, "w"))

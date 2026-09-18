@@ -26,7 +26,7 @@ local function newRegion(kind, parent)
     local r = {
         __kind = kind, __parent = parent, __shown = (kind == "Frame" or kind == "Button"),
         __points = {}, __w = 0, __h = 0, __alpha = 1, __text = nil,
-        __color = nil, __drawLayer = nil, __attrs = {}, __scripts = {},
+        __color = nil, __drawLayer = nil, __attrs = {}, __scripts = {}, __events = {},
     }
     function r:Show() self.__shown = true end
     function r:Hide() self.__shown = false end
@@ -147,8 +147,12 @@ local function newRegion(kind, parent)
     function r:GetScript(k) return self.__scripts[k] end
     function r:SetAttribute(k, v) self.__attrs[k] = v end
     function r:GetAttribute(k) return self.__attrs[k] end
-    function r:RegisterEvent() end
-    function r:UnregisterEvent() end
+    -- recorded, not ignored: the suite picks the addon's event frame by how many events it asked
+    -- for, and a frame that registers nothing must not be able to win that (see the pick below)
+    function r:RegisterEvent(e) if e then self.__events[e] = true end end
+    function r:RegisterUnitEvent(e) if e then self.__events[e] = true end end
+    function r:UnregisterEvent(e) if e then self.__events[e] = nil end end
+    function r:IsEventRegistered(e) return self.__events[e] and true or false end
     function r:SetOwner() end
     function r:AddLine() end
     function r:AddDoubleLine() end
@@ -586,9 +590,17 @@ end
 
 -- fire PLAYER_LOGIN then the OnUpdate tick, which is what actually drives
 -- UpdateBars / corners / rpm / cast counter. Slash commands alone miss these.
-local ev
+-- The addon's event frame is the one that asked for the most events -- NOT simply the last frame
+-- with an OnEvent script. Forever/Grid.lua adds a two-line boot frame that waits for PLAYER_LOGIN,
+-- and under the old rule that frame became "the addon" and every fired event went to it instead:
+-- the login line never printed and the version check failed, 4000 lines away from the cause.
+local ev, evCount = nil, -1
 for _, f in ipairs(allFrames) do
-    if f.__scripts and f.__scripts.OnEvent then ev = f end
+    if f.__scripts and f.__scripts.OnEvent then
+        local n = 0
+        for _ in pairs(f.__events or {}) do n = n + 1 end
+        if n >= evCount then ev, evCount = f, n end
+    end
 end
 local anchorF = _G["BiSHealingAnchor"]
 
@@ -1953,6 +1965,10 @@ do
         "BINDS",
         -- the one thing the window publishes back
         "CFG",
+        -- the Forever seam (17 Sep 2026). SECRET says this client hides the numbers, Blind says we
+        -- are inside the lockdown where auras and cooldowns go secret too, and FG is the grid that
+        -- runs there instead of the pyramid. All three are inert on TBC.
+        "SECRET", "Blind", "FG",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do

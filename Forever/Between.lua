@@ -106,6 +106,38 @@ function FB.Report()
     return #found
 end
 
+--- What the scan SAW, not just what it decided. A report that says nothing is either a clean raid
+--- or a broken read, and from the chat line alone those look identical -- so /bishf shows the
+--- counts behind the verdict: who was scanned, how many auras came back, which totems are out.
+function FB.Dump()
+    local say = NS.Print or function(msg) print(msg) end
+    if NS.Blind and NS.Blind() then
+        say("BiS Healing: in combat -- auras and totems are secret until the fight ends")
+        return
+    end
+    local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
+    say(("BiS Healing scan: %d unit(s)"):format(#roster))
+    for _, unit in ipairs(roster) do
+        local helpful, harmful = auras(unit, "HELPFUL"), auras(unit, "HARMFUL")
+        local names = {}
+        for _, a in ipairs(helpful) do names[#names + 1] = tostring(a.name) end
+        say(("  %s: %d buff(s), %d debuff(s)%s"):format(
+            (NS.FG and NS.FG.ShortName(unit)) or unit, #helpful, #harmful,
+            #names > 0 and ("  [" .. table.concat(names, ", ") .. "]") or ""))
+    end
+    if GetTotemInfo then
+        for slot = 1, TOTEM_SLOTS do
+            local ok, have, name = pcall(GetTotemInfo, slot)
+            say(("  totem %d: %s"):format(slot, (ok and have) and tostring(name) or "empty"))
+        end
+    end
+    local found = FB.Scan()
+    say(("  -> %d finding(s)"):format(found and #found or 0))
+    if found then
+        for _, f in ipairs(found) do say("     " .. f.text) end
+    end
+end
+
 --- Armed by the grid. PLAYER_REGEN_ENABLED is the moment the lockdown lifts and every read this
 --- brain needs starts answering again -- but the client is still settling on that exact frame, so
 --- the scan waits a beat.
@@ -122,5 +154,10 @@ function FB.Start()
         end
     end)
     FB.frame = f
+
+    -- /bishf: ask the brain what it can see right now, without waiting for a pull to end
+    _G.SLASH_BISHEALFOREVER1 = "/bishf"
+    SlashCmdList = SlashCmdList or {}
+    SlashCmdList.BISHEALFOREVER = FB.Dump
     return true
 end

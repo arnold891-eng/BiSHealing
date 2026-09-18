@@ -104,7 +104,7 @@ _G.C_Secrets = { HasSecretRestrictions = function() return true end }
 ------------------------------------------------------------------- the files --
 
 local NS = {}
-for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Grid.lua" }) do
+for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Grid.lua", "Forever/Between.lua" }) do
     local chunk = assert(loadfile(rel))
     chunk("BiSHealing", NS)
 end
@@ -189,6 +189,72 @@ ok(FG.Layout(anchor) == false, "layout refuses itself in combat")
 ok(FG.Bind(FG.frames[1], "party2") == false, "binds refuse themselves in combat")
 ok(pcall(FG.Paint, FG.frames[1]), "painting still works in combat -- that is the whole point")
 STATE.inCombat = false
+
+------------------------------------------------ the brain, between the pulls --
+-- The one window the addon is allowed to think in. Everything below reads auras, totems and
+-- death, which are secret INSIDE the lockdown and readable outside it -- so the first thing the
+-- scan must do is refuse to run at the wrong moment.
+
+local FB = NS.FB
+local AURAS = { player = { HELPFUL = {}, HARMFUL = {} },
+                party1 = { HELPFUL = {}, HARMFUL = {} },
+                party2 = { HELPFUL = {}, HARMFUL = {} } }
+local TOTEMS = { false, false, false, false }
+_G.C_UnitAuras = { GetAuraDataByIndex = function(unit, i, filter)
+    if STATE.inCombat then error("Auras cannot be accessed when secret while tainted", 2) end
+    local list = AURAS[unit] and AURAS[unit][filter or "HELPFUL"]
+    return list and list[i] or nil
+end }
+_G.GetTotemInfo = function(slot)
+    if STATE.inCombat then error("attempt to compare a secret number value", 2) end
+    return TOTEMS[slot] and true or false, "Totem"
+end
+local SAID = {}
+NS.Print = function(msg) SAID[#SAID + 1] = msg end
+
+STATE.inCombat = true
+local blindScan, why = FB.Scan()
+ok(blindScan == nil and why ~= nil, "the brain refuses to scan inside the lockdown")
+STATE.inCombat = false
+
+-- nothing up: Earth Shield missing and no totems out, both worth saying between pulls
+local found = FB.Scan()
+local kinds = {}
+for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
+ok(kinds.earthshield == 1, "a missing Earth Shield is reported")
+ok(kinds.totems == 1, "four empty totem slots are reported")
+
+-- with Earth Shield up on the tank, it stops nagging
+AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
+TOTEMS[1] = true
+found = FB.Scan()
+kinds = {}
+for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
+ok(kinds.earthshield == nil, "Earth Shield up on anyone is enough")
+ok(kinds.totems == nil, "one totem down is not 'no totems down'")
+
+-- dispel debt: what the addon could not even SEE during the fight
+AURAS.party2.HARMFUL[1] = { name = "Crippling Poison", dispelName = "Poison" }
+AURAS.party2.HARMFUL[2] = { name = "Curse of Agony", dispelName = "Curse" }   -- not ours to cure
+found = FB.Scan()
+local dispels = 0
+for _, f in ipairs(found) do if f.kind == "dispel" then dispels = dispels + 1 end end
+ok(dispels == 1, "only what a shaman can actually cure is reported")
+
+STATE.dead.party2 = true
+found = FB.Scan()
+local dead = 0
+for _, f in ipairs(found) do if f.kind == "dead" then dead = dead + 1 end end
+ok(dead == 1, "the dead are listed for the rez")
+STATE.dead.party2 = nil
+
+-- it speaks only when there is something to say
+local n = FB.Report()
+ok(n and n > 0 and #SAID == n, "Report says one line per finding")
+AURAS.party2.HARMFUL[1], AURAS.party2.HARMFUL[2] = nil, nil
+for i = 1, 4 do TOTEMS[i] = true end
+SAID = {}
+ok(FB.Report() == 0 and #SAID == 0, "with nothing wrong it stays quiet")
 
 print(fail == 0 and ("== forever ok (" .. checks .. " checks)")
       or ("!! forever: " .. fail .. " of " .. checks .. " failed"))

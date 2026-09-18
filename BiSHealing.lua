@@ -3755,7 +3755,11 @@ local function UpdateBars(_, dt)
         e.f.glow:SetColorTexture(pc[1], pc[2], pc[3], 0.15 + 0.40 * phase)
     end
 end
-anchor:SetScript("OnUpdate", UpdateBars)
+-- On Forever the whole paint below is illegal: it divides by UnitHealthMax to size a texture,
+-- compares health to pick a colour, and prints it in a label -- three refusals per frame per tick,
+-- which is where the beta threw 295 errors in one session. The grid in Forever/Grid.lua takes over
+-- there; this loop belongs to TBC.
+if not NS.SECRET then anchor:SetScript("OnUpdate", UpdateBars) end
 
 -- ------------------------------------------------------- combat log feed --
 
@@ -3765,6 +3769,11 @@ local DMG_EVENTS = {
 }
 
 local function OnCombatLog()
+    -- Gone on Forever: the function does not exist there, and COMBAT_LOG_EVENT_UNFILTERED
+    -- registers without error and then never fires (measured 17 Sep 2026). Read straight off the
+    -- global rather than captured into a chunk local -- this file is near bislint's local budget,
+    -- and the feed is already off on that client via NS.SECRET.
+    if not CombatLogGetCurrentEventInfo then return end
     -- multiple returns, not a table: this fires constantly and a per-event
     -- table allocation would churn the garbage collector all fight
     local _, event, _, sourceGUID, sourceName, _, _, destGUID, destName, _, _, a12, a13, _, a15, a16, a17, a18
@@ -4187,6 +4196,10 @@ end
 for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
 
 ev:SetScript("OnEvent", function(_, event, ...)
+    -- Same seam as the update loop: the handlers below score the combat log, rank by missing
+    -- health and rebuild the pyramid, and every one of those reads is refused on Forever. The
+    -- combat log does not even fire there. Forever/Grid.lua drives its own events instead.
+    if NS.SECRET then return end
     if event == "CHAT_MSG_ADDON" then
         COMM.OnMessage(...)
 

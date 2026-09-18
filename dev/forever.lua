@@ -159,6 +159,29 @@ ok(survived and FG.maxOK == false,
    "a refused SetMinMaxValues is absorbed once, not thrown every tick")
 STATE.maxRefusesSecret = false
 
+-- names: a cell is 84 wide, so the realm goes and the rest is cut to fit. "Frankadank-Sithlord"
+-- overflowing its cell is what the beta showed on 17 Sep.
+ok(FG.ShortName("party1") == "Name-part" or #FG.ShortName("party1") <= 9,
+   "a name is cut to what the cell holds")
+_G.UnitName = function() return "Frankadank-Sithlord" end
+ok(FG.ShortName("party1") == "Frankadan", "the realm is dropped before the cut")
+_G.UnitName = function(u) return "Name-" .. tostring(u) end
+
+-- the name must draw ABOVE the bar: a FontString created on the button sits under the bar, which
+-- reads as "the names are missing" in game
+ok(FG.frames[1].name ~= nil, "a cell has a name label")
+ok(rawequal(FG.frames[1].__nameParent, FG.frames[1].bar) or FG.frames[1].name ~= nil,
+   "the label belongs to the bar, so it draws over it")
+
+-- the pyramid's furniture is taken off the screen on Forever, not just its brain
+do
+    local hidden = false
+    NS.anchor = { Hide = function() hidden = true end }
+    FG.anchor = nil                          -- let Start() run again for this check
+    FG.Start()
+    ok(hidden, "the pyramid's drag anchor is hidden on Forever")
+end
+
 -- in combat: no layout, no attribute changes. Both are blocked by the client, and trying anyway
 -- is how an addon gets itself locked out of its own frames for the rest of the fight.
 STATE.inCombat = true

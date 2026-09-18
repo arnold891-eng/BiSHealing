@@ -1968,7 +1968,7 @@ do
         -- the Forever seam (17 Sep 2026). SECRET says this client hides the numbers, Blind says we
         -- are inside the lockdown where auras and cooldowns go secret too, and FG is the grid that
         -- runs there instead of the pyramid. All three are inert on TBC.
-        "SECRET", "Blind", "FG",
+        "SECRET", "Blind", "FG", "FB",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do

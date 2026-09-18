@@ -351,6 +351,25 @@ do
     ok(body:find('NS.SECRET and e == "COMBAT_LOG_EVENT_UNFILTERED"', 1, true) ~= nil,
        "the event loop refuses to even ASK for the combat log where the client hides numbers")
 end
+-- /bishf: the counts behind the verdict. "Nothing to report" and "the read is broken" look the
+-- same in chat, and this is how they are told apart without another beta round.
+_G.SlashCmdList = {}
+FB.frame = nil
+FB.Start()
+ok(SlashCmdList.BISHEALFOREVER ~= nil and _G.SLASH_BISHEALFOREVER1 == "/bishf", "/bishf is registered")
+SAID = {}
+FB.Dump()
+local sawCounts, sawTotem = false, false
+for _, line in ipairs(SAID) do
+    if line:find("unit(s)", 1, true) then sawCounts = true end
+    if line:find("totem 1", 1, true) then sawTotem = true end
+end
+ok(sawCounts and sawTotem, "the dump shows what was scanned, not only what it decided")
+STATE.inCombat = true
+SAID = {}
+FB.Dump()
+ok(#SAID == 1 and SAID[1]:find("in combat", 1, true), "in combat it says why it cannot answer")
+STATE.inCombat = false
 
 print(fail == 0 and ("== forever ok (" .. checks .. " checks)")
       or ("!! forever: " .. fail .. " of " .. checks .. " failed"))

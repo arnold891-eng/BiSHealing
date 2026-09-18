@@ -228,6 +228,7 @@ function FG.Start()
         pending = true                      -- the update loop relays out when the lockdown lets it
     end)
     FG.events = ev
+    if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2
     return true
 end
 

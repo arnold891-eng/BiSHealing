@@ -79,9 +79,15 @@ function FG.Make(i, parent)
     f.bar:SetMinMaxValues(0, 1)
     f.bar:SetValue(1)
 
-    f.name = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
+    -- the button sits UNDER the health bar -- which looks like "the names are missing" with only
+    -- the overflowing tail of a long one visible past the cell's edge (seen on the beta, 17 Sep).
+    f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.__nameParent = f.bar        -- dev/forever.lua asserts the label belongs to the bar
     f.name:SetPoint("LEFT", 3, 0)
+    f.name:SetPoint("RIGHT", -3, 0)      -- clipped to the cell instead of spilling out of it
     f.name:SetJustifyH("LEFT")
+    if f.name.SetWordWrap then f.name:SetWordWrap(false) end
 
     FG.frames[i] = f
     return f
@@ -101,9 +107,18 @@ function FG.Bind(f, unit)
     f:SetAttribute("shift-type1", "spell")
     f:SetAttribute("shift-spell1", HEAL_CHAIN)
     if RegisterUnitWatch then RegisterUnitWatch(f) end
-    local name = UnitName and UnitName(unit) or unit
-    if f.name then f.name:SetText(name) end
+    if f.name then f.name:SetText(FG.ShortName(unit)) end
     return true
+end
+
+--- A cell is 84 wide: "Longnamedhealer-Realmone" does not fit and the realm never matters in a group.
+--- Realm off, then cut to what the cell holds.
+function FG.ShortName(unit)
+    local name = UnitName and UnitName(unit) or unit
+    if type(name) ~= "string" then return tostring(unit) end
+    name = name:match("^([^-]+)") or name
+    if #name > 9 then name = name:sub(1, 9) end
+    return name
 end
 
 --------------------------------------------------------------------- layout --
@@ -181,6 +196,12 @@ local THROTTLE = 0.1
 function FG.Start()
     if not NS.SECRET then return false end          -- TBC keeps the pyramid, untouched
     if FG.anchor then return true end
+
+    -- The pyramid's own anchor is built at file load, before anything knows which client this is,
+    -- so on Forever it sits there saying "BiS Healing -- drag (unlocked)" over a pyramid that will
+    -- never appear. Its brain is already off; this takes its furniture off the screen too.
+    if NS.anchor and NS.anchor.Hide then NS.anchor:Hide() end
+    if NS.UIX and NS.UIX.plate and NS.UIX.plate.Hide then NS.UIX.plate:Hide() end
 
     local anchor = CreateFrame("Frame", "BiSHealingForeverAnchor", UIParent)
     anchor:SetSize(FRAME_W, FRAME_H)

@@ -137,7 +137,58 @@ local function tog(key, label, dbKey, default)
         set = function(db, on) db[dbKey] = on and true or false; CFG.Apply() end }
 end
 
+-- ------------------------------------------------- the Forever option list --
+-- Arn, 19 Sep 2026, of the right-click window on a Forever client: "alot of the stuff in the right
+-- click was legacy stuff that does not work. can we put it away somewhere where it does not affect
+-- the addon? and put the menu there?"
+--
+-- He is right, and the number is brutal: of the twenty-nine rows below, the Forever grid reads
+-- exactly ONE (`shown`). Bar colours, corner markers, pulse, totem reach, the chain-heal section,
+-- the earth-shield section, the wheel and its keys - every one of them is the pyramid's brain,
+-- which does not run on a client that hides its numbers. A window of rows that do nothing is
+-- worse than a small window: it is a promise the addon does not keep.
+--
+-- So on that client the window is the MENU. The same handful of things the minimap button offers,
+-- in the window the right-click opens, and the legacy rows are not built at all - they cannot
+-- affect an addon they are not part of. Nothing is deleted: a TBC client still gets every row.
+function CFG.ForeverSections()
+    return {
+        { title = "frames", options = {
+            tog("shown", "show the frames", "shown", true),
+            { key = "minimap", kind = "toggle", label = "minimap button",
+              get = function() return not (NS.MM and NS.MM.Hidden()) end,
+              set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
+            { key = "center", kind = "button", label = "centre on screen", button = "centre",
+              action = function() SlashCmdList.BISHEALING("center") end },
+            { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
+              action = function() SlashCmdList.BISHEALING("rescan") end },
+        } },
+        { title = "clicks", options = {
+            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
+              action = function() if NS.FM and NS.FM.Toggle then NS.FM.Toggle() end end },
+        } },
+        { title = "forever", options = {
+            { key = "seen", kind = "button", label = "what can I see?", button = "ask",
+              action = function()
+                  -- asked, not assumed: /bishf is registered by Forever/Between.lua, and a client
+                  -- that never loaded it would throw on a button press instead of doing nothing
+                  if SlashCmdList.BISHEALFOREVER then SlashCmdList.BISHEALFOREVER("") end
+              end },
+            -- the debuff pip written as what it is: a switch, not a button you press twice
+            { key = "pipTest", kind = "toggle", label = "test the debuff pip",
+              get = function() return (NS.FA and NS.FA.debug) and true or false end,
+              set = function(_, on)
+                  if NS.FA and NS.FA.Debug and ((NS.FA.debug and true or false) ~= on) then
+                      NS.FA.Debug(on)
+                  end
+              end },
+        } },
+    }
+end
+
 function CFG.OptionSections()
+    -- a client that hides its numbers gets the short window; everything below is the pyramid's
+    if NS.SECRET then return CFG.ForeverSections() end
     return {
         { title = "frames", options = {
             tog("shown", "show the frames", "shown", true),

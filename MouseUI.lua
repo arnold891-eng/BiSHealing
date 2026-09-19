@@ -308,6 +308,11 @@ function FM.Window()
         end)
     end
 
+    -- HIDDEN THE MOMENT IT IS BUILT. A frame is SHOWN by default in this game, and building the
+    -- window is what the first click does - so the first click found a window that was already
+    -- "open", hid it, and looked like nothing happened. Arn: "have to click the mouse bind button
+    -- twice for window to open".
+    w:Hide()
     w:Refresh()
     FM.win = w
     return w

@@ -135,6 +135,9 @@ function FG.Layout(anchor)
         f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
                    col * (FRAME_W + PAD), -row * (FRAME_H + PAD))
         FG.Bind(f, unit)
+        -- the aura markers ride the same out-of-combat moment as the secure attributes: the
+        -- container is told its unit here and then draws by itself for the whole fight
+        if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
         FG.byUnit[unit] = f
         f:Show()
     end

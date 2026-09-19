@@ -101,7 +101,13 @@ local function newFrame(kind, name)
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
     function f:CreateTexture() return autoMethods({ SetColorTexture = function() end }) end
     function f:CreateFontString()
-        return autoMethods({ SetText = function(self2, t) self2.__text = t end })
+        -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
+        -- mock remembers: two labels in one 84px header printed through each other in game, twice
+        -- (the mouse window in the morning, the grid header in the afternoon).
+        local fs = autoMethods({ SetText = function(self2, t) self2.__text = t end })
+        self.__fontstrings = self.__fontstrings or {}
+        self.__fontstrings[#self.__fontstrings + 1] = fs
+        return fs
     end
     frames[#frames + 1] = f
     return autoMethods(f)
@@ -248,6 +254,7 @@ do
 end
 ok(#LOADED >= 8, "the TOC's files all load: " .. #LOADED)
 local FG = NS.FG
+local FRAME_W_FOR_TEST = 84 - 10 + 1    -- Grid.lua's FRAME_W less the header padding, for the fit check
 
 ok(NS.SECRET == true, "NS.SECRET must be true when the client says it hides numbers")
 ok(NS.Blind() == false, "out of combat the addon is not blind")
@@ -382,6 +389,74 @@ do
     NS.SECRET = false                        -- a client that answers every question freely
     ok(FG.Start() == true, "the grid starts on a client that hides nothing, too")
     NS.SECRET = realSecret
+end
+
+-- A BIND THAT SURVIVED THE RELOAD BUT DID NOTHING. Arn, 19 Sep 2026: "the binds saved and the
+-- window where the bind saved but they dont do anything on the frame, last time i had to drag the
+-- same spell again to the bind and then it worked." His one saved bind was `wheelup`.
+--
+-- Buttons 1-5 are secure ATTRIBUTES, written onto each cell by ApplyTo during layout, so those
+-- came back with the grid. The wheel is a BINDING, and the only thing that ever armed it was
+-- dropping a spell on the window. So: a login, a layout, and NOT ONE DRAG - the wheel must work.
+do
+    NS.FM.Set("", "wheelup", "Healing Wave(Rank 1)")
+    BOUND = {}                               -- as a fresh session starts: nothing armed yet
+    STATE.inCombat = false
+    FG.Layout(anchor)
+    ok(BOUND["MOUSEWHEELUP"] ~= nil,
+       "the layout arms the wheel, with no drag to prompt it: " .. tostring(BOUND["MOUSEWHEELUP"]))
+    NS.FM.Clear("", "wheelup")
+end
+
+-- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
+-- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
+-- without taking its click away. So the header moves the ANCHOR and every cell follows.
+do
+    local h = FG.header
+    ok(h ~= nil, "the grid has a header to grab")
+
+    -- ONE LABEL IN THE BAR. Twice in one day a second FontString printed straight through the
+    -- first: "BiS> Hrsalinge" on an 84 pixel header. A hint belongs in a tooltip, where it has a
+    -- whole box to itself and costs no pixels at all.
+    ok(#(h.__fontstrings or {}) <= 1,
+       ("the header carries %d labels; one bar, one label - hints go in the tooltip")
+       :format(#(h.__fontstrings or {})))
+
+    -- ONE THING IN THE BAR. A "drag" caption on the right printed straight through the prompt's
+    -- rotating word on a header the width of one cell: "BiS> Hrsalinge" (seen in game, 19 Sep).
+    -- The hint is a tooltip now, and the prompt is trimmed to the header it is in.
+    FG.Layout(anchor)
+    ok(h.con == nil or h.con.width <= FRAME_W_FOR_TEST,
+       "the prompt is trimmed to the header's own width, not 120px")
+    ok(h.__scripts.OnEnter and h.__scripts.OnLeave, "the hint lives in a tooltip instead")
+
+    -- dragging it out of combat moves the anchor and remembers where
+    STATE.inCombat = false
+    h.__scripts.OnDragStart(h)
+    ok(h.moving == true, "a drag starts out of combat")
+    FG.anchor:ClearAllPoints()
+    FG.anchor:SetPoint("TOPLEFT", _G.UIParent, "TOPLEFT", 300, -140)
+    h.__scripts.OnDragStop(h)
+    local saved = NS.DB().gridPos
+    ok(saved and saved.point == "TOPLEFT" and saved.x == 300, "and letting go writes it down")
+
+    -- and it comes back there on the next login
+    FG.anchor:ClearAllPoints()
+    FG.RestorePos()
+    local p = FG.anchor.points[#FG.anchor.points]
+    ok(p and p[1] == "TOPLEFT" and p[4] == 300 and p[5] == -140, "a later session opens where it was")
+
+    -- IN COMBAT IT MUST NOT MOVE. The cells are secure frames and the client refuses to move
+    -- their parent once the lockdown is on; trying anyway throws in the middle of a pull.
+    STATE.inCombat = true
+    h.moving = false
+    h.__scripts.OnDragStart(h)
+    ok(h.moving ~= true, "a drag in combat does not start at all")
+    STATE.inCombat = false
+
+    -- and centring forgets the dragged spot rather than leaving it to come back later
+    NS.DO.center()
+    ok(NS.DB().gridPos == nil, "centring forgets where it was dragged to")
 end
 
 -- in combat: no layout, no attribute changes. Both are blocked by the client, and trying anyway

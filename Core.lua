@@ -139,12 +139,12 @@ function NS.DO.center()
     local a = NS.FG and NS.FG.anchor
     if not a then return end
     if InCombatLockdown and InCombatLockdown() then
-        Print("not in combat -- the anchor is a secure frame")
+        Print("not in combat -- the cells are secure frames and the client will not move them now")
         return
     end
-    a:ClearAllPoints()
-    a:SetPoint("CENTER", UIParent, "CENTER", -260, -120)
-    Print("back to the middle")
+    DB().gridPos = nil              -- forget where it was dragged to, then take the default
+    if NS.FG.RestorePos then NS.FG.RestorePos() end
+    Print("back to the middle -- drag the header to put it somewhere else")
 end
 
 function NS.DO.scan()

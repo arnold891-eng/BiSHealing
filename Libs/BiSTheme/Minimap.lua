@@ -84,9 +84,15 @@ if not T.Fit then
 end
 
 -- The shape, in one table so a suite can assert on the numbers rather than repeat them.
+-- The ring's own geometry, which is not ours: these are the numbers every minimap button in the
+-- game is built from, and a button one pixel off them reads as the odd one out. Arn, 19 Sep, of
+-- the flat square this used to be: "yeah we can make it round and ring".
 T.MINIMAP = {
-  SIZE   = 28,     -- the button
-  ICON   = 18,
+  SIZE   = 31,     -- the button
+  ICON   = 17,
+  RING   = 53,     -- the tracking border art, which is bigger than the button on purpose
+  ICON_X = 7,      -- where the icon sits inside the ring, from the top left
+  ICON_Y = -6,
   RADIUS = 80,     -- the fallback ring: right for a 140 px minimap, wrong for every other one
   OVER   = 10,     -- how far PAST the edge the button's middle sits, so it straddles the ring
   ANGLE  = 204,    -- where a fresh install puts it: lower left, clear of the clock and the tracker
@@ -362,21 +368,43 @@ function T.Minimap(key, opts)
   b:RegisterForClicks("AnyUp")
   b:RegisterForDrag("LeftButton")
 
-  -- The face: our own dark disc and border rather than Blizzard's brass ring, because the ring is
-  -- 53 px of art around a 20 px icon and the family already owns a look.
-  tex(b, "BACKGROUND", "frame", 0.92)
-  b.edge = border(b, "edge", 1)
+  -- THE FACE: Blizzard's own ring, not ours. This was a flat dark square in the family palette
+  -- for about an hour, until a screenshot of it among the other addons' buttons settled it - on a
+  -- minimap, matching the neighbours IS the look. The geometry below is the one every minimap
+  -- button in the game uses: a 31 px button, the 53 px tracking border hung off its top left, and
+  -- a 17 px icon inset into the hole.
+  b.disc = b:CreateTexture(nil, "BACKGROUND")
+  b.disc:SetSize(20, 20)
+  b.disc:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+  b.disc:SetPoint("TOPLEFT", M.ICON_X, -5)
+
   b.icon = b:CreateTexture(nil, "ARTWORK")
   b.icon:SetSize(M.ICON, M.ICON)
-  b.icon:SetPoint("CENTER")
+  b.icon:SetPoint("TOPLEFT", M.ICON_X, M.ICON_Y)
   if opts.icon then
     b.icon:SetTexture(opts.icon)
-    -- trim the icon's own border off, so it fills our square rather than framing itself
-    if b.icon.SetTexCoord then b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    -- Round, by whichever means this client has. SetMask is the modern way and Forever has the
+    -- modern API behind its 1.60 interface number; a client without it gets the old trim, which
+    -- squares off the corners of an icon that is about to sit in a circular hole anyway.
+    local masked = false
+    if b.icon.SetMask then
+      masked = pcall(b.icon.SetMask, b.icon, "Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
+    if not masked and b.icon.SetTexCoord then b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
   else
     b.icon:Hide()
     b.letter = fs(b, "B", 12, "accent")
-    b.letter:SetPoint("CENTER")
+    b.letter:SetPoint("CENTER", -1, 1)
+  end
+
+  b.ring = b:CreateTexture(nil, "OVERLAY")
+  b.ring:SetSize(M.RING, M.RING)
+  b.ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+  b.ring:SetPoint("TOPLEFT")
+
+  -- the same glow every other button lights up with under the cursor
+  if b.SetHighlightTexture then
+    pcall(b.SetHighlightTexture, b, "Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
   end
 
   --- How far out the ring is. MEASURED, not assumed: 80 is the number every minimap button in the

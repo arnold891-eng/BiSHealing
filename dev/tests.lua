@@ -2447,6 +2447,59 @@ do
         wneed(con.slots and con.slots.cure and tostring(con.slots.cure.text):find("2 to cure", 1, true),
               "the header should say 2 to cure: " .. tostring(con.slots and con.slots.cure and con.slots.cure.text))
     end
+    -- TWO GRIDS AT ONCE (19 Sep 2026). Arn, having ticked the mana gauge: "turned on the guage
+    -- and now 2 grids are open". Every options toggle ends in CFG.Apply, CFG.Apply ended in
+    -- Relayout, and Relayout laid out and SHOWED the pyramid - on a Forever client, on top of the
+    -- grid that client actually runs, the two disagreeing about how long a name is. The brain was
+    -- already gated on NS.SECRET in two places; its furniture was not.
+    do
+        SlashCmdList.BISHEALING("show")
+        local before = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then before = before + 1 end end
+        wneed(before > 0, "the pyramid should be up on a client that answers")
+
+        ADDON_NS.SECRET = true
+        BiSHealingUI.ConfigSet("rpm", true)          -- any toggle at all: they all end in Apply
+        local up = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then up = up + 1 end end
+        wneed(up == 0, ("a toggle raised %d pyramid frames on a client that hides its numbers"):format(up))
+        wneed(not ADDON_NS.UIX.plate:IsShown(), "and the mana gauge must stay down: it reads two secrets")
+
+        ADDON_NS.SECRET = false
+        BiSHealingUI.ConfigSet("rpm", true)          -- and the pyramid comes back on a TBC client
+        local back = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then back = back + 1 end end
+        wneed(back == before, ("the pyramid should come back: %d of %d"):format(back, before))
+    end
+
+    -- THE HEADER AGAINST A SECRET NUMBER (19 Sep 2026). On Forever the player's own mana comes
+    -- back as a secret while the maximum comes back as a plain number, and the percentage in the
+    -- header divided one by the other: twenty-seven copies of "attempt to perform arithmetic on
+    -- local 'm' (a secret number value)" in the error frame, half a second apart. The slot is
+    -- gone on that client - but the NET is what is tested here, because the next secret value
+    -- will be one nobody predicted.
+    do
+        local realPower, realPrint = UnitPower, CHATLOG
+        local boom = setmetatable({}, {
+            __div = function() error("attempt to perform arithmetic on a secret number value", 2) end,
+            __lt  = function() error("attempt to compare a secret number value", 2) end,
+        })
+        function UnitPower() return boom end
+        CFG_SLOTS_OFF = nil
+        CHATLOG = {}
+        local ok = pcall(function() for _ = 1, 6 do BiSHealingUI.ConsoleTick(0.2) end end)
+        wneed(ok, "a secret number in the header must not throw out of the ticker")
+        for _ = 1, 6 do BiSHealingUI.ConsoleTick(0.2) end
+        local said = table.concat(CHATLOG, " | ")
+        wneed(select(2, said:gsub("secret", "")) <= 1,
+              "and must say so ONCE, not twice a second: " .. said)
+        -- and it stays off for the session: the client does not stop keeping a number secret
+        wneed(ADDON_NS.CFG.slotsOff == true, "the ticker should stay off once it has been told")
+        UnitPower = realPower
+        CHATLOG = realPrint
+        ADDON_NS.CFG.slotsOff = false      -- this suite carries on with a client that answers
+    end
+
     -- /bish dispel lists them under the zone, disease and poison both
     CHATLOG = {}
     SlashCmdList.BISHEALING("dispel")

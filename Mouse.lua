@@ -54,38 +54,57 @@ FM.MODS = { { key = "", label = "no modifier" }, { key = "shift-", label = "shif
 -- What a fresh install already knows. The mouse owns EVERY click meaning: the grid used to set
 -- these itself, and then applying an empty bind list wiped them - a grid with no click-casting at
 -- all, silently. One owner, seeded once.
-FM.DEFAULTS = {
-    ["left"]        = "Healing Wave",
-    ["right"]       = "Lesser Healing Wave",
-    ["shift-left"]  = "Chain Heal",
+--
+-- ONE LIST PER CLASS, and it is the only class-shaped thing in the addon. Everything else asks
+-- the client what this character can do; a fresh install cannot, because "what would you like on
+-- the left button" has no answer until you have dragged one. So each healer gets the two or three
+-- spells they would have dragged first, and anyone else gets nothing rather than a guess.
+--
+-- These are courtesies, not opinions. Drag over them and they are gone.
+FM.CLASS_DEFAULTS = {
+    SHAMAN  = { left = "Healing Wave",    right = "Lesser Healing Wave", ["shift-left"] = "Chain Heal" },
+    PRIEST  = { left = "Greater Heal",    right = "Flash Heal",          ["shift-left"] = "Renew" },
+    PALADIN = { left = "Holy Light",      right = "Flash of Light",      ["shift-left"] = "Cleanse" },
+    DRUID   = { left = "Healing Touch",   right = "Regrowth",            ["shift-left"] = "Rejuvenation" },
 }
+
+--- What this character starts with. An unknown class - or a client that will not say - gets an
+--- empty mouse and the window's own instruction to drag something onto it.
+function FM.Defaults()
+    local _, class = nil, nil
+    if UnitClass then
+        local ok, _, token = pcall(UnitClass, "player")
+        if ok then class = token end
+    end
+    return FM.CLASS_DEFAULTS[class or ""] or {}
+end
+
+-- kept as a name because the suite and the options window both ask what a fresh install believes
+FM.DEFAULTS = setmetatable({}, { __index = function(_, k) return FM.Defaults()[k] end })
 
 local memory = { binds = {} }
 local function db()
     local d = (NS.DB and NS.DB()) or _G.BiSHealingDB
     if type(d) ~= "table" then
         if not memory.seeded then
-            for k, v in pairs(FM.DEFAULTS) do memory.binds[k] = v end
+            for k, v in pairs(FM.Defaults()) do memory.binds[k] = v end
             memory.seeded = true
         end
         return memory
     end
-    d.forever = type(d.forever) == "table" and d.forever or {}
-    d.forever.binds = type(d.forever.binds) == "table" and d.forever.binds or {}
-    if next(memory.binds) and not next(d.forever.binds) then
-        d.forever.binds = memory.binds        -- carry anything bound before the DB arrived
+    -- The binds live at the top of the table now. They used to sit under `d.forever`, from the
+    -- days when this was the Forever half of another addon; Core.lua's migration carries them.
+    d.binds = type(d.binds) == "table" and d.binds or {}
+    if next(memory.binds) and not next(d.binds) then
+        d.binds = memory.binds                -- carry anything bound before the DB arrived
     end
-    -- NOTE the table: `d` is the whole SavedVariables, `d.forever` is ours. Seeding into `d` read
-    -- `d.binds`, which does not exist - "attempt to index field 'binds' (a nil value)" on every
-    -- click. One letter of scope, one error per frame.
-    local mine = d.forever
-    if not mine.seeded then                   -- a fresh install gets the defaults, once
-        for k, v in pairs(FM.DEFAULTS) do
-            if mine.binds[k] == nil then mine.binds[k] = v end
+    if not d.bindsSeeded then                 -- a fresh install gets its class defaults, once
+        for k, v in pairs(FM.Defaults()) do
+            if d.binds[k] == nil then d.binds[k] = v end
         end
-        mine.seeded = true
+        d.bindsSeeded = true
     end
-    return mine
+    return d
 end
 
 --- What the cursor is holding, as a spell name - or nil. The two clients disagree about what
@@ -150,6 +169,19 @@ function FM.Split(cast)
     local name, rank = cast:match("^(.-)%((.-)%)$")
     if name then return name, rank end
     return cast, nil
+end
+
+--- The spell the grid asks about when it wants to know who is reachable: whatever is on the left
+--- button, without its rank - a rank has no bearing on range, and "Healing Wave(Rank 3)" is a
+--- cast string, not a spell name the range call would recognise.
+---
+--- This is why the grid holds no spell names at all now. The range that matters is the range of
+--- the thing your click would actually cast, which is a different spell for every class and a
+--- different spell again when you drag something new onto the mouse.
+function FM.RangeSpell()
+    local cast = FM.Get("", "left") or FM.Get("", "right")
+    if not cast then return nil end
+    return (FM.Split(cast))
 end
 
 --- Remember a bind. Returns the spell, or nil and why not.

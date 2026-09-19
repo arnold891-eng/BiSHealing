@@ -142,7 +142,6 @@ end
 --- brain needs starts answering again -- but the client is still settling on that exact frame, so
 --- the scan waits a beat.
 function FB.Start()
-    if not NS.SECRET then return false end
     if FB.frame then return true end
     local f = CreateFrame("Frame")
     pcall(f.RegisterEvent, f, "PLAYER_REGEN_ENABLED")
@@ -154,25 +153,7 @@ function FB.Start()
         end
     end)
     FB.frame = f
-
-    -- /bishf: ask the brain what it can see right now, without waiting for a pull to end
-    _G.SLASH_BISHEALFOREVER1 = "/bishf"
-    SlashCmdList = SlashCmdList or {}
-    SlashCmdList.BISHEALFOREVER = function(input)
-        local arg = tostring(input or ""):lower()
-        if arg:find("auras") then
-            -- does the client draw ANY aura marker here? See Forever/Auras.lua FA.Debug.
-            local on = NS.FA and NS.FA.Debug and NS.FA.Debug(not (NS.FA and NS.FA.debug))
-            local say = NS.Print or function(m) print(m) end
-            say(("BiS Healing: debug aura marker %s - take any debuff and watch the bars")
-                :format(on and "ON (every debuff washes orange)" or "off"))
-            return
-        end
-        if arg:find("mouse") then
-            if NS.FM and NS.FM.Toggle then NS.FM.Toggle() end
-            return
-        end
-        FB.Dump()
-    end
+    -- The slash command used to be registered here, because this file was the only one with a
+    -- reason to have one. Core.lua owns every door now: /bish scan is what this answers.
     return true
 end

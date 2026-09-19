@@ -1769,7 +1769,7 @@ do
     -- past ~32 is the Innervate ceiling and wants a slash command instead
     local EXPECT = {
         "shown", "locked", "pets", "nameLen", "bars", "redPct", "corners", "pulse", "pulseCap",
-        "totemRange", "dispel",
+        "totemRange", "dispel", "minimap",
         "bounceLines", "goldChains", "celebrate", "critBrag", "bragGap", "healRace",
         "incomingFill", "castCounter", "fsr", "rpm",
         "esQuiet", "nsPip", "giftBadge",
@@ -1781,7 +1781,7 @@ do
     oneed(#BiSHealingUI.ConfigIDs() == #EXPECT,
           ("%d controls, expected %d -- a new row wants adding to the list on purpose")
           :format(#BiSHealingUI.ConfigIDs(), #EXPECT))
-    oneed(#frame.rows == #EXPECT + 4, ("expected %d rows (28 options + 4 sections), got %d"):format(#EXPECT + 4, #frame.rows))
+    oneed(#frame.rows == #EXPECT + 4, ("expected %d rows (29 options + 4 sections), got %d"):format(#EXPECT + 4, #frame.rows))
     oneed(frame:GetHeight() <= BiSTheme.OPTIONS.HEADER + 33 * BiSTheme.OPTIONS.ROW + BiSTheme.OPTIONS.PAD,
           "the window is taller than the family's tallest (Innervate, 29 rows) allows")
     -- every label inside the kit's budget, untrimmed
@@ -1973,6 +1973,8 @@ do
         "FA",
         -- FM: the mouse - every click meaning in one place, bound by dragging a spell onto it
         "FM",
+        -- MM: the minimap button's rows. Each one runs the slash command itself (19 Sep)
+        "MM",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do

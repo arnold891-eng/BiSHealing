@@ -47,7 +47,7 @@ local CURES = { Poison = true, Disease = true }
 --   FA.WATCH = { [974] = "Earth Shield" }
 FA.WATCH = {}
 
-local DISPEL_TINT = { 0.00, 0.70, 0.25, 0.55 }   -- green wash over the bar: something to cure
+local DISPEL_TINT = { 0.10, 0.90, 0.35, 0.95 }   -- a green pip: something here you can cure
 local ES_TINT     = { 0.95, 0.80, 0.25, 0.90 }
 
 --- Does this client ship the containers, AND will it let us build one? Feature detection, not an
@@ -78,13 +78,24 @@ local function addSlot(container, key, filter, opts)
     return nil
 end
 
---- A flat tint over the whole button, so the marker reads as "this cell needs you" at a glance
---- rather than as an icon to squint at. The client sizes and shows it; we only say how it looks.
-local function tint(colour, anchorTo)
+--- A small coloured pip, and NOTHING of the client's own button.
+---
+--- The first version stretched the marker across the whole health bar, and on the beta that showed
+--- as a WHITE BLOCK over the cell: an aura button brings its own icon and border art, and
+--- stretched over the bar it simply hid it. A marker should be small enough that being wrong about
+--- what the client draws costs a corner rather than the bar.
+local function pip(colour)
     return function(auraButton)
         if not auraButton then return end
-        if anchorTo then
-            auraButton:SetAllPoints(anchorTo)
+        -- the button's own art, gone: we want a colour, not Blizzard's icon frame
+        if auraButton.GetRegions then
+            for _, r in ipairs({ auraButton:GetRegions() }) do
+                if r.SetTexture and r.Hide then pcall(r.Hide, r) end
+            end
+        end
+        for _, k in ipairs({ "Icon", "icon", "Border", "border", "Count", "count", "Cooldown" }) do
+            local part = auraButton[k]
+            if type(part) == "table" and part.Hide then pcall(part.Hide, part) end
         end
         local t = auraButton:CreateTexture(nil, "OVERLAY")
         t:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -131,9 +142,12 @@ function FA.Attach(cell, unit)
     -- 1. anything WE can cure, washed over the health bar
     local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
         candidateFilters = { includeDispelTypes = CURES },
-        initializeFrame = tint(DISPEL_TINT, cell.bar),
+        initializeFrame = pip(DISPEL_TINT),
     })
-    if dispel and dispel.SetPoint then dispel:SetPoint("CENTER", cell.bar or cell, "CENTER") end
+    if dispel and dispel.SetPoint then
+        dispel:SetSize(10, 10)
+        dispel:SetPoint("LEFT", cell, "LEFT", 2, 0)      -- a pip at the edge, never over the bar
+    end
 
     -- 2. a pip for any buff we are watching. Nothing is watched by default, so no slot is built
     --    and the cell stays as clean as the grid was before.
@@ -146,7 +160,7 @@ function FA.Attach(cell, unit)
     if any then
         es = addSlot(container, "BiSHealWatch", "HELPFUL", {
             candidateFilters = { includeSpellIDs = watch },
-            initializeFrame = tint(ES_TINT),
+            initializeFrame = pip(ES_TINT),
         })
         if es and es.SetPoint then
             es:SetSize(8, 8)
@@ -154,9 +168,39 @@ function FA.Attach(cell, unit)
         end
     end
 
+    -- the debug marker, when someone is asking "does this draw at all?"
+    if FA.debug then
+        local any = addSlot(container, "BiSHealAnyDebuff", "HARMFUL", {
+            initializeFrame = pip({ 1.00, 0.45, 0.10, 0.95 }),
+        })
+        if any and any.SetPoint then
+            any:SetSize(10, 10)
+            any:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 2, 2)
+        end
+        cell.anySlot = any
+    end
+
     if container.SetEnabled then container:SetEnabled(true) end
     cell.auras, cell.dispelSlot, cell.watchSlot = container, dispel, es
     return true
+end
+
+--- A DEBUG MARKER: any harmful aura at all, dispellable or not.
+---
+--- The real marker asks for "HARMFUL|RAID_PLAYER_DISPELLABLE", which means the CLIENT decides
+--- what this character can cure. A shaman who has not learned Cure Poison yet can cure nothing,
+--- so nothing draws - and from the outside that looks exactly like a container that never worked.
+--- This tells the two apart: turn it on, take any debuff, and if the cell washes orange the
+--- containers are drawing and the dispel filter is simply doing its job.
+---
+--- Off by default and never shipped on: it marks every debuff, which in a raid is noise.
+function FA.Debug(on, frames)
+    FA.debug = on and true or false
+    for _, f in ipairs(frames or (NS.FG and NS.FG.frames) or {}) do
+        f.auras = nil                       -- rebuilt with (or without) the extra slot
+        if f.unit then FA.Attach(f, f.unit) end
+    end
+    return FA.debug
 end
 
 --- Point every cell's container at whatever unit that cell now holds. Called from the layout, out

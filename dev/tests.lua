@@ -494,6 +494,13 @@ local blindScan, why = FB.Scan()
 ok(blindScan == nil and why ~= nil, "the brain refuses to scan inside the lockdown")
 STATE.inCombat = false
 
+-- THIS CHARACTER HAS EARTH SHIELD, and is in a group. Both matter now: the brain does not nag
+-- about a spell you have not trained (a level-15 shaman grinding leather was told six times in
+-- ninety seconds that it was not up), and it says nothing at all when you are playing alone.
+BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
+local GROUPED = true
+_G.IsInGroup = function() return GROUPED end
+
 -- nothing up: Earth Shield missing and no totems out, both worth saying between pulls
 local found = FB.Scan()
 local kinds = {}
@@ -526,8 +533,35 @@ ok(dead == 1, "the dead are listed for the rez")
 STATE.dead.party2 = nil
 
 -- it speaks only when there is something to say
+SAID = {}
 local n = FB.Report()
 ok(n and n > 0 and #SAID == n, "Report says one line per finding")
+ok(not tostring(SAID[1]):find("BiS Healing", 1, true),
+   "and does NOT write its own name: NS.Print already does that")
+
+-- THE SAME NEWS IS NOT NEWS. The screenshot that started this had one line six times in ninety
+-- seconds, once per mob killed. A finding that has not changed is said again only after QUIET.
+SAID = {}
+ok(FB.Report() == 0 and #SAID == 0, "the same findings a moment later are not repeated")
+ok(FB.Report(true) ~= 0 and #SAID > 0, "unless asked for outright (/bish scan)")
+
+-- ALONE, IT SAYS NOTHING AT ALL. This is a brain for a group: who still has a debuff, who is
+-- dead, whether the shield is up. Solo there is nobody to tell.
+SAID = {}
+GROUPED = false
+FB.lastSig = nil                                  -- as if the news had changed
+local quiet, reason = FB.Report()
+ok(quiet == 0 and reason == "alone" and #SAID == 0, "playing alone, it stays quiet")
+GROUPED = true
+FB.lastSig = nil
+
+-- and a character who has not trained Earth Shield is never told it is missing
+BOOK[20] = nil
+local noES = FB.Scan()
+local mentions = 0
+for _, f in ipairs(noES) do if f.kind == "earthshield" then mentions = mentions + 1 end end
+ok(mentions == 0, "no Earth Shield in the spellbook, no Earth Shield in the report")
+BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
 AURAS.party2.HARMFUL[1], AURAS.party2.HARMFUL[2] = nil, nil
 for i = 1, 4 do TOTEMS[i] = true end
 SAID = {}

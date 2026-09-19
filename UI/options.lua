@@ -162,6 +162,13 @@ function CFG.OptionSections()
               show = function(db) return tostring(db.pulseCap or PULSE_CAP) end },
             tog("totemRange", "totem reach", "totemRange", true),
             tog("dispel", "curable debuffs", "dispel", true),
+            -- The minimap button does not live in the saved-variable table the
+            -- other toggles read: it keeps its own corner (angle and hidden),
+            -- so /bish reset can clear the frames without losing where the
+            -- button sits. Hence its own get/set rather than tog().
+            { key = "minimap", kind = "toggle", label = "minimap button",
+              get = function() return not (NS.MM and NS.MM.Hidden()) end,
+              set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
         } },
         { title = "chain heal", options = {
             tog("bounceLines", "bounce lines", "bounceLines", true),

@@ -10,6 +10,7 @@
 
 Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua
+Libs\BiSTheme\Minimap.lua
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibHealComm-4.0\ChatThrottleLib.lua
@@ -27,3 +28,4 @@ Core\comm.lua
 BiSHealing.lua
 
 UI\options.lua
+UI\minimap.lua

@@ -29,10 +29,10 @@ NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
 local PER_COL = 5                       -- one column per party, the way a raid reads
-local HEAL = "Healing Wave"             -- confirmed present on Forever (probe, 17 Sep)
-local HEAL_FAST = "Lesser Healing Wave"
-local HEAL_CHAIN = "Chain Heal"
-local RANGE_SPELL = HEAL                -- the spell whose range decides "can I reach them"
+-- No spell names live here any more. Three did - Healing Wave, Lesser Healing Wave, Chain Heal -
+-- back when this grid was the Forever half of a shaman addon. "Can I reach them" is answered with
+-- the spell on your LEFT BUTTON, which is both class-agnostic and more honest than a constant:
+-- the range that matters is the range of the thing the click would actually cast.
 
 FG.frames, FG.byUnit = {}, {}
 FG.maxOK = true                         -- set false if the client refuses a secret max (see Paint)
@@ -194,9 +194,19 @@ function FG.Paint(f)
     -- used in an `if` -- the client refuses the boolean test itself. IsSpellInRange answers
     -- plainly, and anything that is not a clear "no" leaves the cell at full alpha rather than
     -- dimming someone who is actually reachable.
+    --
+    -- AND NOT THE GLOBAL EITHER, on this client. The API fence caught it on 19 Sep 2026: the
+    -- 1.60.1 census has C_Spell.IsSpellInRange and no bare IsSpellInRange, so this was guarded by
+    -- `if IsSpellInRange then` and quietly never ran - nobody was ever dimmed. The old addon had
+    -- a fallback pair elsewhere in its 5,000 lines, which is what kept the fence quiet.
+    --
+    -- The modern one answers true/false, the old one 1/0. Both are handled, because "which shape
+    -- does this client answer in" is not a question worth a version check.
     local reach = 1
-    if IsSpellInRange then
-        local ok, r = pcall(IsSpellInRange, RANGE_SPELL, unit)
+    local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+    local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
+    if range and spell then
+        local ok, r = pcall(range, spell, unit)
         if ok and (r == 0 or r == false) then reach = 0.45 end
     end
     f:SetAlpha(reach)
@@ -206,15 +216,14 @@ end
 
 local THROTTLE = 0.1
 
+--- Build the grid and keep it fed. Called once, from Core.lua, at login.
+---
+--- It used to begin `if not NS.SECRET then return false end` - stand aside, this client keeps the
+--- pyramid. There is no pyramid any more (19 Sep 2026, tag `tbc-final`), so the grid runs on
+--- whatever client it finds. On one that answers freely the cells simply get numbers they are
+--- allowed to read, and draw the same bars.
 function FG.Start()
-    if not NS.SECRET then return false end          -- TBC keeps the pyramid, untouched
     if FG.anchor then return true end
-
-    -- The pyramid's own anchor is built at file load, before anything knows which client this is,
-    -- so on Forever it sits there saying "BiS Healing -- drag (unlocked)" over a pyramid that will
-    -- never appear. Its brain is already off; this takes its furniture off the screen too.
-    if NS.anchor and NS.anchor.Hide then NS.anchor:Hide() end
-    if NS.UIX and NS.UIX.plate and NS.UIX.plate.Hide then NS.UIX.plate:Hide() end
 
     local anchor = CreateFrame("Frame", "BiSHealingForeverAnchor", UIParent)
     anchor:SetSize(FRAME_W, FRAME_H)
@@ -247,11 +256,5 @@ function FG.Start()
     return true
 end
 
--- The client hands every file (addonName, addonTable); nothing else calls into here, so the grid
--- arms itself on login. On TBC FG.Start() returns false on its first line and this costs one frame.
-local boot = CreateFrame("Frame")
-boot:RegisterEvent("PLAYER_LOGIN")
-boot:SetScript("OnEvent", function(self)
-    self:UnregisterEvent("PLAYER_LOGIN")
-    FG.Start()
-end)
+-- Booted by Core.lua at login. This file used to arm itself, because for two days it WAS the
+-- addon on this client and there was no core to do it.

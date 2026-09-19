@@ -87,7 +87,8 @@ end
 T.MINIMAP = {
   SIZE   = 28,     -- the button
   ICON   = 18,
-  RADIUS = 80,     -- how far from the middle of the minimap it sits
+  RADIUS = 80,     -- the fallback ring: right for a 140 px minimap, wrong for every other one
+  OVER   = 10,     -- how far PAST the edge the button's middle sits, so it straddles the ring
   ANGLE  = 204,    -- where a fresh install puts it: lower left, clear of the clock and the tracker
   ROW    = 15,     -- one menu row
   HEADER = 15,
@@ -378,13 +379,24 @@ function T.Minimap(key, opts)
     b.letter:SetPoint("CENTER")
   end
 
+  --- How far out the ring is. MEASURED, not assumed: 80 is the number every minimap button in the
+  --- game uses and it is only correct for a 140 px minimap. Arn, 19 Sep, with a screenshot of this
+  --- button sitting inside the map while everyone else's sat on the edge: "everyone else buttons
+  --- are on the outside". This client's minimap is wider, so 80 was well inside it.
+  function b:Radius()
+    local w = parent.GetWidth and parent:GetWidth()
+    if type(w) == "number" and w > 0 then return w / 2 + M.OVER end
+    return M.RADIUS
+  end
+
   --- Where it sits. The angle is a compass reading in degrees, kept in the addon's own db so it
   --- survives a reload, and the maths is the same for every minimap the game has ever had.
   function b:Place()
     local d = self.opts.db
     local a = math.rad((type(d) == "table" and tonumber(d.angle)) or M.ANGLE)
+    local r = self:Radius()
     self:ClearAllPoints()
-    self:SetPoint("CENTER", parent, "CENTER", M.RADIUS * math.cos(a), M.RADIUS * math.sin(a))
+    self:SetPoint("CENTER", parent, "CENTER", r * math.cos(a), r * math.sin(a))
     return a
   end
 

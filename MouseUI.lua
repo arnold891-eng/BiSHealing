@@ -69,10 +69,35 @@ local function makeSlot(parent, slot)
     f.empty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.empty:SetPoint("CENTER")
     f.empty:SetText("--")
-    -- the rank, small, in the corner of the icon: which Healing Wave this is matters more to a
-    -- healer than which spell it is
-    f.rank = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.rank:SetPoint("BOTTOMRIGHT", 1, -1)
+    -- THE RANK, and it is a BUTTON. Which Healing Wave this is matters more to a healer than
+    -- which spell it is, and dropping a lower rank assumes your spellbook is set to show you one
+    -- to drag. Click the little number instead: it walks the ranks this character has trained,
+    -- and wraps, so it is safe to click without reading.
+    f.rankBtn = CreateFrame("Button", nil, f)
+    f.rankBtn:SetSize(14, 9)
+    f.rankBtn:SetPoint("BOTTOMRIGHT", 2, -2)
+    f.rank = f.rankBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.rank:SetPoint("CENTER")
+    f.rankBtn:SetScript("OnClick", function()
+        local was = FM.Get(parent.mod, slot.key)
+        local now = FM.CycleRank(parent.mod, slot.key)
+        parent:Refresh()
+        FM.Apply()
+        if was and now == was and parent.Say then
+            parent:Say("only one rank of that is trained")
+        end
+    end)
+    f.rankBtn:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("click for the next rank", rgb("accent"))
+        local name = FM.Split(FM.Get(parent.mod, slot.key))
+        local n = name and #FM.Ranks(name) or 0
+        GameTooltip:AddLine(n > 1 and (n .. " ranks trained") or "only one rank trained",
+                            rgb("muted"))
+        GameTooltip:Show()
+    end)
+    f.rankBtn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     f.slot = slot
 
     local function take()
@@ -172,7 +197,7 @@ function FM.Window()
     -- two of them were printing on top of each other
     local hint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOP", 0, -62)
-    hint:SetText("drag a spell from your spellbook onto a button")
+    hint:SetText("drag a spell onto a button, then click its rank")
 
     -- the modifier tabs
     w.tabs = {}
@@ -237,6 +262,11 @@ function FM.Window()
     foot:SetWidth(230)
     foot:SetText("binds are written out of combat")
 
+    -- the header prompt is where this window talks back, if BiSTheme's console is loaded
+    function w:Say(text)
+        if self.con and self.con.Say then self.con:Say(text) end
+    end
+
     function w:Refresh()
         for i, m in ipairs(FM.MODS) do
             local on = (m.key == self.mod)
@@ -263,8 +293,9 @@ function FM.Window()
                 f.empty:SetText("--")
             end
             -- "Rank 3" -> "3": the slot is 30 pixels wide and you already know what it means
-            f.rank:SetText(rank and (rank:match("%d+") or rank) or "")
-            f.rank:SetTextColor(rgb("accent"))
+            f.rank:SetText(rank and (rank:match("%d+") or rank) or (spell and "-" or ""))
+            f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
+            if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
         end
         foot:SetText((InCombatLockdown and InCombatLockdown())
             and "in combat: binds are queued until the fight ends"

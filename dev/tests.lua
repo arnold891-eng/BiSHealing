@@ -2447,6 +2447,47 @@ do
         wneed(con.slots and con.slots.cure and tostring(con.slots.cure.text):find("2 to cure", 1, true),
               "the header should say 2 to cure: " .. tostring(con.slots and con.slots.cure and con.slots.cure.text))
     end
+    -- THE WINDOW ON A CLIENT THAT HIDES ITS NUMBERS (19 Sep 2026). Arn: "alot of the stuff in the
+    -- right click was legacy stuff that does not work. can we put it away somewhere where it does
+    -- not affect the addon? and put the menu there?" Of the 29 rows below, the Forever grid reads
+    -- exactly one. This is the list that proves the short window stays short and stays honest.
+    do
+        local CFG = ADDON_NS.CFG
+        local keys, rows = {}, 0
+        for _, sec in ipairs(CFG.ForeverSections()) do
+            for _, opt in ipairs(sec.options) do
+                keys[opt.key] = opt
+                rows = rows + 1
+            end
+        end
+        for _, want in ipairs({ "shown", "minimap", "mouse", "seen", "pipTest" }) do
+            wneed(keys[want], ("the short window lost %q"):format(want))
+        end
+        for _, gone in ipairs({ "bounceLines", "wheelMode", "esQuiet", "redPct", "pulseCap",
+                                "totemRange", "healRace", "critBrag", "keybinds" }) do
+            wneed(not keys[gone], ("%q is the pyramid's brain and must not be offered"):format(gone))
+        end
+        wneed(rows <= 10, ("the short window is not short: %d rows"):format(rows))
+
+        -- every button must be pressable HERE, on a client that never registered /bishf: a row
+        -- that throws when pressed is worse than a row that does nothing
+        for key, opt in pairs(keys) do
+            if opt.kind == "button" then
+                wneed(pcall(opt.action, BiSHealingDB), ("pressing %q threw"):format(key))
+            else
+                wneed(pcall(opt.get, BiSHealingDB), ("reading %q threw"):format(key))
+            end
+        end
+
+        -- and the window asks for it only on that client
+        ADDON_NS.SECRET = true
+        wneed(#CFG.OptionSections() == #CFG.ForeverSections(),
+              "a secret client should be offered the short window")
+        ADDON_NS.SECRET = false
+        wneed(#CFG.OptionSections() > #CFG.ForeverSections(),
+              "and a client that answers keeps every row it always had")
+    end
+
     -- TWO GRIDS AT ONCE (19 Sep 2026). Arn, having ticked the mana gauge: "turned on the guage
     -- and now 2 grids are open". Every options toggle ends in CFG.Apply, CFG.Apply ended in
     -- Relayout, and Relayout laid out and SHOWED the pyramid - on a Forever client, on top of the

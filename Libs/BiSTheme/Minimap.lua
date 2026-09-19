@@ -493,7 +493,10 @@ function T.Minimap(key, opts)
   end)
 
   b:SetScript("OnEnter", function(s)
-    s.edge:set("accent", 1)
+    -- `edge` is the square face's border, and the round face has none: the ring's own highlight
+    -- texture does the hover. Left unguarded this threw twice a second under the cursor, which is
+    -- what going round cost and what the suite now covers.
+    if s.edge then s.edge:set("accent", 1) end
     if not GameTooltip then return end
     GameTooltip:SetOwner(s, "ANCHOR_LEFT")
     GameTooltip:AddLine("BiS> " .. tostring(s.opts.label or s.key), T.rgb("accent"))
@@ -506,7 +509,7 @@ function T.Minimap(key, opts)
     GameTooltip:Show()
   end)
   b:SetScript("OnLeave", function(s)
-    s.edge:set("edge", 1)
+    if s.edge then s.edge:set("edge", 1) end
     if GameTooltip then GameTooltip:Hide() end
   end)
 

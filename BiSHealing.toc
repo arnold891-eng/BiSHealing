@@ -7,6 +7,8 @@
 ## SavedVariables: BiSHealingDB
 ## X-Category: Raid Frames
 ## IconTexture: Interface\Icons\Spell_Nature_HealingWaveGreater
+## X-Curse-Project-ID: 1703250
+## X-CurseForge-GameVersionType: Burning Crusade
 
 Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua

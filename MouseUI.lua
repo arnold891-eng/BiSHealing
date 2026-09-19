@@ -52,6 +52,88 @@ local function spellIcon(cast)
     return nil
 end
 
+--------------------------------------------------------------------
+-- where the window sits
+--------------------------------------------------------------------
+
+-- Arn, 19 Sep 2026, with the spellbook open and the binder beside it: "if we open the spellbook
+-- window and we have the bind window open can we anchor it to this spot ... defualt place the
+-- last place it was in".
+--
+-- Two rules, in that order:
+--   1. while the spellbook is open, sit against its right edge - because that is where you are
+--      looking when you are dragging spells out of it
+--   2. otherwise, the last place you put it
+--
+-- The book is found BY NAME, because it is built on demand by one of Blizzard's own addons, and
+-- which name it has is a question about the client rather than about us: this one has
+-- TogglePlayerSpellsFrame, an older one has SpellBookFrame, and asking for all of them costs
+-- nothing.
+FM.BOOKS = { "PlayerSpellsFrame", "SpellBookFrame", "ClassSpellBookFrame" }
+
+--- The spellbook frame, if one of them is open right now.
+function FM.Book()
+    for _, name in ipairs(FM.BOOKS) do
+        local f = _G[name]
+        if type(f) == "table" and f.IsShown then
+            local ok, shown = pcall(f.IsShown, f)
+            if ok and shown then return f, name end
+        end
+    end
+    return nil
+end
+
+--- Remember where it was dragged to - the anchor itself rather than a screen position, so it
+--- lands in the same place at a different resolution.
+function FM.SavePos(w)
+    w = w or FM.win
+    if not w or not w.GetPoint then return nil end
+    local ok, point, _, rel, x, y = pcall(w.GetPoint, w)
+    if not ok or not point then return nil end
+    local db = NS.DB and NS.DB()
+    if type(db) ~= "table" then return nil end
+    db.mousePos = { point = point, rel = rel, x = x, y = y }
+    return db.mousePos
+end
+
+--- Put it back where it was left, or in the middle on a first run.
+function FM.Restore(w)
+    w = w or FM.win
+    if not w then return end
+    local db = NS.DB and NS.DB()
+    local pos = type(db) == "table" and db.mousePos or nil
+    w:ClearAllPoints()
+    if type(pos) == "table" and pos.point then
+        w:SetPoint(pos.point, UIParent, pos.rel or pos.point, pos.x or 0, pos.y or 0)
+    else
+        w:SetPoint("CENTER")
+    end
+end
+
+--- Dock against the spellbook while it is open, and go back to the remembered spot when it shuts.
+--- Asked on a ticker rather than hung off a hook: the book is created the first time it is
+--- opened, by an addon that may not be loaded yet, and a hook waiting for a frame to exist is
+--- three moving parts where a question every fifth of a second is one.
+function FM.Place(w)
+    w = w or FM.win
+    if not w then return nil end
+    local book = FM.Book()
+    if book and not w.undocked then
+        if w.dockedTo ~= book then
+            w:ClearAllPoints()
+            w:SetPoint("TOPLEFT", book, "TOPRIGHT", 8, 0)
+            w.dockedTo = book
+        end
+        return "docked"
+    end
+    if w.dockedTo then                      -- the book closed: back where it was
+        w.dockedTo = nil
+        FM.Restore(w)
+    end
+    if not book then w.undocked = nil end   -- dragging it away counts for this opening only
+    return "free"
+end
+
 --- One drop target on the drawing.
 local function makeSlot(parent, slot)
     local f = CreateFrame("Button", nil, parent)
@@ -146,12 +228,20 @@ function FM.Window()
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
     w:SetSize(250, 300)
-    w:SetPoint("CENTER")
+    FM.Restore(w)                   -- the last place it was put, or the middle on a first run
     w:SetMovable(true)
     w:EnableMouse(true)
     w:RegisterForDrag("LeftButton")
-    w:SetScript("OnDragStart", w.StartMoving)
-    w:SetScript("OnDragStop", w.StopMovingOrSizing)
+    w:SetScript("OnDragStart", function(self)
+        self:StartMoving()
+        -- dragging it is you saying where it goes, so it stops being docked to the spellbook
+        -- until the book has been closed and opened again
+        self.dockedTo, self.undocked = nil, true
+    end)
+    w:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        FM.SavePos(self)
+    end)
     w.mod = ""
 
     local bg = texture(w, "BACKGROUND", BODY[1], BODY[2], BODY[3], 0.94)
@@ -188,10 +278,29 @@ function FM.Window()
     end
     close:SetScript("OnClick", function() w:Hide() end)
     w.close = close
-    -- Escape closes it too, the way every other window in the game does
-    if type(_G.UISpecialFrames) == "table" then
-        tinsert(_G.UISpecialFrames, "BiSHealingMouse")
-    end
+    -- ESCAPE CLOSES IT, AND NOTHING ELSE DOES. This used to be one line - adding the window to
+    -- UISpecialFrames, the list the client closes on Escape - and Arn found what else being on
+    -- that list means: "right now if the bind window is open and i open the spell book it closes
+    -- the bind window". Opening a panel like the spellbook calls CloseAllWindows(), which shuts
+    -- every frame on that list. Joining it to get one key is joining Blizzard's whole panel
+    -- system, and this window is not part of that system: it sits BESIDE the spellbook on
+    -- purpose.
+    --
+    -- So the key is handled here. Escape is swallowed while the window is up; every other key
+    -- propagates, so typing still reaches the chat box.
+    w:EnableKeyboard(true)
+    w:SetPropagateKeyboardInput(true)
+    w:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            self:SetPropagateKeyboardInput(false)
+            self:Hide()
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+    w:SetScript("OnHide", function(self)
+        if self.SetPropagateKeyboardInput then self:SetPropagateKeyboardInput(true) end
+    end)
 
     -- under the tabs, not beside the header: the console's rotating word lives up there and the
     -- two of them were printing on top of each other
@@ -302,9 +411,14 @@ function FM.Window()
             or "binds are written out of combat")
     end
 
-    if w.con and C_Timer and C_Timer.NewTicker then
+    -- Runs whether or not the prompt is there: it paints the header AND asks where the window
+    -- should be sitting, and the second of those matters just as much on a client with no
+    -- BiSTheme installed.
+    if C_Timer and C_Timer.NewTicker then
         C_Timer.NewTicker(0.2, function()
-            if w:IsShown() and w.con and w.con.Paint then w.con:Paint() end
+            if not w:IsShown() then return end
+            if w.con and w.con.Paint then w.con:Paint() end
+            FM.Place(w)
         end)
     end
 
@@ -324,6 +438,9 @@ function FM.Toggle()
         w:Hide()
     else
         w:Refresh()
+        -- placed BEFORE it is shown, and not a fifth of a second later: opening the binder while
+        -- the spellbook is up should put it beside the book, not put it somewhere and then move it
+        FM.Place(w)
         w:Show()
     end
     return w:IsShown()

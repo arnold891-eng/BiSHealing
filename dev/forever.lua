@@ -57,8 +57,9 @@ local function autoMethods(t)
     end })
 end
 
-local function newFrame(kind)
-    local f = { __kind = kind, __attrs = {}, __scripts = {}, __shown = false, __alpha = 1 }
+local function newFrame(kind, name)
+    local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = false, __alpha = 1 }
+    if name then _G[name] = f end          -- the client puts a named frame in _G; so does this
     function f:SetScript(k, fn) self.__scripts[k] = fn end
     function f:HookScript(k, fn) self.__scripts[k] = fn end
     function f:GetScript(k) return self.__scripts[k] end
@@ -87,7 +88,7 @@ local function newFrame(kind)
     return autoMethods(f)
 end
 
-_G.CreateFrame = function(kind) return newFrame(kind) end
+_G.CreateFrame = function(kind, name) return newFrame(kind, name) end
 _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
 _G.UnitExists = function(u) return STATE.units[u] and true or false end
@@ -133,7 +134,41 @@ _G.CreateFrame = function(kind, name, parent, template)
 end
 
 local NS = {}
-for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Auras.lua", "Forever/Grid.lua", "Forever/Between.lua" }) do
+-- what the cursor is carrying, and what the client was told to bind
+local CURSOR = {}
+_G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c end
+_G.ClearCursor = function() CURSOR = {} end
+_G.C_Spell = _G.C_Spell or {}
+_G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end
+_G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
+-- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
+-- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
+local RANKS = {}
+_G.C_SpellBook = _G.C_SpellBook or {}
+_G.C_SpellBook.GetSpellBookItemName = function(n)
+    if type(n) ~= "number" then error("bad argument #1 (not a numerical value)", 2) end
+    if RANKS[n] then return "Spell" .. n, RANKS[n] end
+    return nil
+end
+
+local BOUND = {}
+_G.SetOverrideBindingClick = function(_, _, key, button) BOUND[key] = button end
+_G.ClearOverrideBindings = function() BOUND = {} end
+
+-- The tooltip, which is where a bind says what it is. It records lines rather than drawing them.
+local TIP = { lines = {} }
+_G.GameTooltip = autoMethods({
+    SetOwner = function(self) TIP.lines = {} end,
+    AddLine  = function(self, text) TIP.lines[#TIP.lines + 1] = text end,
+})
+_G.UISpecialFrames = {}        -- what the client closes on Escape
+_G.tinsert = table.insert
+
+-- MouseUI.lua is the DRAWING, and until 19 Sep no suite ever loaded it - which is why its errors
+-- were all found by a person standing in Orgrimmar. It draws with the same stub frames as
+-- everything else here, so there is no reason not to build it.
+for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Auras.lua", "Forever/Mouse.lua",
+                       "Forever/MouseUI.lua", "Forever/Grid.lua", "Forever/Between.lua" }) do
     local chunk = assert(loadfile(rel))
     chunk("BiSHealing", NS)
 end
@@ -370,6 +405,143 @@ SAID = {}
 FB.Dump()
 ok(#SAID == 1 and SAID[1]:find("in combat", 1, true), "in combat it says why it cannot answer")
 STATE.inCombat = false
+
+-- ------------------------------------------- the mouse, bound the way a hand is --
+-- An addon may not cast. It may say what a click MEANS, and let Blizzard's secure code do the
+-- rest - so a bind is a secure attribute on the cell (buttons) or an override binding onto a
+-- hidden macro button (the wheel, which no button takes as a click).
+do
+    local FM = NS.FM
+    ok(FM ~= nil, "the mouse module loaded")
+
+    -- dropping a spell from the spellbook
+    CURSOR = { kind = "spell", a = 7, b = 331 }
+    ok(FM.CursorSpell() == "Spell331", "a spell on the cursor is read by name, not by build number")
+
+    -- THE SHAPE THAT BROKE IT IN GAME (19 Sep): Forever hands back four values with a STRING in
+    -- the middle - (kind, spellBookIndex, "spell", spellID) - and its GetSpellBookItemName takes
+    -- one argument, not two. The old code passed the pair straight through and the client answered
+    -- "bad argument #1 (not a numerical value)" on every drag.
+    CURSOR = { kind = "spell", a = 12, b = "spell", c = 331 }
+    ok(FM.CursorSpell() == "Spell331", "and read from the four-value shape Forever actually sends")
+    CURSOR = { kind = "item", a = 5 }
+    ok(FM.CursorSpell() == nil, "something that is not a spell is not a bind")
+    CURSOR = { kind = "spell", a = 7, b = 331 }        -- back to the spell, for the drop below
+    FM.Set("", "left", FM.CursorSpell())
+    ok(FM.Get("", "left") == "Spell331", "and dropping it on a slot remembers it")
+
+    -- THE RANK. On a 1.60 client "/cast Healing Wave" throws the biggest one you know, which for
+    -- a healer is a different spell: three times the mana to move the same bar. A drop keeps the
+    -- rank the spellbook reports, and the cast string is the one a macro would say.
+    RANKS[331] = "Rank 4"
+    ok(FM.CursorSpell() == "Spell331(Rank 4)", "a spell dropped with a rank keeps its rank")
+    local name, rank = FM.Split(FM.CursorSpell())
+    ok(name == "Spell331" and rank == "Rank 4", "and reads back as a name and a rank, for showing")
+    ok(FM.Cast("Healing Wave", nil) == "Healing Wave", "no rank means the name alone: max rank")
+    ok(FM.Cast("Healing Wave", "Passive") == "Healing Wave",
+       "and a subtitle that is not a rank - 'Passive' - is not pasted into the cast either")
+    FM.Set("", "middle", FM.CursorSpell())
+    RANKS[331] = nil
+
+    FM.Set("shift-", "right", "Chain Heal")
+    FM.Set("", "wheelup", "Lesser Healing Wave")
+
+    -- buttons become secure attributes on the cell
+    local cell = FG.frames[1]
+    ok(FM.ApplyTo(cell) == true, "binds are written to a cell out of combat")
+    ok(cell.__attrs["*spell1"] == "Spell331", "left click casts what was dropped on it")
+    ok(cell.__attrs["*type1"] == "spell", "through the secure spell attribute")
+    ok(cell.__attrs["shift-spell2"] == "Chain Heal", "shift plus right click is its own slot")
+    ok(cell.__attrs["*spell3"] == "Spell331(Rank 4)",
+       "and a ranked bind reaches the secure attribute with the rank still on it")
+    ok(cell.__attrs["*spell2"] == "Lesser Healing Wave",
+       "plain right click keeps its own bind (the seeded default), unleaked: " .. tostring(cell.__attrs["*spell2"]))
+
+    -- the wheel is a binding, not a click
+    BOUND = {}
+    ok(select(1, FM.ApplyWheel(anchor)) == true, "the wheel binds")
+    ok(BOUND["MOUSEWHEELUP"] ~= nil, "through an override binding: " .. tostring(BOUND["MOUSEWHEELUP"]))
+    local wheelBtn = _G["BiSHealWheelwheelup"]
+    ok(wheelBtn and wheelBtn.__attrs["macrotext"]
+       and wheelBtn.__attrs["macrotext"]:find("[@mouseover] Lesser Healing Wave", 1, true) ~= nil,
+       "and casts at whatever the cursor is over, which is how a wheel reaches a cell")
+
+    -- NOTHING is written during a fight: both mechanisms are refused there
+    STATE.inCombat = true
+    ok(FM.ApplyTo(cell) == false, "no attribute is written in combat")
+    ok(FM.ApplyWheel(anchor) == false, "and no binding either")
+    ok(FM.Apply() == false and FM.pending == true, "the change is queued instead of lost")
+    STATE.inCombat = false
+    ok(FM.Apply() == true and FM.pending == false, "and lands when the fight ends")
+
+    -- SAVEDVARIABLES, which is where the binds actually live in game. The first version seeded the
+    -- defaults into the WHOLE db rather than into our own corner of it, so every read hit
+    -- `d.binds` on a table that has no `binds` - one letter of scope, one error per click.
+    do
+        _G.BiSHealingDB = { some = "other addon state" }
+        local realDB = NS.DB
+        NS.DB = function() return _G.BiSHealingDB end
+        ok(pcall(FM.Get, "", "left"), "reading a bind out of SavedVariables does not throw")
+        FM.Set("", "middle", "Cure Poison")
+        ok(_G.BiSHealingDB.forever and _G.BiSHealingDB.forever.binds
+           and _G.BiSHealingDB.forever.binds["middle"] == "Cure Poison",
+           "and a bind lands in OUR corner of the db, not on top of someone else's")
+        ok(_G.BiSHealingDB.some == "other addon state", "leaving the rest of it alone")
+        NS.DB = realDB
+        _G.BiSHealingDB = nil
+    end
+
+    -- clearing
+    FM.Clear("", "left")
+    FM.ApplyTo(cell)
+    ok(cell.__attrs["*spell1"] == nil and cell.__attrs["*type1"] == nil,
+       "clearing a slot removes the attribute rather than leaving a dead spell")
+end
+
+---------------------------------------------------------------- the window --
+
+-- THE DRAWING ITSELF. Not "does it look right" - a suite cannot see - but "does building it, and
+-- dropping a spell on it, and closing it, run without throwing". Every bug this window has had so
+-- far was that kind: an index of a nil field, one argument too many, a name that does not exist.
+do
+    local FM = NS.FM
+    local built, w = pcall(FM.Window)
+    ok(built and w ~= nil, "the mouse window builds")
+    if built and w then
+        ok(w.close ~= nil, "it has a close button")
+        w:Show()
+        w.close.__scripts.OnClick(w.close)
+        ok(w:IsShown() == false, "and clicking it shuts the window")
+        local escapes = false
+        for _, n in ipairs(_G.UISpecialFrames) do
+            if n == "BiSHealingMouse" then escapes = true end
+        end
+        ok(escapes, "and Escape closes it, like every other window in the game")
+
+        ok(pcall(FM.Toggle) and pcall(FM.Toggle), "toggling it open and shut does not throw")
+
+        -- dropping a ranked spell on the left button, through the UI rather than past it
+        RANKS[331] = "Rank 4"
+        CURSOR = { kind = "spell", a = 12, b = "spell", c = 331 }
+        local slot = w.slots["left"]
+        ok(slot ~= nil, "the left button is a drop target")
+        ok(pcall(slot.__scripts.OnReceiveDrag, slot), "and a spell can be dropped on it")
+        ok(FM.Get("", "left") == "Spell331(Rank 4)", "which binds the spell WITH its rank")
+
+        -- what the mouse-over says about it
+        slot.__scripts.OnEnter(slot)
+        local said = table.concat(TIP.lines, "|")
+        ok(said:find("Spell331", 1, true) and said:find("Rank 4", 1, true),
+           "and the tooltip names the spell and the rank, so you can see which one you bound")
+
+        -- right-click clears
+        ok(pcall(slot.__scripts.OnMouseUp, slot, "RightButton"), "right-clicking a slot runs")
+        CURSOR = {}
+        slot.__scripts.OnMouseUp(slot, "RightButton")
+        ok(FM.Get("", "left") == nil, "and with nothing on the cursor, clears the bind")
+        RANKS[331] = nil
+    end
+end
 
 print(fail == 0 and ("== forever ok (" .. checks .. " checks)")
       or ("!! forever: " .. fail .. " of " .. checks .. " failed"))

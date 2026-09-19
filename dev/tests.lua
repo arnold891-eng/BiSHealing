@@ -1971,6 +1971,8 @@ do
         "SECRET", "Blind", "FG", "FB",
         -- FA: the aura containers that SHOW what the lockdown will not let us read (19 Sep)
         "FA",
+        -- FM: the mouse - every click meaning in one place, bound by dragging a spell onto it
+        "FM",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do

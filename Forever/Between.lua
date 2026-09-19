@@ -158,6 +158,21 @@ function FB.Start()
     -- /bishf: ask the brain what it can see right now, without waiting for a pull to end
     _G.SLASH_BISHEALFOREVER1 = "/bishf"
     SlashCmdList = SlashCmdList or {}
-    SlashCmdList.BISHEALFOREVER = FB.Dump
+    SlashCmdList.BISHEALFOREVER = function(input)
+        local arg = tostring(input or ""):lower()
+        if arg:find("auras") then
+            -- does the client draw ANY aura marker here? See Forever/Auras.lua FA.Debug.
+            local on = NS.FA and NS.FA.Debug and NS.FA.Debug(not (NS.FA and NS.FA.debug))
+            local say = NS.Print or function(m) print(m) end
+            say(("BiS Healing: debug aura marker %s - take any debuff and watch the bars")
+                :format(on and "ON (every debuff washes orange)" or "off"))
+            return
+        end
+        if arg:find("mouse") then
+            if NS.FM and NS.FM.Toggle then NS.FM.Toggle() end
+            return
+        end
+        FB.Dump()
+    end
     return true
 end

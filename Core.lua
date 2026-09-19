@@ -76,11 +76,17 @@ function NS.DB()
         local binds = (type(db.forever) == "table" and db.forever.binds) or db.binds
         local minimap = db.minimap
         local shown = db.shown
+        -- and the fact that the mouse has already been seeded once. Losing this used to mean the
+        -- class defaults were offered again at the next login, so a bind the player had CLEARED
+        -- came back - the addon overruling a deliberate act. Mouse.lua refuses to re-seed a mouse
+        -- with anything on it now, but throwing the flag away was the cause and it is carried.
+        local seeded = db.bindsSeeded or (type(db.forever) == "table" and db.forever.seeded)
         for k in pairs(db) do db[k] = nil end
-        db.binds   = type(binds) == "table" and binds or nil
-        db.minimap = type(minimap) == "table" and minimap or nil
-        db.shown   = shown ~= false
-        db.dbver   = NS.DBVER
+        db.binds       = type(binds) == "table" and binds or nil
+        db.minimap     = type(minimap) == "table" and minimap or nil
+        db.shown       = shown ~= false
+        db.bindsSeeded = seeded and true or nil
+        db.dbver       = NS.DBVER
     end
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil and v ~= nil then db[k] = v end

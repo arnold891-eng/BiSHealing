@@ -143,13 +143,25 @@ _G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) }
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
-local RANKS = {}
+-- THE SPELLBOOK, AS THIS CLIENT ACTUALLY ANSWERS IT. The old stub let a SPELL ID answer a rank,
+-- and that is precisely why the missing rank got shipped: on the real client an id answers a name
+-- and nothing else, and C_Spell.GetSpellSubtext is the only call that knows the rank. A mock
+-- kinder than the client is a mock that tests nothing.
+--
+--   C_SpellBook.GetSpellBookItemName(index) -> name, rank   (a BOOK INDEX, never an id)
+--   C_Spell.GetSpellInfo(id)                -> { name = }   (no rank anywhere in it)
+--   C_Spell.GetSpellSubtext(id)             -> "Rank 4"
+local RANKS = {}                       -- id -> the rank the client would report for it
+local BOOK = {}                        -- book index -> { name, rank }
 _G.C_SpellBook = _G.C_SpellBook or {}
+_G.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
 _G.C_SpellBook.GetSpellBookItemName = function(n)
     if type(n) ~= "number" then error("bad argument #1 (not a numerical value)", 2) end
-    if RANKS[n] then return "Spell" .. n, RANKS[n] end
+    local e = BOOK[n]
+    if e then return e.name, e.rank end
     return nil
 end
+_G.C_Spell.GetSpellSubtext = function(id) return RANKS[id] end
 
 local BOUND = {}
 _G.SetOverrideBindingClick = function(_, _, key, button) BOUND[key] = button end
@@ -467,6 +479,12 @@ do
     -- a healer is a different spell: three times the mana to move the same bar. A drop keeps the
     -- rank the spellbook reports, and the cast string is the one a macro would say.
     RANKS[331] = "Rank 4"
+    -- ASKED OF THE ID, which is the whole bug. Arn, after the rank first went in: "the rank is
+    -- still not showing". GetCursorInfo hands back (spellBookIndex, "spell", spellID), the code
+    -- asked the LAST number first because that is the id, and an id answers a name and nothing
+    -- else. The rank was there the whole time, behind a call nobody made.
+    CURSOR = { kind = "spell", a = 12, b = "spell", c = 331 }
+    ok(BOOK[12] == nil, "the drop is read from the id alone, with nothing in the book for it")
     ok(FM.CursorSpell() == "Spell331(Rank 4)", "a spell dropped with a rank keeps its rank")
     local name, rank = FM.Split(FM.CursorSpell())
     ok(name == "Spell331" and rank == "Rank 4", "and reads back as a name and a rank, for showing")
@@ -475,6 +493,39 @@ do
        "and a subtitle that is not a rank - 'Passive' - is not pasted into the cast either")
     FM.Set("", "middle", FM.CursorSpell())
     RANKS[331] = nil
+
+    -- A DIFFERENT RANK PER MODIFIER, which is the point of having ranks at all: the big heal on
+    -- the left button, a cheap one on shift. Arn: "did not let me do different rank on modifier
+    -- and shift modifier". Dropping a lower rank assumes your spellbook is SHOWING you one to
+    -- drag, and that is a setting - so the window stops depending on the drag and the little rank
+    -- number became a button that walks the ranks this character has trained.
+    do
+        BOOK[1] = { name = "Spell331", rank = "Rank 1" }
+        BOOK[2] = { name = "Spell331", rank = "Rank 2" }
+        BOOK[3] = { name = "Spell331", rank = "Rank 3" }
+        BOOK[4] = { name = "Somebody Else", rank = "Rank 9" }
+        local ranks = FM.Ranks("Spell331")
+        ok(#ranks == 3, ("the book says %d ranks of it are trained"):format(#ranks))
+        ok(ranks[1].rank == "Rank 1", "oldest first, so clicking walks upwards")
+
+        FM.Set("", "left", "Spell331(Rank 1)")
+        FM.Set("shift-", "left", "Spell331(Rank 1)")
+        ok(FM.CycleRank("", "left") == "Spell331(Rank 2)", "clicking the rank takes the next one")
+        ok(FM.Get("shift-", "left") == "Spell331(Rank 1)",
+           "and the SAME button under shift is left alone: that is the whole point")
+        FM.CycleRank("shift-", "left")
+        FM.CycleRank("shift-", "left")
+        ok(FM.Get("shift-", "left") == "Spell331(Rank 3)" and FM.Get("", "left") == "Spell331(Rank 2)",
+           "two clicks on one, one on the other, and they hold different ranks of the same spell")
+        ok(FM.CycleRank("shift-", "left") == "Spell331(Rank 1)", "and it wraps rather than sticking")
+
+        FM.Set("", "left", "Somebody Else(Rank 9)")
+        ok(FM.CycleRank("", "left") == "Somebody Else(Rank 9)",
+           "a spell with one trained rank does not change under the click")
+        for i = 1, 4 do BOOK[i] = nil end
+        FM.Clear("shift-", "left")
+        FM.Set("", "left", "Spell331")        -- as the checks below this one left it
+    end
 
     FM.Set("shift-", "right", "Chain Heal")
     FM.Set("", "wheelup", "Lesser Healing Wave")

@@ -107,9 +107,50 @@ local function db()
     return d
 end
 
---- What the cursor is holding, as a spell name - or nil. The two clients disagree about what
---- GetCursorInfo hands back (a spellbook index on classic, a spell id on modern), so ask for the
---- name both ways rather than deciding from a build number.
+--- The rank of a spell id, as the client words it: "Rank 4". Asked for separately from the name
+--- because THE NAME PATH NEVER CARRIES IT. Arn, 19 Sep, after the rank went in: "the rank is
+--- still not showing in the mouse keybind thing". GetCursorInfo hands back (spellBookIndex,
+--- "spell", spellID); the code asked the LAST number first, which is the id, and the id answers
+--- a name and nothing else. C_Spell.GetSpellSubtext is the one call on this client that answers
+--- the rank for an id, and it was never asked.
+function FM.RankOf(id)
+    if type(id) ~= "number" then return nil end
+    if C_Spell and C_Spell.GetSpellSubtext then
+        local ok, sub = pcall(C_Spell.GetSpellSubtext, id)
+        if ok and type(sub) == "string" and sub ~= "" then return sub end
+    end
+    if GetSpellSubtext then
+        local ok, sub = pcall(GetSpellSubtext, id)
+        if ok and type(sub) == "string" and sub ~= "" then return sub end
+    end
+    return nil
+end
+
+--- A name and a rank for one number, from whichever call this client answers.
+function FM.NameOf(n)
+    local name, rank
+    if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+        local ok, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, n)
+        if ok and type(nm) == "string" and nm ~= "" then name, rank = nm, sub end
+    end
+    if not name and GetSpellInfo then              -- classic: name, rank, icon, ...
+        local ok, nm, sub = pcall(GetSpellInfo, n)
+        if ok and type(nm) == "string" and nm ~= "" then name, rank = nm, sub end
+    end
+    if not name and C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, n)
+        if ok and info then
+            if type(info) == "table" then name, rank = info.name, info.subtext or info.rank
+            elseif type(info) == "string" then name = info end
+        end
+    end
+    if name and (type(rank) ~= "string" or rank == "") then rank = FM.RankOf(n) end
+    if type(rank) ~= "string" or rank == "" then rank = nil end
+    return name, rank
+end
+
+--- What the cursor is holding: a cast string, plus the name and rank behind it. Nil for anything
+--- that is not a spell.
 function FM.CursorSpell()
     if not GetCursorInfo then return nil end
     local kind, a, b, c = GetCursorInfo()
@@ -118,40 +159,25 @@ function FM.CursorSpell()
     -- The clients disagree about what comes back, and Forever disagrees with both: it hands
     -- (kind, spellBookIndex, "spell", spellID) and its C_SpellBook.GetSpellBookItemName takes ONE
     -- argument, not two - "bad argument #1 (not a numerical value)" when handed the old pair.
-    -- So: collect the numbers, and try each way of turning a number into a name.
     local numbers = {}
     for _, v in ipairs({ a, b, c }) do
         if type(v) == "number" then numbers[#numbers + 1] = v end
     end
 
-    -- Name AND RANK. On a 1.60 client a spell has ranks, and "/cast Healing Wave" always throws
-    -- the biggest one you know - which for a healer is the difference between topping someone up
-    -- and spending three times the mana to do it. The spellbook is the only source that hands the
-    -- rank back: GetSpellBookItemName returns (name, subName) where subName is "Rank 3".
-    local function nameOf(n)
-        if C_SpellBook and C_SpellBook.GetSpellBookItemName then
-            local ok, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, n)
-            if ok and nm and nm ~= "" then return nm, sub end
-        end
-        if GetSpellInfo then                       -- classic: name, rank, icon, ...
-            local ok, nm, sub = pcall(GetSpellInfo, n)
-            if ok and nm and nm ~= "" then return nm, sub end
-        end
-        if C_Spell and C_Spell.GetSpellInfo then
-            local ok, info = pcall(C_Spell.GetSpellInfo, n)
-            if ok and info then
-                if type(info) == "table" then return info.name, info.subtext or info.rank end
-                return info
-            end
-        end
-        return nil
-    end
-
-    -- the LAST number is the spell id on the clients that send both; try it first
+    -- PREFER THE ANSWER WITH A RANK. The old loop returned the first number that gave a name,
+    -- which is the spell id, which never gives a rank - so every drop bound a bare name and every
+    -- slot looked the same whatever you dropped on it. Now each number is asked, and a name with
+    -- a rank wins over a name without one; the plain name is the fallback, not the answer.
+    local plain
     for i = #numbers, 1, -1 do
-        local name, rank = nameOf(numbers[i])
-        if name and name ~= "" then return FM.Cast(name, rank), name, rank end
+        local name, rank = FM.NameOf(numbers[i])
+        if name and name ~= "" then
+            FM.lastDrop = { numbers = numbers, name = name, rank = rank, from = numbers[i] }
+            if rank then return FM.Cast(name, rank), name, rank end
+            plain = plain or name
+        end
     end
+    if plain then return FM.Cast(plain), plain, nil end
     return nil
 end
 
@@ -182,6 +208,63 @@ function FM.RangeSpell()
     local cast = FM.Get("", "left") or FM.Get("", "right")
     if not cast then return nil end
     return (FM.Split(cast))
+end
+
+--- EVERY RANK OF A SPELL THIS CHARACTER KNOWS, oldest first, by walking the spellbook.
+---
+--- Arn, 19 Sep: "did not let me do different rank on modifier and shift modifier". Dropping a
+--- lower rank assumes the spellbook is showing you one to drag, and that is a setting - on a
+--- book showing max ranks only there is nothing to drag and no way to say what you meant.
+---
+--- So the window stops depending on the drag for this: bind the spell once, then click the rank.
+--- The list comes from the book itself, so it is exactly what this character has trained.
+function FM.Ranks(name)
+    if not name or name == "" then return {} end
+    local out, seen = {}, {}
+    local function add(nm, rank, id)
+        if nm ~= name then return end
+        local key = tostring(rank or "")
+        if seen[key] then return end
+        seen[key] = true
+        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil, id = id }
+    end
+
+    -- the modern book: one flat list of slots, asked one argument at a time
+    if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookItemName then
+        local ok, lines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
+        if ok and type(lines) == "number" then
+            for i = 1, 500 do
+                local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i)
+                if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+            end
+        end
+    end
+    -- the old book: (index, bookType), and a count per tab
+    if #out == 0 and GetSpellBookItemName and GetNumSpellTabs then
+        for i = 1, 500 do
+            local got, nm, sub = pcall(GetSpellBookItemName, i, "spell")
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+        end
+    end
+    return out
+end
+
+--- Put the next rank of whatever is in this slot into this slot. Wraps, so clicking it enough
+--- times comes back to where it started - which is what makes it safe to click without reading.
+function FM.CycleRank(mod, slotKey)
+    local cast = FM.Get(mod, slotKey)
+    if not cast then return nil end
+    local name, rank = FM.Split(cast)
+    local ranks = FM.Ranks(name)
+    if #ranks < 2 then return cast end            -- one rank, or a spell that has none
+    local at = 1
+    for i, r in ipairs(ranks) do
+        if r.rank == rank then at = i break end
+    end
+    local nextRank = ranks[(at % #ranks) + 1]
+    local new = FM.Cast(name, nextRank and nextRank.rank)
+    FM.Set(mod, slotKey, new)
+    return new
 end
 
 --- Remember a bind. Returns the spell, or nil and why not.

@@ -57,14 +57,20 @@ function FB.Scan()
     local found = {}
     local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
 
-    local esOn
-    for _, unit in ipairs(roster) do
-        for _, a in ipairs(auras(unit, "HELPFUL")) do
-            if a.name == EARTH_SHIELD then esOn = unit end
+    -- EARTH SHIELD, ONLY IF YOU HAVE IT. This nagged a level-15 shaman grinding leather in the
+    -- Barrens about a spell learned at 50, on a client where it may not exist at all: "BiS
+    -- Healing: Earth Shield is not up on anyone", after every mob (Arn, 19 Sep). The spellbook
+    -- answers whether this character has trained it, the same way the mouse's defaults do.
+    if FB.Knows(EARTH_SHIELD) then
+        local esOn
+        for _, unit in ipairs(roster) do
+            for _, a in ipairs(auras(unit, "HELPFUL")) do
+                if a.name == EARTH_SHIELD then esOn = unit end
+            end
         end
-    end
-    if not esOn then
-        found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
+        if not esOn then
+            found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
+        end
     end
 
     for _, unit in ipairs(roster) do
@@ -95,14 +101,48 @@ function FB.Scan()
     return found
 end
 
+--- Does this character actually have the spell? The spellbook, not a level check and not a guess.
+function FB.Knows(name)
+    if NS.FM and NS.FM.Ranks then return #NS.FM.Ranks(name) > 0 end
+    return false
+end
+
 --- Say it once, in the chat frame the addon already owns. Quiet when there is nothing wrong:
 --- an addon that speaks after every pull gets turned off after three.
-function FB.Report()
+---
+--- THREE REASONS TO STAY QUIET, all of them learned from one screenshot (19 Sep 2026): the same
+--- line six times in ninety seconds while grinding leather in the Barrens, each prefixed twice.
+---
+---   1. ALONE. This is a between-PULLS brain for a group: who still has a debuff, who is dead,
+---      whether the shield is up. Solo, there is nobody to tell and nothing to fix.
+---   2. THE SAME NEWS. A finding that has not changed since the last report is not news. It is
+---      said again only when it changes, or after QUIET seconds have passed.
+---   3. ITS OWN NAME. NS.Print already writes "BiS Healing:" - adding it here produced
+---      "BiS Healing: BiS Healing: Earth Shield is not up on anyone".
+local QUIET = 300          -- five minutes before the same news is worth repeating
+
+function FB.Report(force)
     local found, why = FB.Scan()
     if not found then return nil, why end
     if #found == 0 then return 0 end
+
+    if not force then
+        local grouped = (IsInRaid and IsInRaid()) or (IsInGroup and IsInGroup())
+        if not grouped then return 0, "alone" end
+
+        local sig = {}
+        for _, f in ipairs(found) do sig[#sig + 1] = tostring(f.kind) .. ":" .. tostring(f.unit) end
+        table.sort(sig)
+        sig = table.concat(sig, "|")
+        local now = (GetTime and GetTime()) or 0
+        if sig == FB.lastSig and (now - (FB.lastAt or 0)) < QUIET then
+            return 0, "same as last time"
+        end
+        FB.lastSig, FB.lastAt = sig, now
+    end
+
     local say = NS.Print or function(msg) print(msg) end
-    for _, f in ipairs(found) do say("BiS Healing: " .. f.text) end
+    for _, f in ipairs(found) do say(f.text) end
     return #found
 end
 

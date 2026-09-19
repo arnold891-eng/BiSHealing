@@ -165,6 +165,38 @@ function NS.DO.minimap()
     Print(hidden and "minimap button back" or "minimap button hidden -- /bish minimap to undo")
 end
 
+--- WHAT THE CLIENT HANDED BACK, and what is in the table now. One command, because "the binds
+--- reset every reload" has three possible causes and they are indistinguishable from the outside:
+--- the client did not load the file, our writes never reached the table, or something cleared it.
+function NS.DO.db()
+    local L, db = NS.loaded or {}, DB()
+    local now = 0
+    for _ in pairs(db.binds or {}) do now = now + 1 end
+
+    if not L.found then
+        Print("at load: |cfff08cb0no saved table at all|r - the client did not hand one back")
+    elseif L.savedAt == nil then
+        Print("at load: a table, but |cfff08cb0no stamp|r - this addon has never written to it, or"
+              .. " the write was not kept")
+    else
+        Print(("at load: a table stamped %s, saved %d time(s) before"):format(
+            date and date("%H:%M:%S", L.savedAt) or tostring(L.savedAt), L.saves or 0))
+    end
+    Print(("  binds at load %d, binds now %d, dbver %s"):format(
+        L.binds or 0, now, tostring(db.dbver)))
+    Print(("  per-character copy: %s%s"):format(
+        L.char and "|cff4fd0cfthere|r" or "empty",
+        L.rescued and " - |cff4fd0cfand it is what you are using|r" or ""))
+    Print(("  the table this addon writes to %s the saved one"):format(
+        rawequal(db, _G.BiSHealingDB) and "IS" or "|cfff08cb0is NOT|r"))
+    for _, key in ipairs({ "left", "right", "shift-left" }) do
+        local v = NS.FM and NS.FM.Get and NS.FM.Get(key:match("^shift%-") and "shift-" or "",
+                                                    key:gsub("^shift%-", ""))
+        Print(("  %-11s %s"):format(key, v or "-"))
+    end
+    Print("reload, then run this again: a stamp that comes back means the file is being read")
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -203,6 +235,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.auras()
     elseif msg == "minimap" then
         NS.DO.minimap()
+    elseif msg == "db" or msg == "saved" then
+        NS.DO.db()
     else
         NS.DO.help()
     end
@@ -210,11 +244,101 @@ end
 
 ---------------------------------------------------------------------- boot --
 
+-- WAS THE SAVED FILE READ BACK? (19 Sep 2026)
+--
+-- Arn: "the bis healing is not surviving reload the key binds reset every reload", and the file on
+-- disk says `binds = {}` - not even the class defaults. Two very different faults look identical
+-- from the outside: our writes never reach the table, or the client never hands the table back.
+--
+-- So the addon stamps the db on the way out and reports, at the next login, whether the stamp came
+-- back. `/bish db` prints it. No stamp after a reload means the CLIENT did not load the saved
+-- variables, and no amount of fixing this addon would change that - which is worth knowing before
+-- spending an evening on it.
+NS.loaded = { found = false }
+
+-- THE SECOND COPY. 19 Sep 2026, measured in game: this beta client WRITES `BiSHealingDB` perfectly
+-- (the file on disk is valid Lua and holds the logout stamp) and then hands back nothing at the
+-- next login - "no saved table at all", every time. BugGrabber's session counter is stuck at 1 and
+-- BiSMemories' log empties the same way, so it is the client, not us. The TBC client on the same
+-- disk carries a db that has been migrated six times, so it is this client only.
+--
+-- A second channel costs nothing and might work: `## SavedVariablesPerCharacter` is a different
+-- file in a different folder, and a client that has lost one may still have the other. We write
+-- both and, at login, take whichever came back.
+--
+-- These are SEPARATE TABLES, never aliases: two globals pointing at one table is one file saved
+-- and one lost, which would look exactly like the bug we are working around.
+local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves" }
+
+local function copy(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, x in pairs(v) do out[k] = copy(x) end
+    return out
+end
+
+local function anything(t)
+    return type(t) == "table" and next(t) ~= nil
+end
+
+--- Put what matters into the per-character table, on the way out.
+local function mirrorOut()
+    BiSHealingCharDB = type(BiSHealingCharDB) == "table" and BiSHealingCharDB or {}
+    local src = BiSHealingDB
+    if type(src) ~= "table" then return end
+    for _, k in ipairs(MIRROR) do BiSHealingCharDB[k] = copy(src[k]) end
+end
+
+--- Take it back at login, but ONLY when the account-wide table came back empty and the
+--- per-character one did not. A client that keeps both will never reach this.
+local function mirrorIn()
+    local acct, char = BiSHealingDB, BiSHealingCharDB
+    if anything(acct) and anything(acct.binds) then return false end
+    if not (anything(char) and anything(char.binds)) then return false end
+    BiSHealingDB = type(acct) == "table" and acct or {}
+    for _, k in ipairs(MIRROR) do BiSHealingDB[k] = copy(char[k]) end
+    return true
+end
+
 local ev = CreateFrame("Frame")
+ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:SetScript("OnEvent", function()
+ev:RegisterEvent("PLAYER_LOGOUT")
+ev:SetScript("OnEvent", function(_, event, name)
+    if event == "ADDON_LOADED" then
+        if name ~= ADDON then return end
+        -- READ IT RAW, before DB() has a chance to create or migrate anything
+        local raw = _G.BiSHealingDB
+        local binds, n = type(raw) == "table" and raw.binds, 0
+        if type(binds) == "table" then for _ in pairs(binds) do n = n + 1 end end
+        local rescued = mirrorIn()          -- the per-character copy, if that is all there is
+        NS.loaded = {
+            found   = type(raw) == "table",
+            savedAt = type(raw) == "table" and tonumber(raw.savedAt) or nil,
+            saves   = type(raw) == "table" and tonumber(raw.saves) or nil,
+            binds   = n,
+            dbver   = type(raw) == "table" and raw.dbver or nil,
+            char    = anything(_G.BiSHealingCharDB) and true or false,
+            rescued = rescued,
+        }
+        return
+    end
+
+    if event == "PLAYER_LOGOUT" then
+        local db = DB()
+        db.savedAt = (time and time()) or 0
+        db.saves = (tonumber(db.saves) or 0) + 1
+        mirrorOut()
+        return
+    end
+
     DB()
     if NS.FG and NS.FG.Start then NS.FG.Start() end
     Print(("%s -- /bish, or the button on your minimap"):format(NS.VERSION))
+    if not NS.loaded.found or NS.loaded.savedAt == nil then
+        -- said once, at login, because it explains every other odd thing that follows
+        Print("|cfff08cb0this client did not hand back a saved file|r - binds and settings will not"
+              .. " survive a reload. |cffb980ff/bish db|r for what was seen.")
+    end
 end)
 NS.events = ev

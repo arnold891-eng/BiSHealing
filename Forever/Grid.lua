@@ -125,7 +125,17 @@ end
 --- tries again when the fight ends.
 function FG.Layout(anchor)
     if InCombatLockdown and InCombatLockdown() then return false end
+    -- The anchor is optional now: the pyramid's Relayout hands this grid the job on a Forever
+    -- client and has no idea what our anchor is called.
+    anchor = anchor or FG.anchor
+    if not anchor then return false end
     local roster = FG.Roster()
+    -- "the frames" is one switch on both clients: /bish hide means this grid too
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" and d.shown == false then
+        for _, f in ipairs(FG.frames) do f:Hide() end
+        return true, 0
+    end
     for i, unit in ipairs(roster) do
         local f = FG.frames[i] or FG.Make(i, anchor)
         local col, row = math.floor((i - 1) / PER_COL), (i - 1) % PER_COL

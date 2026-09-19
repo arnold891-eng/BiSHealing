@@ -302,7 +302,10 @@ function CFG.Slots()
         CFG.nsDown = false
     else
         local left = ""
-        if GetSpellCooldown then
+        -- Not on a client that hides its numbers: a cooldown there is a SECRET, and "st > 0" is
+        -- refused before the format string ever runs. See the mana block below for what that
+        -- costs when it is missed.
+        if GetSpellCooldown and not (NS.SECRET or (NS.Blind and NS.Blind())) then
             local st, dur = GetSpellCooldown(WHEEL.NS)
             if st and dur and st > 0 then left = (" %ds"):format(math.max(0, st + dur - GetTime())) end
         end
@@ -310,8 +313,15 @@ function CFG.Slots()
         CFG.nsDown = true
     end
 
-    -- mana, as a fraction: the counter says casts, this says how deep
-    if UnitPower and UnitPowerMax then
+    -- Mana, as a fraction: the counter says casts, this says how deep.
+    --
+    -- NOT ON FOREVER. Arn, 19 Sep, 27 copies of the same error: "attempt to perform arithmetic on
+    -- local 'm' (a secret number value, while execution tainted by 'BiSHealing')". The maximum
+    -- came back as a plain 505 and the CURRENT mana came back secret, which is the whole shape of
+    -- that client: a number you may hand to a bar, never one you may divide. A percentage is
+    -- arithmetic and then a format string, so there is nothing to salvage here - the slot simply
+    -- does not exist on a client that hides the number.
+    if UnitPower and UnitPowerMax and not NS.SECRET then
         local m, mx = UnitPower("player", 0), UnitPowerMax("player", 0)
         if mx and mx > 0 then
             local pct = math.floor(m / mx * 100 + 0.5)
@@ -340,9 +350,24 @@ CFG.SLOTS_EVERY = 0.5      -- Arn: "updating every 0.5 seconds"
 -- ticked by the options window's OnUpdate while it is up, and by the brain's
 -- bar tick for the plate (NS.CFG.Tick), so the plate's slots move with the
 -- options window closed
+-- THE NET. This is a cosmetic header on a half-second ticker: whatever it gets wrong, it must
+-- not be twenty-seven copies of the same red line in the error frame, which is what a secret
+-- value cost on 19 Sep. A secret-value error stops the slots for the session and says so ONCE;
+-- anything else is a real bug and is raised exactly as it was, because a ticker that swallows
+-- everything is a ticker nobody can debug.
 function CFG.Tick(_, elapsed)
     CFG.slotsAt = (CFG.slotsAt or 0) + (elapsed or 0)
-    if CFG.slotsAt >= CFG.SLOTS_EVERY then CFG.slotsAt = 0; CFG.Slots() end
+    if CFG.slotsAt < CFG.SLOTS_EVERY then return end
+    CFG.slotsAt = 0
+    if CFG.slotsOff then return end
+    local ok, err = pcall(CFG.Slots)
+    if ok then return end
+    if tostring(err):find("secret", 1, true) then
+        CFG.slotsOff = true
+        Print("the header's live numbers are off: this client keeps them secret")
+        return
+    end
+    error(err, 0)
 end
 
 function CFG.Open()

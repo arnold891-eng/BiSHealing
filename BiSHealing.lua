@@ -1280,6 +1280,23 @@ end
 local function Relayout()
     if InCombatLockdown() then pendingReorder = true; return end
 
+    -- FOREVER HAS ITS OWN GRID, and this is not it. Arn, 19 Sep: "turned on the guage and now 2
+    -- grids are open". Every options toggle ends in CFG.Apply, and CFG.Apply ended here - so one
+    -- click laid out and SHOWED the pyramid on top of the Forever grid, with the two disagreeing
+    -- about even how long a name is ("Kumlust S" beside "Kumlu").
+    --
+    -- The brain was already off on this client (the update loop at the bottom of this file, and
+    -- the event handler); its LAYOUT was not. Same seam, third place: on a client that hides its
+    -- numbers the pyramid's furniture goes away and Forever/Grid.lua is asked to lay out instead.
+    if NS.SECRET then
+        for _, f in ipairs(frames) do if f.Hide then f:Hide() end end
+        -- the gauge plate too. It is built 300 lines below this one, so it is reached through UIX
+        -- rather than by name: a forward reference is exactly what this file's suite forbids.
+        if UIX.plate and UIX.plate.Hide then UIX.plate:Hide() end
+        if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+        return
+    end
+
     local ranked = RankRoster()
     order = ranked
 
@@ -1746,6 +1763,9 @@ rpmFrame.label:Hide()
 -- what the other decided.
 rpmFrame.gaugeLive = false
 function UIX.PlateShow()
+    -- the gauge reads mana and heal sizes, both secret on Forever, and the numbers behind it never
+    -- arrive there. Turning the toggle on must not put an empty plate on the screen.
+    if NS.SECRET then rpmFrame:Hide() return end
     local counterOn = DB().castCounter and (castCounter:GetText() or "") ~= ""
     if counterOn or rpmFrame.gaugeLive then rpmFrame:Show() else rpmFrame:Hide() end
     if not rpmFrame.gaugeLive then
@@ -3017,6 +3037,9 @@ end
 -- real 3 minutes.
 function WHEEL.Ready()
     if not WHEEL.ResolveKnown() then return nil end
+    -- inside the lockdown on a client that hides its numbers a cooldown is secret, and the
+    -- "dur > 1.5" below is refused rather than answered. nil is the honest answer: cannot tell.
+    if NS.Blind and NS.Blind() then return nil end
 
     local start, dur
     if C_Spell and C_Spell.GetSpellCooldown then
@@ -5379,7 +5402,10 @@ SlashCmdList.BISHEALING = function(msg)
         else
             Relayout()
             local vis = 0
-            for _, f in ipairs(frames) do if f:IsShown() then vis = vis + 1 end end
+            -- on Forever the frames that count are the grid's, not the pyramid's
+            for _, f in ipairs((NS.SECRET and NS.FG and NS.FG.frames) or frames) do
+                if f:IsShown() then vis = vis + 1 end
+            end
             Print(("%s -- %d frame(s) visible%s"):format(
                 db.shown and "shown" or "hidden", vis,
                 (db.shown and vis == 0) and " (nobody in range? try /bish frames)" or ""))

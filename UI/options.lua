@@ -137,7 +137,58 @@ local function tog(key, label, dbKey, default)
         set = function(db, on) db[dbKey] = on and true or false; CFG.Apply() end }
 end
 
+-- ------------------------------------------------- the Forever option list --
+-- Arn, 19 Sep 2026, of the right-click window on a Forever client: "alot of the stuff in the right
+-- click was legacy stuff that does not work. can we put it away somewhere where it does not affect
+-- the addon? and put the menu there?"
+--
+-- He is right, and the number is brutal: of the twenty-nine rows below, the Forever grid reads
+-- exactly ONE (`shown`). Bar colours, corner markers, pulse, totem reach, the chain-heal section,
+-- the earth-shield section, the wheel and its keys - every one of them is the pyramid's brain,
+-- which does not run on a client that hides its numbers. A window of rows that do nothing is
+-- worse than a small window: it is a promise the addon does not keep.
+--
+-- So on that client the window is the MENU. The same handful of things the minimap button offers,
+-- in the window the right-click opens, and the legacy rows are not built at all - they cannot
+-- affect an addon they are not part of. Nothing is deleted: a TBC client still gets every row.
+function CFG.ForeverSections()
+    return {
+        { title = "frames", options = {
+            tog("shown", "show the frames", "shown", true),
+            { key = "minimap", kind = "toggle", label = "minimap button",
+              get = function() return not (NS.MM and NS.MM.Hidden()) end,
+              set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
+            { key = "center", kind = "button", label = "centre on screen", button = "centre",
+              action = function() SlashCmdList.BISHEALING("center") end },
+            { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
+              action = function() SlashCmdList.BISHEALING("rescan") end },
+        } },
+        { title = "clicks", options = {
+            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
+              action = function() if NS.FM and NS.FM.Toggle then NS.FM.Toggle() end end },
+        } },
+        { title = "forever", options = {
+            { key = "seen", kind = "button", label = "what can I see?", button = "ask",
+              action = function()
+                  -- asked, not assumed: /bishf is registered by Forever/Between.lua, and a client
+                  -- that never loaded it would throw on a button press instead of doing nothing
+                  if SlashCmdList.BISHEALFOREVER then SlashCmdList.BISHEALFOREVER("") end
+              end },
+            -- the debuff pip written as what it is: a switch, not a button you press twice
+            { key = "pipTest", kind = "toggle", label = "test the debuff pip",
+              get = function() return (NS.FA and NS.FA.debug) and true or false end,
+              set = function(_, on)
+                  if NS.FA and NS.FA.Debug and ((NS.FA.debug and true or false) ~= on) then
+                      NS.FA.Debug(on)
+                  end
+              end },
+        } },
+    }
+end
+
 function CFG.OptionSections()
+    -- a client that hides its numbers gets the short window; everything below is the pyramid's
+    if NS.SECRET then return CFG.ForeverSections() end
     return {
         { title = "frames", options = {
             tog("shown", "show the frames", "shown", true),
@@ -162,6 +213,13 @@ function CFG.OptionSections()
               show = function(db) return tostring(db.pulseCap or PULSE_CAP) end },
             tog("totemRange", "totem reach", "totemRange", true),
             tog("dispel", "curable debuffs", "dispel", true),
+            -- The minimap button does not live in the saved-variable table the
+            -- other toggles read: it keeps its own corner (angle and hidden),
+            -- so /bish reset can clear the frames without losing where the
+            -- button sits. Hence its own get/set rather than tog().
+            { key = "minimap", kind = "toggle", label = "minimap button",
+              get = function() return not (NS.MM and NS.MM.Hidden()) end,
+              set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
         } },
         { title = "chain heal", options = {
             tog("bounceLines", "bounce lines", "bounceLines", true),
@@ -295,7 +353,10 @@ function CFG.Slots()
         CFG.nsDown = false
     else
         local left = ""
-        if GetSpellCooldown then
+        -- Not on a client that hides its numbers: a cooldown there is a SECRET, and "st > 0" is
+        -- refused before the format string ever runs. See the mana block below for what that
+        -- costs when it is missed.
+        if GetSpellCooldown and not (NS.SECRET or (NS.Blind and NS.Blind())) then
             local st, dur = GetSpellCooldown(WHEEL.NS)
             if st and dur and st > 0 then left = (" %ds"):format(math.max(0, st + dur - GetTime())) end
         end
@@ -303,8 +364,15 @@ function CFG.Slots()
         CFG.nsDown = true
     end
 
-    -- mana, as a fraction: the counter says casts, this says how deep
-    if UnitPower and UnitPowerMax then
+    -- Mana, as a fraction: the counter says casts, this says how deep.
+    --
+    -- NOT ON FOREVER. Arn, 19 Sep, 27 copies of the same error: "attempt to perform arithmetic on
+    -- local 'm' (a secret number value, while execution tainted by 'BiSHealing')". The maximum
+    -- came back as a plain 505 and the CURRENT mana came back secret, which is the whole shape of
+    -- that client: a number you may hand to a bar, never one you may divide. A percentage is
+    -- arithmetic and then a format string, so there is nothing to salvage here - the slot simply
+    -- does not exist on a client that hides the number.
+    if UnitPower and UnitPowerMax and not NS.SECRET then
         local m, mx = UnitPower("player", 0), UnitPowerMax("player", 0)
         if mx and mx > 0 then
             local pct = math.floor(m / mx * 100 + 0.5)
@@ -333,9 +401,24 @@ CFG.SLOTS_EVERY = 0.5      -- Arn: "updating every 0.5 seconds"
 -- ticked by the options window's OnUpdate while it is up, and by the brain's
 -- bar tick for the plate (NS.CFG.Tick), so the plate's slots move with the
 -- options window closed
+-- THE NET. This is a cosmetic header on a half-second ticker: whatever it gets wrong, it must
+-- not be twenty-seven copies of the same red line in the error frame, which is what a secret
+-- value cost on 19 Sep. A secret-value error stops the slots for the session and says so ONCE;
+-- anything else is a real bug and is raised exactly as it was, because a ticker that swallows
+-- everything is a ticker nobody can debug.
 function CFG.Tick(_, elapsed)
     CFG.slotsAt = (CFG.slotsAt or 0) + (elapsed or 0)
-    if CFG.slotsAt >= CFG.SLOTS_EVERY then CFG.slotsAt = 0; CFG.Slots() end
+    if CFG.slotsAt < CFG.SLOTS_EVERY then return end
+    CFG.slotsAt = 0
+    if CFG.slotsOff then return end
+    local ok, err = pcall(CFG.Slots)
+    if ok then return end
+    if tostring(err):find("secret", 1, true) then
+        CFG.slotsOff = true
+        Print("the header's live numbers are off: this client keeps them secret")
+        return
+    end
+    error(err, 0)
 end
 
 function CFG.Open()

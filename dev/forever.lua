@@ -103,8 +103,37 @@ _G.C_Secrets = { HasSecretRestrictions = function() return true end }
 
 ------------------------------------------------------------------- the files --
 
+-- The aura containers. A client that HAS them (Forever, retail) draws auras the addon may not
+-- read, so what the addon DECLARES is the only thing there is to test - recorded here.
+local CONTAINERS = {}
+containersExist = true
+_G.C_XMLUtil = { GetTemplateInfo = function(t)
+    return (t == "CustomAuraContainerTemplate" and containersExist) and { name = t } or nil
+end }
+local realCreateFrame = _G.CreateFrame
+_G.CreateFrame = function(kind, name, parent, template)
+    if kind == "AuraContainer" then
+        local c = newFrame(kind)
+        c.slots, c.unit, c.enabled = {}, nil, false
+        function c:SetUnit(u) self.unit = u end
+        function c:SetEnabled(v) self.enabled = v and true or false end
+        function c:SetFrameLevel() end
+        function c:GetFrameLevel() return 1 end
+        function c:AddAuraSlot(key, filter, opts)
+            local slot = newFrame("AuraSlot")
+            slot.key, slot.filter, slot.opts = key, filter, opts
+            self.slots[key] = slot
+            if opts and opts.initializeFrame then opts.initializeFrame(slot) end
+            return slot
+        end
+        CONTAINERS[#CONTAINERS + 1] = c
+        return c
+    end
+    return realCreateFrame(kind, name, parent, template)
+end
+
 local NS = {}
-for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Grid.lua", "Forever/Between.lua" }) do
+for _, rel in ipairs({ "Forever/Lockdown.lua", "Forever/Auras.lua", "Forever/Grid.lua", "Forever/Between.lua" }) do
     local chunk = assert(loadfile(rel))
     chunk("BiSHealing", NS)
 end
@@ -255,6 +284,73 @@ AURAS.party2.HARMFUL[1], AURAS.party2.HARMFUL[2] = nil, nil
 for i = 1, 4 do TOTEMS[i] = true end
 SAID = {}
 ok(FB.Report() == 0 and #SAID == 0, "with nothing wrong it stays quiet")
+
+-- ---------------------------------------- showing what we may not read (19 Sep) --
+-- The 17 Sep design said dispel highlighting was impossible in combat. It asked the wrong
+-- question: an addon may not READ an aura there, but the client will SHOW one through an
+-- AuraContainer. These checks are about what the grid DECLARES, because that is all there is.
+do
+    local FA = NS.FA
+    ok(FA ~= nil and FA.Available() == true, "the containers are detected by feature, not by build number")
+
+    local cell = FG.frames[1]
+    cell.auras = nil
+    ok(FA.Attach(cell, "party1") == true, "a cell gets a container")
+    local c = cell.auras
+    ok(c and c.unit == "party1", "the container is told its unit")
+    ok(c and c.enabled == true, "and switched on")
+
+    local dispel = c and c.slots["BiSHealDispel"]
+    ok(dispel ~= nil, "there is a dispel slot")
+    ok(dispel and dispel.filter == "HARMFUL|RAID_PLAYER_DISPELLABLE",
+       "filtered by the CLIENT to what this character can dispel: " .. tostring(dispel and dispel.filter))
+    local types = dispel and dispel.opts and dispel.opts.candidateFilters
+                  and dispel.opts.candidateFilters.includeDispelTypes or {}
+    ok(types.Poison and types.Disease, "poison and disease, which a shaman can cure")
+    ok(types.Magic == nil, "and not magic, which it cannot")
+
+    -- Watched buffs are a switch, not an assumption: nothing is watched until someone knows what
+    -- matters on this client, and an empty list builds no slot at all.
+    ok(c.slots["BiSHealWatch"] == nil, "nothing watched by default, so no pip is built")
+    FA.WATCH = { [974] = "Earth Shield" }
+    cell.auras = nil
+    FA.Attach(cell, "party1")
+    local watch = cell.auras.slots["BiSHealWatch"]
+    ok(watch ~= nil, "put an id in the list and the pip appears")
+    local ids = watch and watch.opts and watch.opts.candidateFilters
+                and watch.opts.candidateFilters.includeSpellIDs or {}
+    ok(ids[974], "asked for by spell id, never by reading the aura")
+    FA.WATCH = {}
+
+    -- THE RULE: nothing above touched an aura. Prove it by making every aura read explode exactly
+    -- as the lockdown does, then attach again.
+    local boom = function() error("Auras cannot be accessed when secret while tainted", 2) end
+    _G.C_UnitAuras = setmetatable({}, { __index = function() return boom end })
+    _G.AuraUtil = { FindAuraByName = boom }
+    cell.auras = nil
+    ok(pcall(FA.Attach, cell, "party2"), "attaching reads no aura, so the lockdown cannot stop it")
+
+    -- a client WITHOUT the containers (TBC, or a future one that drops them) gets no marker
+    containersExist = false
+    FA.available = nil
+    ok(FA.Available() == false, "a client without the template is detected")
+    local plain = FG.frames[2]
+    plain.auras = nil
+    ok(FA.Attach(plain, "party1") == false and plain.auras == nil, "no container, no marker, no error")
+    containersExist = true
+    FA.available = nil
+end
+
+-- The pyramid must not ASK for the combat log on a client that forbids it. Registering
+-- COMBAT_LOG_EVENT_UNFILTERED is a protected action on Forever: the client refuses and pops a
+-- dialog, which pcall cannot see, at every single login.
+do
+    local src = io.open("BiSHealing.lua", "r")
+    local body = src and src:read("*a") or ""
+    if src then src:close() end
+    ok(body:find('NS.SECRET and e == "COMBAT_LOG_EVENT_UNFILTERED"', 1, true) ~= nil,
+       "the event loop refuses to even ASK for the combat log where the client hides numbers")
+end
 
 print(fail == 0 and ("== forever ok (" .. checks .. " checks)")
       or ("!! forever: " .. fail .. " of " .. checks .. " failed"))

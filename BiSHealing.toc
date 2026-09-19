@@ -3,7 +3,7 @@
 ## Notes: Pyramid raid frames. Ranks by who actually takes damage, learns after every fight.
 ## Author: Kumlust
 ## Version: 1.0-rc52
-## OptionalDeps: BiSTheme
+## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
 ## X-Category: Raid Frames
 ## IconTexture: Interface\Icons\Spell_Nature_HealingWaveGreater
@@ -16,6 +16,7 @@ Libs\LibHealComm-4.0\ChatThrottleLib.lua
 Libs\LibHealComm-4.0\LibHealComm-4.0.lua
 
 Forever\Lockdown.lua
+Forever\Auras.lua
 Forever\Grid.lua
 Forever\Between.lua
 

@@ -181,6 +181,24 @@ function FG.Layout(anchor)
             f:Hide()
         end
     end
+
+    -- The anchor becomes the size of the grid it holds, so the header on top of it spans the
+    -- cells rather than the 84 pixels of one. Out of combat only, like everything else here.
+    local n = #roster
+    if n > 0 then
+        local cols = math.ceil(n / PER_COL)
+        local rows = math.min(n, PER_COL)
+        local w = cols * (FRAME_W + PAD) - PAD
+        anchor:SetSize(w, rows * (FRAME_H + PAD) - PAD)
+        -- and the prompt is trimmed to the header it now sits in: one cell wide is 84 pixels, and
+        -- a word that does not fit is a word printed over whatever is beside it
+        local h = FG.header
+        if h and h.con then h.con.width = math.max(40, w - 10) end
+        if h and h.title and not h.con then
+            local T = _G.BiSTheme
+            if T and T.Fit then T.Fit(h.title, "BiS> Healing", math.max(40, w - 10)) end
+        end
+    end
     return true, #roster
 end
 
@@ -258,13 +276,116 @@ local THROTTLE = 0.1
 --- pyramid. There is no pyramid any more (19 Sep 2026, tag `tbc-final`), so the grid runs on
 --- whatever client it finds. On one that answers freely the cells simply get numbers they are
 --- allowed to read, and draw the same bars.
+--- Where the grid sits, kept in the saved variables. Arn, 19 Sep 2026: "lets add a our header to
+--- this so we can drag and move". The anchor had no handle at all - the cells were the only thing
+--- on screen, and a secure button cannot be dragged without taking its click away.
+function FG.SavePos()
+    local a = FG.anchor
+    if not a or not a.GetPoint then return nil end
+    local ok, point, _, rel, x, y = pcall(a.GetPoint, a)
+    if not ok or not point then return nil end
+    local d = NS.DB and NS.DB()
+    if type(d) ~= "table" then return nil end
+    d.gridPos = { point = point, rel = rel, x = x, y = y }
+    return d.gridPos
+end
+
+function FG.RestorePos()
+    local a = FG.anchor
+    if not a then return end
+    local d = NS.DB and NS.DB()
+    local p = type(d) == "table" and d.gridPos or nil
+    a:ClearAllPoints()
+    if type(p) == "table" and p.point then
+        a:SetPoint(p.point, UIParent, p.rel or p.point, p.x or 0, p.y or 0)
+    else
+        a:SetPoint("CENTER", UIParent, "CENTER", -260, -120)
+    end
+end
+
+--- The handle: the family's header, sitting on top of the first row.
+---
+--- It moves the ANCHOR, not itself - every cell hangs off the anchor, so the whole grid follows.
+--- OUT OF COMBAT ONLY: the cells are secure frames and the client refuses to move their parent
+--- once the lockdown is on. Trying anyway is the kind of thing that throws in the middle of a
+--- pull, so the drag simply does not start and the header says why.
+local function makeHeader(anchor)
+    local h = CreateFrame("Frame", "BiSHealingForeverHeader", anchor)
+    h:SetHeight(16)
+    h:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 2)
+    h:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
+    h:EnableMouse(true)
+    h:RegisterForDrag("LeftButton")
+
+    local bg = h:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.08, 0.06, 0.12, 0.85)
+
+    local title = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("LEFT", 5, 0)
+    -- the prompt every BiS window wears, when BiSTheme is loaded; a plain word when it is not
+    local T = _G.BiSTheme
+    if T and T.Console then
+        h.con = T.Console(title, { width = 120, size = 10 })
+        h.con:Set("name", "Healing")
+        if C_Timer and C_Timer.NewTicker then
+            C_Timer.NewTicker(0.2, function()
+                if h:IsShown() and h.con and h.con.Paint then h.con:Paint() end
+            end)
+        end
+    else
+        title:SetText("BiS> Healing")
+        if T and T.rgb then title:SetTextColor(T.rgb("accent")) end
+    end
+
+    h.title = title
+
+    anchor:SetMovable(true)
+    h:SetScript("OnDragStart", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        anchor:StartMoving()
+        h.moving = true
+    end)
+    h:SetScript("OnDragStop", function()
+        if not h.moving then return end
+        h.moving = false
+        anchor:StopMovingOrSizing()
+        FG.SavePos()
+    end)
+    -- THE HINT IS A TOOLTIP, not a second label. A "drag" caption on the right printed straight
+    -- through the prompt's rotating word on a header the width of one cell (seen in game, 19 Sep):
+    -- "BiS> Hrsalinge". Two things sharing 84 pixels is not a layout, and a tooltip costs none.
+    h:SetScript("OnEnter", function(self)
+        bg:SetColorTexture(0.13, 0.10, 0.19, 0.95)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if InCombatLockdown and InCombatLockdown() then
+            GameTooltip:AddLine("not while the fight is on", 0.94, 0.55, 0.69)
+            GameTooltip:AddLine("the cells are secure frames; the client will not move them now",
+                                0.59, 0.56, 0.68)
+        else
+            GameTooltip:AddLine("drag to move the grid", 0.73, 0.50, 1.00)
+            GameTooltip:AddLine("/bish center puts it back", 0.59, 0.56, 0.68)
+        end
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function()
+        bg:SetColorTexture(0.08, 0.06, 0.12, 0.85)
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+
+    FG.header = h
+    return h
+end
+
 function FG.Start()
     if FG.anchor then return true end
 
     local anchor = CreateFrame("Frame", "BiSHealingForeverAnchor", UIParent)
     anchor:SetSize(FRAME_W, FRAME_H)
-    anchor:SetPoint("CENTER", UIParent, "CENTER", -260, -120)
     FG.anchor = anchor
+    FG.RestorePos()
+    makeHeader(anchor)
 
     local since, pending = 0, true
     anchor:SetScript("OnUpdate", function(_, dt)

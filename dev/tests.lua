@@ -1969,6 +1969,8 @@ do
         -- are inside the lockdown where auras and cooldowns go secret too, and FG is the grid that
         -- runs there instead of the pyramid. All three are inert on TBC.
         "SECRET", "Blind", "FG", "FB",
+        -- FA: the aura containers that SHOW what the lockdown will not let us read (19 Sep)
+        "FA",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do

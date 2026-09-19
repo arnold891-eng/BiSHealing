@@ -4193,7 +4193,17 @@ if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 elseif RegisterAddonMessagePrefix then
     pcall(RegisterAddonMessagePrefix, COMM.PREFIX)
 end
-for _, e in ipairs(EVENTS) do pcall(ev.RegisterEvent, ev, e) end
+-- Registering COMBAT_LOG_EVENT_UNFILTERED is a PROTECTED ACTION on Forever: the client refuses
+-- and pops "BiSHealing has been blocked from an action only available to the Blizzard UI" at every
+-- login. It is a dialog, not a Lua error, so the pcall here reported success for days while the
+-- popup kept appearing. The event never fires there anyway - measured 17 Sep, registered true,
+-- zero events - so on that client we simply do not ask.
+for _, e in ipairs(EVENTS) do
+    -- inline rather than a lookup table: this file is near bislint's chunk-local ceiling
+    if not (NS.SECRET and e == "COMBAT_LOG_EVENT_UNFILTERED") then
+        pcall(ev.RegisterEvent, ev, e)
+    end
+end
 
 ev:SetScript("OnEvent", function(_, event, ...)
     -- Same seam as the update loop: the handlers below score the combat log, rank by missing

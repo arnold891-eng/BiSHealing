@@ -58,7 +58,10 @@ local function autoMethods(t)
 end
 
 local function newFrame(kind, name)
-    local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = false, __alpha = 1 }
+    -- SHOWN, like the client's. A frame you create is visible until you hide it, and a mock that
+    -- starts everything hidden turns "I never hid this" into a passing test - which is exactly
+    -- how the mouse window shipped needing two clicks to open.
+    local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = true, __alpha = 1 }
     if name then _G[name] = f end          -- the client puts a named frame in _G; so does this
     function f:SetScript(k, fn) self.__scripts[k] = fn end
     function f:HookScript(k, fn) self.__scripts[k] = fn end
@@ -602,6 +605,14 @@ do
         ok(escapes, "and Escape closes it, like every other window in the game")
 
         ok(pcall(FM.Toggle) and pcall(FM.Toggle), "toggling it open and shut does not throw")
+
+        -- THE FIRST CLICK MUST OPEN IT. Arn: "have to click the mouse bind button twice for
+        -- window to open". A frame is SHOWN by default in this game, and building the window is
+        -- what the first click does - so the first click found a window already "open", hid it,
+        -- and looked like nothing happened. This starts from nothing, the way a fresh login does.
+        FM.win = nil
+        ok(FM.Toggle() == true, "the very first click opens the window")
+        ok(FM.Toggle() == false, "and the second one shuts it")
 
         -- dropping a ranked spell on the left button, through the UI rather than past it
         RANKS[331] = "Rank 4"

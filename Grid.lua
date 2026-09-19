@@ -182,6 +182,16 @@ function FG.Layout(anchor)
         end
     end
 
+    -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
+    --
+    -- Arn, 19 Sep 2026: "the binds saved and the window where the bind saved but they dont do
+    -- anything on the frame, last time i had to drag the same spell again to the bind and then it
+    -- worked". His one saved bind was `wheelup`. Buttons 1-5 are secure attributes written onto
+    -- each cell by ApplyTo above, so those came back with the layout - but the wheel is a
+    -- BINDING, armed by FM.ApplyWheel, and the only thing that called it was dropping a spell.
+    -- So a bind that survived the reload perfectly did nothing until it was dragged again.
+    if NS.FM and NS.FM.ApplyWheel then NS.FM.ApplyWheel(anchor) end
+
     -- The anchor becomes the size of the grid it holds, so the header on top of it spans the
     -- cells rather than the 84 pixels of one. Out of combat only, like everything else here.
     local n = #roster

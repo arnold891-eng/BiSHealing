@@ -101,7 +101,13 @@ local function newFrame(kind, name)
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
     function f:CreateTexture() return autoMethods({ SetColorTexture = function() end }) end
     function f:CreateFontString()
-        return autoMethods({ SetText = function(self2, t) self2.__text = t end })
+        -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
+        -- mock remembers: two labels in one 84px header printed through each other in game, twice
+        -- (the mouse window in the morning, the grid header in the afternoon).
+        local fs = autoMethods({ SetText = function(self2, t) self2.__text = t end })
+        self.__fontstrings = self.__fontstrings or {}
+        self.__fontstrings[#self.__fontstrings + 1] = fs
+        return fs
     end
     frames[#frames + 1] = f
     return autoMethods(f)
@@ -385,12 +391,36 @@ do
     NS.SECRET = realSecret
 end
 
+-- A BIND THAT SURVIVED THE RELOAD BUT DID NOTHING. Arn, 19 Sep 2026: "the binds saved and the
+-- window where the bind saved but they dont do anything on the frame, last time i had to drag the
+-- same spell again to the bind and then it worked." His one saved bind was `wheelup`.
+--
+-- Buttons 1-5 are secure ATTRIBUTES, written onto each cell by ApplyTo during layout, so those
+-- came back with the grid. The wheel is a BINDING, and the only thing that ever armed it was
+-- dropping a spell on the window. So: a login, a layout, and NOT ONE DRAG - the wheel must work.
+do
+    NS.FM.Set("", "wheelup", "Healing Wave(Rank 1)")
+    BOUND = {}                               -- as a fresh session starts: nothing armed yet
+    STATE.inCombat = false
+    FG.Layout(anchor)
+    ok(BOUND["MOUSEWHEELUP"] ~= nil,
+       "the layout arms the wheel, with no drag to prompt it: " .. tostring(BOUND["MOUSEWHEELUP"]))
+    NS.FM.Clear("", "wheelup")
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.
 do
     local h = FG.header
     ok(h ~= nil, "the grid has a header to grab")
+
+    -- ONE LABEL IN THE BAR. Twice in one day a second FontString printed straight through the
+    -- first: "BiS> Hrsalinge" on an 84 pixel header. A hint belongs in a tooltip, where it has a
+    -- whole box to itself and costs no pixels at all.
+    ok(#(h.__fontstrings or {}) <= 1,
+       ("the header carries %d labels; one bar, one label - hints go in the tooltip")
+       :format(#(h.__fontstrings or {})))
 
     -- ONE THING IN THE BAR. A "drag" caption on the right printed straight through the prompt's
     -- rotating word on a header the width of one cell: "BiS> Hrsalinge" (seen in game, 19 Sep).

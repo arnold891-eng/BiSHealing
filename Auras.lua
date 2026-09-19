@@ -33,9 +33,14 @@ NS = NS or {}
 local FA = {}
 NS.FA = FA
 
--- What a shaman can actually take off someone. The client filters to what THIS character can
--- dispel; this narrows it further to the types we want a marker for.
-local CURES = { Poison = true, Disease = true }
+-- NOTHING. The filter below already says RAID_PLAYER_DISPELLABLE, which means the CLIENT decides
+-- what this character can take off someone - a priest's Magic and Disease, a druid's Curse and
+-- Poison, a paladin's three. This used to narrow it further to { Poison, Disease }, which is the
+-- list for exactly one class, and on 19 Sep 2026 the addon stopped being for exactly one class.
+--
+-- Leaving the narrowing out is not laziness: a hard-coded list is a promise about somebody else's
+-- spellbook, and the client's own answer is better than ours in every case including the ones
+-- nobody here has levelled.
 
 -- BUFFS WORTH A PIP IN THE CORNER, by spell id. Empty on purpose (19 Sep): Earth Shield is a TBC
 -- talent and nobody yet knows whether - or at what level - it exists on a 1.60 client. The probe
@@ -141,7 +146,6 @@ function FA.Attach(cell, unit)
 
     -- 1. anything WE can cure, washed over the health bar
     local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
-        candidateFilters = { includeDispelTypes = CURES },
         initializeFrame = pip(DISPEL_TINT),
     })
     if dispel and dispel.SetPoint then

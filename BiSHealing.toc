@@ -1,8 +1,8 @@
 ## Interface: 20506, 16001
 ## Title: BiS Healing
-## Notes: Pyramid raid frames. Ranks by who actually takes damage, learns after every fight.
+## Notes: Click-cast healing cells for any healer. The client draws what it will not let an addon read.
 ## Author: Kumlust
-## Version: 1.0-rc52
+## Version: 0.1.0
 ## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
 ## X-Category: Raid Frames
@@ -11,21 +11,14 @@
 Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua
 Libs\BiSTheme\Minimap.lua
-Libs\LibStub\LibStub.lua
-Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
-Libs\LibHealComm-4.0\ChatThrottleLib.lua
-Libs\LibHealComm-4.0\LibHealComm-4.0.lua
 
-Forever\Lockdown.lua
-Forever\Auras.lua
-Forever\Grid.lua
-Forever\Mouse.lua
-Forever\MouseUI.lua
-Forever\Between.lua
-
-Core\comm.lua
-
-BiSHealing.lua
+Lockdown.lua
+Core.lua
+Auras.lua
+Grid.lua
+Mouse.lua
+MouseUI.lua
+Between.lua
 
 UI\options.lua
 UI\minimap.lua

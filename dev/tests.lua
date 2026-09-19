@@ -47,6 +47,10 @@ local STATE = {
     dead = {},
     range = {},                 -- unit -> 0 means out of range
     maxRefusesSecret = false,   -- the client rejecting a secret max, if it turns out to do that
+    incoming = {},              -- unit -> heals already on their way
+    incomingSecret = false,     -- and whether the client will say how much
+    deadSecret = false,         -- UnitIsDeadOrGhost as a secret BOOLEAN, which it is in combat
+    classSecret = false,        -- so is the class, and it indexes a table here
 }
 
 local frames = {}
@@ -109,13 +113,32 @@ _G.InCombatLockdown = function() return STATE.inCombat end
 _G.UnitExists = function(u) return STATE.units[u] and true or false end
 _G.IsInRaid = function() return false end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
-_G.UnitClass = function() return "Shaman", "SHAMAN" end
-_G.UnitIsDeadOrGhost = function(u) return STATE.dead[u] and true or false end
+_G.UnitClass = function()
+    if STATE.classSecret then return secret(), secret() end
+    return "Shaman", "SHAMAN"
+end
+_G.UnitIsDeadOrGhost = function(u)
+    if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
+    return STATE.dead[u] and true or false
+end
 _G.UnitHealth = function() return secret() end
 _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
 _G.IsSpellInRange = function(_, u) return STATE.range[u] == 0 and 0 or 1 end
 _G.RegisterUnitWatch = function() end
 _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+
+-- WHAT IS ALREADY ON ITS WAY, and the call that says whether a value may be looked at.
+--
+-- Both were found on 19 Sep 2026 by reading how Healium's own Forever build paints its frames.
+-- `issecretvalue` in particular had been missing from this addon's whole picture of the client:
+-- everything was written as "assume it is secret and never touch it", which is safe for a health
+-- bar and useless for a dead flag that has to go in an `if`.
+_G.UnitGetIncomingHeals = function(u)
+    if STATE.incoming[u] == nil then return nil end
+    if STATE.incomingSecret then return secret() end
+    return STATE.incoming[u]
+end
+_G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
 
 ------------------------------------------------------------------- the files --
 
@@ -279,6 +302,40 @@ local painted = pcall(FG.Paint, f)
 ok(painted, "Paint never reads the number it was given")
 ok(getmetatable(f.bar.__value) == secretMeta, "the bar was handed the secret itself, not a copy")
 ok(f.bar.__color ~= nil, "the bar was coloured (class colour, not a health band)")
+
+-- WHAT IS ALREADY ON ITS WAY. Arn: "the frame is not showing how much an incomming heal is going
+-- to do like healium does". It can - the same bargain as health. UnitGetIncomingHeals hands back
+-- a number that may be secret, and a secret may be GIVEN to a StatusBar; the addon never learns
+-- the size of the heal, the client draws it. (Read off Healium's own Forever build.)
+do
+    STATE.incoming.party1 = 400
+    STATE.incomingSecret = false
+    FG.Paint(f)
+    ok(f.incoming ~= nil, "a cell has a bar for heals on their way")
+    ok(f.incoming.__value == 400, "and it is handed what is coming")
+
+    STATE.incomingSecret = true
+    ok(pcall(FG.Paint, f), "a SECRET incoming heal does not throw")
+    ok(getmetatable(f.incoming.__value) == secretMeta,
+       "it is handed the secret itself, untouched, exactly like the health above it")
+
+    STATE.incoming.party1 = nil
+    STATE.incomingSecret = false
+    FG.Paint(f)
+    ok(f.incoming.__value == 0, "nothing on the way empties the bar rather than leaving it")
+end
+
+-- A SECRET BOOLEAN, AND A SECRET STRING, both of which go into a test in Paint: one sits in an
+-- `if`, the other indexes the class-colour table. The client refuses the test itself, so both are
+-- asked about with issecretvalue first - a call this addon did not know existed until it read how
+-- Healium guards the same two values.
+do
+    STATE.deadSecret, STATE.classSecret = true, true
+    ok(pcall(FG.Paint, f), "a secret dead flag and a secret class do not throw")
+    ok(f.bar.__color ~= nil, "and the bar is still coloured, by the fallback")
+    STATE.deadSecret, STATE.classSecret = false, false
+    FG.Paint(f)
+end
 
 -- dead is readable inside the lockdown, so the grid may still mark it
 STATE.dead.party1 = true

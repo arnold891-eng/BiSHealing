@@ -79,6 +79,29 @@ function FG.Make(i, parent)
     f.bar:SetMinMaxValues(0, 1)
     f.bar:SetValue(1)
 
+    -- WHAT IS ALREADY ON ITS WAY. A second bar, starting where the health fill ends and running
+    -- on in a paler green: that much more is coming, from you or from anyone else.
+    --
+    -- Arn, 19 Sep: "the frame is not showing how much an incomming heal is going to do like
+    -- healium does". It can, and the way is the display bargain again - UnitGetIncomingHeals
+    -- hands back a number that may be secret, and a secret may be given to a StatusBar. So the
+    -- addon never learns the size of the heal; the client draws it.
+    --
+    -- Anchored to the health bar's TEXTURE rather than the bar frame, which is what makes it
+    -- start at the end of the fill and move with it. (Read off Healium's own Forever build,
+    -- which does exactly this and was right to.)
+    f.incoming = CreateFrame("StatusBar", nil, f)
+    f.incoming:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2)
+    f.incoming:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    f.incoming:SetStatusBarColor(0.30, 0.85, 0.45, 0.55)
+    f.incoming:SetMinMaxValues(0, 1)
+    f.incoming:SetValue(0)
+    if f.incoming.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.incoming:SetFrameLevel(lvl + 1) end
+    end
+
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
     -- the button sits UNDER the health bar -- which looks like "the names are missing" with only
     -- the overflowing tail of a long one visible past the cell's edge (seen on the beta, 17 Sep).
@@ -185,9 +208,22 @@ function FG.Paint(f)
     end
     f.bar:SetValue(UnitHealth(unit))     -- the one legal thing to do with a secret number
 
-    local _, class = UnitClass(unit)
-    local c = CLASS_COLOR[class] or { 0.2, 0.7, 0.3 }
-    if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then c = DEAD end
+    -- INCOMING HEALS, on the same scale as the health bar so the two read as one line. The value
+    -- may be secret and is handed over untouched, exactly like the health above it.
+    if f.incoming and UnitGetIncomingHeals then
+        local ok, inc = pcall(UnitGetIncomingHeals, unit)
+        if ok then
+            if FG.maxOK then pcall(f.incoming.SetMinMaxValues, f.incoming, 0, UnitHealthMax(unit)) end
+            f.incoming:SetValue(NS.Secret(inc) and inc or (inc or 0))
+        end
+    end
+
+    -- A CLASS AND A DEAD FLAG CAN BOTH BE SECRET, and both are used in a test below: one indexes
+    -- a table, the other sits in an `if`. Either refuses outright when the client is hiding it,
+    -- so both are asked about first. NS.Plain answers nil rather than the value when it is secret.
+    local class = NS.Plain(select(2, UnitClass(unit)))
+    local c = CLASS_COLOR[class or ""] or { 0.2, 0.7, 0.3 }
+    if UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit)) then c = DEAD end
     f.bar:SetStatusBarColor(c[1], c[2], c[3])
 
     -- Range. NOT UnitInRange: on Forever that returns a secret BOOLEAN, which cannot even be

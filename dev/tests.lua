@@ -1769,7 +1769,7 @@ do
     -- past ~32 is the Innervate ceiling and wants a slash command instead
     local EXPECT = {
         "shown", "locked", "pets", "nameLen", "bars", "redPct", "corners", "pulse", "pulseCap",
-        "totemRange", "dispel",
+        "totemRange", "dispel", "minimap",
         "bounceLines", "goldChains", "celebrate", "critBrag", "bragGap", "healRace",
         "incomingFill", "castCounter", "fsr", "rpm",
         "esQuiet", "nsPip", "giftBadge",
@@ -1781,7 +1781,7 @@ do
     oneed(#BiSHealingUI.ConfigIDs() == #EXPECT,
           ("%d controls, expected %d -- a new row wants adding to the list on purpose")
           :format(#BiSHealingUI.ConfigIDs(), #EXPECT))
-    oneed(#frame.rows == #EXPECT + 4, ("expected %d rows (28 options + 4 sections), got %d"):format(#EXPECT + 4, #frame.rows))
+    oneed(#frame.rows == #EXPECT + 4, ("expected %d rows (29 options + 4 sections), got %d"):format(#EXPECT + 4, #frame.rows))
     oneed(frame:GetHeight() <= BiSTheme.OPTIONS.HEADER + 33 * BiSTheme.OPTIONS.ROW + BiSTheme.OPTIONS.PAD,
           "the window is taller than the family's tallest (Innervate, 29 rows) allows")
     -- every label inside the kit's budget, untrimmed
@@ -1973,6 +1973,8 @@ do
         "FA",
         -- FM: the mouse - every click meaning in one place, bound by dragging a spell onto it
         "FM",
+        -- MM: the minimap button's rows. Each one runs the slash command itself (19 Sep)
+        "MM",
     }
     local want = {}
     for _, k in ipairs(EXPECTED) do
@@ -2445,6 +2447,100 @@ do
         wneed(con.slots and con.slots.cure and tostring(con.slots.cure.text):find("2 to cure", 1, true),
               "the header should say 2 to cure: " .. tostring(con.slots and con.slots.cure and con.slots.cure.text))
     end
+    -- THE WINDOW ON A CLIENT THAT HIDES ITS NUMBERS (19 Sep 2026). Arn: "alot of the stuff in the
+    -- right click was legacy stuff that does not work. can we put it away somewhere where it does
+    -- not affect the addon? and put the menu there?" Of the 29 rows below, the Forever grid reads
+    -- exactly one. This is the list that proves the short window stays short and stays honest.
+    do
+        local CFG = ADDON_NS.CFG
+        local keys, rows = {}, 0
+        for _, sec in ipairs(CFG.ForeverSections()) do
+            for _, opt in ipairs(sec.options) do
+                keys[opt.key] = opt
+                rows = rows + 1
+            end
+        end
+        for _, want in ipairs({ "shown", "minimap", "mouse", "seen", "pipTest" }) do
+            wneed(keys[want], ("the short window lost %q"):format(want))
+        end
+        for _, gone in ipairs({ "bounceLines", "wheelMode", "esQuiet", "redPct", "pulseCap",
+                                "totemRange", "healRace", "critBrag", "keybinds" }) do
+            wneed(not keys[gone], ("%q is the pyramid's brain and must not be offered"):format(gone))
+        end
+        wneed(rows <= 10, ("the short window is not short: %d rows"):format(rows))
+
+        -- every button must be pressable HERE, on a client that never registered /bishf: a row
+        -- that throws when pressed is worse than a row that does nothing
+        for key, opt in pairs(keys) do
+            if opt.kind == "button" then
+                wneed(pcall(opt.action, BiSHealingDB), ("pressing %q threw"):format(key))
+            else
+                wneed(pcall(opt.get, BiSHealingDB), ("reading %q threw"):format(key))
+            end
+        end
+
+        -- and the window asks for it only on that client
+        ADDON_NS.SECRET = true
+        wneed(#CFG.OptionSections() == #CFG.ForeverSections(),
+              "a secret client should be offered the short window")
+        ADDON_NS.SECRET = false
+        wneed(#CFG.OptionSections() > #CFG.ForeverSections(),
+              "and a client that answers keeps every row it always had")
+    end
+
+    -- TWO GRIDS AT ONCE (19 Sep 2026). Arn, having ticked the mana gauge: "turned on the guage
+    -- and now 2 grids are open". Every options toggle ends in CFG.Apply, CFG.Apply ended in
+    -- Relayout, and Relayout laid out and SHOWED the pyramid - on a Forever client, on top of the
+    -- grid that client actually runs, the two disagreeing about how long a name is. The brain was
+    -- already gated on NS.SECRET in two places; its furniture was not.
+    do
+        SlashCmdList.BISHEALING("show")
+        local before = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then before = before + 1 end end
+        wneed(before > 0, "the pyramid should be up on a client that answers")
+
+        ADDON_NS.SECRET = true
+        BiSHealingUI.ConfigSet("rpm", true)          -- any toggle at all: they all end in Apply
+        local up = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then up = up + 1 end end
+        wneed(up == 0, ("a toggle raised %d pyramid frames on a client that hides its numbers"):format(up))
+        wneed(not ADDON_NS.UIX.plate:IsShown(), "and the mana gauge must stay down: it reads two secrets")
+
+        ADDON_NS.SECRET = false
+        BiSHealingUI.ConfigSet("rpm", true)          -- and the pyramid comes back on a TBC client
+        local back = 0
+        for _, fr in ipairs(ADDON_NS.frames) do if fr:IsShown() then back = back + 1 end end
+        wneed(back == before, ("the pyramid should come back: %d of %d"):format(back, before))
+    end
+
+    -- THE HEADER AGAINST A SECRET NUMBER (19 Sep 2026). On Forever the player's own mana comes
+    -- back as a secret while the maximum comes back as a plain number, and the percentage in the
+    -- header divided one by the other: twenty-seven copies of "attempt to perform arithmetic on
+    -- local 'm' (a secret number value)" in the error frame, half a second apart. The slot is
+    -- gone on that client - but the NET is what is tested here, because the next secret value
+    -- will be one nobody predicted.
+    do
+        local realPower, realPrint = UnitPower, CHATLOG
+        local boom = setmetatable({}, {
+            __div = function() error("attempt to perform arithmetic on a secret number value", 2) end,
+            __lt  = function() error("attempt to compare a secret number value", 2) end,
+        })
+        function UnitPower() return boom end
+        CFG_SLOTS_OFF = nil
+        CHATLOG = {}
+        local ok = pcall(function() for _ = 1, 6 do BiSHealingUI.ConsoleTick(0.2) end end)
+        wneed(ok, "a secret number in the header must not throw out of the ticker")
+        for _ = 1, 6 do BiSHealingUI.ConsoleTick(0.2) end
+        local said = table.concat(CHATLOG, " | ")
+        wneed(select(2, said:gsub("secret", "")) <= 1,
+              "and must say so ONCE, not twice a second: " .. said)
+        -- and it stays off for the session: the client does not stop keeping a number secret
+        wneed(ADDON_NS.CFG.slotsOff == true, "the ticker should stay off once it has been told")
+        UnitPower = realPower
+        CHATLOG = realPrint
+        ADDON_NS.CFG.slotsOff = false      -- this suite carries on with a client that answers
+    end
+
     -- /bish dispel lists them under the zone, disease and poison both
     CHATLOG = {}
     SlashCmdList.BISHEALING("dispel")

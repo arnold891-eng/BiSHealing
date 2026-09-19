@@ -22,7 +22,7 @@ local function newRegion(kind, parent)
     local r = {
         __kind = kind, __parent = parent, __shown = (kind == "Frame" or kind == "Button"),
         __points = {}, __w = 0, __h = 0, __alpha = 1, __text = nil,
-        __color = nil, __drawLayer = nil, __attrs = {}, __scripts = {},
+        __color = nil, __drawLayer = nil, __attrs = {}, __scripts = {}, __events = {},
     }
     function r:Show() self.__shown = true end
     function r:Hide() self.__shown = false end
@@ -138,8 +138,15 @@ local function newRegion(kind, parent)
     function r:GetScript(k) return self.__scripts[k] end
     function r:SetAttribute(k, v) self.__attrs[k] = v end
     function r:GetAttribute(k) return self.__attrs[k] end
-    function r:RegisterEvent() end
-    function r:UnregisterEvent() end
+    -- RECORDED, not ignored. Events used to go to "the last frame with an OnEvent script", and on
+    -- 19 Sep UI/minimap.lua - two lines waiting for PLAYER_LOGIN - was created last and quietly
+    -- became "the addon": every event in this suite went to the minimap button, the wheel never
+    -- heard SPELLS_CHANGED, and the failure printed was an untrained Nature's Swiftness still
+    -- bound, 4000 lines from the cause. dev/tests.lua had already been bitten by the same thing.
+    function r:RegisterEvent(e) if e then self.__events[e] = true end end
+    function r:RegisterUnitEvent(e) if e then self.__events[e] = true end end
+    function r:UnregisterEvent(e) if e then self.__events[e] = nil end end
+    function r:IsEventRegistered(e) return (self.__events or {})[e] and true or false end
     function r:SetOwner() end
     function r:AddLine() end
     function r:AddDoubleLine() end
@@ -531,15 +538,38 @@ ADDON_SOURCES     = RUN.sources
 
 -- fire PLAYER_LOGIN then the OnUpdate tick, which is what actually drives
 -- UpdateBars / corners / rpm / cast counter. Slash commands alone miss these.
-local ev
+-- The addon's main frame is the one that asked for the most events, and every OTHER frame that
+-- registered for an event hears it too - which is simply what the client does. One frame per
+-- feature is the pattern now (the grid's boot frame, the minimap button), and a suite that can
+-- only deliver to one of them tests the addon it had a year ago.
+local ev, evCount = nil, -1
 for _, f in ipairs(allFrames) do
-    if f.__scripts and f.__scripts.OnEvent then ev = f end
+    if f.__scripts and f.__scripts.OnEvent then
+        local n = 0
+        for _ in pairs(f.__events or {}) do n = n + 1 end
+        if n >= evCount then ev, evCount = f, n end
+    end
 end
 local anchorF = _G["BiSHealingAnchor"]
 
 -- payload matters now: CHAT_MSG_ADDON carries prefix/message/channel/sender,
 -- and dropping the extra arguments made every comm test silently pass nothing
-local function fireEvent(e, ...) if ev then ev.__scripts.OnEvent(ev, e, ...) end end
+local function fireEvent(e, ...)
+    local sent = 0
+    for _, f in ipairs(allFrames) do
+        if f.__scripts and f.__scripts.OnEvent and (f.__events or {})[e] then
+            local ok, err = pcall(f.__scripts.OnEvent, f, e, ...)
+            if not ok then
+                print(("!! EVENT %s: %s"):format(e, tostring(err)))
+                os.exit(1)
+            end
+            sent = sent + 1
+        end
+    end
+    -- an event nobody registered still reaches the main frame: this suite fires a few that the
+    -- addon listens for through other means, and silence there would read as a pass
+    if sent == 0 and ev then ev.__scripts.OnEvent(ev, e, ...) end
+end
 local function tick(n, dt)
     for i = 1, (n or 5) do
         AdvanceTime(dt or 0.11)

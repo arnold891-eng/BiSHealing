@@ -81,7 +81,11 @@ $stage = Join-Path ([System.IO.Path]::GetTempPath()) "$AddonName-release"   # $e
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path (Join-Path $stage $AddonName) | Out-Null
 Get-ChildItem $Root -Force | Where-Object {
-    $_.Name -notin @("dev", "CLAUDE.md", ".pkgmeta", "LICENSE.bak") -and $_.Name -notlike ".git*"
+    # dev/, the house rules, anything git - and a companion app's output. album.py writes
+    # album.html / album-notes.json wherever --out says, and a stray screenshot in the addon
+    # folder would otherwise be uploaded to CurseForge with the addon (19 Sep 2026).
+    $_.Name -notin @("dev", "CLAUDE.md", ".pkgmeta", "LICENSE.bak", "album.html", "album-notes.json") -and
+    $_.Name -notlike ".git*" -and $_.Name -notlike "WoWScrnShot_*"
 } | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $stage $AddonName) -Recurse }
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage $AddonName) -DestinationPath $zip

@@ -870,12 +870,69 @@ do
     _G.BiSHealingDB = realDB
 end
 
+local function anythingIn(t) return type(t) == "table" and next(t) ~= nil end
+
 -- THE THREE DOORS. The slash command, the minimap menu and the options window all go through
 -- NS.DO, so what has to be true is that every door names something that is actually there.
 do
     for _, name in ipairs({ "options", "mouse", "show", "rescan", "center", "scan", "auras",
-                            "minimap", "help" }) do
+                            "minimap", "help", "db" }) do
         ok(type(NS.DO[name]) == "function", ("NS.DO.%s is missing"):format(name))
+    end
+
+    -- THE ROUND TRIP, which is what "the binds reset every reload" is really about. Logout stamps
+    -- the table; a login that finds no stamp means the CLIENT never handed the file back, and no
+    -- amount of fixing this addon changes that. Drive both halves with the real event handler.
+    do
+        local fire = NS.events.__scripts.OnEvent
+        _G.BiSHealingDB = nil
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(NS.loaded.found == false, "a first ever login finds no saved table")
+
+        NS.DB()
+        NS.FM.Set("", "left", "Healing Wave(Rank 2)")
+        fire(NS.events, "PLAYER_LOGOUT")
+        ok(type(_G.BiSHealingDB.savedAt) == "number", "logging out stamps the table")
+        ok(_G.BiSHealingDB.saves == 1, "and counts the save")
+        ok(_G.BiSHealingDB.binds["left"] == "Healing Wave(Rank 2)",
+           "with the bind in the table the client will write")
+
+        -- what a client that DOES hand the file back looks like on the next login
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(NS.loaded.savedAt ~= nil,
+           "the next login sees the stamp: savedAt=" .. tostring(NS.loaded.savedAt))
+        -- three, not one: a mouse with nothing on it is also seeded with this class's defaults,
+        -- and the drag above replaced one of them
+        ok(NS.loaded.binds == 3 and _G.BiSHealingDB.binds["left"] == "Healing Wave(Rank 2)",
+           "and the binds, with the dragged one kept: " .. tostring(NS.loaded.binds))
+        ok(pcall(NS.DO.db), "and /bish db reports it without throwing")
+
+        -- THE CLIENT THAT LOSES THE ACCOUNT FILE (measured on the beta, 19 Sep 2026: it writes
+        -- BiSHealingDB perfectly and hands back nothing at the next login, every time). The
+        -- per-character file is a different file in a different folder, so it may survive when
+        -- the other does not - and the addon takes whichever came back.
+        _G.BiSHealingCharDB = nil
+        fire(NS.events, "PLAYER_LOGOUT")
+        ok(anythingIn(_G.BiSHealingCharDB) and _G.BiSHealingCharDB.binds["left"] == "Healing Wave(Rank 2)",
+           "logging out writes the per-character copy too")
+        ok(not rawequal(_G.BiSHealingCharDB, _G.BiSHealingDB),
+           "and it is a SEPARATE table - an alias would be one file saved and one lost")
+
+        local keep = _G.BiSHealingCharDB
+        _G.BiSHealingDB = nil                       -- the client loses the account-wide one
+        _G.BiSHealingCharDB = keep
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(NS.loaded.rescued == true, "the next login notices and takes the per-character copy")
+        ok(NS.FM.Get("", "left") == "Healing Wave(Rank 2)", "so the binds are still there")
+
+        -- and when BOTH came back, the account-wide one is left alone
+        _G.BiSHealingDB = { dbver = 1, binds = { left = "Chain Heal" } }
+        _G.BiSHealingCharDB = keep
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(NS.loaded.rescued == false and NS.FM.Get("", "left") == "Chain Heal",
+           "a client that keeps both changes nothing")
+
+        _G.BiSHealingDB, _G.BiSHealingCharDB = nil, nil
     end
 
     -- the menu's rows

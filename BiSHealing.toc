@@ -5,6 +5,7 @@
 ## Version: 0.1.0
 ## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
+## SavedVariablesPerCharacter: BiSHealingCharDB
 ## X-Category: Raid Frames
 ## IconTexture: Interface\Icons\Spell_Nature_HealingWaveGreater
 ## X-Curse-Project-ID: 1703250

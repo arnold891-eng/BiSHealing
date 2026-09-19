@@ -1,4 +1,4 @@
-# BiSHealing :: release from GitHub (template: _bisdev/ci/release-caller.yml, BiSHealing replaced).
+# BiSHealing :: release from GitHub (from _bisdev/ci/release-caller.yml).
 #
 #   push a tag vX.Y.Z (== the TOC's ## Version)   -> checks, zip, upload to CurseForge
 #   a pull request touching the release script,

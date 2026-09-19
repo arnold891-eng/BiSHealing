@@ -61,8 +61,20 @@ local function newFrame(kind, name)
     -- SHOWN, like the client's. A frame you create is visible until you hide it, and a mock that
     -- starts everything hidden turns "I never hid this" into a passing test - which is exactly
     -- how the mouse window shipped needing two clicks to open.
-    local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = true, __alpha = 1 }
+    local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = true,
+                __alpha = 1, points = {} }
     if name then _G[name] = f end          -- the client puts a named frame in _G; so does this
+    -- WHERE IT IS ANCHORED, recorded and readable. The client answers GetPoint; this used to
+    -- answer nothing at all, which made "put the window back where it was" untestable - and a
+    -- window that opens in the wrong place is the kind of thing only a person ever notices.
+    function f:SetPoint(...) self.points[#self.points + 1] = { ... } end
+    function f:ClearAllPoints() self.points = {} end
+    function f:GetNumPoints() return #self.points end
+    function f:GetPoint(i)
+        local p = self.points[i or #self.points]
+        if not p then return nil end
+        return p[1], p[2], p[3], p[4], p[5]
+    end
     function f:SetScript(k, fn) self.__scripts[k] = fn end
     function f:HookScript(k, fn) self.__scripts[k] = fn end
     function f:GetScript(k) return self.__scripts[k] end
@@ -155,7 +167,16 @@ _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_Questio
 --   C_Spell.GetSpellInfo(id)                -> { name = }   (no rank anywhere in it)
 --   C_Spell.GetSpellSubtext(id)             -> "Rank 4"
 local RANKS = {}                       -- id -> the rank the client would report for it
-local BOOK = {}                        -- book index -> { name, rank }
+-- The book this fake shaman has actually trained. It is stocked rather than empty because an
+-- empty book is not a character anyone plays, and the defaults now come out of the book: a spell
+-- you have not learned is not put on your mouse. Slots 10+ are free for tests to fill.
+local BOOK = {
+    [1] = { name = "Healing Wave",        rank = "Rank 1" },
+    [2] = { name = "Healing Wave",        rank = "Rank 2" },
+    [3] = { name = "Healing Wave",        rank = "Rank 3" },
+    [4] = { name = "Lesser Healing Wave", rank = "Rank 1" },
+    [5] = { name = "Chain Heal",          rank = "Rank 1" },
+}
 _G.C_SpellBook = _G.C_SpellBook or {}
 _G.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
 _G.C_SpellBook.GetSpellBookItemName = function(n)
@@ -225,6 +246,29 @@ ok(FG.frames[1] and FG.frames[1].unit == "player", "cell 1 is bound to the playe
 ok(FG.frames[1].__attrs["*spell1"] == "Healing Wave", "left click casts through a secure attribute")
 ok(FG.frames[1].__attrs["shift-spell1"] == "Chain Heal", "shift-click is the chain")
 ok(NS.FM.Defaults().left == "Healing Wave", "a shaman's mouse starts on Healing Wave")
+
+-- ONLY WHAT IS IN THE BOOK. Arn, on a shaman who had not trained it yet: "it setts it back to
+-- chain heals which i dont have yet". A default is a courtesy; a default for a spell you cannot
+-- cast is a button that does nothing and a line of red text when you press it.
+do
+    local FM = NS.FM
+    local keep = BOOK[5]                              -- Chain Heal
+    BOOK[5] = nil
+    local defaults, booked = FM.Defaults()
+    ok(defaults.left == "Healing Wave", "the spells this character HAS are still offered")
+    ok(defaults["shift-left"] == nil, "and the one not in the book is not put on the mouse")
+    ok(booked == true, "the book answered, so this counts as a real seeding")
+
+    -- and a book that answers NOTHING - which happens at login, before the client fills it in -
+    -- must not be written down as "seeded" and leave the mouse empty forever
+    local stash = {}
+    for i = 1, 5 do stash[i], BOOK[i] = BOOK[i], nil end
+    local none, saidNo = FM.Defaults()
+    ok(next(none) == nil and saidNo == false,
+       "an empty book seeds nothing, and says so, so the next call can try again")
+    for i = 1, 5 do BOOK[i] = stash[i] end
+    BOOK[5] = keep
+end
 -- and "can I reach them" asks about the spell on the left button, not a name baked into the grid
 ok(NS.FM.RangeSpell() == "Healing Wave", "range is judged by the spell your click would cast")
 
@@ -503,10 +547,11 @@ do
     -- drag, and that is a setting - so the window stops depending on the drag and the little rank
     -- number became a button that walks the ranks this character has trained.
     do
-        BOOK[1] = { name = "Spell331", rank = "Rank 1" }
-        BOOK[2] = { name = "Spell331", rank = "Rank 2" }
-        BOOK[3] = { name = "Spell331", rank = "Rank 3" }
-        BOOK[4] = { name = "Somebody Else", rank = "Rank 9" }
+        -- slots 10+, so the character's own spells in 1-5 stay where they are
+        BOOK[10] = { name = "Spell331", rank = "Rank 1" }
+        BOOK[11] = { name = "Spell331", rank = "Rank 2" }
+        BOOK[12] = { name = "Spell331", rank = "Rank 3" }
+        BOOK[13] = { name = "Somebody Else", rank = "Rank 9" }
         local ranks = FM.Ranks("Spell331")
         ok(#ranks == 3, ("the book says %d ranks of it are trained"):format(#ranks))
         ok(ranks[1].rank == "Rank 1", "oldest first, so clicking walks upwards")
@@ -525,7 +570,7 @@ do
         FM.Set("", "left", "Somebody Else(Rank 9)")
         ok(FM.CycleRank("", "left") == "Somebody Else(Rank 9)",
            "a spell with one trained rank does not change under the click")
-        for i = 1, 4 do BOOK[i] = nil end
+        for i = 10, 13 do BOOK[i] = nil end
         FM.Clear("shift-", "left")
         FM.Set("", "left", "Spell331")        -- as the checks below this one left it
     end
@@ -577,6 +622,27 @@ do
         _G.BiSHealingDB = nil
     end
 
+    -- A CLEARED BIND STAYS CLEARED ACROSS A RELOAD. Arn: "the binds are not surving a reload it
+    -- setts it back to chain heals which i dont have yet". The saved variables were fine the
+    -- whole time - the file on disk had his ranks in it - and this was the SEEDING writing into
+    -- the gaps: it filled any slot that happened to be nil, so clearing one and reloading brought
+    -- it straight back. The addon quietly overruling a deliberate act.
+    do
+        local realDB = NS.DB
+        _G.BiSHealingDB = { binds = { left = "Healing Wave(Rank 1)" }, bindsSeeded = true }
+        NS.DB = function() return _G.BiSHealingDB end
+        ok(FM.Get("", "shift-left") == nil, "a slot the player cleared is still empty")
+        ok(FM.Get("", "left") == "Healing Wave(Rank 1)", "and the one they bound is untouched")
+
+        -- even with the seeded flag lost - which the migration used to do - a mouse with anything
+        -- on it is not a fresh install and is left alone
+        _G.BiSHealingDB = { binds = { left = "Healing Wave(Rank 1)" } }
+        ok(FM.Get("", "shift-left") == nil,
+           "a mouse with something on it is never re-seeded, flag or no flag")
+        NS.DB = realDB
+        _G.BiSHealingDB = nil
+    end
+
     -- clearing
     FM.Clear("", "left")
     FM.ApplyTo(cell)
@@ -592,17 +658,31 @@ end
 do
     local FM = NS.FM
     local built, w = pcall(FM.Window)
+    if not built then print("WINDOW ERROR: " .. tostring(w)) end
     ok(built and w ~= nil, "the mouse window builds")
     if built and w then
         ok(w.close ~= nil, "it has a close button")
         w:Show()
         w.close.__scripts.OnClick(w.close)
         ok(w:IsShown() == false, "and clicking it shuts the window")
-        local escapes = false
+        -- ESCAPE CLOSES IT, AND THE SPELLBOOK DOES NOT. This used to assert the opposite thing -
+        -- that the window was listed in UISpecialFrames - which is how the client closes frames
+        -- on Escape AND what CloseAllWindows() empties when a panel like the spellbook opens.
+        -- Arn: "right now if the bind window is open and i open the spell book it closes the bind
+        -- window". The key is handled by the window itself now.
+        local onUISpecial = false
         for _, n in ipairs(_G.UISpecialFrames) do
-            if n == "BiSHealingMouse" then escapes = true end
+            if n == "BiSHealingMouse" then onUISpecial = true end
         end
-        ok(escapes, "and Escape closes it, like every other window in the game")
+        ok(not onUISpecial,
+           "it is NOT on the list the spellbook empties: that list closed it every time")
+        w:Show()
+        w.__scripts.OnKeyDown(w, "ESCAPE")
+        ok(w:IsShown() == false, "and Escape closes it anyway, handled here")
+        w:Show()
+        w.__scripts.OnKeyDown(w, "A")
+        ok(w:IsShown() == true, "while any other key is passed through and changes nothing")
+        w:Hide()
 
         ok(pcall(FM.Toggle) and pcall(FM.Toggle), "toggling it open and shut does not throw")
 
@@ -613,6 +693,51 @@ do
         FM.win = nil
         ok(FM.Toggle() == true, "the very first click opens the window")
         ok(FM.Toggle() == false, "and the second one shuts it")
+
+        -- WHERE IT SITS. Arn: "if we open the spellbook window and we have the bind window open
+        -- can we anchor it to this spot ... defualt place the last place it was in".
+        do
+            local w2 = FM.Window()
+            -- a spot the player dragged it to, remembered across a rebuild
+            w2:ClearAllPoints()
+            w2:SetPoint("TOPLEFT", _G.UIParent, "TOPLEFT", 120, -240)
+            local saved = FM.SavePos(w2)
+            ok(saved and saved.point == "TOPLEFT" and saved.x == 120,
+               "dragging it writes the spot to the saved variables")
+            FM.win = nil
+            local w3 = FM.Window()
+            local p = w3.points[#w3.points]
+            ok(p and p[1] == "TOPLEFT" and p[4] == 120 and p[5] == -240,
+               "and a fresh window opens exactly where it was left")
+
+            -- the spellbook opens: it docks to the right edge of the book
+            _G.PlayerSpellsFrame = newFrame("Frame", "PlayerSpellsFrame")
+            _G.PlayerSpellsFrame:Show()
+            ok(FM.Place(w3) == "docked", "with the spellbook up, it docks to it")
+            local d = w3.points[#w3.points]
+            ok(d and d[1] == "TOPLEFT" and rawequal(d[2], _G.PlayerSpellsFrame) and d[3] == "TOPRIGHT",
+               "against the book's right edge, where you are looking when you drag a spell out")
+
+            -- and back to the remembered spot when the book closes
+            _G.PlayerSpellsFrame:Hide()
+            ok(FM.Place(w3) == "free", "the book closes and it undocks")
+            local b = w3.points[#w3.points]
+            ok(b and b[1] == "TOPLEFT" and b[4] == 120, "back to the last place it was put")
+
+            -- dragging it away while the book is open keeps it where you put it
+            _G.PlayerSpellsFrame:Show()
+            FM.Place(w3)
+            w3.__scripts.OnDragStart(w3)
+            ok(w3.undocked == true and w3.dockedTo == nil, "dragging it out of the dock unsticks it")
+            ok(FM.Place(w3) == "free", "and it stays where you dropped it while the book is open")
+            _G.PlayerSpellsFrame:Hide()
+            FM.Place(w3)
+            _G.PlayerSpellsFrame:Show()
+            ok(FM.Place(w3) == "docked", "closing and reopening the book docks it again")
+            _G.PlayerSpellsFrame:Hide()
+            _G.PlayerSpellsFrame = nil
+            w3.dockedTo, w3.undocked = nil, nil
+        end
 
         -- dropping a ranked spell on the left button, through the UI rather than past it
         RANKS[331] = "Rank 4"

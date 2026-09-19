@@ -68,15 +68,31 @@ FM.CLASS_DEFAULTS = {
     DRUID   = { left = "Healing Touch",   right = "Regrowth",            ["shift-left"] = "Rejuvenation" },
 }
 
---- What this character starts with. An unknown class - or a client that will not say - gets an
---- empty mouse and the window's own instruction to drag something onto it.
+--- What this character starts with - AND ONLY WHAT THEY HAVE ACTUALLY TRAINED.
+---
+--- Arn, 19 Sep, at level something on a fresh shaman: "it setts it back to chain heals which i
+--- dont have yet". A default is a courtesy; a default for a spell you cannot cast is a button
+--- that does nothing and a line of red text when you press it. The spellbook is asked, and
+--- anything not in it is left out.
+---
+--- `booked` comes back false when the book answered nothing at all - a real possibility at login,
+--- before the client has filled it in - and the caller uses that to try again later rather than
+--- writing an empty mouse down as "seeded".
 function FM.Defaults()
-    local _, class = nil, nil
+    local class
     if UnitClass then
         local ok, _, token = pcall(UnitClass, "player")
         if ok then class = token end
     end
-    return FM.CLASS_DEFAULTS[class or ""] or {}
+    local list = FM.CLASS_DEFAULTS[class or ""] or {}
+    local out, booked = {}, false
+    for slot, spell in pairs(list) do
+        if #FM.Ranks(spell) > 0 then
+            out[slot] = spell
+            booked = true
+        end
+    end
+    return out, booked
 end
 
 -- kept as a name because the suite and the options window both ask what a fresh install believes
@@ -98,11 +114,21 @@ local function db()
     if next(memory.binds) and not next(d.binds) then
         d.binds = memory.binds                -- carry anything bound before the DB arrived
     end
-    if not d.bindsSeeded then                 -- a fresh install gets its class defaults, once
-        for k, v in pairs(FM.Defaults()) do
-            if d.binds[k] == nil then d.binds[k] = v end
-        end
-        d.bindsSeeded = true
+    -- SEEDED ONCE, AND ONLY INTO AN EMPTY MOUSE.
+    --
+    -- It used to fill any slot that happened to be nil, which meant clearing a bind and reloading
+    -- brought it back - the addon quietly overruling a deliberate act. "the binds are not surving
+    -- a reload it setts it back to chain heals": the saved variables were fine all along (the
+    -- file on disk had his ranks in it), this was the seeding writing over the gaps.
+    --
+    -- So: only when there is nothing bound at all, and only spells the spellbook confirms. If the
+    -- book answered nothing - which can happen at login, before the client has filled it in - the
+    -- flag is NOT set, and the next call tries again rather than writing an empty mouse down as
+    -- done forever.
+    if not d.bindsSeeded and not next(d.binds) then
+        local defaults, booked = FM.Defaults()
+        for k, v in pairs(defaults) do d.binds[k] = v end
+        if booked then d.bindsSeeded = true end
     end
     return d
 end

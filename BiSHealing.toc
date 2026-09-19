@@ -18,6 +18,8 @@ Libs\LibHealComm-4.0\LibHealComm-4.0.lua
 Forever\Lockdown.lua
 Forever\Auras.lua
 Forever\Grid.lua
+Forever\Mouse.lua
+Forever\MouseUI.lua
 Forever\Between.lua
 
 Core\comm.lua

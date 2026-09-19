@@ -100,12 +100,10 @@ function FG.Bind(f, unit)
     if InCombatLockdown and InCombatLockdown() then return false end
     f.unit = unit
     f:SetAttribute("unit", unit)
-    f:SetAttribute("*type1", "spell")
-    f:SetAttribute("*spell1", HEAL)
-    f:SetAttribute("*type2", "spell")
-    f:SetAttribute("*spell2", HEAL_FAST)
-    f:SetAttribute("shift-type1", "spell")
-    f:SetAttribute("shift-spell1", HEAL_CHAIN)
+    -- What a click MEANS belongs to Forever/Mouse.lua - every button, every modifier, in one
+    -- place the player can see and change. The grid used to set three of them here, and then the
+    -- mouse's own pass wiped whatever it did not know about. One owner.
+    if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(f) end
     if RegisterUnitWatch then RegisterUnitWatch(f) end
     if f.name then f.name:SetText(FG.ShortName(unit)) end
     return true
@@ -138,6 +136,8 @@ function FG.Layout(anchor)
         -- the aura markers ride the same out-of-combat moment as the secure attributes: the
         -- container is told its unit here and then draws by itself for the whole fight
         if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
+        -- the mouse binds, if the player has set any: they replace the defaults above
+        if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(f) end
         FG.byUnit[unit] = f
         f:Show()
     end
@@ -227,8 +227,10 @@ function FG.Start()
                          "PLAYER_REGEN_ENABLED" }) do
         pcall(ev.RegisterEvent, ev, e)      -- an event this client does not know must not abort the file
     end
-    ev:SetScript("OnEvent", function()
+    ev:SetScript("OnEvent", function(_, event)
         pending = true                      -- the update loop relays out when the lockdown lets it
+        -- a bind changed mid-fight is queued, not lost: the moment the lockdown lifts it lands
+        if event == "PLAYER_REGEN_ENABLED" and NS.FM and NS.FM.pending then NS.FM.Apply() end
     end)
     FG.events = ev
     if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2

@@ -32,11 +32,36 @@
 local ADDON, NS = ...
 NS = NS or {}
 
-local ok, secret = pcall(function()
+-- THE ANSWER CAN ITSELF BE A SECRET, and that is not paranoia - ForeverAuras (the WeakAuras
+-- fork for this client, 0.1.114) guards exactly this, and they have had more eyes on this beta
+-- than anyone. It matters here more than it does there: this runs at FILE SCOPE, so a secret
+-- coming back would be read by the `and` below, error, and take the whole addon down at load
+-- with a stack trace about a line nobody would think to look at. The pcall only ever covered
+-- the CALL, never what came back from it.
+--
+-- So: the call is guarded, the answer is checked for secrecy, and an answer that is not a plain
+-- boolean is treated as "restricted" rather than guessed at.
+local ok, answer = pcall(function()
     return C_Secrets and C_Secrets.HasSecretRestrictions and C_Secrets.HasSecretRestrictions()
 end)
 
-NS.SECRET = (ok and secret) and true or false
+local function plainBool(v)
+    if issecretvalue then
+        local asked, yes = pcall(issecretvalue, v)
+        if asked and yes then return nil end          -- the answer is secret: no answer at all
+    end
+    if type(v) ~= "boolean" then return nil end
+    return v
+end
+
+local told = ok and plainBool(answer) or nil
+-- nil means the client would not say. On a client with C_Secrets AT ALL that means restricted;
+-- on TBC, where C_Secrets does not exist, `ok` is true and `answer` is nil, and nothing is secret.
+if told ~= nil then
+    NS.SECRET = told
+else
+    NS.SECRET = (C_Secrets ~= nil) and true or false
+end
 
 --- True when the client is hiding numbers AND we are inside the secure lockdown: the window in
 --- which auras, cooldowns and stats are secret too. Out of combat on the same client, they read.

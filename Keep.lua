@@ -111,6 +111,13 @@ end
 --- at: a body someone has edited by hand should cost them one bind, not the whole mouse.
 function FK.Decode(body)
     if type(body) ~= "string" then return nil end
+    -- THE CLIENT ADDS A NEWLINE when it stores a macro, so what comes back is one character
+    -- longer than what went in (31 out, 32 back - measured 19 Sep 2026). Every row here is
+    -- matched with an anchored pattern, so the LAST one carried that newline and never matched:
+    -- exactly one bind vanished at every reload, the last one written, while sitting in the macro
+    -- in plain sight. Arn watched his shift-wheel bind disappear four times before `/bish keep`
+    -- printed the character count and gave it away.
+    body = body:match("^%s*(.-)%s*$") or body
     local head, rest = body:match("^(.-)#(.*)$")
     if not head then return nil end
     local tag, names = head:match("^([^;]+);?(.*)$")
@@ -119,6 +126,7 @@ function FK.Decode(body)
     for n in (names or ""):gmatch("[^;]+") do spells[#spells + 1] = n end
     local out, n = {}, 0
     for row in (rest or ""):gmatch("[^;]+") do
+        row = row:match("^%s*(.-)%s*$") or row      -- and per row, for anything hand-edited
         local code, idx, rank = row:match("^(%a?%w)=(%d+):?(%d*)$")
         if code then
             local slot = CODESLOT[code:sub(-1)]

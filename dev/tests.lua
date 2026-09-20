@@ -228,14 +228,23 @@ _G.GetNumMacros = function()
     for _, m in ipairs(MACROS) do if m.perChar then p = p + 1 else g = g + 1 end end
     return g, p
 end
+-- THE CLIENT ADDS A NEWLINE. Measured, 19 Sep 2026: a body of 31 characters came back as 32,
+-- and it was always exactly the LAST bind that went missing - because every row was matched with
+-- an anchored pattern and the final row had a newline stuck on the end. Arn's shift-wheel bind,
+-- gone every reload, while sitting in the macro in plain sight. The mock stored back exactly what
+-- it was handed, so the suite round-tripped happily over a bug the game had every single time.
+local function asTheClientStoresIt(body)
+    return tostring(body) .. "\n"
+end
 _G.CreateMacro = function(n, icon, body, perChar)
-    MACROS[#MACROS + 1] = { name = n, icon = icon, body = body, perChar = perChar and true or false }
+    MACROS[#MACROS + 1] = { name = n, icon = icon, body = asTheClientStoresIt(body),
+                            perChar = perChar and true or false }
     return #MACROS
 end
 _G.EditMacro = function(i, n, icon, body)
     local m = MACROS[i]
     if not m then error("no macro at index " .. tostring(i), 2) end
-    m.name, m.icon, m.body = n, icon, body
+    m.name, m.icon, m.body = n, icon, asTheClientStoresIt(body)
     return i
 end
 
@@ -692,6 +701,20 @@ do
     local body = GetMacroBody(GetMacroIndexByName(FK.MACRO))
     ok(body:find("u=", 1, true) and body:find("su=", 1, true),
        "both go into the macro, plain and shifted: " .. tostring(body))
+
+    -- THE LAST ROW IS THE ONE THAT GOES. The client stores a body one character longer than it
+    -- was given, and every row is matched anchored - so the newline rode on the final row and
+    -- that bind alone was lost, at every reload, while the macro plainly held it. What gave it
+    -- away was not the body but the COUNT beside it: "32 of 255 characters" for 31 characters
+    -- of text. Print the length next to the thing and the arithmetic does the diagnosing.
+    local mine = FK.Encode(NS.DB().binds)
+    ok(#body == #mine + 1,
+       ("the client stores one character more than it is given: %d in, %d back"):format(#mine, #body))
+    ok(body:sub(-1) == "\n", "the extra one is a newline it adds on the end")
+    local read = FK.Decode(body)
+    ok(read and read["shift-wheelup"] == "Healing Wave(Rank 4)",
+       "and the LAST bind still reads back, newline and all",
+       tostring(read and read["shift-wheelup"]))
 
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil   -- the reload
     ok(FM.Get("", "wheelup") == "Healing Wave(Rank 2)",

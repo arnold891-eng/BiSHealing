@@ -7,6 +7,11 @@ drawing.
 
 Drag a spell onto a picture of a mouse. Click a name. That is the addon.
 
+- **Tank, healer and damage icons on the cells**, in the top right, so a party frame tells you who
+  is holding the thing before you decide where the heal goes. Hidden for anyone with no role set,
+  which is most of a levelling group, and hidden rather than guessed at while the client is hiding
+  the numbers in combat.
+
 - **Your binds are kept in a macro, because this client loses saved variables.** The Forever beta
   writes every addon's saved file at logout and hands back nothing at the next start - yours,
   ours, and everyone else's. Macros live on the server and do come back, so that is where the

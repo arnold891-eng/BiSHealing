@@ -600,6 +600,56 @@ do
     FM.Get("", "left")                                  -- asks nothing, finds nothing, seeds
 end
 
+-- THE MACRO LIST ARRIVING LATE, which is the same shape as the spellbook arriving late and
+-- would have cost more: the mouse gets seeded with our guess, we stop asking, and the next
+-- spell the player drags writes that guess over the binds they actually kept.
+do
+    local FK, FM = NS.FK, NS.FM
+
+    -- the player's real setup, kept from last time - but the list is not readable yet
+    MACROS = {}
+    FK.Save({ ["wheelup"] = "Healing Wave(Rank 2)" })
+    local realIndex = _G.GetMacroIndexByName
+    _G.GetMacroIndexByName = function() return 0 end        -- "no macros", as an empty list reads
+
+    local d = NS.DB()
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    ok(FM.Get("", "left") ~= nil, "with the list unreadable, the class default lands as before")
+    ok(FM.Get("", "wheelup") == nil, "and the kept wheel bind is not there yet")
+
+    _G.GetMacroIndexByName = realIndex                      -- the list fills in, a moment later
+    ok(fire(FG.events, "UPDATE_MACROS"), "the grid asked for UPDATE_MACROS in the first place")
+    ok(FM.Get("", "wheelup") == "Healing Wave(Rank 2)",
+       "the kept bind arrives once the list does", tostring(FM.Get("", "wheelup")))
+    ok(FM.Get("", "left") == nil, "and our guess is off left click again")
+
+    -- BUT NEVER A BIND THE PLAYER PUT THERE. Reconsidering is allowed to discard our own guess
+    -- and nothing else.
+    -- BUT NEVER A BIND THE PLAYER PUT THERE. The state has to be built exactly: a SEEDED mouse
+    -- (so the wipe is on the table at all) that the player has then dragged to, with the macro
+    -- unable to hold it (in combat) - otherwise the bind survives because it was written down,
+    -- and the test proves the macro works rather than the guard. Built any other way this
+    -- passes with the guard deleted, which is what it did the first two times.
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+    ok(d.bindsSeeded == true, "a mouse we seeded ourselves, so reconsidering may wipe it")
+
+    STATE.inCombat = true
+    FM.Set("", "wheelup", "Healing Wave(Rank 1)")
+    STATE.inCombat = false
+    ok(FM.touched == true, "a drag marks the mouse as theirs, not ours")
+    ok(not (FK.Load() or {})["wheelup"], "and it is NOT in the macro - refused in combat")
+    FM.Reconsider()
+    ok(FM.Get("", "wheelup") == "Healing Wave(Rank 1)",
+       "so reconsidering leaves a deliberate bind where they put it, written down or not",
+       tostring(FM.Get("", "wheelup")))
+
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

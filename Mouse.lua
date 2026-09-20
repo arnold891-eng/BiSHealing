@@ -333,7 +333,26 @@ end
 --- A refusal is not an error here: in combat the client will not make a macro, and the next
 --- change out of combat writes the whole mouse anyway - there is no half-saved state to repair.
 local function keep(d)
+    FM.touched = true              -- a deliberate act, never to be thrown away by us
     if NS.FK and NS.FK.Save then NS.FK.Save(d.binds) end
+end
+
+--- The macro list is not always populated the moment we first ask. If it filled in late, what
+--- is on the mouse now is OUR guess - the class defaults - and the player's real binds are
+--- sitting in a macro we have already stopped asking about. Worse, the next spell they drag
+--- would write the guess over them.
+---
+--- So: when the client says the macros changed, throw away a mouse that only we put there and
+--- ask again. Never a mouse the player has touched - FM.touched is the difference between our
+--- guess and their act, and their act wins every time.
+function FM.Reconsider()
+    local d = db()
+    if FM.touched then return false end
+    if not d.bindsSeeded then return false end
+    for k in pairs(d.binds) do d.binds[k] = nil end
+    d.bindsSeeded, FM.asked = nil, false
+    db()                           -- asks the macro first, seeds again only if it is empty
+    return true
 end
 
 function FM.Set(mod, slotKey, spell)

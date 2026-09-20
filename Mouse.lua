@@ -134,6 +134,19 @@ local function db()
     -- book answered nothing - which can happen at login, before the client has filled it in - the
     -- flag is NOT set, and the next call tries again rather than writing an empty mouse down as
     -- done forever.
+    -- THE MACRO FIRST, then the defaults. On a client that hands back no saved variables the
+    -- class default is not a courtesy, it is a bully: it lands on left click at every single
+    -- login, and a player who wants the spell on their wheel has to drag it back every time.
+    -- Arn, twice in ten minutes - "it did it to left click i put it back on mousewheel", then
+    -- "reloaded and it put it back on left click". Asking Keep first means a remembered bind
+    -- makes the mouse non-empty, and seeding never runs at all.
+    if not FM.asked and not next(d.binds) then
+        if NS.FK and NS.FK.Ready and NS.FK.Ready() then
+            FM.asked = true                    -- the api answered, so once is enough
+            local kept = NS.FK.Load and NS.FK.Load()
+            if type(kept) == "table" then for k, v in pairs(kept) do d.binds[k] = v end end
+        end
+    end
     if not d.bindsSeeded and not next(d.binds) then
         local defaults, booked = FM.Defaults()
         for k, v in pairs(defaults) do d.binds[k] = v end
@@ -316,10 +329,18 @@ function FM.CycleRank(mod, slotKey)
 end
 
 --- Remember a bind. Returns the spell, or nil and why not.
+--- Written to the macro as well as the table, because the table does not survive this client.
+--- A refusal is not an error here: in combat the client will not make a macro, and the next
+--- change out of combat writes the whole mouse anyway - there is no half-saved state to repair.
+local function keep(d)
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds) end
+end
+
 function FM.Set(mod, slotKey, spell)
     if type(spell) ~= "string" or spell == "" then return nil, "not a spell" end
     local d = db()
     d.binds[(mod or "") .. slotKey] = spell
+    keep(d)
     return spell
 end
 
@@ -328,7 +349,9 @@ function FM.Get(mod, slotKey)
 end
 
 function FM.Clear(mod, slotKey)
-    db().binds[(mod or "") .. slotKey] = nil
+    local d = db()
+    d.binds[(mod or "") .. slotKey] = nil
+    keep(d)
 end
 
 --- Write every click bind onto one cell. OUT OF COMBAT ONLY: SetAttribute on a secure frame is

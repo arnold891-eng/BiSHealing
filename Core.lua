@@ -81,7 +81,35 @@ function NS.DB()
         -- came back - the addon overruling a deliberate act. Mouse.lua refuses to re-seed a mouse
         -- with anything on it now, but throwing the flag away was the cause and it is carried.
         local seeded = db.bindsSeeded or (type(db.forever) == "table" and db.forever.seeded)
+
+        -- WHAT WE DO NOT RECOGNISE IS MOVED, NEVER DELETED. This line used to be
+        --
+        --     for k in pairs(db) do db[k] = nil end
+        --
+        -- and on 20 Sep 2026 it ate 367KB of Arn's TBC history: 4,039 fight records, the whole
+        -- point of the addon this one replaced. The TOC claims 20506 as well as 16001, so the
+        -- Forever addon loads in the TBC client, found a table whose dbver it did not know, and
+        -- emptied it. The addon that wrote those records is a `git checkout tbc-final` away, but
+        -- the records themselves were one logout from being gone for good.
+        --
+        -- A version bump is a promise about the keys THIS addon owns. It is not permission to
+        -- throw away somebody else's data that happens to share a table. So anything unknown is
+        -- set aside under `attic` - readable, restorable, and out of the way - and the migration
+        -- carries what it always carried.
+        local attic = {}
+        for k, v in pairs(db) do
+            if k ~= "binds" and k ~= "minimap" and k ~= "shown" and k ~= "bindsSeeded"
+               and k ~= "dbver" and k ~= "forever" and k ~= "attic" and DEFAULTS[k] == nil then
+                attic[k] = v
+            end
+        end
+        local hadAttic = type(db.attic) == "table" and db.attic or nil
         for k in pairs(db) do db[k] = nil end
+        if next(attic) then
+            db.attic = attic
+        elseif hadAttic then
+            db.attic = hadAttic        -- a second migration must not lose the first one's attic
+        end
         db.binds       = type(binds) == "table" and binds or nil
         db.minimap     = type(minimap) == "table" and minimap or nil
         db.shown       = shown ~= false

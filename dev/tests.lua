@@ -815,6 +815,40 @@ end
 -- The guard stays in Lockdown.lua on ForeverAuras' evidence and on reading the line, not on a
 -- green check here. A green check that cannot fail is worse than no check: it is a claim.
 
+-- A MIGRATION MUST NOT EAT A STRANGER'S DATA. 20 Sep 2026: this addon's TOC claims TBC as well
+-- as Forever, so it loaded in Arn's TBC client, found the OLD BiSHealing's saved table - 4,039
+-- fight records, 367KB - saw a dbver it did not know, and emptied it. One logout from gone.
+--
+-- A version bump is a promise about the keys THIS addon owns. It is not a licence to clear a
+-- table it happens to share.
+do
+    local keep = _G.BiSHealingDB
+    _G.BiSHealingDB = {
+        dbver = 99,                                   -- not ours: somebody else's schema
+        fights = { { top = "Kumlust", dps = 412 }, { top = "Kumlance", dps = 388 } },
+        chainDepth = 3,
+        binds = { left = "Healing Wave(Rank 12)" },   -- ours, and carried as always
+        shown = true,
+    }
+    local db = NS.DB()
+
+    ok(db.binds and db.binds.left == "Healing Wave(Rank 12)", "the migration still carries our own keys")
+    ok(db.dbver == NS.DBVER, "and stamps its own version")
+    ok(db.fights == nil, "a stranger's key is not left lying at the top level")
+    ok(type(db.attic) == "table", "it is set aside instead")
+    ok(db.attic.fights and #db.attic.fights == 2 and db.attic.fights[1].top == "Kumlust",
+       "with every record intact, not a count or a summary")
+    ok(db.attic.chainDepth == 3, "and the small keys too")
+
+    -- a SECOND migration must not throw away the first one's attic
+    db.dbver = 98
+    local again = NS.DB()
+    ok(type(again.attic) == "table" and again.attic.fights,
+       "a later migration keeps what an earlier one set aside")
+
+    _G.BiSHealingDB = keep
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

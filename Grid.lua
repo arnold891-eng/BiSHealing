@@ -417,13 +417,15 @@ function FG.Start()
     -- spell again", and then "reloaded no binds". Asking again when the book answers is the whole
     -- fix; a relayout re-seeds and re-applies every cell on its way through.
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD",
-                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED" }) do
+                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UPDATE_MACROS" }) do
         pcall(ev.RegisterEvent, ev, e)      -- an event this client does not know must not abort the file
     end
     ev:SetScript("OnEvent", function(_, event)
         pending = true                      -- the update loop relays out when the lockdown lets it
         -- a bind changed mid-fight is queued, not lost: the moment the lockdown lifts it lands
         if event == "PLAYER_REGEN_ENABLED" and NS.FM and NS.FM.pending then NS.FM.Apply() end
+        -- the macro list filling in late: what is on the mouse may be our guess, not their binds
+        if event == "UPDATE_MACROS" and NS.FM and NS.FM.Reconsider then NS.FM.Reconsider() end
     end)
     FG.events = ev
     if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2

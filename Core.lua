@@ -197,6 +197,43 @@ function NS.DO.db()
     Print("reload, then run this again: a stamp that comes back means the file is being read")
 end
 
+--- What is actually in the macro, which is the only memory this client has. Prints the body
+--- raw, because a bind that is missing from THAT is a different bug from a bind that is in it
+--- and not on the mouse - and the two have been confused once already.
+function NS.DO.keep()
+    local FK = NS.FK
+    if not (FK and FK.Ready and FK.Ready()) then
+        Print("no macro api on this client - nothing is being kept")
+        return
+    end
+    local idx = GetMacroIndexByName and GetMacroIndexByName(FK.MACRO) or 0
+    if not idx or idx <= 0 then
+        Print(("no macro called |cffb980ff%s|r yet - bind something and it appears"):format(FK.MACRO))
+        return
+    end
+    local body = GetMacroBody and GetMacroBody(idx) or ""
+    Print(("macro |cffb980ff%s|r at slot %d, %d of %d characters:"):format(FK.MACRO, idx, #body, FK.LIMIT))
+    Print("  " .. tostring(body))
+    local back = FK.Decode(body)
+    if not back then
+        Print("  |cfff08cb0and it does not read back|r - the body is not one of ours")
+        return
+    end
+    local n = 0
+    for _, m in ipairs(NS.FM.MODS) do
+        for _, sl in ipairs(NS.FM.SLOTS) do
+            local key = m.key .. sl.key
+            if back[key] then
+                n = n + 1
+                local live = NS.FM.Get(m.key, sl.key)
+                Print(("  %-16s %s%s"):format(key, back[key],
+                    live == back[key] and "" or ("  |cfff08cb0on the mouse: " .. tostring(live) .. "|r")))
+            end
+        end
+    end
+    Print(("  %d bind(s) kept"):format(n))
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -237,6 +274,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.minimap()
     elseif msg == "db" or msg == "saved" then
         NS.DO.db()
+    elseif msg == "keep" or msg == "macro" then
+        NS.DO.keep()
     else
         NS.DO.help()
     end

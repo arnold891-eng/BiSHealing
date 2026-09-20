@@ -187,6 +187,19 @@ _G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) }
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
+-- AN EVENT ONLY REACHES A FRAME THAT ASKED FOR IT. Calling f.__scripts.OnEvent(f, ...) by hand
+-- delivers anything to anybody, which is a mock kinder than the client in the most misleading
+-- way there is: a test written that way passes with the fix taken out, because the handler runs
+-- whether or not the addon ever registered the event. (19 Sep 2026: the cold-start test below
+-- did exactly that, twice, and only a deliberate check with the fix removed caught it.)
+local function fire(f, event, ...)
+    if not (f and f.__events and f.__events[event]) then return false end
+    local h = f.__scripts and f.__scripts.OnEvent
+    if not h then return false end
+    h(f, event, ...)
+    return true
+end
+
 -- THE SPELLBOOK, AS THIS CLIENT ACTUALLY ANSWERS IT. The old stub let a SPELL ID answer a rank,
 -- and that is precisely why the missing rank got shipped: on the real client an id answers a name
 -- and nothing else, and C_Spell.GetSpellSubtext is the only call that knows the rank. A mock
@@ -426,6 +439,40 @@ do
     ok(BOUND["MOUSEWHEELUP"] ~= nil,
        "the layout arms the wheel, with no drag to prompt it: " .. tostring(BOUND["MOUSEWHEELUP"]))
     NS.FM.Clear("", "wheelup")
+end
+
+-- THE COLD START. At login the client has not filled the spellbook in yet, so the seeding finds
+-- nothing and the cells are built empty. What used to be missing was the second half: when the
+-- book arrived, nobody asked again, and the mouse stayed dead until a spell was dragged in by
+-- hand. Arn, twice - "the binds saved but they dont do anything on the frame, last time i had to
+-- drag the same spell again", then "reloaded no binds".
+--
+-- The order matters, and so does the SETTLING. `pending` starts true, so a tick relayouts on its
+-- own and a careless version of this test passes with the fix taken out - which this one did,
+-- until it was checked. So: settle first, prove the book arriving is NOT enough by itself, and
+-- only then let the event through.
+do
+    local tick = function() FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    tick()                                              -- settle: pending is false from here
+
+    local stash = {}
+    for i = 1, 5 do stash[i], BOOK[i] = BOOK[i], nil end
+    local d = NS.DB()
+    d.binds, d.bindsSeeded = {}, nil
+    FG.Layout(FG.anchor)                                -- the login layout, book still silent
+    ok(FG.frames[1].__attrs["*spell1"] == nil,
+       "a cell built before the book answers casts nothing", tostring(FG.frames[1].__attrs["*spell1"]))
+
+    for i = 1, 5 do BOOK[i] = stash[i] end              -- the book arrives, a moment later
+    tick()
+    ok(FG.frames[1].__attrs["*spell1"] == nil,
+       "and the book arriving is NOT enough on its own - nothing asked again")
+
+    ok(fire(FG.events, "SPELLS_CHANGED"), "the grid asked for SPELLS_CHANGED in the first place")
+    tick()
+    ok(FG.frames[1].__attrs["*spell1"] == "Healing Wave(Rank 3)",
+       "but SPELLS_CHANGED does it, with nobody dragging anything",
+       tostring(FG.frames[1].__attrs["*spell1"]))
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

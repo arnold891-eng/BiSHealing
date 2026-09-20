@@ -409,8 +409,15 @@ function FG.Start()
     end)
 
     local ev = CreateFrame("Frame")
+    -- SPELLS_CHANGED sits in a list of roster events because of WHEN the book fills in. At login
+    -- the client has not answered the spellbook yet, so the seeding finds nothing to seed, the
+    -- cells are built with no spell on them, and the book arriving moments later used to change
+    -- nothing: the mouse stayed dead until the player dragged a spell in by hand. Arn, twice -
+    -- "the binds saved but they dont do anything on the frame, last time i had to drag the same
+    -- spell again", and then "reloaded no binds". Asking again when the book answers is the whole
+    -- fix; a relayout re-seeds and re-applies every cell on its way through.
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD",
-                         "PLAYER_REGEN_ENABLED" }) do
+                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED" }) do
         pcall(ev.RegisterEvent, ev, e)      -- an event this client does not know must not abort the file
     end
     ev:SetScript("OnEvent", function(_, event)

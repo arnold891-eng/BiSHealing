@@ -255,14 +255,27 @@ function FM.Ranks(name)
         out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil, id = id }
     end
 
-    -- the modern book: one flat list of slots, asked one argument at a time
-    if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookItemName then
-        local ok, lines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
-        if ok and type(lines) == "number" then
-            for i = 1, 500 do
-                local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i)
-                if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
-            end
+    -- THE MODERN BOOK TAKES TWO ARGUMENTS: the slot, and which bank it is in. Measured in game
+    -- on 1.60.1.69913, 19 Sep 2026, after this function had been answering "no ranks" forever:
+    --
+    --   C_SpellBook.GetSpellBookItemName(1)     -> error: bad argument #1 (not a numerical value)
+    --   C_SpellBook.GetSpellBookItemName(1, 0)  -> "Attack"
+    --
+    -- Called with one argument it errors on EVERY slot. The pcall caught that and the loop just
+    -- kept going, so the list came back empty and stayed empty - and three separate things
+    -- quietly did nothing: the class defaults were never seeded (a blank mouse at every login),
+    -- the rank button had nothing to walk through, and the binder showed no ranks. Arn reported
+    -- all three as separate complaints over two days. One missing argument.
+    --
+    -- It swallowed its own cause, which is the lesson: a pcall around a call whose SIGNATURE you
+    -- are guessing turns "I am calling this wrong" into "the client has nothing", and those two
+    -- look identical from here. The suite could not catch it either, because the mock answered
+    -- the one-argument call - it refuses it now.
+    local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
+    if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+        for i = 1, 500 do
+            local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
         end
     end
     -- the old book: (index, bookType), and a count per tab

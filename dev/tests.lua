@@ -650,6 +650,42 @@ do
     FM.Get("", "left")
 end
 
+-- ARN'S EXACT PAIR, 19 Sep: "everytime i reload the rank 2 mouse wheel survives but not the
+-- shift mouse wheel up rank 4". Two binds on the same slot under different modifiers, through
+-- the path a player actually uses - Set, Set, reload - and then the question the report does not
+-- answer on its own: is the bind MISSING, or is it there and not armed? Both are checked, because
+-- "it does not survive" has meant each of those at different points tonight.
+do
+    local FK, FM = NS.FK, NS.FM
+    MACROS = {}
+    local d = NS.DB()
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Set("", "wheelup", "Healing Wave(Rank 2)")
+    FM.Set("shift-", "wheelup", "Healing Wave(Rank 4)")
+
+    local body = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(body:find("u=", 1, true) and body:find("su=", 1, true),
+       "both go into the macro, plain and shifted: " .. tostring(body))
+
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil   -- the reload
+    ok(FM.Get("", "wheelup") == "Healing Wave(Rank 2)",
+       "the plain wheel comes back", tostring(FM.Get("", "wheelup")))
+    ok(FM.Get("shift-", "wheelup") == "Healing Wave(Rank 4)",
+       "and so does shift plus wheel, at ITS own rank", tostring(FM.Get("shift-", "wheelup")))
+
+    -- remembered is not the same as working: the wheel is a BINDING, and each modifier is
+    -- armed separately
+    BOUND = {}
+    FM.ApplyWheel(FG.anchor)
+    ok(BOUND["MOUSEWHEELUP"] ~= nil, "the plain wheel is armed")
+    ok(BOUND["SHIFT-MOUSEWHEELUP"] ~= nil,
+       "and SHIFT-MOUSEWHEELUP is armed too - a different binding, easy to leave out")
+
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

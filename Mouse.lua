@@ -87,8 +87,17 @@ function FM.Defaults()
     local list = FM.CLASS_DEFAULTS[class or ""] or {}
     local out, booked = {}, false
     for slot, spell in pairs(list) do
-        if #FM.Ranks(spell) > 0 then
-            out[slot] = spell
+        local ranks = FM.Ranks(spell)
+        if #ranks > 0 then
+            -- WITH THE RANK ON IT, the highest trained. A bare name casts your biggest rank
+            -- anyway, so this changes nothing about what the button does - but it puts a number
+            -- in the corner of the slot, and that number is the button you click to walk down to
+            -- a cheaper rank. Seeded bare, the slot has nothing to click and the one feature this
+            -- addon is FOR is invisible until you drag something yourself. (19 Sep 2026: Arn's
+            -- first working login showed "Healing Wave" with no rank. Healium shipped the same
+            -- decision the same day - "menu selections now track the highest learned rank;
+            -- drag-and-drop can assign a specific lower rank" - which is a good sign it is right.)
+            out[slot] = FM.Cast(spell, ranks[#ranks].rank)
             booked = true
         end
     end

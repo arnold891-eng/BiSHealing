@@ -7,6 +7,13 @@ drawing.
 
 Drag a spell onto a picture of a mouse. Click a name. That is the addon.
 
+- **Your binds are kept in a macro, because this client loses saved variables.** The Forever beta
+  writes every addon's saved file at logout and hands back nothing at the next start - yours,
+  ours, and everyone else's. Macros live on the server and do come back, so that is where the
+  binds go: one per-character macro called `BiSHealing`, which you can see and should not rename.
+  It is inert - clicking it casts nothing - and no other macro is ever touched. If your macro
+  list is full it says so rather than failing quietly.
+
 - **A mouse you bind by dragging.** Left, right, middle, two thumb buttons, wheel up and wheel
   down, times no modifier, shift, ctrl and alt — twenty-eight places to put a spell. Ranks are
   kept: dropping rank 4 of a heal binds rank 4, and clicking the little rank number in the corner

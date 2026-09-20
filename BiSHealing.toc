@@ -20,6 +20,7 @@ Core.lua
 Auras.lua
 Grid.lua
 Mouse.lua
+Keep.lua
 MouseUI.lua
 Between.lua
 

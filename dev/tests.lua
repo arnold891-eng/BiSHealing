@@ -187,6 +187,32 @@ _G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) }
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
+-- MACROS, WHICH ARE THE ONE THING THIS CLIENT GIVES BACK. They live on the server, so they
+-- survive the restart that empties every SavedVariables file. This is the store, and it behaves
+-- like the client's: CreateMacro appends, EditMacro needs a real index, GetNumMacros counts the
+-- two kinds separately, and a name that is not there answers 0 rather than nil.
+local MACROS = {}
+_G.GetMacroIndexByName = function(n)
+    for i, m in ipairs(MACROS) do if m.name == n then return i end end
+    return 0
+end
+_G.GetMacroBody = function(i) return MACROS[i] and MACROS[i].body or nil end
+_G.GetNumMacros = function()
+    local g, p = 0, 0
+    for _, m in ipairs(MACROS) do if m.perChar then p = p + 1 else g = g + 1 end end
+    return g, p
+end
+_G.CreateMacro = function(n, icon, body, perChar)
+    MACROS[#MACROS + 1] = { name = n, icon = icon, body = body, perChar = perChar and true or false }
+    return #MACROS
+end
+_G.EditMacro = function(i, n, icon, body)
+    local m = MACROS[i]
+    if not m then error("no macro at index " .. tostring(i), 2) end
+    m.name, m.icon, m.body = n, icon, body
+    return i
+end
+
 -- AN EVENT ONLY REACHES A FRAME THAT ASKED FOR IT. Calling f.__scripts.OnEvent(f, ...) by hand
 -- delivers anything to anybody, which is a mock kinder than the client in the most misleading
 -- way there is: a test written that way passes with the fix taken out, because the handler runs
@@ -473,6 +499,105 @@ do
     ok(FG.frames[1].__attrs["*spell1"] == "Healing Wave(Rank 3)",
        "but SPELLS_CHANGED does it, with nobody dragging anything",
        tostring(FG.frames[1].__attrs["*spell1"]))
+end
+
+-- KEEPING THE BINDS SOMEWHERE THE CLIENT GIVES THEM BACK. SavedVariables are written and never
+-- returned on this beta, so a macro - which lives on the server - is the only memory there is.
+do
+    local FK, FM = NS.FK, NS.FM
+    ok(FK ~= nil, "there is somewhere to keep them")
+
+    -- the round trip, on the setup Arn actually wants
+    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)",
+                             ["shift-wheelup"] = "Healing Wave(Rank 4)" })
+    ok(#body <= FK.LIMIT, ("it fits in a macro: %d of %d characters"):format(#body, FK.LIMIT))
+    ok(body:find("Healing Wave", 1, true) and not body:find("Healing Wave.*Healing Wave"),
+       "and the spell name is written once, however many slots use it: " .. body)
+    local back = FK.Decode(body)
+    ok(back and back["wheelup"] == "Healing Wave(Rank 2)", "wheel up comes back with its rank")
+    ok(back and back["shift-wheelup"] == "Healing Wave(Rank 4)",
+       "and shift plus wheel up is its own bind, at its own rank")
+
+    -- a body nobody can read must cost one bind, not the mouse
+    ok(FK.Decode("some other addon's macro") == nil, "a body that is not ours is left alone")
+    local half = FK.Decode(FK.TAG .. ";Healing Wave#u=1:2;zz=9:9")
+    ok(half and half["wheelup"] and not half["zz"], "a row it cannot read is skipped, the rest lands")
+
+    -- A FULL MOUSE, all 28 slots on one spell: it very nearly does not fit, and that is worth
+    -- knowing rather than discovering. Storing the name once is what buys the room.
+    local fat = {}
+    for _, m in ipairs(FM.MODS) do
+        for _, sl in ipairs(FM.SLOTS) do fat[m.key .. sl.key] = "Lesser Healing Wave(Rank 11)" end
+    end
+    local fatBody, spare = FK.Encode(fat)
+    ok(#fatBody <= FK.LIMIT,
+       ("28 slots on one spell still fit: %d of %d characters"):format(#fatBody, FK.LIMIT))
+    ok(spare == 0, "with nothing dropped")
+
+    -- 28 DIFFERENT spells cannot fit in 255, and then the answer is "these did not", not silence
+    local many = {}
+    for _, m in ipairs(FM.MODS) do
+        for i, sl in ipairs(FM.SLOTS) do
+            many[m.key .. sl.key] = ("Greater Healing Spell %s%d(Rank 9)"):format(m.key:sub(1, 1), i)
+        end
+    end
+    local manyBody, dropped = FK.Encode(many)
+    ok(#manyBody <= FK.LIMIT, ("trimmed to fit: %d characters"):format(#manyBody))
+    ok(dropped > 0, ("and it says how many did not fit: %d"):format(dropped))
+    ok(FK.Decode(manyBody) ~= nil, "what did fit is still readable")
+
+    -- writing: made once, edited after
+    MACROS = {}
+    local wrote = FK.Save({ ["wheelup"] = "Healing Wave(Rank 2)" })
+    ok(wrote == true and #MACROS == 1, "the first save makes the macro")
+    ok(MACROS[1].name == FK.MACRO and MACROS[1].perChar == true,
+       "named, and this character's own - not a general slot")
+    FK.Save({ ["wheelup"] = "Healing Wave(Rank 3)" })
+    ok(#MACROS == 1, "the second save edits it rather than making another")
+    ok(FK.Load()["wheelup"] == "Healing Wave(Rank 3)", "and reading it back gives the new one")
+
+    -- the player's own macros are none of our business
+    MACROS = { { name = "1 Focus", body = "/focus party1", perChar = false } }
+    FK.Save({ ["left"] = "Healing Wave(Rank 1)" })
+    ok(MACROS[1].name == "1 Focus" and MACROS[1].body == "/focus party1",
+       "a macro that is not ours is never touched")
+    ok(#MACROS == 2, "ours is made beside it")
+
+    -- in combat the client will not make a macro, and pretending otherwise loses the change
+    STATE.inCombat = true
+    local no, why = FK.Save({ ["left"] = "Healing Wave(Rank 2)" })
+    ok(no == false and why == "combat", "in combat it refuses, and says which refusal it is")
+    STATE.inCombat = false
+
+    -- and there is no room left
+    MACROS = {}
+    for i = 1, 18 do MACROS[i] = { name = "mine" .. i, body = "x", perChar = true } end
+    local full, reason = FK.Save({ ["left"] = "Healing Wave(Rank 1)" })
+    ok(full == false and tostring(reason):find("full"),
+       "a full macro list is an answer, not a silent failure: " .. tostring(reason))
+end
+
+-- THE WHOLE POINT, played out: a bind kept from a previous session beats the class default.
+-- Arn, twice in ten minutes - "it did it to left click i put it back on mousewheel", then
+-- "reloaded and it put it back on left click". On a client with no memory the default lands on
+-- left click at EVERY login, and the player drags it back every time.
+do
+    local FK, FM = NS.FK, NS.FM
+    MACROS = {}
+    FK.Save({ ["wheelup"] = "Healing Wave(Rank 2)" })   -- last session, on the wheel
+
+    local d = NS.DB()                                   -- and now a fresh one
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    local mouse = FM.Get("", "wheelup")
+    ok(mouse == "Healing Wave(Rank 2)", "the wheel bind is back from the macro", tostring(mouse))
+    ok(FM.Get("", "left") == nil,
+       "and the class default did NOT land on left click over the top of it",
+       tostring(FM.Get("", "left")))
+
+    -- and leave the mouse as it was found: everything after here reads the seeded defaults
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    FM.Get("", "left")                                  -- asks nothing, finds nothing, seeds
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

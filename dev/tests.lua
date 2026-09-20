@@ -192,7 +192,7 @@ _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_Questio
 -- and nothing else, and C_Spell.GetSpellSubtext is the only call that knows the rank. A mock
 -- kinder than the client is a mock that tests nothing.
 --
---   C_SpellBook.GetSpellBookItemName(index) -> name, rank   (a BOOK INDEX, never an id)
+--   C_SpellBook.GetSpellBookItemName(index, bank) -> name, rank   (a BOOK INDEX, never an id)
 --   C_Spell.GetSpellInfo(id)                -> { name = }   (no rank anywhere in it)
 --   C_Spell.GetSpellSubtext(id)             -> "Rank 4"
 local RANKS = {}                       -- id -> the rank the client would report for it
@@ -208,8 +208,25 @@ local BOOK = {
 }
 _G.C_SpellBook = _G.C_SpellBook or {}
 _G.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
-_G.C_SpellBook.GetSpellBookItemName = function(n)
+-- TWO ARGUMENTS, because the client wants two. Measured in game, 19 Sep 2026:
+--
+--   C_SpellBook.GetSpellBookItemName(1)     -> error, "bad argument #1 to '?' (not a numerical
+--                                              value - Usage: ... (spellBookItem))"
+--   C_SpellBook.GetSpellBookItemName(1, 0)  -> "Attack"
+--
+-- The addon called it with one argument, so it errored on EVERY index; the pcall around it
+-- swallowed that, the rank list came back empty forever, and three things quietly did nothing -
+-- no class defaults at login, no rank cycling, no rank list in the binder. Arn saw all three
+-- ("did not let me do different rank on modifier", a blank mouse every session) while this file
+-- reported 195 green checks, because this mock answered the one-argument call happily.
+--
+-- It refuses it now. A mock kinder than the client is a mock that tests nothing.
+_G.C_SpellBook.GetSpellBookItemName = function(n, bank)
     if type(n) ~= "number" then error("bad argument #1 (not a numerical value)", 2) end
+    if type(bank) ~= "number" then
+        error("bad argument #1 to '?' (not a numerical value - Usage: local name, subName ="
+              .. " C_SpellBook.GetSpellBookItemName(spellBookItem))", 2)
+    end
     local e = BOOK[n]
     if e then return e.name, e.rank end
     return nil
@@ -712,6 +729,16 @@ do
     -- and shift modifier". Dropping a lower rank assumes your spellbook is SHOWING you one to
     -- drag, and that is a setting - so the window stops depending on the drag and the little rank
     -- number became a button that walks the ranks this character has trained.
+    -- THE SIGNATURE ITSELF, pinned. This is the whole of the 19 Sep bug in four lines: the addon
+    -- called the book with one argument, which errors, and a pcall turned that into "no ranks".
+    do
+        local one = pcall(C_SpellBook.GetSpellBookItemName, 1)
+        local two, nm = pcall(C_SpellBook.GetSpellBookItemName, 1, 0)
+        ok(one == false, "one argument is refused, exactly as the client refuses it")
+        ok(two and nm == "Healing Wave", "two arguments answer the slot", tostring(nm))
+        ok(#FM.Ranks("Healing Wave") == 3, "so the book can be read at all", #FM.Ranks("Healing Wave"))
+    end
+
     do
         -- slots 10+, so the character's own spells in 1-5 stay where they are
         BOOK[10] = { name = "Spell331", rank = "Rank 1" }

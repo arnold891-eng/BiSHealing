@@ -8,7 +8,18 @@
 --     and tostring() gives nil.
 --   * while InCombatLockdown() is true, auras, cooldowns and unit stats are secret as well.
 --     Out of combat they read normally. The addon is blind for exactly as long as the pull.
---   * COMBAT_LOG_EVENT_UNFILTERED registers and then never fires.
+--   * COMBAT_LOG_EVENT_UNFILTERED registers and then never fires. Worse than silent, as it
+--     turns out: on 1.60.1.69913 (19 Sep 2026) registering it is a PROTECTED call. Arn enabled
+--     PartyHealingDisplay, a retail addon that reads every number it shows out of the combat
+--     log, and the client answered before it drew anything:
+--
+--       [ADDON_ACTION_FORBIDDEN] AddOn 'PartyHealingDisplay' tried to call the protected
+--       function 'Frame:RegisterEvent()'
+--
+--     So the combat log is not a way around the secret values. It looked like one - the log
+--     hands out PLAIN numbers (amount, overhealing, absorbed) where UnitHealth is secret, which
+--     would have been enough to show a healer that a rank overhealed and ought to be smaller.
+--     It is shut. Anything built on "read what actually landed" is not available on this client.
 --
 -- So the pyramid's brain -- ranking by missing health, heal-size estimates, the combat-log
 -- score -- cannot run there at all. This flag is the seam: everything that reads a number sits

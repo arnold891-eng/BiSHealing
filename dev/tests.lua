@@ -290,9 +290,12 @@ ok(laid and n == 3, "layout builds a cell per unit out of combat")
 ok(FG.frames[1] and FG.frames[1].unit == "player", "cell 1 is bound to the player")
 -- The seeded binds are the ones for THIS character's class: the harness plays a shaman (see
 -- UnitClass above), so a shaman's first two spells are what a fresh install has on the mouse.
-ok(FG.frames[1].__attrs["*spell1"] == "Healing Wave", "left click casts through a secure attribute")
-ok(FG.frames[1].__attrs["shift-spell1"] == "Chain Heal", "shift-click is the chain")
-ok(NS.FM.Defaults().left == "Healing Wave", "a shaman's mouse starts on Healing Wave")
+-- WITH THE RANK ON: seeded bare, a slot has no number in its corner and the rank button - the
+-- feature this addon is for - is invisible until you drag something yourself.
+ok(FG.frames[1].__attrs["*spell1"] == "Healing Wave(Rank 3)", "left click casts through a secure attribute",
+   tostring(FG.frames[1].__attrs["*spell1"]))
+ok(FG.frames[1].__attrs["shift-spell1"] == "Chain Heal(Rank 1)", "shift-click is the chain")
+ok(NS.FM.Defaults().left == "Healing Wave(Rank 3)", "a shaman's mouse starts on the top rank of Healing Wave")
 
 -- ONLY WHAT IS IN THE BOOK. Arn, on a shaman who had not trained it yet: "it setts it back to
 -- chain heals which i dont have yet". A default is a courtesy; a default for a spell you cannot
@@ -302,7 +305,7 @@ do
     local keep = BOOK[5]                              -- Chain Heal
     BOOK[5] = nil
     local defaults, booked = FM.Defaults()
-    ok(defaults.left == "Healing Wave", "the spells this character HAS are still offered")
+    ok(defaults.left == "Healing Wave(Rank 3)", "the spells this character HAS are still offered")
     ok(defaults["shift-left"] == nil, "and the one not in the book is not put on the mouse")
     ok(booked == true, "the book answered, so this counts as a real seeding")
 
@@ -729,6 +732,14 @@ do
     -- and shift modifier". Dropping a lower rank assumes your spellbook is SHOWING you one to
     -- drag, and that is a setting - so the window stops depending on the drag and the little rank
     -- number became a button that walks the ranks this character has trained.
+    -- A SEEDED SLOT CARRIES ITS RANK. Seeded bare, the slot has no number in its corner, and the
+    -- rank button is the whole feature - Arn's first working login showed a rankless "Healing Wave".
+    do
+        local d = FM.Defaults()
+        ok(d.left == "Healing Wave(Rank 3)", "the default is the highest rank trained", tostring(d.left))
+        ok(d.right == "Lesser Healing Wave(Rank 1)", "and one with a single rank says Rank 1", tostring(d.right))
+    end
+
     -- THE SIGNATURE ITSELF, pinned. This is the whole of the 19 Sep bug in four lines: the addon
     -- called the book with one argument, which errors, and a pcall turned that into "no ranks".
     do
@@ -779,7 +790,7 @@ do
     ok(cell.__attrs["shift-spell2"] == "Chain Heal", "shift plus right click is its own slot")
     ok(cell.__attrs["*spell3"] == "Spell331(Rank 4)",
        "and a ranked bind reaches the secure attribute with the rank still on it")
-    ok(cell.__attrs["*spell2"] == "Lesser Healing Wave",
+    ok(cell.__attrs["*spell2"] == "Lesser Healing Wave(Rank 1)",
        "plain right click keeps its own bind (the seeded default), unleaked: " .. tostring(cell.__attrs["*spell2"]))
 
     -- the wheel is a binding, not a click

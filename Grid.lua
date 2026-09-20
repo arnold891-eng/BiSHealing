@@ -112,8 +112,60 @@ function FG.Make(i, parent)
     f.name:SetJustifyH("LEFT")
     if f.name.SetWordWrap then f.name:SetWordWrap(false) end
 
+    -- THE ROLE, top right, small. Learned from Healium's Forever build (19 Sep 2026) - Arn saw
+    -- the icons on its frames and asked for them here. Two things worth copying from it: the
+    -- role comes back as a SECRET VALUE like everything else on this client, and the atlas is
+    -- fetched through a second call that can be secret too. Both are guarded.
+    f.role = f.bar:CreateTexture(nil, "OVERLAY")
+    f.role:SetSize(11, 11)
+    f.role:SetPoint("TOPRIGHT", -1, -1)
+    f.role:Hide()
+
     FG.frames[i] = f
     return f
+end
+
+-- Tank, healer or damage, as this client will say it. `role` and the enum behind it are both
+-- secret values in combat, and asking for an atlas with a secret is an error rather than a blank
+-- icon - so each step is checked before the next one is taken.
+--
+-- The fallback is the old LFG roles sheet, which every client since has carried: an atlas name is
+-- a modern thing, and this addon still loads on TBC where GetMicroIconForRoleEnum does not exist.
+local ROLE_COORDS = {
+    TANK    = { 0,       19 / 64, 22 / 64, 41 / 64 },
+    HEALER  = { 20 / 64, 39 / 64,  1 / 64, 20 / 64 },
+    DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
+}
+
+function FG.PaintRole(f)
+    local icon, unit = f.role, f.unit
+    if not icon then return false end
+    if not (unit and UnitGroupRolesAssigned) then icon:Hide() return false end
+
+    local ok, role = pcall(UnitGroupRolesAssigned, unit)
+    role = ok and NS.Plain(role) or nil
+    if not (role and ROLE_COORDS[role]) then icon:Hide() return false end
+
+    if icon.SetAtlas and GetMicroIconForRoleEnum and UnitGroupRolesAssignedEnum then
+        local gotEnum, enum = pcall(UnitGroupRolesAssignedEnum, unit)
+        enum = gotEnum and NS.Plain(enum) or nil
+        if enum then
+            local gotAtlas, atlas = pcall(GetMicroIconForRoleEnum, enum)
+            if gotAtlas and type(atlas) == "string" and atlas ~= "" then
+                local drew = pcall(icon.SetAtlas, icon, atlas)
+                if drew then icon:Show() return true, role end
+            end
+        end
+    end
+
+    -- NOTE THE DOUBLED BACKSLASHES. Lua 5.1 drops an escape it does not recognise instead of
+    -- complaining, so "Interface\LFGFrame\..." loads perfectly and asks the client for
+    -- "InterfaceLFGFrameUI-LFG-ICON-ROLES" - a path that does not exist, and an icon that never
+    -- appears, with nothing anywhere saying why. (Written wrong here first, 19 Sep 2026.)
+    icon:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-ROLES")
+    icon:SetTexCoord(unpack(ROLE_COORDS[role]))
+    icon:Show()
+    return true, role
 end
 
 --- Point a cell at a unit: the secure attributes and the click-casts. OUT OF COMBAT ONLY -- every
@@ -235,6 +287,8 @@ function FG.Paint(f)
         if not ok then FG.maxOK = false end
     end
     f.bar:SetValue(UnitHealth(unit))     -- the one legal thing to do with a secret number
+
+    if FG.PaintRole then FG.PaintRole(f) end
 
     -- INCOMING HEALS, on the same scale as the health bar so the two read as one line. The value
     -- may be secret and is handed over untouched, exactly like the health above it.
@@ -417,7 +471,8 @@ function FG.Start()
     -- spell again", and then "reloaded no binds". Asking again when the book answers is the whole
     -- fix; a relayout re-seeds and re-applies every cell on its way through.
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD",
-                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UPDATE_MACROS" }) do
+                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UPDATE_MACROS",
+                         "PLAYER_ROLES_ASSIGNED", "ROLE_POLL_BEGIN" }) do
         pcall(ev.RegisterEvent, ev, e)      -- an event this client does not know must not abort the file
     end
     ev:SetScript("OnEvent", function(_, event)

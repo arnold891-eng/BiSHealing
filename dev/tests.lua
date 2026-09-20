@@ -91,6 +91,8 @@ local function newFrame(kind, name)
     function f:IsShown() return self.__shown end
     function f:SetAlpha(a) self.__alpha = a end
     function f:GetAlpha() return self.__alpha end
+    function f:SetTexture(t) self.__texture = t end
+    function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
     function f:SetValue(v) self.__value = v end          -- what the bar was handed, kept as given
     function f:SetMinMaxValues(lo, hi)
         if STATE.maxRefusesSecret and getmetatable(hi) == secretMeta then
@@ -99,7 +101,22 @@ local function newFrame(kind, name)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
-    function f:CreateTexture() return autoMethods({ SetColorTexture = function() end }) end
+    -- A TEXTURE REMEMBERS WHAT IT WAS GIVEN. autoMethods answers every call with nil, which is
+    -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
+    -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
+    -- like the client's, and like the frames above.
+    function f:CreateTexture()
+        return autoMethods({
+            SetColorTexture = function() end,
+            __shown  = true,
+            Show     = function(t) t.__shown = true end,
+            Hide     = function(t) t.__shown = false end,
+            IsShown  = function(t) return t.__shown end,
+            SetTexture  = function(t, v) t.__texture = v end,
+            SetTexCoord = function(t, a, b, c, d) t.__coords = { a, b, c, d } end,
+            SetAtlas    = function(t, v) t.__atlas = v end,
+        })
+    end
     function f:CreateFontString()
         -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
         -- mock remembers: two labels in one 84px header printed through each other in game, twice
@@ -187,6 +204,15 @@ _G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) }
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
+-- THE ROLE. Healium's Forever build asks UnitGroupRolesAssigned and then checks issecretvalue on
+-- the answer before it dares look at it, which is the tell: the role is secret in combat like
+-- health and auras. STATE.roles is what this character's party would answer; STATE.roleSecret
+-- makes the client hand back a secret instead, the way it does once the pull starts.
+_G.UnitGroupRolesAssigned = function(unit)
+    if STATE.roleSecret then return secret() end
+    return STATE.roles and STATE.roles[unit] or "NONE"
+end
+
 -- MACROS, WHICH ARE THE ONE THING THIS CLIENT GIVES BACK. They live on the server, so they
 -- survive the restart that empties every SavedVariables file. This is the store, and it behaves
 -- like the client's: CreateMacro appends, EditMacro needs a real index, GetNumMacros counts the
@@ -684,6 +710,50 @@ do
     MACROS = {}
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
     FM.Get("", "left")
+end
+
+-- THE ROLE ICON. Arn saw them on Healium's frames - "healium pulls these roll can we put them
+-- on ours" - and Healium's Forever build is where the shape came from: ask, then check the answer
+-- is not secret, then ask for the atlas, then check THAT is not secret either.
+do
+    STATE.roles = { player = "HEALER", party1 = "TANK", party2 = "DAMAGER" }
+    FG.Layout(FG.anchor)
+    local cell = FG.frames[1]
+
+    ok(cell.role ~= nil, "a cell has somewhere to put the role")
+    local drew, role = FG.PaintRole(cell)
+    ok(drew and role == "HEALER", "the player's role is read", tostring(role))
+    ok(cell.role:IsShown(), "and the icon is shown")
+    -- DOUBLED, and the reason is the bug this very line had in its first draft: Lua 5.1 drops an
+    -- escape it does not recognise instead of complaining, so "Interface\LFGFrame\..." IS the
+    -- string "InterfaceLFGFrameUI-LFG-ICON-ROLES" and matches nothing. Written single here, it
+    -- failed against code that was already right - which is the more expensive direction.
+    ok(cell.role.__texture == "Interface\\LFGFrame\\UI-LFG-ICON-ROLES",
+       "from the roles sheet, with its backslashes intact: " .. tostring(cell.role.__texture))
+    ok(cell.role.__coords and cell.role.__coords[3] == 1 / 64,
+       "and the healer corner of it, not the tank one")
+
+    STATE.roles.player = "TANK"
+    FG.PaintRole(cell)
+    ok(cell.role.__coords[3] == 22 / 64, "a tank gets a different corner")
+
+    -- NO ROLE is not an error, it is most of a levelling party
+    STATE.roles.player = "NONE"
+    ok(FG.PaintRole(cell) == false and not cell.role:IsShown(),
+       "no role at all just hides it")
+
+    -- AND IN COMBAT the client hands back a secret. Reading it would error; Healium checks for
+    -- exactly this, which is how we knew to.
+    STATE.roles.player = "HEALER"
+    STATE.roleSecret = true
+    local ok2, shown = pcall(FG.PaintRole, cell)
+    ok(ok2, "a secret role does not blow up Paint")
+    ok(shown == false and not cell.role:IsShown(), "it hides the icon rather than guessing")
+    STATE.roleSecret = false
+
+    -- and Paint as a whole still never touches the number it was given
+    STATE.roles.player = "HEALER"
+    ok(pcall(FG.Paint, cell), "Paint still paints with a role on the cell")
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

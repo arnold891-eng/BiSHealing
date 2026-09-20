@@ -148,7 +148,14 @@ _G.UnitHealth = function() return secret() end
 _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
 _G.IsSpellInRange = function(_, u) return STATE.range[u] == 0 and 0 or 1 end
 _G.RegisterUnitWatch = function() end
-_G.C_Secrets = { HasSecretRestrictions = function() return true end }
+-- THE CLIENT'S OWN ANSWERS ABOUT SECRECY. There is a C_Secrets question for every kind of secret
+-- on this client - our BiSProbe census lists 27 of them - and asking is always better than
+-- handing the client a value and watching for the error. STATE.maxSecret is the one the grid
+-- asks before it dares give a bar a secret maximum.
+_G.C_Secrets = {
+    HasSecretRestrictions = function() return true end,
+    ShouldUnitHealthMaxBeSecret = function() return STATE.maxSecret and true or false end,
+}
 
 -- WHAT IS ALREADY ON ITS WAY, and the call that says whether a value may be looked at.
 --
@@ -778,6 +785,35 @@ do
     STATE.roles.player = "HEALER"
     ok(pcall(FG.Paint, cell), "Paint still paints with a role on the cell")
 end
+
+-- ASKING THE CLIENT INSTEAD OF LEARNING BY FAILING. Learned from ForeverAuras 0.1.114, which
+-- asks C_Secrets before every kind of read. The grid used to discover a refused maximum by
+-- handing one over and catching the error - which works, once, after the error.
+do
+    FG.maxOK = true
+    STATE.maxSecret = true
+    FG.Paint(FG.frames[1])
+    ok(FG.maxOK == false, "the grid asks whether a secret maximum is allowed, and is told no")
+
+    FG.maxOK = true
+    STATE.maxSecret = false
+    FG.Paint(FG.frames[1])
+    ok(FG.maxOK == true, "and when it is allowed, it goes on using it")
+    STATE.maxSecret = nil
+end
+
+-- NOT TESTED HERE, AND THAT IS THE HONEST ANSWER: what NS.SECRET does with an answer it cannot
+-- trust. Two attempts at it were written and both were green whatever the code did.
+--
+--   1. a SECRET answer cannot be simulated. Lua has no hook for truthiness, so a mock value
+--      cannot error when it is used in an `and` - which is precisely how the real client would
+--      refuse it. The test passed with the guard deleted.
+--   2. re-running Lockdown.lua with dofile does not re-run it AS THE ADDON: the file reads its
+--      namespace from `...`, which dofile leaves empty, so it builds a throwaway table and the
+--      real NS.SECRET is never touched. That test passed with the guard deleted too.
+--
+-- The guard stays in Lockdown.lua on ForeverAuras' evidence and on reading the line, not on a
+-- green check here. A green check that cannot fail is worse than no check: it is a claim.
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged

@@ -282,6 +282,19 @@ function FG.Paint(f)
     -- max first. The player's own max is readable; everyone else's is secret, and whether a
     -- StatusBar accepts a secret max is not yet measured -- so ask once, and if the client
     -- refuses, leave the bar on 0..1 and let SetValue place it as best it can.
+    -- ASK, DO NOT LEARN BY FAILING. This used to find out whether a secret max was allowed by
+    -- handing one over and watching for an error. The client will simply say: C_Secrets has a
+    -- question for every kind of secret, and ShouldUnitHealthMaxBeSecret is this one. (Learned
+    -- from ForeverAuras 0.1.114, 20 Sep 2026 - though our own BiSProbe census had listed all 27
+    -- C_Secrets calls for days. Probing the client and then not reading what came back is a
+    -- more embarrassing way to be wrong than not probing at all.)
+    --
+    -- The pcall stays as the floor: an API that answers "no" and then refuses anyway is still
+    -- an error we must not take, and TBC has no C_Secrets to ask.
+    if FG.maxOK and C_Secrets and C_Secrets.ShouldUnitHealthMaxBeSecret then
+        local asked, hidden = pcall(C_Secrets.ShouldUnitHealthMaxBeSecret)
+        if asked and NS.Plain(hidden) == true then FG.maxOK = false end
+    end
     if FG.maxOK then
         local ok = pcall(f.bar.SetMinMaxValues, f.bar, 0, UnitHealthMax(unit))
         if not ok then FG.maxOK = false end

@@ -78,7 +78,11 @@ function FG.ByGroup(roster)
     local keyed = {}
     for i, u in ipairs(roster) do
         local sub = 1
-        if inRaid and GetRaidRosterInfo then
+        -- a PET gets a column of its own, after every group: in with its owner's group it would
+        -- make one column taller than the rest and push a real player off the bottom of the view
+        if FG.IsPetUnit(u) then
+            sub = 99
+        elseif inRaid and GetRaidRosterInfo then
             local idx = tonumber(tostring(u):match("^raid(%d+)$"))
             if idx then
                 local ok, _, _, g = pcall(GetRaidRosterInfo, idx)
@@ -140,19 +144,28 @@ FG.maxOK = true                         -- set false if the client refuses a sec
 --- Forever makes impossible, so the order is group order and the player's eyes do the rest.
 function FG.Roster()
     local out = {}
+    local d = NS.DB and NS.DB()
+    -- PETS, when asked for (Arn: "toggel to see pets"). Off by default: a raid with five hunters
+    -- and three warlocks is eight more cells, and most healers heal pets by exception.
+    local pets = type(d) == "table" and d.pets == true
+    local function add(u) if UnitExists(u) then out[#out + 1] = u end end
     if IsInRaid and IsInRaid() then
-        for i = 1, 40 do
-            local u = "raid" .. i
-            if UnitExists(u) then out[#out + 1] = u end
-        end
+        for i = 1, 40 do add("raid" .. i) end
+        if pets then for i = 1, 40 do add("raidpet" .. i) end end
         return out
     end
     out[1] = "player"
-    for i = 1, 4 do
-        local u = "party" .. i
-        if UnitExists(u) then out[#out + 1] = u end
+    for i = 1, 4 do add("party" .. i) end
+    if pets then
+        add("pet")
+        for i = 1, 4 do add("partypet" .. i) end
     end
     return out
+end
+
+--- Is this unit token a pet? pet, partypet3, raidpet12.
+function FG.IsPetUnit(u)
+    return type(u) == "string" and u:match("pet%d*$") ~= nil
 end
 
 --------------------------------------------------------------------- frames --
@@ -626,7 +639,7 @@ function FG.Start()
     -- spell again", and then "reloaded no binds". Asking again when the book answers is the whole
     -- fix; a relayout re-seeds and re-applies every cell on its way through.
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "RAID_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD",
-                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UPDATE_MACROS",
+                         "PLAYER_REGEN_ENABLED", "SPELLS_CHANGED", "UPDATE_MACROS", "UNIT_PET",
                          "PLAYER_ROLES_ASSIGNED", "ROLE_POLL_BEGIN" }) do
         pcall(ev.RegisterEvent, ev, e)      -- an event this client does not know must not abort the file
     end

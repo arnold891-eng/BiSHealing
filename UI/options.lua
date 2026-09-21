@@ -29,6 +29,12 @@ NS.CFG = CFG
 function CFG.Sections()
     local DO = NS.DO or {}
     return {
+        -- THE BINDS FIRST. Arn, 21 Sep: "always keep the bind on top". The minimap button opens
+        -- this window and nothing else now, so the first row is the thing a healer came for.
+        { title = "clicks", options = {
+            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
+              action = function() if DO.mouse then DO.mouse() end end },
+        } },
         { title = "frames", options = {
             { key = "shown", kind = "toggle", label = "show the cells",
               get = function(db) return db.shown ~= false end,
@@ -67,10 +73,6 @@ function CFG.Sections()
               action = function() if DO.center then DO.center() end end },
             { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
               action = function() if DO.rescan then DO.rescan() end end },
-        } },
-        { title = "clicks", options = {
-            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
-              action = function() if DO.mouse then DO.mouse() end end },
         } },
         { title = "this client", options = {
             { key = "scan", kind = "button", label = "what can I see?", button = "ask",

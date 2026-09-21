@@ -487,7 +487,12 @@ SLASH_BISHEALING1 = "/bish"
 SLASH_BISHEALING2 = "/bisheals"
 SLASH_BISHEALING3 = "/bishf"
 
-SlashCmdList = SlashCmdList or {}
+-- NEVER `SlashCmdList = SlashCmdList or {}`. Writing a Blizzard global - even writing back the
+-- value it already had - marks it as ours, and the chat box reads this table to run EVERY slash
+-- command. From then on each one ran as BiSHealing's, and the first protected one was refused and
+-- blamed on us: Arn typed /pvp on 21 Sep and got "AddOn 'BiSHealing' tried to call the protected
+-- function 'TogglePVP()'". Only a client with no table at all (the test harness) gets one made.
+if not SlashCmdList then SlashCmdList = {} end
 SlashCmdList.BISHEALING = function(input)
     local msg = tostring(input or ""):lower():match("^%s*(.-)%s*$")
     if msg == "" or msg == "config" or msg == "options" or msg == "settings" then

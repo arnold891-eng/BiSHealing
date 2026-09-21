@@ -133,6 +133,10 @@ local function newFrame(kind, name)
             SetText = function(self2, t) self2.__text = t end,
             GetText = function(self2) return self2.__text end,
             SetTextColor = function(self2, r, g, b) self2.__color = { r, g, b } end,
+            -- a width, as the client always gives one: ~5px a character at the small font
+            GetStringWidth = function(self2)
+                return type(self2.__text) == "string" and #self2.__text * 5 or 0
+            end,
             SetPoint = function(self2, ...) self2.points = self2.points or {}
                                             self2.points[#self2.points + 1] = { ... } end,
         })
@@ -2119,6 +2123,34 @@ end
 
 local function anythingIn(t) return type(t) == "table" and next(t) ~= nil end
 
+-- NEVER WRITE A BLIZZARD GLOBAL. `SlashCmdList = SlashCmdList or {}` wrote the table the chat box
+-- runs every slash command from, and the client then blamed BiSHealing for /pvp calling the
+-- protected TogglePVP (Arn, 21 Sep). The harness cannot see taint, so the source is read instead:
+-- a bare assignment to one of these, outside an `if not X then`, is the bug.
+do
+    local SHARED = { "SlashCmdList", "hash_SlashCmdList", "UISpecialFrames", "StaticPopupDialogs",
+                     "ChatTypeInfo", "DEFAULT_CHAT_FRAME", "ClickCastFrames" }
+    local found = {}
+    for _, rel in ipairs(LOADED) do
+        local fh = io.open(rel)
+        if fh then
+            local n = 0
+            for line in fh:lines() do
+                n = n + 1
+                -- `if not X then X = {} end` starts with `if`, so it is allowed: it only ever runs
+                -- where the client has no such table at all
+                for _, g in ipairs(SHARED) do
+                    if line:match("^%s*" .. g .. "%s*=[^=]") then
+                        found[#found + 1] = ("%s:%d %s"):format(rel, n, line:match("^%s*(.-)%s*$"))
+                    end
+                end
+            end
+            fh:close()
+        end
+    end
+    ok(#found == 0, "no file writes a Blizzard global outright: " .. table.concat(found, " | "))
+end
+
 -- THE THREE DOORS. The slash command, the minimap menu and the options window all go through
 -- NS.DO, so what has to be true is that every door names something that is actually there.
 do
@@ -2182,14 +2214,35 @@ do
         _G.BiSHealingDB, _G.BiSHealingCharDB = nil, nil
     end
 
-    -- the menu's rows
-    local rows = NS.MM.Rows()
-    ok(#rows >= 8, "the minimap menu has its rows")
-    local dead = 0
-    for _, row in ipairs(rows) do
-        if not row.sep and type(row.func) ~= "function" then dead = dead + 1 end
+    -- ONE CLICK, ONE PLACE. Arn: "choose one or the other and merge always keep the bind on top".
+    -- Left and right both open the options window; there is no menu to open instead.
+    -- the shared button needs a minimap to sit on, and the headless client has none until given one
+
+    _G.Minimap = _G.Minimap or CreateFrame("Frame", "Minimap", UIParent)
+    -- and the shared lib itself, which the TOC loop above skips: the click is only ours if the
+    -- lib's own OnClick was really there to be replaced
+    if not (BiSTheme and BiSTheme.Minimap) then
+        local lib = assert(loadfile("Libs/BiSTheme/Minimap.lua"))
+        local loaded, why = pcall(lib)
+        ok(loaded, "the shared minimap button loads headless", tostring(why))
     end
-    ok(dead == 0, ("%d menu row(s) lead nowhere"):format(dead))
+    local ran, b = pcall(NS.MM.Build)
+    ok(ran and b ~= nil, "the minimap button builds", tostring(b))
+    if b then
+        local click = b:GetScript("OnClick")
+        ok(click == NS.MM.Click, "the button's click is ours, not the shared menu")
+        local realOptions, opened = NS.DO.options, 0
+        NS.DO.options = function() opened = opened + 1 end
+        click(b, "LeftButton")
+        click(b, "RightButton")
+        NS.DO.options = realOptions
+        ok(opened == 2, "left AND right click open the options window", opened)
+        ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
+    end
+    ok(NS.MM.Rows == nil, "the menu's rows are gone - the window holds them all")
+    local first = NS.UI.Rows()[1]
+    ok(first and first.key == "mouse", "the mouse binds are the window's first row",
+       first and first.key or "none")
 
     -- the window's rows, and that pressing every one of them works
     local keys = {}

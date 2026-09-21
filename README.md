@@ -41,14 +41,17 @@ Right-click a slot to clear it. Binds are written out of combat — the client
 refuses them during a fight — so a change made mid-pull lands the moment it ends.
 
 They are kept in a per-character macro called `BiSHealing`, because this client
-does not hand an addon its saved settings back after a restart. Do not rename it.
+does not hand an addon its saved settings back after a restart. So are the
+settings below and where you dragged the grid. Do not rename it.
 
 ## The cells
 
 One per person, one column per raid group. Not ranked: ranking means comparing
 health, and that is exactly what this client will not allow.
 
-- **A number on the right**: what they still need after the heals already on
+- **The first name on the top line** ("Kumlust", not "Kumlust Surname"), up to
+  the role icon in the corner.
+- **A number on the bottom line**, on the right: what they still need after the heals already on
   their way, short (`3.2K`), blank at full health. Or a percentage, or nothing
   (`/bish missing`, `/bish percent`, `/bish number off`). The client works the
   number out and draws it; the addon never reads it.
@@ -65,6 +68,10 @@ health, and that is exactly what this client will not allow.
 
 `/bish`, or any click on the minimap button, opens one small window with all of
 it. `/bish` with anything it does not recognise lists the rest.
+
+Drag the header above the cells to move them; they stay there after a restart.
+`/bish center` brings them back to the middle. "Show the cells" in the window
+(or `/bish hide`, `/bish show`) takes them off the screen and back.
 
 ## What happened to the old addon
 

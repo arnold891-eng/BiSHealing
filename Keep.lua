@@ -107,6 +107,8 @@ local function settingRows(settings)
         end
     end
     if settings.hidden then out[#out + 1] = "H=1" end
+    -- heals over time on the cells are on by default; only "off" is worth a row (O for "over time")
+    if settings.hots == false then out[#out + 1] = "O=0" end
     return out
 end
 
@@ -183,6 +185,8 @@ function FK.Decode(body)
             settings.pos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "H" then
             settings.hidden = tonumber(idx) == 1
+        elseif code == "O" then
+            settings.hots = tonumber(idx) ~= 0
         elseif code then
             local slot = CODESLOT[code:sub(-1)]
             local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
@@ -232,7 +236,7 @@ function FK.Save(binds)
         pos = { x = gp.x or 0, y = gp.y or 0 }
     end
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
-                                             pos = pos, hidden = t.shown == false })
+                                             pos = pos, hidden = t.shown == false, hots = t.hots })
     if not body then return false, "nothing to write" end
 
     local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)

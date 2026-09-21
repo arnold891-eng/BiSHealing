@@ -165,6 +165,13 @@ local function db()
                         NS.FG.RestorePos()
                     end
                 end
+                -- heals over time switched off: forget the containers' fingerprint and lay out again
+                -- (after the one in progress), so every cell is rebuilt without them
+                if settings.hots == false then
+                    d.hots = false
+                    if NS.FA then NS.FA.sig = nil end
+                    if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+                end
                 if settings.hidden then
                     d.shown = false
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the

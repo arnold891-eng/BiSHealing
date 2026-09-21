@@ -231,10 +231,11 @@ function FG.Make(i, parent)
     -- side, and C_StringUtil.TruncateWhenZero turns a 0 into nothing at all, which is "hide it at
     -- full health" with no `> 0` for us to be refused. /bish text measured both painting in a
     -- fight (20 Sep). Made BEFORE the name, because the name is anchored to it.
-    f.missing = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.missing:SetPoint("RIGHT", -3, 0)
-    f.missing:SetJustifyH("RIGHT")
-    if f.missing.SetTextColor then f.missing:SetTextColor(1, 0.55, 0.55) end
+    -- (and since 21 Sep, a percentage instead if the player would rather: FG.PaintText)
+    f.htext = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.htext:SetPoint("RIGHT", -3, 0)
+    f.htext:SetJustifyH("RIGHT")
+    if f.htext.SetTextColor then f.htext:SetTextColor(1, 0.55, 0.55) end
 
     f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.__nameParent = f.bar        -- dev/forever.lua asserts the label belongs to the bar
@@ -242,7 +243,7 @@ function FG.Make(i, parent)
     -- ONE BAR, ONE LABEL AT A TIME: the name stops where the number starts, instead of printing
     -- through it. When the number is blank - full health - it is zero wide, and the name gets the
     -- whole cell back without anyone having to measure a secret.
-    f.name:SetPoint("RIGHT", f.missing, "LEFT", -2, 0)
+    f.name:SetPoint("RIGHT", f.htext, "LEFT", -2, 0)
     f.name:SetJustifyH("LEFT")
     if f.name.SetWordWrap then f.name:SetWordWrap(false) end
 
@@ -271,30 +272,84 @@ local ROLE_COORDS = {
     DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
 }
 
---- The number on the right: health missing, blank at full. Every step is guarded, and nothing
---- here reads the value - it is handed from one client call to the next and then to the label,
---- which is the only thing the client allows done with somebody else's health.
+--- The number on the right. Three ways to have it, and every step of each is guarded: nothing
+--- here reads the value. It goes from one client call to the next and then to the label, which is
+--- the only thing the client allows done with somebody else's health.
 ---
---- Composing the two helpers was tried and does not work: each takes a NUMBER and returns TEXT,
---- so neither accepts the other's output (/bish text, 20 Sep). That is why this is the deficit
---- in full - 3247, not 3.2K - until AbbreviateNumbers' own options are measured.
-function FG.PaintMissing(f)
-    local label, unit = f.missing, f.unit
-    if not label then return false end
-    local d = NS.DB and NS.DB()
-    if not unit or (type(d) == "table" and d.missing == false)
-       or not (UnitHealthMissing and C_StringUtil and C_StringUtil.TruncateWhenZero) then
-        label:SetText("")
-        return false
+---   missing  what this person still needs AFTER the heals already on their way, short (3.2K),
+---            and nothing at all at full health
+---   percent  87%
+---   off      nothing
+---
+--- WHAT WE LEARNED FROM THE FIELD (study, 21 Sep 2026 - EllesmereUI's raid frames, Plater):
+---   * UnitHealthMissing(unit, true): the second argument takes off what is already incoming. Two
+---     healers looking at one gap stop both filling it.
+---   * short AND blank. The two helpers do not compose - each takes a number and returns text, so
+---     neither accepts the other's output (/bish text, 20 Sep). The trick is to let the LABEL be the
+---     test: paint TruncateWhenZero's answer, and only if the label now holds something, paint the
+---     short form over it. A secret may be tested for truthiness - that is the one thing besides
+---     painting it that the client allows - and a label given nothing holds nothing.
+---   * UnitHealthPercent answers a FRACTION (1 at full) unless given CurveConstants.ScaleTo100.
+---   * the % sign is string.format's, which hands a secret number back as secret text - Plater
+---     puts its power percent on the screen exactly this way.
+--- Each of the three falls back rather than failing: no short form means the number in full, no
+--- % sign means the bare number, and no client support at all means a blank.
+local function paintMissing(label, unit)
+    local asked, deficit = pcall(UnitHealthMissing, unit, true)
+    if not asked then asked, deficit = pcall(UnitHealthMissing, unit) end
+    if not asked then return false end
+    local shaped, text = pcall(C_StringUtil.TruncateWhenZero, deficit)
+    if not (shaped and pcall(label.SetText, label, text)) then return false end
+    -- BOTH must say "something is there": what the helper gave, and what the label now holds. A
+    -- plain "" is nothing (a plain value may be compared); a secret is only ever tested for truth.
+    -- If either says nothing, the label keeps what TruncateWhenZero gave it - blank, or in full.
+    local function holds(v)
+        if v == nil then return false end
+        if NS.Secret and NS.Secret(v) then
+            local tested, yes = pcall(function() return v and true or false end)
+            return (tested and yes) and true or false
+        end
+        return v ~= "" and v ~= false
     end
-    local asked, deficit = pcall(UnitHealthMissing, unit)
-    local shaped, text = false, nil
-    if asked then shaped, text = pcall(C_StringUtil.TruncateWhenZero, deficit) end
-    if not (shaped and pcall(label.SetText, label, text)) then
-        label:SetText("")
-        return false
+    if AbbreviateNumbers and label.GetText and holds(text) then
+        local read, held = pcall(label.GetText, label)
+        if read and holds(held) then
+            local short, s = pcall(AbbreviateNumbers, deficit)
+            if short then pcall(label.SetText, label, s) end
+        end
     end
     return true
+end
+
+local function paintPercent(label, unit)
+    if not (UnitHealthPercent and CurveConstants and CurveConstants.ScaleTo100) then return false end
+    local asked, pct = pcall(UnitHealthPercent, unit, true, CurveConstants.ScaleTo100)
+    if not asked then return false end
+    local signed, text = pcall(string.format, "%.0f%%", pct)
+    if signed and pcall(label.SetText, label, text) then return true end
+    return pcall(label.SetText, label, pct) and true or false
+end
+
+--- Which text the cells carry: "missing", "percent" or "off".
+function FG.TextMode()
+    local d = NS.DB and NS.DB()
+    local m = type(d) == "table" and d.text or nil
+    if m == "percent" or m == "off" then return m end
+    return "missing"
+end
+
+function FG.PaintText(f)
+    local label, unit = f.htext, f.unit
+    if not label then return false end
+    local mode = FG.TextMode()
+    local done = false
+    if unit and mode == "missing" and UnitHealthMissing and C_StringUtil and C_StringUtil.TruncateWhenZero then
+        done = paintMissing(label, unit)
+    elseif unit and mode == "percent" then
+        done = paintPercent(label, unit)
+    end
+    if not done then label:SetText("") end
+    return done
 end
 
 function FG.PaintRole(f)
@@ -467,6 +522,41 @@ local CLASS_COLOR = {
 }
 local DEAD = { 0.35, 0.10, 0.10 }
 
+-- COLOUR BY HEALTH, when the player picks it over class colour. We may not compare someone's
+-- health to anything, so we cannot say "below 35%, go red" ourselves. The client can: handed a
+-- colour curve, UnitHealthPercent answers with the COLOUR at that point on it instead of a number
+-- (EllesmereUI's raid frames and Plater both do this; Plater builds its curves exactly like this).
+-- A step curve on the 0-to-1 fraction: red from empty, amber from 35%, green from 70%.
+-- The red, green and blue that come back may be secret; they go straight to the bar.
+local HEALTH_STEPS = { { 0, 0.85, 0.15, 0.15 }, { 0.35, 0.95, 0.70, 0.15 }, { 0.70, 0.20, 0.75, 0.30 } }
+local healthCurve
+local function curve()
+    if healthCurve ~= nil then return healthCurve or nil end
+    healthCurve = false
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor and Enum and Enum.LuaCurveType) then
+        return nil
+    end
+    local ok, c = pcall(C_CurveUtil.CreateColorCurve)
+    if not ok or not c then return nil end
+    local built = pcall(function()
+        c:SetType(Enum.LuaCurveType.Step)
+        for _, p in ipairs(HEALTH_STEPS) do c:AddPoint(p[1], CreateColor(p[2], p[3], p[4], 1)) end
+    end)
+    if built then healthCurve = c end
+    return healthCurve or nil
+end
+
+--- Paint the bar by how much health is left. False if the client could not, so the caller can
+--- fall back to the class colour rather than leave the bar whatever it was.
+function FG.PaintByHealth(f)
+    local c = UnitHealthPercent and curve()
+    if not c then return false end
+    local asked, col = pcall(UnitHealthPercent, f.unit, true, c)
+    if not asked or not col then return false end
+    local ok = pcall(function() f.bar:SetStatusBarColor(col:GetRGB()) end)
+    return ok and true or false
+end
+
 --- Everything a cell may change DURING a fight. Nothing here reads a number back: the health
 --- value goes from the client into the bar and is never touched on the way.
 function FG.Paint(f)
@@ -496,7 +586,7 @@ function FG.Paint(f)
     f.bar:SetValue(UnitHealth(unit))     -- the one legal thing to do with a secret number
 
     if FG.PaintRole then FG.PaintRole(f) end
-    if FG.PaintMissing then FG.PaintMissing(f) end
+    if FG.PaintText then FG.PaintText(f) end
 
     -- INCOMING HEALS, on the same scale as the health bar so the two read as one line. The value
     -- may be secret and is handed over untouched, exactly like the health above it.
@@ -513,8 +603,12 @@ function FG.Paint(f)
     -- so both are asked about first. NS.Plain answers nil rather than the value when it is secret.
     local class = NS.Plain(select(2, UnitClass(unit)))
     local c = CLASS_COLOR[class or ""] or { 0.2, 0.7, 0.3 }
-    if UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit)) then c = DEAD end
-    f.bar:SetStatusBarColor(c[1], c[2], c[3])
+    local dead = UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit))
+    if dead then c = DEAD end
+    local d = NS.DB and NS.DB()
+    if dead or not (type(d) == "table" and d.color == "health" and FG.PaintByHealth(f)) then
+        f.bar:SetStatusBarColor(c[1], c[2], c[3])
+    end
 
     -- Range. NOT UnitInRange: on Forever that returns a secret BOOLEAN, which cannot even be
     -- used in an `if` -- the client refuses the boolean test itself. IsSpellInRange answers

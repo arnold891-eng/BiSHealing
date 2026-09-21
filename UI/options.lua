@@ -43,9 +43,20 @@ function CFG.Sections()
               get = function(db) return db.scale or 1 end,
               set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
               show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
-            { key = "missing", kind = "toggle", label = "missing health on the cells",
-              get = function(db) return db.missing ~= false end,
-              set = function(_, on) if DO.missing then DO.missing(on) end end },
+            -- three answers, so segments rather than a switch: "lost" is what they still need
+            -- after incoming heals, blank at full
+            { key = "number", kind = "seg", label = "number",
+              values = { "lost", "%", "off" },
+              get = function(db)
+                  local m = db.text
+                  return (m == "percent" and "%") or (m == "off" and "off") or "lost"
+              end,
+              set = function(_, v)
+                  if DO.number then DO.number((v == "%" and "percent") or (v == "off" and "off") or "missing") end
+              end },
+            { key = "colour", kind = "toggle", label = "bar colour by health",
+              get = function(db) return db.color == "health" end,
+              set = function(_, on) if DO.colour then DO.colour(on) end end },
             { key = "pets", kind = "toggle", label = "show pets",
               get = function(db) return db.pets == true end,
               set = function(_, on) if DO.pets then DO.pets(on) end end },

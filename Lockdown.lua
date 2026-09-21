@@ -35,9 +35,15 @@ NS = NS or {}
 -- THE ANSWER CAN ITSELF BE A SECRET, and that is not paranoia - ForeverAuras (the WeakAuras
 -- fork for this client, 0.1.114) guards exactly this, and they have had more eyes on this beta
 -- than anyone. It matters here more than it does there: this runs at FILE SCOPE, so a secret
--- coming back would be read by the `and` below, error, and take the whole addon down at load
--- with a stack trace about a line nobody would think to look at. The pcall only ever covered
--- the CALL, never what came back from it.
+-- coming back would be tested by the `and` below - and if the client refuses that test, the error
+-- takes the whole addon down at load with a stack trace about a line nobody would think to look
+-- at. The pcall only ever covered the CALL, never what came back from it.
+--
+-- WHETHER IT REFUSES IS NOT SETTLED, and this comment used to say it was. Corrected 21 Sep 2026:
+-- EllesmereUI tests secret TEXT for truth on purpose ("ONLY feed it to SetText or test truthiness"),
+-- so for a secret string the test is allowed. A secret BOOLEAN in an `if` is another matter -
+-- Healium guards those (see NS.Secret below), and a boolean's truth would give its value away. We
+-- have measured neither ourselves. The guard below is right either way: it never makes the test.
 --
 -- So: the call is guarded, the answer is checked for secrecy, and an answer that is not a plain
 -- boolean is treated as "restricted" rather than guessed at.

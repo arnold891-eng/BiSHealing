@@ -131,6 +131,7 @@ local function newFrame(kind, name)
         -- question if a label remembers what it was pinned to
         local fs = autoMethods({
             SetText = function(self2, t) self2.__text = t end,
+            GetText = function(self2) return self2.__text end,
             SetPoint = function(self2, ...) self2.points = self2.points or {}
                                             self2.points[#self2.points + 1] = { ... } end,
         })
@@ -1133,61 +1134,209 @@ do
     FG.Layout(FG.anchor)
 end
 
--- MISSING HEALTH ON THE CELL. Arn: "any other information we can put on frames like missing
--- health or %". /bish text measured it (20 Sep): UnitHealthMissing and TruncateWhenZero both
--- paint in combat, TruncateWhenZero blanks a 0, and the two helpers will NOT compose.
+-- THE NUMBER ON THE CELL. Arn: "any other information we can put on frames like missing health
+-- or %". /bish text measured the parts (20 Sep); the study of 21 Sep found how shipped addons put
+-- them together: short AND blank at full, net of incoming heals, a real percentage.
 do
     local trapMeta = {}
     for k, v in pairs(secretMeta) do trapMeta[k] = v end
     trapMeta.__tostring = function() error("tostring on a secret value", 2) end
-    local function trap() return setmetatable({}, trapMeta) end
+    -- A SECRET KNOWS ITS VALUE; we do not. The client's helpers may look (they are the client),
+    -- and the suite looks through this side table. The cell code never can: the trap errors on
+    -- everything but being passed along and being tested for truth.
+    local hidden = setmetatable({}, { __mode = "k" })
+    local function trap(n, kind)
+        local t = setmetatable({}, trapMeta)
+        hidden[t] = { n = n, kind = kind or "number" }
+        return t
+    end
+    local function peek(t) return hidden[t] end
 
-    local hurt = {}                                        -- unit -> missing, as the client knows it
-    local realM, realS = _G.UnitHealthMissing, _G.C_StringUtil
-    _G.UnitHealthMissing = function(u) return hurt[u] or 0 end
+    local hurt, net, asked = {}, {}, {}                    -- what is missing; after incoming heals
+    local saved = {}
+    for _, k in ipairs({ "UnitHealthMissing", "C_StringUtil", "AbbreviateNumbers", "issecretvalue",
+                         "UnitHealthPercent", "CurveConstants" }) do saved[k] = _G[k] end
+    _G.issecretvalue = function(v) return getmetatable(v) == trapMeta or getmetatable(v) == secretMeta end
+    _G.UnitHealthMissing = function(u, predicted)
+        asked[#asked + 1] = predicted and "net" or "gross"
+        if predicted and net[u] ~= nil then return net[u] end
+        return hurt[u] or 0
+    end
     _G.C_StringUtil = { TruncateWhenZero = function(v)
-        if getmetatable(v) == trapMeta then return v end   -- a secret goes straight through
-        if v == 0 then return "" end
+        local h = peek(v)
+        if h then                                          -- a secret: blank at zero, secret text
+            if h.n == 0 then return nil end                -- otherwise (EllesmereUI's documented shape)
+            return trap(h.n, "text")
+        end
+        if v == 0 then return "" end                       -- plain: an EMPTY STRING, the harsh case
         return tostring(v)
     end }
+    _G.AbbreviateNumbers = function(v)
+        local h = peek(v)
+        if h then return trap(h.n, "short") end
+        if type(v) ~= "number" then error("AbbreviateNumbers: a number, please", 2) end
+        if v >= 1000 then return ("%.1fK"):format(v / 1000) end
+        return tostring(v)
+    end
 
+    local d = NS.DB()
     local cell = FG.byUnit["player"]
-    ok(cell and cell.missing ~= nil, "a cell has a place for the number")
+    ok(cell and cell.htext ~= nil, "a cell has a place for the number")
+    ok(d.text == "missing", "missing health is the default number")
 
     hurt.player = 0
-    FG.PaintMissing(cell)
-    ok(cell.missing.__text == "", "at full health there is nothing there at all")
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "", "at full health there is nothing there at all",
+       tostring(cell.htext.__text))
 
     hurt.player = 3247
-    FG.PaintMissing(cell)
-    ok(cell.missing.__text == "3247", "hurt, it shows what is missing", tostring(cell.missing.__text))
+    asked = {}
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "3.2K", "hurt, it shows what is missing, SHORT", tostring(cell.htext.__text))
+    ok(asked[1] == "net", "and it asks for the gap AFTER the heals already on their way")
 
-    -- THE WHOLE POINT OF DOING IT THIS WAY: someone else's health is a secret, always. The value
-    -- must be handed on, never looked at - a trap that errors on tostring proves it is not.
-    hurt.player = trap()
-    local safe = pcall(FG.PaintMissing, cell)
-    ok(safe, "a secret deficit is painted without being read")
-    ok(getmetatable(cell.missing.__text) == trapMeta, "the label was handed the secret itself")
+    net.player = 1200
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "1.2K", "a heal on its way comes off the number", tostring(cell.htext.__text))
+    net.player = 0
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "", "and a gap already being filled shows nothing - no second healer on it",
+       tostring(cell.htext.__text))
+    net.player = nil
+
+    -- no short form on this client: the number in full, not a blank and not an error
+    _G.AbbreviateNumbers = nil
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "3247", "without AbbreviateNumbers the number comes in full")
+    _G.AbbreviateNumbers = function() error("no", 2) end
+    ok(pcall(FG.PaintText, cell) and cell.htext.__text == "3247",
+       "and a formatter that refuses leaves the full number standing")
+    _G.AbbreviateNumbers = function(v)
+        local h = peek(v)
+        if h then return trap(h.n, "short") end
+        if v >= 1000 then return ("%.1fK"):format(v / 1000) end
+        return tostring(v)
+    end
+
+    -- THE WHOLE POINT: someone else's health is a secret, always. Handed on, never looked at.
+    hurt.player = trap(3247)
+    local safe, err = pcall(FG.PaintText, cell)
+    ok(safe, "a secret deficit is painted without being read", tostring(err))
+    local h = peek(cell.htext.__text)
+    ok(h and h.kind == "short", "and it is the short form of the secret that ends up on the label",
+       h and h.kind or type(cell.htext.__text))
+
+    hurt.player = trap(0)
+    FG.PaintText(cell)
+    ok(cell.htext.__text == nil, "a secret zero is blank too - never a 0 over a full health bar",
+       tostring(peek(cell.htext.__text) and "a secret" or cell.htext.__text))
 
     -- ONE BAR, ONE LABEL AT A TIME: the name ends where the number begins
     local pinned
     for _, pt in ipairs(cell.name.points or {}) do
-        if pt[1] == "RIGHT" and pt[2] == cell.missing and pt[3] == "LEFT" then pinned = true end
+        if pt[1] == "RIGHT" and pt[2] == cell.htext and pt[3] == "LEFT" then pinned = true end
     end
     ok(pinned, "the name stops at the number, instead of printing through it")
 
-    -- and it can be switched off
-    NS.DO.missing(false)
+    -- PERCENT. A fraction unless asked for 0 to 100 - so it must be asked.
+    local scale100 = {}
+    _G.CurveConstants = { ScaleTo100 = scale100 }
+    local pctOf = { player = 87 }
+    _G.UnitHealthPercent = function(u, predicted, curve)
+        local v = pctOf[u] or 100
+        if curve ~= scale100 then
+            return type(v) == "number" and v / 100 or v    -- the fraction, which is what bit us
+        end
+        return v
+    end
+    ok(NS.DO.number("percent") == "percent" and d.text == "percent", "/bish percent switches to it")
+    ok(cell.htext.__text == "87%", "and the cell says 87%, not 0.87", tostring(cell.htext.__text))
+    pctOf.player = trap(87)
+    safe, err = pcall(FG.PaintText, cell)
+    ok(safe and peek(cell.htext.__text), "a secret percentage is painted, not read", tostring(err))
+    pctOf.player = 87
+    _G.CurveConstants = nil
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "", "no ScaleTo100 on this client: blank, rather than a wrong 0.87")
+
+    -- OFF, and the old switch still works
+    NS.DO.number("off")
     hurt.player = 500
-    FG.PaintMissing(cell)
-    ok(cell.missing.__text == "", "switched off, the number goes")
-    NS.DO.missing(true)
+    FG.PaintText(cell)
+    ok(cell.htext.__text == "", "switched off, the number goes")
+    ok(NS.DO.missing() == "missing" and d.text == "missing", "/bish missing brings it back")
+    ok(NS.DO.number() == "percent" and NS.DO.number() == "off" and NS.DO.number() == "missing",
+       "no argument steps missing, percent, off, and round again")
 
     -- a client without the calls - TBC, say - gets a blank, not an error
     _G.UnitHealthMissing = nil
-    ok(pcall(FG.PaintMissing, cell) and cell.missing.__text == "", "no client support, no number, no error")
+    ok(pcall(FG.PaintText, cell) and cell.htext.__text == "", "no client support, no number, no error")
 
-    _G.UnitHealthMissing, _G.C_StringUtil = realM, realS
+    -- AN OLD INSTALL that had turned the number off keeps it off
+    local realDB = _G.BiSHealingDB
+    _G.BiSHealingDB = { dbver = NS.DBVER, missing = false }
+    local od = NS.DB()
+    ok(od.text == "off" and od.missing == nil, "missing = false carries over as text = off, and is let go")
+    _G.BiSHealingDB = realDB
+
+    for k, v in pairs(saved) do _G[k] = v end
+end
+
+-- COLOUR BY HEALTH. We may not compare someone's health to 35%; the client may. Handed a colour
+-- curve, UnitHealthPercent answers with a colour - and the r, g, b in it can be secret.
+do
+    local trapMeta = {}
+    for k, v in pairs(secretMeta) do trapMeta[k] = v end
+    local function trap() return setmetatable({}, trapMeta) end
+
+    local saved = {}
+    for _, k in ipairs({ "C_CurveUtil", "CreateColor", "Enum", "UnitHealthPercent" }) do saved[k] = _G[k] end
+    local built = {}
+    _G.Enum = { LuaCurveType = { Step = "step", Linear = "linear" } }
+    _G.CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
+    _G.C_CurveUtil = { CreateColorCurve = function()
+        local c = { points = {} }
+        function c:SetType(t) self.type = t end
+        function c:AddPoint(x, col) self.points[#self.points + 1] = { x = x, col = col } end
+        built[#built + 1] = c
+        return c
+    end }
+    local handed
+    _G.UnitHealthPercent = function(u, predicted, curve)
+        handed = curve
+        if type(curve) ~= "table" or not curve.points then return 1 end
+        return { GetRGB = function() return trap(), trap(), trap() end }
+    end
+
+    local d = NS.DB()
+    local cell = FG.byUnit["player"]
+    ok(d.color == "class", "class colour is the default")
+    FG.Paint(cell)
+    ok(type(cell.bar.__color[1]) == "number", "and in class colour the bar gets a plain colour")
+
+    ok(NS.DO.colour() == "health" and d.color == "health", "/bish colour switches to by-health")
+    local safe, err = pcall(FG.Paint, cell)
+    ok(safe, "painting by health reads nothing", tostring(err))
+    ok(getmetatable(cell.bar.__color[1]) == trapMeta, "the client's colour goes straight to the bar")
+    local c = built[1]
+    ok(c and c.type == "step" and #c.points == 3 and c.points[1].x == 0,
+       "one step curve, built once, from empty upwards")
+    FG.Paint(cell)
+    ok(#built == 1 and handed == c, "and it is built ONCE, not per paint")
+
+    STATE.dead.player = true
+    FG.Paint(cell)
+    ok(type(cell.bar.__color[1]) == "number" and cell.bar.__color[1] == 0.35,
+       "the dead are the dead colour whatever the curve says")
+    STATE.dead.player = nil
+
+    -- a client that cannot: class colour, not a stale bar and not an error
+    _G.UnitHealthPercent = function() error("no", 2) end
+    ok(pcall(FG.Paint, cell) and type(cell.bar.__color[1]) == "number",
+       "if the client refuses, the bar falls back to class colour")
+
+    NS.DO.colour(false)
+    for k, v in pairs(saved) do _G[k] = v end
 end
 
 -- MAIN TANK. Arn's party showed four identical role badges and himself on the apex: casual groups
@@ -1318,6 +1467,48 @@ do
     MACROS = {}
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
     FG.SetScale(1, true)
+    FM.Get("", "left")
+end
+
+-- THE NUMBER AND THE COLOUR RIDE IN IT TOO, the same way and for the same reason
+do
+    local FK, FM = NS.FK, NS.FM
+    local binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    local body = FK.Encode(binds, { text = "percent", color = "health" })
+    ok(body:find("#T=2;C=1;", 1, true) ~= nil, "both are written first, before any bind: " .. body)
+    ok(not FK.Encode(binds, { text = "missing", color = "class" }):find("[TC]="),
+       "at the defaults nothing is written")
+    local _, st = FK.Decode(body)
+    ok(st and st.text == "percent" and st.color == "health", "and both read back")
+    local _, off = FK.Decode(FK.Encode(binds, { text = "off" }))
+    ok(off and off.text == "off", "off is remembered as off")
+
+    -- an older install skips them, as it skips S
+    local OLD_SLOTS = { l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 }
+    local reads = 0
+    for row in (body:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and OLD_SLOTS[code:sub(-1)] then reads = reads + 1 end
+    end
+    ok(reads == 1, "an older install reads the one bind and skips T and C", reads)
+
+    -- THE WHOLE TRIP: change them, "restart", and they are back
+    MACROS = {}
+    local d = NS.DB()
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    NS.DO.number("percent")
+    NS.DO.colour(true)
+    local stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and stored:find("T=2", 1, true) and stored:find("C=1", 1, true),
+       "changing them writes them into the macro", stored)
+    d.binds, d.bindsSeeded, FM.asked, d.text, d.color = {}, nil, false, "missing", "class"   -- the restart
+    FM.Get("", "wheelup")
+    ok(d.text == "percent" and d.color == "health", "and after a restart they are back",
+       tostring(d.text) .. " / " .. tostring(d.color))
+
+    d.text, d.color = "missing", "class"
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
     FM.Get("", "left")
 end
 

@@ -153,6 +153,11 @@ local function db()
                 d.scale = settings.scale
                 if NS.FG and NS.FG.SetScale then NS.FG.SetScale(settings.scale, true) end
             end
+            -- the number and the colour ride the same way; the next paint picks them up
+            if type(settings) == "table" then
+                if settings.text then d.text = settings.text end
+                if settings.color then d.color = settings.color end
+            end
         end
     end
     if not d.bindsSeeded and not next(d.binds) then

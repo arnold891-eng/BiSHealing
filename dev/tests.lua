@@ -982,6 +982,68 @@ do
     ok(found and found.get(d) == false, "and it reads off while the grid is showing")
 end
 
+-- ON TBC THIS FOLDER LOADS NOTHING THAT CAN TOUCH YOUR DATA. 20 Sep 2026: the base TOC claims TBC
+-- as well as Forever, so the Forever addon loaded in Arn's TBC client, met the older BiS Healing's
+-- saved table and emptied it. RestedXP showed the way out: a TBC client picks BiSHealing_TBC.toc
+-- over the base, so that file decides what TBC loads - and it loads one notice and nothing else.
+do
+    local function read(path)
+        local fh = io.open(path, "r"); if not fh then return nil end
+        local s = fh:read("*a"); fh:close(); return s
+    end
+    local toc = read("BiSHealing_TBC.toc")
+    ok(toc ~= nil, "there is a TBC-only TOC for the TBC client to pick instead")
+    -- a leading newline so the first line counts - a frontier pattern misses line one, which is
+    -- exactly where ## Interface sits
+    ok(toc and ("\n" .. toc):find("\n## Interface: 20506", 1, true) ~= nil,
+       "it claims TBC, so that client takes it over the base one")
+    -- the DIRECTIVE, not the word: the first version searched the whole file and matched the
+    -- comment explaining why there are none
+    ok(toc and not ("\n" .. toc):lower():find("\n## savedvariables", 1, true),
+       "and declares no saved variables - it is never in a position to touch BiSHealingDB")
+
+    local files = {}
+    for line in (toc or ""):gmatch("[^\r\n]+") do
+        if not line:match("^%s*#") and line:match("%S") then files[#files + 1] = line:match("^%s*(.-)%s*$") end
+    end
+    ok(#files == 1 and files[1] == "TBC.lua",
+       "it loads exactly one file, the notice - no grid, no mouse, no Core", table.concat(files, ","))
+
+    local base = read("BiSHealing.toc") or ""
+    ok(not base:find("TBC.lua", 1, true), "and the Forever TOC does not load the notice")
+
+    -- THE PROPERTY THAT ACTUALLY MATTERS, checked rather than read off the file list: run the
+    -- notice in an environment with a tripwire on BiSHealingDB, fire its login, and see whether
+    -- it so much as looked at the name.
+    local touched, leaked = false, {}
+    local env = setmetatable({}, {
+        __index = function(_, k)
+            if k == "BiSHealingDB" or k == "BiSHealingCharDB" then touched = true end
+            return _G[k]
+        end,
+        __newindex = function(t, k, v)
+            if k == "BiSHealingDB" or k == "BiSHealingCharDB" then touched = true end
+            leaked[#leaked + 1] = tostring(k)
+            rawset(t, k, v)
+        end,
+    })
+    local fn = assert(loadfile("TBC.lua"))
+    setfenv(fn, env)
+    local ran = pcall(fn)
+    ok(ran, "the notice loads")
+    local said
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) said = t end }
+    for _, f in ipairs(frames or {}) do
+        local h = f.__scripts and f.__scripts.OnEvent
+        if h and f.__events and f.__events.PLAYER_LOGIN then pcall(h, f, "PLAYER_LOGIN") end
+    end
+    _G.DEFAULT_CHAT_FRAME = realChat
+    ok(said and said:find("inactive", 1, true), "at login it says it is inactive here", tostring(said))
+    ok(not touched, "and it never so much as looked at BiSHealingDB")
+    ok(#leaked == 0, "nor left a single global behind", table.concat(leaked, ","))
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

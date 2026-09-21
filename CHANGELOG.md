@@ -1,5 +1,24 @@
 # BiS Healing
 
+## 0.2.0
+
+- **It will not throw away another addon's saved data.** This addon's TOC claims TBC as well as
+  Forever, so it loads in a TBC client - and there it found the old BiS Healing's saved table,
+  did not recognise the version, and cleared it: four thousand fight records in one logout. A
+  version bump is a promise about the keys THIS addon owns, not a licence to empty a table it
+  happens to share. Anything it does not recognise is set aside now, intact, under `attic`.
+
+- **The grid sits above your action bars** instead of among them, so it is not buried by the rest
+  of your interface - and the header you drag it by comes with it.
+
+- **`/bish center` actually centres.** It used to put the grid 260 left and 120 down, which on a
+  lot of screens is straight into the action bars: the one command you type when you cannot find
+  the window put it somewhere you still could not find it.
+
+- It asks the client whether a value is hidden rather than finding out by being refused, and it
+  no longer trusts the shape of the answer - on this beta, even "is anything secret?" can come
+  back as something you are not allowed to read.
+
 ## 0.1.0
 
 Click-cast healing cells for any healer, on a client that will not let an addon read what it is

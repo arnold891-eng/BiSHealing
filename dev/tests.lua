@@ -488,10 +488,14 @@ STATE.maxRefusesSecret = false
 
 -- names: a cell is 84 wide, so the realm goes and the rest is cut to fit. "Longnamedhealer-Realmone"
 -- overflowing its cell is what the beta showed on 17 Sep.
-ok(FG.ShortName("party1") == "Name-part" or #FG.ShortName("party1") <= 9,
-   "a name is cut to what the cell holds")
-_G.UnitName = function() return "Longnamedhealer-Realmone" end
-ok(FG.ShortName("party1") == "Longnamed", "the realm is dropped before the cut")
+ok(#FG.ShortName("party1") <= 12, "a name is cut to what the cell holds")
+_G.UnitName = function() return "Longnamedhealerxx-Realmone" end
+ok(FG.ShortName("party1") == "Longnamedhea", "the realm is dropped before the cut")
+-- FIRST NAME ONLY. Arn, 21 Sep, looking at "Kumlust S": "get rid of last names".
+_G.UnitName = function() return "Kumlust Surname" end
+ok(FG.ShortName("party1") == "Kumlust", "a surname is dropped, not cut to an initial")
+_G.UnitName = function() return "Kumlust Surname-Realmone" end
+ok(FG.ShortName("party1") == "Kumlust", "and with a realm on the end as well")
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
 
 -- the name must draw ABOVE the bar: a FontString created on the button sits under the bar, which
@@ -1236,12 +1240,25 @@ do
     ok(cell.htext.__text == nil, "a secret zero is blank too - never a 0 over a full health bar",
        tostring(peek(cell.htext.__text) and "a secret" or cell.htext.__text))
 
-    -- ONE BAR, ONE LABEL AT A TIME: the name ends where the number begins
-    local pinned
-    for _, pt in ipairs(cell.name.points or {}) do
-        if pt[1] == "RIGHT" and pt[2] == cell.htext and pt[3] == "LEFT" then pinned = true end
+    -- TWO LINES. Arn: "names and health are sharing the same line maybe we put them in different
+    -- lines". The name owns the top line, the number the bottom one.
+    local function side(fs)
+        local tops, bottoms = 0, 0
+        for _, pt in ipairs(fs.points or {}) do
+            local where = tostring(pt[1])
+            if where:find("^TOP") then tops = tops + 1 end
+            if where:find("^BOTTOM") then bottoms = bottoms + 1 end
+            if where == "LEFT" or where == "RIGHT" or where == "CENTER" then return "middle" end
+        end
+        if tops > 0 and bottoms == 0 then return "top" end
+        if bottoms > 0 and tops == 0 then return "bottom" end
+        return "mixed"
     end
-    ok(pinned, "the name stops at the number, instead of printing through it")
+    ok(side(cell.name) == "top", "the name sits on the top line", side(cell.name))
+    ok(side(cell.htext) == "bottom", "the number sits on the bottom line", side(cell.htext))
+    local tied
+    for _, pt in ipairs(cell.name.points or {}) do if pt[2] == cell.htext then tied = true end end
+    ok(not tied, "and the name is no longer squeezed by the number")
 
     -- PERCENT. A fraction unless asked for 0 to 100 - so it must be asked.
     local scale100 = {}

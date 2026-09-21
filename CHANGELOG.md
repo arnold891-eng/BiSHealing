@@ -1,5 +1,15 @@
 # BiS Healing
 
+## 0.3.3
+
+- **Fixed: "show the cells" did nothing.** Switching it off hid the cells for a moment and the
+  game put them straight back. Now they stay hidden - header and all - until you switch them on
+  again from the minimap button, the options window or `/bish show`.
+- **The grid stays where you put it.** It used to go back to the middle of the screen at every
+  login, because this client forgets addon settings when it restarts. Where you dragged it, and
+  whether the cells are hidden, are now kept in the `BiSHealing` macro with your binds.
+  `/bish center` still puts it back in the middle.
+
 ## 0.3.2
 
 - **Names and the health number on separate lines.** The name has the top of the cell to itself

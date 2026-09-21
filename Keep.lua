@@ -79,10 +79,20 @@ end
 ---   * a NEW install reading an old body finds no S row and leaves the scale at 100%.
 --- And they go FIRST, because the trimmer drops rows from the END when a full mouse overflows the
 --- 255 characters: a setting must never be what gets cut to make room for a bind.
+---
+--- 21 Sep, the same way: the number on the cells (T) and the bar colour (C). Only written when
+--- they differ from the default, so a mouse nobody has styled pays nothing for them. Uppercase
+--- again, for the same reason as S.
+local TEXTCODE = { off = 0, percent = 2 }             -- 1, "missing", is the default and not written
+local CODETEXT = { [0] = "off", [1] = "missing", [2] = "percent" }
+
 local function settingRows(settings)
     local out = {}
-    local s = type(settings) == "table" and tonumber(settings.scale)
+    if type(settings) ~= "table" then return out end
+    local s = tonumber(settings.scale)
     if s and s ~= 1 then out[#out + 1] = "S=" .. math.floor(s * 100 + 0.5) end
+    if TEXTCODE[settings.text or ""] then out[#out + 1] = "T=" .. TEXTCODE[settings.text] end
+    if settings.color == "health" then out[#out + 1] = "C=1" end
     return out
 end
 
@@ -151,6 +161,10 @@ function FK.Decode(body)
         if code == "S" then
             -- a setting, not a bind: the scale, as a whole percentage
             settings.scale = tonumber(idx) and (tonumber(idx) / 100) or nil
+        elseif code == "T" then
+            settings.text = CODETEXT[tonumber(idx)]
+        elseif code == "C" then
+            settings.color = tonumber(idx) == 1 and "health" or "class"
         elseif code then
             local slot = CODESLOT[code:sub(-1)]
             local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
@@ -192,7 +206,8 @@ function FK.Save(binds)
     end
     if InCombatLockdown and InCombatLockdown() then return false, "combat" end
     local d = NS.DB and NS.DB()
-    local body, dropped = FK.Encode(binds, { scale = type(d) == "table" and d.scale or nil })
+    local t = type(d) == "table" and d or {}
+    local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color })
     if not body then return false, "nothing to write" end
 
     local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)

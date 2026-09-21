@@ -5,14 +5,11 @@
 -- commands". There are twenty-five of them under /bish and three under /bishf,
 -- and a command you have to remember is a feature only its author uses.
 --
--- EVERY ROW RUNS THE SLASH COMMAND. Not a copy of what the command does --
--- SlashCmdList.BISHEALING("lock") itself. One implementation behind two doors,
--- so the menu cannot drift from the command the way a second copy would, and
--- anything the command prints still gets printed.
+-- Since 21 Sep 2026 the button has no menu of its own: any click opens the
+-- options window, which already held every row the menu did (see MM.Click).
 --
--- The button and the menu are BiSTheme's (Libs\BiSTheme\Minimap.lua, shared with
--- the rest of the family). This file is only the list of rows and the two live
--- questions each one answers: is it on, and what does it say it is set to.
+-- The button is BiSTheme's (Libs\BiSTheme\Minimap.lua, shared with the rest of
+-- the family). This file is only where it sits and what a click does.
 -- =========================================================================
 
 local ADDON, NS = ...
@@ -36,7 +33,6 @@ local function act(name)
     end
 end
 
-local function onOff(v) return v and "on" or "off" end
 
 --- The db bucket for the button itself: the angle it was dragged to, and whether it is hidden.
 --- Its own corner, so clearing anything else cannot lose where the button sits.
@@ -46,28 +42,30 @@ function MM.DB()
     return db.minimap
 end
 
---- The rows. A FUNCTION, not a table: it is called every time the menu opens, so a row says what
---- is true NOW - which is the thing a printed command answer could do and a static menu cannot.
+--- ONE CLICK, ONE PLACE. Arn, 21 Sep 2026, asking what left and right click were for: "seems too
+--- similar might confuse new players", then "choose one or the other and merge always keep the
+--- bind on top". Left opened a menu, right opened the options window, and every row of the menu
+--- was already a row of the window. So the menu is gone: any click opens the window, and the mouse
+--- binds are its first row.
 ---
---- Kept short on purpose. The old addon had twenty-eight commands; turning all of them into rows
---- would have been the same problem with a mouse.
-function MM.Rows()
-    local db = (NS.DB and NS.DB()) or {}
-    return {
-        { text = "options",            note = "/bish", func = act("options") },
-        { text = "mouse binds",        note = "drag a spell", func = act("mouse") },
-        { sep = true },
-        { text = "show the cells",     checked = db.shown ~= false, func = act("show") },
-        { text = "centre on screen",   func = act("center") },
-        { text = "look at the group again", note = "/bish rescan", func = act("rescan") },
-        { sep = true },
-        { text = "what can I see?",    note = "/bish scan", func = act("scan") },
-        { text = "test the debuff marker", note = onOff(NS.FA and NS.FA.debug),
-          checked = (NS.FA and NS.FA.debug) and true or false, func = act("auras") },
-        { sep = true },
-        { text = "hide this button",   note = "options to bring it back",
-          func = function() MM.SetHidden(true) end },
-    }
+--- Done HERE, not in the shared button (Libs\BiSTheme\Minimap.lua): that file is copied into every
+--- BiS addon, and this is one addon's choice. The button is built by the lib as usual and then
+--- given this addon's click and tooltip.
+function MM.Click(_, click)
+    local b = MM.button
+    if b and b.CloseMenu then b:CloseMenu() end
+    if b and b.dragging then return end
+    act("options")()
+end
+
+local function tooltip(s)
+    if s.edge then s.edge:set("accent", 1) end
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(s, "ANCHOR_LEFT")
+    GameTooltip:AddLine("BiS> Healing")
+    GameTooltip:AddLine("click  mouse binds and options", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("drag  move me round the edge", 0.6, 0.6, 0.6)
+    GameTooltip:Show()
 end
 
 --- Build it, once. Returns the button, or nil on a client with no minimap frame (the headless
@@ -79,10 +77,12 @@ function MM.Build()
         icon    = "Interface\\Icons\\Spell_Nature_HealingWaveGreater",
         label   = "Healing",
         db      = MM.DB(),
-        menu    = MM.Rows,
-        onRight = act("options"),
-        tooltip = { "the commands, without the commands" },
+        menu    = function() return {} end,
     })
+    if MM.button and MM.button.SetScript then
+        MM.button:SetScript("OnClick", MM.Click)
+        MM.button:SetScript("OnEnter", tooltip)
+    end
     return MM.button
 end
 

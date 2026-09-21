@@ -29,6 +29,12 @@ NS.CFG = CFG
 function CFG.Sections()
     local DO = NS.DO or {}
     return {
+        -- THE BINDS FIRST. Arn, 21 Sep: "always keep the bind on top". The minimap button opens
+        -- this window and nothing else now, so the first row is the thing a healer came for.
+        { title = "clicks", options = {
+            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
+              action = function() if DO.mouse then DO.mouse() end end },
+        } },
         { title = "frames", options = {
             { key = "shown", kind = "toggle", label = "show the cells",
               get = function(db) return db.shown ~= false end,
@@ -43,9 +49,20 @@ function CFG.Sections()
               get = function(db) return db.scale or 1 end,
               set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
               show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
-            { key = "missing", kind = "toggle", label = "missing health on the cells",
-              get = function(db) return db.missing ~= false end,
-              set = function(_, on) if DO.missing then DO.missing(on) end end },
+            -- three answers, so segments rather than a switch: "lost" is what they still need
+            -- after incoming heals, blank at full
+            { key = "number", kind = "seg", label = "number",
+              values = { "lost", "%", "off" },
+              get = function(db)
+                  local m = db.text
+                  return (m == "percent" and "%") or (m == "off" and "off") or "lost"
+              end,
+              set = function(_, v)
+                  if DO.number then DO.number((v == "%" and "percent") or (v == "off" and "off") or "missing") end
+              end },
+            { key = "colour", kind = "toggle", label = "bar colour by health",
+              get = function(db) return db.color == "health" end,
+              set = function(_, on) if DO.colour then DO.colour(on) end end },
             { key = "pets", kind = "toggle", label = "show pets",
               get = function(db) return db.pets == true end,
               set = function(_, on) if DO.pets then DO.pets(on) end end },
@@ -56,10 +73,6 @@ function CFG.Sections()
               action = function() if DO.center then DO.center() end end },
             { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
               action = function() if DO.rescan then DO.rescan() end end },
-        } },
-        { title = "clicks", options = {
-            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
-              action = function() if DO.mouse then DO.mouse() end end },
         } },
         { title = "this client", options = {
             { key = "scan", kind = "button", label = "what can I see?", button = "ask",

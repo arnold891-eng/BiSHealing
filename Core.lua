@@ -62,7 +62,10 @@ local DEFAULTS = {
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
-    missing = true,      -- the health a cell is missing, on its right; blank at full health
+    -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
+    -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
+    text    = "missing",
+    color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
 }
 
@@ -123,6 +126,9 @@ function NS.DB()
         db.bindsSeeded = seeded and true or nil
         db.dbver       = NS.DBVER
     end
+    -- the old on/off switch for the number, carried into the three-way one and then let go
+    if db.missing == false and db.text == nil then db.text = "off" end
+    db.missing = nil
     for k, v in pairs(DEFAULTS) do
         if db[k] == nil and v ~= nil then db[k] = v end
     end
@@ -329,10 +335,18 @@ function NS.DO.text(unit)
         { "abbrev",    function() return AbbreviateNumbers(UnitHealthMissing(unit)) end },
         { "hide-zero", function() return C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit)) end },
         { "absorbs",   function() return UnitGetTotalAbsorbs(unit) end },
-        -- THE ONE WE ACTUALLY WANT is both: abbreviated AND blank at full health. Each helper was
-        -- tried alone; which order they compose in is a separate question, so both are asked.
-        { "abbr>hide", function() return C_StringUtil.TruncateWhenZero(AbbreviateNumbers(UnitHealthMissing(unit))) end },
-        { "hide>abbr", function() return AbbreviateNumbers(C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit))) end },
+        -- WHAT THE CELLS NOW DO (21 Sep), so one screenshot checks them. The two helpers do not
+        -- compose (measured 20 Sep); the cells let the label be the test instead - see
+        -- FG.PaintText. "cell" is exactly what a cell paints, through the same code.
+        { "net",       function() return C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit, true)) end },
+        { "pct100",    function() return UnitHealthPercent(unit, true, CurveConstants.ScaleTo100) end },
+        { "pct%",      function() return string.format("%.0f%%", UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)) end },
+        { "cell",      function()
+            NS.textCell = NS.textCell or UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            NS.textCell:Hide()
+            NS.FG.PaintText({ htext = NS.textCell, unit = unit })
+            return NS.textCell:GetText()
+        end },
     }
     for _, v in ipairs(variants) do try(v[1], v[2]) end
 
@@ -384,16 +398,60 @@ function NS.DO.pets(on)
     return d.pets
 end
 
---- The missing-health number on the cells, on or off. No argument flips it.
+--- Repaint every cell now, rather than waiting for somebody's health to change.
+local function repaint()
+    if NS.FG and NS.FG.frames and NS.FG.Paint then
+        for _, f in ipairs(NS.FG.frames) do if f.unit then pcall(NS.FG.Paint, f) end end
+    end
+end
+
+--- And write it down, in the macro with the binds: a saved variable does not survive a restart on
+--- this client (Keep.lua). The client will not touch a macro in combat; then it waits, and goes in
+--- with the next thing that is saved.
+local function remember()
+    local d = DB()
+    if NS.FK and NS.FK.Save then
+        local done, why = NS.FK.Save(d.binds or {})
+        if not done and why == "combat" then Print("saved for this session - it goes in the macro after the fight") end
+    end
+end
+
+local TEXT_SAY = {
+    missing = "cells show what is missing, after incoming heals",
+    percent = "cells show health as a percentage",
+    off     = "no number on the cells",
+}
+local TEXT_NEXT = { missing = "percent", percent = "off", off = "missing" }
+
+--- The number on the cells: "missing", "percent" or "off". No argument moves to the next one.
+function NS.DO.number(mode)
+    local d = DB()
+    local now = (NS.FG and NS.FG.TextMode and NS.FG.TextMode()) or d.text or "missing"
+    if mode == "%" or mode == "pct" then mode = "percent" end
+    if not TEXT_SAY[mode or ""] then mode = TEXT_NEXT[now] or "missing" end
+    d.text = mode
+    repaint()
+    remember()
+    Print(TEXT_SAY[mode])
+    return mode
+end
+
+--- The old switch, still typed: /bish missing turns the number off, or back to missing health.
 function NS.DO.missing(on)
     local d = DB()
-    if on == nil then on = d.missing == false end
-    d.missing = on and true or false
-    if NS.FG and NS.FG.frames then
-        for _, f in ipairs(NS.FG.frames) do if NS.FG.PaintMissing then NS.FG.PaintMissing(f) end end
-    end
-    Print(d.missing and "missing health shown on the cells" or "missing health hidden")
-    return d.missing
+    if on == nil then on = d.text == "off" end
+    return NS.DO.number(on and "missing" or "off")
+end
+
+--- The bars: class colour, or by health. No argument flips it.
+function NS.DO.colour(byHealth)
+    local d = DB()
+    if byHealth == nil then byHealth = d.color ~= "health" end
+    d.color = byHealth and "health" or "class"
+    repaint()
+    remember()
+    Print(byHealth and "bars coloured by health - red, amber, green" or "bars in class colours")
+    return d.color
 end
 
 --- /bish scale 90 - a percentage, because nobody thinks of a frame as being 0.9 big.
@@ -417,6 +475,8 @@ function NS.DO.help()
     Print("  |cffb980ffscan|r   what this client will tell me")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
+    Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
+    Print("  |cffb980ffcolour|r  bars by class, or by health")
 end
 
 --------------------------------------------------------------------- slash --
@@ -427,7 +487,12 @@ SLASH_BISHEALING1 = "/bish"
 SLASH_BISHEALING2 = "/bisheals"
 SLASH_BISHEALING3 = "/bishf"
 
-SlashCmdList = SlashCmdList or {}
+-- NEVER `SlashCmdList = SlashCmdList or {}`. Writing a Blizzard global - even writing back the
+-- value it already had - marks it as ours, and the chat box reads this table to run EVERY slash
+-- command. From then on each one ran as BiSHealing's, and the first protected one was refused and
+-- blamed on us: Arn typed /pvp on 21 Sep and got "AddOn 'BiSHealing' tried to call the protected
+-- function 'TogglePVP()'". Only a client with no table at all (the test harness) gets one made.
+if not SlashCmdList then SlashCmdList = {} end
 SlashCmdList.BISHEALING = function(input)
     local msg = tostring(input or ""):lower():match("^%s*(.-)%s*$")
     if msg == "" or msg == "config" or msg == "options" or msg == "settings" then
@@ -455,7 +520,13 @@ SlashCmdList.BISHEALING = function(input)
     elseif msg == "scale" or msg:match("^scale%s") then
         NS.DO.scale(msg:match("^scale%s+(%d+)"))
     elseif msg == "missing" or msg == "deficit" then
-        NS.DO.missing()
+        NS.DO.number("missing")
+    elseif msg == "percent" or msg == "%" then
+        NS.DO.number("percent")
+    elseif msg == "number" or msg:match("^number%s") then
+        NS.DO.number(msg:match("^number%s+(%S+)"))
+    elseif msg == "colour" or msg == "color" then
+        NS.DO.colour()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
     elseif msg == "text" or msg:match("^text%s") then

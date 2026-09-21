@@ -606,8 +606,18 @@ function FG.Paint(f)
     local dead = UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit))
     if dead then c = DEAD end
     local d = NS.DB and NS.DB()
-    if dead or not (type(d) == "table" and d.color == "health" and FG.PaintByHealth(f)) then
+    local byHealth = type(d) == "table" and d.color == "health"
+    if dead or not (byHealth and FG.PaintByHealth(f)) then
         f.bar:SetStatusBarColor(c[1], c[2], c[3])
+    end
+
+    -- THE CLASS MOVES TO THE NAME when the bar is busy saying how hurt they are. Arn, 21 Sep: "if
+    -- they turn on bar color by health lets do names class colors". In class-colour mode the bar
+    -- already says it, so the name stays white. A class the client is hiding is white either way:
+    -- no colour is better than a guessed one.
+    if f.name and f.name.SetTextColor then
+        local nc = byHealth and CLASS_COLOR[class or ""] or nil
+        if nc then f.name:SetTextColor(nc[1], nc[2], nc[3]) else f.name:SetTextColor(1, 1, 1) end
     end
 
     -- Range. NOT UnitInRange: on Forever that returns a secret BOOLEAN, which cannot even be

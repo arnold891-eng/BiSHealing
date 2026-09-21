@@ -132,6 +132,7 @@ local function newFrame(kind, name)
         local fs = autoMethods({
             SetText = function(self2, t) self2.__text = t end,
             GetText = function(self2) return self2.__text end,
+            SetTextColor = function(self2, r, g, b) self2.__color = { r, g, b } end,
             SetPoint = function(self2, ...) self2.points = self2.points or {}
                                             self2.points[#self2.points + 1] = { ... } end,
         })
@@ -1324,6 +1325,17 @@ do
     FG.Paint(cell)
     ok(#built == 1 and handed == c, "and it is built ONCE, not per paint")
 
+    -- THE CLASS MOVES TO THE NAME. Arn: "if they turn on bar color by health lets do names class
+    -- colors". The mock answers SHAMAN.
+    local nc = cell.name.__color
+    ok(nc and nc[1] == 0.00 and nc[2] == 0.44 and nc[3] == 0.87,
+       "by health, the name wears the class colour", nc and table.concat(nc, ",") or "none")
+    STATE.classSecret = true
+    ok(pcall(FG.Paint, cell), "a secret class does not break the paint")
+    nc = cell.name.__color
+    ok(nc and nc[1] == 1 and nc[2] == 1 and nc[3] == 1, "and a hidden class leaves the name white")
+    STATE.classSecret = false
+
     STATE.dead.player = true
     FG.Paint(cell)
     ok(type(cell.bar.__color[1]) == "number" and cell.bar.__color[1] == 0.35,
@@ -1336,6 +1348,10 @@ do
        "if the client refuses, the bar falls back to class colour")
 
     NS.DO.colour(false)
+    FG.Paint(cell)
+    local wc = cell.name.__color
+    ok(wc and wc[1] == 1 and wc[2] == 1 and wc[3] == 1,
+       "back in class colour the bar says the class, so the name is white again")
     for k, v in pairs(saved) do _G[k] = v end
 end
 

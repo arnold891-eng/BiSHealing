@@ -28,9 +28,10 @@ the way.
 
 ## The mouse
 
-`/bish mouse`, or the minimap button. A drawn mouse, and you drop a spell on the
-button you intend to press — left, right, middle, two thumb buttons, wheel up
-and wheel down, times no modifier, shift, ctrl and alt. Twenty-eight places.
+Click the minimap button (the mouse binds are the first row), or `/bish mouse`.
+A drawn mouse, and you drop a spell on the button you intend to press — left,
+right, middle, two thumb buttons, wheel up and wheel down, times no modifier,
+shift, ctrl and alt. Twenty-eight places.
 
 Ranks are kept. Dropping rank 4 of a heal binds rank 4, because casting by bare
 name always throws the biggest one you know, and for a healer that is three
@@ -39,18 +40,30 @@ times the mana to move the same bar.
 Right-click a slot to clear it. Binds are written out of combat — the client
 refuses them during a fight — so a change made mid-pull lands the moment it ends.
 
+They are kept in a per-character macro called `BiSHealing`, because this client
+does not hand an addon its saved settings back after a restart. Do not rename it.
+
 ## The cells
 
-One per person, in group order. Not ranked: ranking means knowing who is losing
-health, and that is exactly what this client will not say.
+One per person, one column per raid group. Not ranked: ranking means comparing
+health, and that is exactly what this client will not allow.
 
-A name, a bar the client fills, a green pip when there is something on them
-**you** can take off, and a dimmed cell when they are out of range of whatever is
-on your left button.
+- **A number on the right**: what they still need after the heals already on
+  their way, short (`3.2K`), blank at full health. Or a percentage, or nothing
+  (`/bish missing`, `/bish percent`, `/bish number off`). The client works the
+  number out and draws it; the addon never reads it.
+- **Bars in class colour, or by health** (`/bish colour`): green, amber below
+  70%, red below 35% — the client picks the colour from a curve we hand it. With
+  health colours on, the names wear the class colour instead.
+- A green pip when there is something on them **you** can take off, a dimmed
+  cell when they are out of range of whatever is on your left button, and a role
+  icon (the raid's Main Tank counts as a tank).
+- Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
+  own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
 
 ## Everything else
 
-`/bish` opens a small window, and the minimap button has the same things behind
+`/bish`, or any click on the minimap button, opens one small window with all of
 it. `/bish` with anything it does not recognise lists the rest.
 
 ## What happened to the old addon

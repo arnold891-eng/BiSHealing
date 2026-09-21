@@ -29,6 +29,103 @@ NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
 local PER_COL = 5                       -- one column per party, the way a raid reads
+
+-- THE PYRAMID (Arn, 20 Sep, mid-raid with the TBC frames up: "this is how we make forever
+-- eventually pyramid tanks on top people out of range dimmmed").
+--
+-- The SHAPE is the TBC addon's, copied as arithmetic - BiSHealingTBC/BiSHealing.lua:126, rowSizes
+-- {1, 2, 6} with the first two rows full width and every row after that six cells at half width.
+-- An apex, a pair, then a wide base: the people you are most likely to be healing are the
+-- biggest and nearest the top.
+--
+-- The ORDER is not the TBC addon's, and cannot be. That one ranked people by healing volume,
+-- Chain Heal bounce and damage done - all out of the combat log, which is a PROTECTED call on
+-- Forever. So the body ports and the brain does not. What stands in for it is the role: tank,
+-- then healer, then damage. A cruder sort, and the only one this client will allow.
+local SHAPE = { 1, 2, 6 }               -- cells in each row; rows past the last repeat TAIL
+local WIDE  = { true, true }            -- which rows are full width
+local TAIL  = 6
+local HALF_W = FRAME_W                  -- the ordinary cell
+local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them,
+                                        -- so the rows line up on one grid instead of drifting
+local ROLE_RANK = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+
+--- Where each of `n` cells goes: its row, its place in the row, how many share the row, and
+--- whether the row is full width. Pure - no frames - so it can be asked without a client.
+function FG.Pyramid(n)
+    local out, r, i = {}, 1, 1
+    while i <= n do
+        local cap = SHAPE[r] or TAIL
+        local count = math.min(cap, n - i + 1)
+        for c = 1, count do
+            out[i] = { row = r, col = c, count = count, wide = WIDE[r] and true or false }
+            i = i + 1
+        end
+        r = r + 1
+    end
+    return out
+end
+
+--- The roster by RAID GROUP: one column per group, in group order. Arn asked for "regular grid
+--- by group", and the old grid was not quite that - it filled columns of five in raid1, raid2
+--- order, and raid index is the order people JOINED, not their group. It only looked grouped when
+--- people happened to join in group order.
+---
+--- Returns the units in order and, beside them, the column each belongs in and its row within it.
+--- Outside a raid it is one column: you, then your party.
+function FG.ByGroup(roster)
+    local inRaid = IsInRaid and IsInRaid()
+    local keyed = {}
+    for i, u in ipairs(roster) do
+        local sub = 1
+        if inRaid and GetRaidRosterInfo then
+            local idx = tonumber(tostring(u):match("^raid(%d+)$"))
+            if idx then
+                local ok, _, _, g = pcall(GetRaidRosterInfo, idx)
+                g = ok and tonumber(NS.Plain(g)) or nil
+                sub = g or 9                      -- unknown groups go last, not first
+            end
+        end
+        keyed[i] = { unit = u, sub = sub, at = i }
+    end
+    table.sort(keyed, function(a, b)
+        if a.sub ~= b.sub then return a.sub < b.sub end
+        return a.at < b.at
+    end)
+    local units, cols, rows, colOf, n = {}, {}, {}, {}, 0
+    for i, k in ipairs(keyed) do
+        if not colOf[k.sub] then n = n + 1; colOf[k.sub] = n; rows[n] = 0 end
+        local c = colOf[k.sub]
+        units[i] = k.unit
+        cols[i], rows[c] = c, rows[c] + 1
+        keyed[i].row = rows[c]
+    end
+    local place = {}
+    for i, k in ipairs(keyed) do place[i] = { col = cols[i], row = k.row } end
+    return units, place, n
+end
+
+--- The roster, tanks first. Read OUT OF COMBAT only - Layout refuses in combat - which is also
+--- the only time a role is not a secret. Stable: within a role, raid order is kept, so nobody
+--- shuffles about between two layouts just because the sort had nothing to say about them.
+function FG.ByRole(roster)
+    local keyed = {}
+    for i, u in ipairs(roster) do
+        local role
+        if UnitGroupRolesAssigned then
+            local ok, r = pcall(UnitGroupRolesAssigned, u)
+            role = ok and NS.Plain(r) or nil
+        end
+        keyed[i] = { unit = u, rank = ROLE_RANK[role or ""] or 4, at = i }
+    end
+    table.sort(keyed, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        return a.at < b.at
+    end)
+    local out = {}
+    for i, k in ipairs(keyed) do out[i] = k.unit end
+    return out
+end
 -- No spell names live here any more. Three did - Healing Wave, Lesser Healing Wave, Chain Heal -
 -- back when this grid was the Forever half of a shaman addon. "Can I reach them" is answered with
 -- the spell on your LEFT BUTTON, which is both class-agnostic and more honest than a constant:
@@ -211,12 +308,41 @@ function FG.Layout(anchor)
         for _, f in ipairs(FG.frames) do f:Hide() end
         return true, 0
     end
+    local pyramid = type(d) == "table" and d.layout == "pyramid"
+    local place, span, grid, groups = nil, 0, nil, 0
+    if not pyramid then
+        roster, grid, groups = FG.ByGroup(roster)
+    end
+    if pyramid then
+        roster = FG.ByRole(roster)
+        place = FG.Pyramid(#roster)
+        -- the widest row sets the width, and every other row is centred in it
+        for _, p in ipairs(place) do
+            local w = p.wide and FULL_W or HALF_W
+            local rowW = p.count * w + (p.count - 1) * PAD
+            if rowW > span then span = rowW end
+        end
+    end
     for i, unit in ipairs(roster) do
         local f = FG.frames[i] or FG.Make(i, anchor)
-        local col, row = math.floor((i - 1) / PER_COL), (i - 1) % PER_COL
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                   col * (FRAME_W + PAD), -row * (FRAME_H + PAD))
+        local w = FRAME_W
+        if pyramid then
+            local p = place[i]
+            w = p.wide and FULL_W or HALF_W
+            local rowW = p.count * w + (p.count - 1) * PAD
+            local x = (span - rowW) / 2 + (p.col - 1) * (w + PAD)
+            f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, -(p.row - 1) * (FRAME_H + PAD))
+        else
+            local g = grid[i]
+            f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
+                       (g.col - 1) * (FRAME_W + PAD), -(g.row - 1) * (FRAME_H + PAD))
+        end
+        f:SetSize(w, FRAME_H)
+        -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
+        -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
+        -- halfway across, which reads as "only half of this is coming".
+        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(w - 2, FRAME_H - 2) end
         FG.Bind(f, unit)
         -- the aura markers ride the same out-of-combat moment as the secure attributes: the
         -- container is told its unit here and then draws by itself for the whole fight
@@ -248,9 +374,14 @@ function FG.Layout(anchor)
     -- cells rather than the 84 pixels of one. Out of combat only, like everything else here.
     local n = #roster
     if n > 0 then
-        local cols = math.ceil(n / PER_COL)
-        local rows = math.min(n, PER_COL)
-        local w = cols * (FRAME_W + PAD) - PAD
+        local w, rows
+        if pyramid then
+            w, rows = span, place[n].row
+        else
+            rows = 0
+            for _, g in ipairs(grid) do if g.row > rows then rows = g.row end end
+            w = groups * (FRAME_W + PAD) - PAD
+        end
         anchor:SetSize(w, rows * (FRAME_H + PAD) - PAD)
         -- and the prompt is trimmed to the header it now sits in: one cell wide is 84 pixels, and
         -- a word that does not fit is a word printed over whatever is beside it

@@ -215,10 +215,24 @@ function FG.Make(i, parent)
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
     -- the button sits UNDER the health bar -- which looks like "the names are missing" with only
     -- the overflowing tail of a long one visible past the cell's edge (seen on the beta, 17 Sep).
+    -- MISSING HEALTH, on the right: how much this person needs. Arn: "any other information we can
+    -- put on frames like missing health or %". Health is a secret for everyone but you, always -
+    -- not just in combat - so the subtraction cannot be ours. UnitHealthMissing does it client-
+    -- side, and C_StringUtil.TruncateWhenZero turns a 0 into nothing at all, which is "hide it at
+    -- full health" with no `> 0` for us to be refused. /bish text measured both painting in a
+    -- fight (20 Sep). Made BEFORE the name, because the name is anchored to it.
+    f.missing = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.missing:SetPoint("RIGHT", -3, 0)
+    f.missing:SetJustifyH("RIGHT")
+    if f.missing.SetTextColor then f.missing:SetTextColor(1, 0.55, 0.55) end
+
     f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.__nameParent = f.bar        -- dev/forever.lua asserts the label belongs to the bar
     f.name:SetPoint("LEFT", 3, 0)
-    f.name:SetPoint("RIGHT", -3, 0)      -- clipped to the cell instead of spilling out of it
+    -- ONE BAR, ONE LABEL AT A TIME: the name stops where the number starts, instead of printing
+    -- through it. When the number is blank - full health - it is zero wide, and the name gets the
+    -- whole cell back without anyone having to measure a secret.
+    f.name:SetPoint("RIGHT", f.missing, "LEFT", -2, 0)
     f.name:SetJustifyH("LEFT")
     if f.name.SetWordWrap then f.name:SetWordWrap(false) end
 
@@ -246,6 +260,32 @@ local ROLE_COORDS = {
     HEALER  = { 20 / 64, 39 / 64,  1 / 64, 20 / 64 },
     DAMAGER = { 20 / 64, 39 / 64, 22 / 64, 41 / 64 },
 }
+
+--- The number on the right: health missing, blank at full. Every step is guarded, and nothing
+--- here reads the value - it is handed from one client call to the next and then to the label,
+--- which is the only thing the client allows done with somebody else's health.
+---
+--- Composing the two helpers was tried and does not work: each takes a NUMBER and returns TEXT,
+--- so neither accepts the other's output (/bish text, 20 Sep). That is why this is the deficit
+--- in full - 3247, not 3.2K - until AbbreviateNumbers' own options are measured.
+function FG.PaintMissing(f)
+    local label, unit = f.missing, f.unit
+    if not label then return false end
+    local d = NS.DB and NS.DB()
+    if not unit or (type(d) == "table" and d.missing == false)
+       or not (UnitHealthMissing and C_StringUtil and C_StringUtil.TruncateWhenZero) then
+        label:SetText("")
+        return false
+    end
+    local asked, deficit = pcall(UnitHealthMissing, unit)
+    local shaped, text = false, nil
+    if asked then shaped, text = pcall(C_StringUtil.TruncateWhenZero, deficit) end
+    if not (shaped and pcall(label.SetText, label, text)) then
+        label:SetText("")
+        return false
+    end
+    return true
+end
 
 function FG.PaintRole(f)
     local icon, unit = f.role, f.unit
@@ -446,6 +486,7 @@ function FG.Paint(f)
     f.bar:SetValue(UnitHealth(unit))     -- the one legal thing to do with a secret number
 
     if FG.PaintRole then FG.PaintRole(f) end
+    if FG.PaintMissing then FG.PaintMissing(f) end
 
     -- INCOMING HEALS, on the same scale as the health bar so the two read as one line. The value
     -- may be secret and is handed over untouched, exactly like the health above it.

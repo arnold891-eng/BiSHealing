@@ -125,7 +125,13 @@ local function newFrame(kind, name)
         -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
         -- mock remembers: two labels in one 84px header printed through each other in game, twice
         -- (the mouse window in the morning, the grid header in the afternoon).
-        local fs = autoMethods({ SetText = function(self2, t) self2.__text = t end })
+        -- AND WHERE IT IS ANCHORED: "does the name stop where the number starts" is only a
+        -- question if a label remembers what it was pinned to
+        local fs = autoMethods({
+            SetText = function(self2, t) self2.__text = t end,
+            SetPoint = function(self2, ...) self2.points = self2.points or {}
+                                            self2.points[#self2.points + 1] = { ... } end,
+        })
         self.__fontstrings = self.__fontstrings or {}
         self.__fontstrings[#self.__fontstrings + 1] = fs
         return fs
@@ -1123,6 +1129,63 @@ do
     ok(NS.DO.pets() == false, "and /bish pets turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
     FG.Layout(FG.anchor)
+end
+
+-- MISSING HEALTH ON THE CELL. Arn: "any other information we can put on frames like missing
+-- health or %". /bish text measured it (20 Sep): UnitHealthMissing and TruncateWhenZero both
+-- paint in combat, TruncateWhenZero blanks a 0, and the two helpers will NOT compose.
+do
+    local trapMeta = {}
+    for k, v in pairs(secretMeta) do trapMeta[k] = v end
+    trapMeta.__tostring = function() error("tostring on a secret value", 2) end
+    local function trap() return setmetatable({}, trapMeta) end
+
+    local hurt = {}                                        -- unit -> missing, as the client knows it
+    local realM, realS = _G.UnitHealthMissing, _G.C_StringUtil
+    _G.UnitHealthMissing = function(u) return hurt[u] or 0 end
+    _G.C_StringUtil = { TruncateWhenZero = function(v)
+        if getmetatable(v) == trapMeta then return v end   -- a secret goes straight through
+        if v == 0 then return "" end
+        return tostring(v)
+    end }
+
+    local cell = FG.byUnit["player"]
+    ok(cell and cell.missing ~= nil, "a cell has a place for the number")
+
+    hurt.player = 0
+    FG.PaintMissing(cell)
+    ok(cell.missing.__text == "", "at full health there is nothing there at all")
+
+    hurt.player = 3247
+    FG.PaintMissing(cell)
+    ok(cell.missing.__text == "3247", "hurt, it shows what is missing", tostring(cell.missing.__text))
+
+    -- THE WHOLE POINT OF DOING IT THIS WAY: someone else's health is a secret, always. The value
+    -- must be handed on, never looked at - a trap that errors on tostring proves it is not.
+    hurt.player = trap()
+    local safe = pcall(FG.PaintMissing, cell)
+    ok(safe, "a secret deficit is painted without being read")
+    ok(getmetatable(cell.missing.__text) == trapMeta, "the label was handed the secret itself")
+
+    -- ONE BAR, ONE LABEL AT A TIME: the name ends where the number begins
+    local pinned
+    for _, pt in ipairs(cell.name.points or {}) do
+        if pt[1] == "RIGHT" and pt[2] == cell.missing and pt[3] == "LEFT" then pinned = true end
+    end
+    ok(pinned, "the name stops at the number, instead of printing through it")
+
+    -- and it can be switched off
+    NS.DO.missing(false)
+    hurt.player = 500
+    FG.PaintMissing(cell)
+    ok(cell.missing.__text == "", "switched off, the number goes")
+    NS.DO.missing(true)
+
+    -- a client without the calls - TBC, say - gets a blank, not an error
+    _G.UnitHealthMissing = nil
+    ok(pcall(FG.PaintMissing, cell) and cell.missing.__text == "", "no client support, no number, no error")
+
+    _G.UnitHealthMissing, _G.C_StringUtil = realM, realS
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

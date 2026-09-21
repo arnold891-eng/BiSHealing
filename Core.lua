@@ -62,6 +62,7 @@ local DEFAULTS = {
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
+    missing = true,      -- the health a cell is missing, on its right; blank at full health
 }
 
 NS.DBVER = 1
@@ -382,6 +383,18 @@ function NS.DO.pets(on)
     return d.pets
 end
 
+--- The missing-health number on the cells, on or off. No argument flips it.
+function NS.DO.missing(on)
+    local d = DB()
+    if on == nil then on = d.missing == false end
+    d.missing = on and true or false
+    if NS.FG and NS.FG.frames then
+        for _, f in ipairs(NS.FG.frames) do if NS.FG.PaintMissing then NS.FG.PaintMissing(f) end end
+    end
+    Print(d.missing and "missing health shown on the cells" or "missing health hidden")
+    return d.missing
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -424,6 +437,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.db()
     elseif msg == "keep" or msg == "macro" then
         NS.DO.keep()
+    elseif msg == "missing" or msg == "deficit" then
+        NS.DO.missing()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
     elseif msg == "text" or msg:match("^text%s") then

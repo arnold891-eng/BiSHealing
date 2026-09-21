@@ -63,6 +63,7 @@ local DEFAULTS = {
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
     missing = true,      -- the health a cell is missing, on its right; blank at full health
+    scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
 }
 
 NS.DBVER = 1
@@ -395,6 +396,20 @@ function NS.DO.missing(on)
     return d.missing
 end
 
+--- /bish scale 90 - a percentage, because nobody thinks of a frame as being 0.9 big.
+function NS.DO.scale(pct)
+    local n = tonumber(pct)
+    if not n then
+        local d = DB()
+        Print(("the grid is at %d%% - /bish scale 60 to 160"):format(math.floor((d.scale or 1) * 100 + 0.5)))
+        return d.scale or 1
+    end
+    local applied, s = NS.FG.SetScale(n / 100)
+    Print(("grid scale %d%%%s"):format(math.floor(s * 100 + 0.5),
+        applied and "" or " - after this fight, the cells will not resize mid-pull"))
+    return s
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -437,6 +452,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.db()
     elseif msg == "keep" or msg == "macro" then
         NS.DO.keep()
+    elseif msg == "scale" or msg:match("^scale%s") then
+        NS.DO.scale(msg:match("^scale%s+(%d+)"))
     elseif msg == "missing" or msg == "deficit" then
         NS.DO.missing()
     elseif msg == "pets" or msg == "pet" then

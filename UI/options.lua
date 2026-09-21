@@ -36,6 +36,13 @@ function CFG.Sections()
             { key = "minimap", kind = "toggle", label = "minimap button",
               get = function() return not (NS.MM and NS.MM.Hidden()) end,
               set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
+            -- a STEPPER, not a slider: the family's options lib has none, on purpose - "230 px has
+            -- no room for a track, and a stepper is exact" (Libs/BiSTheme/Options.lua)
+            { key = "scale", kind = "step", label = "size of the cells",
+              min = 0.6, max = 1.6, step = 0.05,
+              get = function(db) return db.scale or 1 end,
+              set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
+              show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
             { key = "missing", kind = "toggle", label = "missing health on the cells",
               get = function(db) return db.missing ~= false end,
               set = function(_, on) if DO.missing then DO.missing(on) end end },

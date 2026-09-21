@@ -92,6 +92,8 @@ local function newFrame(kind, name)
     function f:SetAlpha(a) self.__alpha = a end
     function f:GetAlpha() return self.__alpha end
     function f:SetFrameStrata(v) self.__strata = v end
+    function f:SetScale(v) self.__scale = v end
+    function f:GetScale() return self.__scale or 1 end
     function f:SetSize(w, h) self.__w, self.__h = w, h end
     function f:GetWidth() return self.__w end
     function f:GetFrameStrata() return self.__strata end
@@ -1188,6 +1190,72 @@ do
     _G.UnitHealthMissing, _G.C_StringUtil = realM, realS
 end
 
+-- MAIN TANK. Arn's party showed four identical role badges and himself on the apex: casual groups
+-- and Classic raids rarely set LFG roles. The raid leader's Main Tank assignment is the Classic way
+-- to say it, so a main tank is a tank whatever the LFG role says.
+do
+    local realPA = _G.GetPartyAssignment
+    STATE.roles = { player = "DAMAGER", party1 = "DAMAGER", party2 = "DAMAGER" }
+    _G.GetPartyAssignment = function(what, u) return what == "MAINTANK" and u == "party2" end
+    local order = table.concat(FG.ByRole({ "player", "party1", "party2" }), " ")
+    ok(order:match("^party2"), "the raid's Main Tank goes to the top with no LFG role set", order)
+
+    -- and a secret answer must not promote anyone on a guess
+    _G.GetPartyAssignment = function() return secret() end
+    local blind = table.concat(FG.ByRole({ "player", "party1", "party2" }), " ")
+    ok(blind == "player party1 party2", "a secret answer promotes nobody", blind)
+
+    _G.GetPartyAssignment = realPA
+    STATE.roles = nil
+end
+
+-- SCALE. Arn: "a slider that lets people set the scale of the frames, this is perfect for me but
+-- some people like larger smaller". A stepper, because the options lib has no sliders on purpose.
+do
+    local d = NS.DB()
+    ok(d.scale == 1, "a fresh install is the size it was designed at")
+    ok(FG.ClampScale(5) == FG.SCALE_MAX and FG.ClampScale(0.1) == FG.SCALE_MIN,
+       "and it cannot be pushed past the ends")
+    ok(FG.ClampScale(0.8500000001) == 0.85, "nor end up at 0.8500000001")
+
+    -- THE GRID STAYS WHERE IT IS. An offset is in the frame's own scaled units, so scaling a grid
+    -- anchored 192 from the right edge would slide it to 288 at 150% without the conversion.
+    FG.anchor:ClearAllPoints()
+    FG.anchor:SetPoint("RIGHT", UIParent, "RIGHT", -192, 30)
+    FG.anchor:SetScale(1)
+    FG.SetScale(1.5)
+    local p, _, r, x, y = FG.anchor:GetPoint(1)
+    ok(FG.anchor:GetScale() == 1.5, "the grid is scaled")
+    ok(p == "RIGHT" and math.abs(x * 1.5 - (-192)) < 0.01 and math.abs(y * 1.5 - 30) < 0.01,
+       "and on screen it has not moved: 192 from the edge before, 192 after",
+       ("%s %s,%s at %s"):format(tostring(p), tostring(x), tostring(y), tostring(FG.anchor:GetScale())))
+
+    -- in combat it keeps the wish and waits
+    STATE.inCombat = true
+    local now = FG.SetScale(0.8)
+    ok(now == false and d.scale == 0.8 and FG.anchor:GetScale() == 1.5,
+       "mid-fight it keeps the setting but does not resize secure frames")
+    STATE.inCombat = false
+    fire(FG.events, "PLAYER_REGEN_ENABLED")
+    ok(FG.anchor:GetScale() == 0.8, "and applies it the moment the fight ends",
+       tostring(FG.anchor:GetScale()))
+
+    -- the command speaks in percentages
+    NS.DO.scale("90")
+    ok(d.scale == 0.9 and FG.anchor:GetScale() == 0.9, "/bish scale 90 means 90%")
+
+    local found
+    for _, sec in ipairs(NS.CFG.Sections()) do
+        for _, o in ipairs(sec.options) do if o.key == "scale" then found = o end end
+    end
+    ok(found and found.kind == "step" and found.min == 0.6 and found.max == 1.6,
+       "the options window has a stepper for it")
+    ok(found and found.show(d) == "90%", "and shows it as a percentage", found and found.show(d))
+
+    FG.SetScale(1)
+    FG.RestorePos()
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.
@@ -1864,7 +1932,15 @@ do
     for _, want in ipairs({ "shown", "minimap", "mouse", "scan", "pipTest" }) do
         ok(keys[want], ("the window lost %q"):format(want))
     end
-    ok(#NS.UI.Rows() <= 10, "the window stays short: " .. #NS.UI.Rows())
+    -- RAISED FROM 10 TO 12, ON PURPOSE (20 Sep 2026), and not to make a red line go away. The cap
+    -- was set when the window had six rows. Four real settings arrived in one evening, each asked
+    -- for by the player - pyramid, pets, missing health, size of the cells - and that is what the
+    -- window is for. Eleven rows today.
+    --
+    -- THE NEXT ROW IS A DECISION, NOT A BUMP: "what can I see?" and "test the debuff marker" are
+    -- diagnostics sitting beside real settings. When this goes red again, fold those two behind
+    -- one "diagnostics" button rather than raising the number a second time.
+    ok(#NS.UI.Rows() <= 12, "the window stays short: " .. #NS.UI.Rows())
 
     -- and the slash command reaches them. "/bish nonsense" prints the help rather than throwing.
     for _, cmd in ipairs({ "", "show", "hide", "mouse", "rescan", "scan", "auras", "nonsense" }) do

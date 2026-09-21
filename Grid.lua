@@ -376,7 +376,12 @@ function FG.RestorePos()
     if type(p) == "table" and p.point then
         a:SetPoint(p.point, UIParent, p.rel or p.point, p.x or 0, p.y or 0)
     else
-        a:SetPoint("CENTER", UIParent, "CENTER", -260, -120)
+        -- CENTRE MEANS CENTRE. This was CENTER,-260,-120 - 260 left and 120 DOWN - so `/bish
+        -- center` dropped the grid into the action bars and Arn asked how to get it back:
+        -- "center it puts it down there". A command named `center` that does not centre is a
+        -- command nobody can use to rescue a window they cannot see, which is the only reason
+        -- anyone types it. Over the character is fine; that is what dragging the header is for.
+        a:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     end
 end
 
@@ -459,6 +464,12 @@ function FG.Start()
     if FG.anchor then return true end
 
     local anchor = CreateFrame("Frame", "BiSHealingForeverAnchor", UIParent)
+    -- ABOVE THE ACTION BARS. No strata was ever set, so the grid sat at the default and drew in
+    -- among the bars - Arn, with a raid up: "its behind all this junk". A healing grid you cannot
+    -- see is not a healing grid, and the header you would drag to move it was buried with it.
+    -- HIGH is above the bars and bags and below DIALOG and tooltips, so nothing it needs to sit
+    -- under is covered.
+    if anchor.SetFrameStrata then anchor:SetFrameStrata("HIGH") end
     anchor:SetSize(FRAME_W, FRAME_H)
     FG.anchor = anchor
     FG.RestorePos()

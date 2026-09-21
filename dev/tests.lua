@@ -91,6 +91,8 @@ local function newFrame(kind, name)
     function f:IsShown() return self.__shown end
     function f:SetAlpha(a) self.__alpha = a end
     function f:GetAlpha() return self.__alpha end
+    function f:SetFrameStrata(v) self.__strata = v end
+    function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
     function f:SetValue(v) self.__value = v end          -- what the bar was handed, kept as given
@@ -847,6 +849,28 @@ do
        "a later migration keeps what an earlier one set aside")
 
     _G.BiSHealingDB = keep
+end
+
+-- WHERE IT LANDS, AND WHAT IT LANDS UNDER. Arn, 20 Sep, with a 25-man raid up: "its behind all
+-- this junk how do i move it again center it puts it down there". Two separate faults in one
+-- sentence, and both of them make the window unrescuable: it drew among the action bars, and the
+-- one command meant to retrieve a window you cannot see put it back into them.
+do
+    ok(FG.anchor.__strata == "HIGH",
+       "the grid is above the action bars, not among them", tostring(FG.anchor.__strata))
+
+    local d = NS.DB()
+    d.gridPos = { point = "RIGHT", rel = "RIGHT", x = -192, y = 14 }
+    FG.RestorePos()
+    local p, _, r, x, y = FG.anchor:GetPoint(1)
+    ok(p == "RIGHT" and x == -192, "a dragged position is remembered", tostring(p) .. " " .. tostring(x))
+
+    d.gridPos = nil
+    FG.RestorePos()
+    p, _, r, x, y = FG.anchor:GetPoint(1)
+    ok(p == "CENTER" and r == "CENTER" and x == 0 and y == 0,
+       "and centre means CENTRE - not 260 left and 120 down into the action bars",
+       ("%s %s %s,%s"):format(tostring(p), tostring(r), tostring(x), tostring(y)))
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

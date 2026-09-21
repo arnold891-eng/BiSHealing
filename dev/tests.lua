@@ -1044,6 +1044,48 @@ do
     ok(#leaked == 0, "nor left a single global behind", table.concat(leaked, ","))
 end
 
+-- /bish text: THE PROBE MUST SURVIVE WHAT IT IS PROBING. It exists to find out whether the client
+-- will paint missing health and a percentage for us, and the values it handles are secrets. A
+-- probe that stringified one to print it would crash on exactly the case it was built to report.
+--
+-- The harness's ordinary fake secret does not trap tostring, so this one does - otherwise "never
+-- turns a secret into a string" is a claim the suite cannot check.
+do
+    local trapMeta = {}
+    for k, v in pairs(secretMeta) do trapMeta[k] = v end
+    trapMeta.__tostring = function() error("tostring on a secret value", 2) end
+    local function trap() return setmetatable({}, trapMeta) end
+
+    local saved = {}
+    for _, k in ipairs({ "UnitHealthMissing", "UnitHealthPercent", "AbbreviateNumbers",
+                         "C_StringUtil", "UnitGetTotalAbsorbs", "issecretvalue", "DEFAULT_CHAT_FRAME" }) do
+        saved[k] = _G[k]
+    end
+    _G.UnitHealthMissing = function() return trap() end            -- secret, as in a fight
+    _G.UnitHealthPercent = function() return 87 end                 -- plain
+    _G.AbbreviateNumbers = function(v)                              -- refuses a secret
+        if getmetatable(v) == trapMeta then error("cannot format a secret", 2) end
+        return "?"
+    end
+    _G.C_StringUtil = { TruncateWhenZero = function(v) return v end }
+    _G.UnitGetTotalAbsorbs = function() return 0 end
+    _G.issecretvalue = function(v) return getmetatable(v) == trapMeta or getmetatable(v) == secretMeta end
+    local lines = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, m) lines[#lines + 1] = m end }
+
+    local ran, err = pcall(NS.DO.text, "party1")
+
+    for k, v in pairs(saved) do _G[k] = v end
+    local all = table.concat(lines, "\n")
+    local function row(name) return all:match(name .. "[^\n]*") or "" end
+    ok(ran, "the probe survives the secrets it is testing", tostring(err))
+    ok(row("missing"):find("secret") and row("missing"):find("paints"),
+       "a secret missing-health is reported secret, and painted", row("missing"))
+    ok(row("percent"):find("plain"), "a plain percentage is reported plain", row("percent"))
+    ok(row("abbrev"):find("cannot ask"), "a formatter that refuses a secret is reported as refusing",
+       row("abbrev"))
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

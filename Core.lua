@@ -287,6 +287,46 @@ function NS.DO.layout(mode)
     return mode
 end
 
+--- CAN THE CLIENT DRAW HEALTH TEXT FOR US? Asked before building it, not after.
+---
+--- Missing health is max minus current, and a percentage is current over max: both are exactly
+--- the arithmetic this client refuses on a secret. But it offers the answers itself -
+--- UnitHealthMissing, UnitHealthPercent - and formatting that may accept a secret and hand back
+--- something paintable. "Exists in the census" is not "works with a secret", though: the combat
+--- log looked open right up until registering it was a protected call. So this pushes each one
+--- through a REAL FontString and reports two things per call - was the value secret, and did the
+--- client let us paint it. Run it out of combat AND in one; only the second answer counts.
+function NS.DO.text(unit)
+    unit = (unit and unit ~= "") and unit or "target"
+    if not (UnitExists and UnitExists(unit)) then
+        Print(("no %s to ask about - target someone, or /bish text party1"):format(unit))
+        return
+    end
+    NS.textProbe = NS.textProbe or UIParent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fs = NS.textProbe
+    fs:Hide()
+    local fighting = InCombatLockdown and InCombatLockdown()
+    Print(("health text for |cffb980ff%s|r, %s:"):format(unit,
+        fighting and "|cfff08cb0in combat|r" or "out of combat - run it in a fight as well"))
+    local function try(name, get)
+        local asked, v = pcall(get)
+        if not asked then
+            Print(("  %-10s |cfff08cb0cannot ask|r  %s"):format(name, tostring(v)))
+            return
+        end
+        -- never tostring(v) here: v may be the very secret being tested
+        local secret = NS.Secret(v)
+        local painted = pcall(fs.SetText, fs, v)
+        Print(("  %-10s %-7s %s"):format(name, secret and "secret" or "plain",
+            painted and "|cff4fd0cfpaints|r" or "|cfff08cb0refused|r"))
+    end
+    try("missing",   function() return UnitHealthMissing(unit) end)
+    try("percent",   function() return UnitHealthPercent(unit) end)
+    try("abbrev",    function() return AbbreviateNumbers(UnitHealthMissing(unit)) end)
+    try("hide-zero", function() return C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit)) end)
+    try("absorbs",   function() return UnitGetTotalAbsorbs(unit) end)
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -329,6 +369,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.db()
     elseif msg == "keep" or msg == "macro" then
         NS.DO.keep()
+    elseif msg == "text" or msg:match("^text%s") then
+        NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"
         or msg:match("^layout%s") then
         local want = msg:match("^layout%s+(%a+)")

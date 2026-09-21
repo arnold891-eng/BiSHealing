@@ -57,6 +57,10 @@ local DEFAULTS = {
     shown   = true,      -- are the cells up at all
     binds   = nil,       -- mouse binds, seeded per class on first run (Mouse.lua)
     minimap = nil,       -- the button's angle, and whether it is hidden
+    -- THE REGULAR GRID BY DEFAULT, the pyramid a choice. Arn, having asked for the pyramid and
+    -- then thought about it: "pyramid is a hard pill to swallow we keep it a toggle regular grid
+    -- by group or pyramid". A layout nobody asked for is not a default.
+    layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
 }
 
 NS.DBVER = 1
@@ -262,6 +266,27 @@ function NS.DO.keep()
     Print(("  %d bind(s) kept"):format(n))
 end
 
+--- Switch layout. No argument flips between the two, which is what a toggle button wants.
+function NS.DO.layout(mode)
+    local d = DB()
+    if mode ~= "pyramid" and mode ~= "columns" then
+        mode = (d.layout == "pyramid") and "columns" or "pyramid"
+    end
+    d.layout = mode
+    if InCombatLockdown and InCombatLockdown() then
+        Print(("%s after this fight -- the cells are secure frames and will not move mid-pull")
+              :format(mode == "pyramid" and "pyramid" or "grid by group"))
+        -- nothing to queue: the grid relayouts on PLAYER_REGEN_ENABLED anyway, and reads
+        -- d.layout fresh when it does. (A `NS.FG.pending = true` here once looked like the
+        -- mechanism and did nothing at all - the grid's pending flag is a local of its own.)
+        return mode
+    end
+    if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+    Print(mode == "pyramid" and "pyramid: tanks on top, then healers, then damage"
+          or "grid: one column per raid group")
+    return mode
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -304,6 +329,11 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.db()
     elseif msg == "keep" or msg == "macro" then
         NS.DO.keep()
+    elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"
+        or msg:match("^layout%s") then
+        local want = msg:match("^layout%s+(%a+)")
+        if msg == "pyramid" then want = "pyramid" elseif msg == "grid" or msg == "columns" then want = "columns" end
+        NS.DO.layout(want)
     else
         NS.DO.help()
     end

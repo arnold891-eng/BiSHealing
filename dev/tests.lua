@@ -92,6 +92,8 @@ local function newFrame(kind, name)
     function f:SetAlpha(a) self.__alpha = a end
     function f:GetAlpha() return self.__alpha end
     function f:SetFrameStrata(v) self.__strata = v end
+    function f:SetSize(w, h) self.__w, self.__h = w, h end
+    function f:GetWidth() return self.__w end
     function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
@@ -750,7 +752,9 @@ end
 do
     STATE.roles = { player = "HEALER", party1 = "TANK", party2 = "DAMAGER" }
     FG.Layout(FG.anchor)
-    local cell = FG.frames[1]
+    -- BY UNIT, NOT BY POSITION: the pyramid puts the TANK first, so frames[1] is party1 now and
+    -- a test that assumed "cell 1 is me" was testing the old layout's order, not the icon.
+    local cell = FG.byUnit["player"]
 
     ok(cell.role ~= nil, "a cell has somewhere to put the role")
     local drew, role = FG.PaintRole(cell)
@@ -871,6 +875,111 @@ do
     ok(p == "CENTER" and r == "CENTER" and x == 0 and y == 0,
        "and centre means CENTRE - not 260 left and 120 down into the action bars",
        ("%s %s %s,%s"):format(tostring(p), tostring(r), tostring(x), tostring(y)))
+end
+
+-- THE PYRAMID. Arn, mid-raid with the TBC frames up: "this is how we make forever eventually
+-- pyramid tanks on top people out of range dimmmed" - and then "can we rearrange out of combat?",
+-- which is not a choice: the cells are secure frames and the client will not move them mid-fight.
+do
+    -- THE SHAPE, asked without a client: an apex, a pair, then rows of six
+    local function rows(n)
+        local out = {}
+        for _, p in ipairs(FG.Pyramid(n)) do out[p.row] = (out[p.row] or 0) + 1 end
+        return table.concat(out, ",")
+    end
+    ok(rows(1) == "1", "solo: the apex alone", rows(1))
+    ok(rows(5) == "1,2,2", "a party: apex, pair, and two below", rows(5))
+    ok(rows(25) == "1,2,6,6,6,4", "a 25-man: the base repeats in sixes", rows(25))
+    local p = FG.Pyramid(9)
+    ok(p[1].wide and p[2].wide and p[3].wide and not p[4].wide,
+       "the apex and the pair are full width, the rows under them are not")
+
+    -- THE ORDER: tanks first, then healers, then damage, and raid order kept inside each
+    local raid = { "raid1", "raid2", "raid3", "raid4", "raid5", "raid6", "raid7" }
+    STATE.roles = { raid1 = "DAMAGER", raid2 = "HEALER", raid3 = "TANK", raid4 = "DAMAGER",
+                    raid5 = "TANK", raid6 = "NONE", raid7 = "HEALER" }
+    local by = table.concat(FG.ByRole(raid), " ")
+    ok(by == "raid3 raid5 raid2 raid7 raid1 raid4 raid6",
+       "tanks, then healers, then damage, then nobody - and nobody reshuffled within a role", by)
+
+    -- IN COMBAT a role is a secret; the sort must survive it and not reorder on a guess
+    STATE.roleSecret = true
+    local blind = table.concat(FG.ByRole(raid), " ")
+    ok(blind == table.concat(raid, " "), "a secret role sorts nobody - raid order is kept", blind)
+    STATE.roleSecret = false
+
+    -- THE CELLS, laid out for a real party: tank on top, and the apex cell really is wide
+    STATE.roles = { player = "HEALER", party1 = "TANK", party2 = "DAMAGER" }
+    local d = NS.DB()
+    d.layout = "pyramid"
+    FG.Layout(FG.anchor)
+    ok(FG.frames[1].unit == "party1", "the tank is the apex", tostring(FG.frames[1].unit))
+    ok(FG.frames[1].__w == 2 * 84 + 3, "the apex is two cells and a gap wide",
+       tostring(FG.frames[1].__w))
+    ok(FG.frames[1].incoming.__w == FG.frames[1].__w - 2,
+       "and its incoming-heal bar runs the full width, not half of it",
+       tostring(FG.frames[1].incoming.__w))
+
+    -- AND OUT OF COMBAT ONLY
+    STATE.roles.party2 = "TANK"
+    STATE.inCombat = true
+    ok(FG.Layout(FG.anchor) == false, "in combat it refuses to move anything")
+    ok(FG.frames[1].unit == "party1", "so the apex is still who it was")
+    STATE.inCombat = false
+    FG.Layout(FG.anchor)
+    ok(FG.frames[1].unit == "party1" and FG.frames[2].unit == "party2",
+       "and once the fight ends, the new tank takes their place")
+
+    -- AND COLUMNS, for anyone who wants the old grid back
+    d.layout = "columns"
+    FG.Layout(FG.anchor)
+    ok(FG.frames[1].unit == "player" and FG.frames[1].__w == 84,
+       "/bish layout columns puts it back: raid order, every cell the same")
+    d.layout = "columns"          -- the DEFAULT, so nothing after this runs in the pyramid by accident
+    STATE.roles = nil
+    FG.Layout(FG.anchor)
+end
+
+-- THE REGULAR GRID IS THE DEFAULT, AND IT IS REALLY BY GROUP. Arn: "pyramid is a hard pill to
+-- swallow we keep it a toggle regular grid by group or pyramid". The old grid filled columns of
+-- five in raid1, raid2 order - JOIN order - so it only looked grouped when people had joined in
+-- group order. Here the raid joined out of order on purpose.
+do
+    ok(NS.DB().layout == "columns", "a fresh install gets the regular grid, not the pyramid",
+       tostring(NS.DB().layout))
+
+    local realRaid, realInfo = _G.IsInRaid, _G.GetRaidRosterInfo
+    local groupOf = { 1, 2, 1, 3, 2, 1 }      -- raid1..raid6 joined in this group order
+    _G.IsInRaid = function() return true end
+    _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, groupOf[i] end
+
+    local units, place, cols = FG.ByGroup({ "raid1", "raid2", "raid3", "raid4", "raid5", "raid6" })
+    ok(cols == 3, "three groups present, three columns", cols)
+    ok(table.concat(units, " ") == "raid1 raid3 raid6 raid2 raid5 raid4",
+       "group 1 first, then 2, then 3 - not the order they joined in", table.concat(units, " "))
+    ok(place[1].col == 1 and place[3].col == 1 and place[4].col == 2 and place[6].col == 3,
+       "each column is one group")
+    ok(place[1].row == 1 and place[2].row == 2 and place[3].row == 3,
+       "and they stack down their group's column in raid order")
+
+    _G.IsInRaid, _G.GetRaidRosterInfo = realRaid, realInfo
+end
+
+-- AND IT IS A TOGGLE: one command, one switch in the options window, either way round
+do
+    local d = NS.DB()
+    d.layout = "columns"
+    ok(NS.DO.layout() == "pyramid" and d.layout == "pyramid", "/bish layout with nothing flips to the pyramid")
+    ok(NS.DO.layout() == "columns" and d.layout == "columns", "and again flips back")
+    ok(NS.DO.layout("pyramid") == "pyramid", "or it can be told which")
+    NS.DO.layout("columns")
+
+    local found
+    for _, sec in ipairs(NS.CFG.Sections()) do
+        for _, o in ipairs(sec.options) do if o.key == "pyramid" then found = o end end
+    end
+    ok(found and found.kind == "toggle", "the options window has a pyramid switch")
+    ok(found and found.get(d) == false, "and it reads off while the grid is showing")
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

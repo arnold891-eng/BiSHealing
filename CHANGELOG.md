@@ -1,5 +1,12 @@
 # BiS Healing
 
+## 0.3.2
+
+- **Names and the health number on separate lines.** The name has the top of the cell to itself
+  and the number sits bottom-right, so a long name is no longer cut short to make room.
+- **First names only.** A character with a surname showed as "Kumlust S"; now it is "Kumlust".
+  Names up to 12 letters fit.
+
 ## 0.3.1
 
 - **Fixed: "BiS Healing tried to call the protected function TogglePVP()".** Typing `/pvp` - or

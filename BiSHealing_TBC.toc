@@ -1,0 +1,17 @@
+## Interface: 20506
+## Title: BiS Healing |cff808080(Forever edition - inactive here)|r
+## Notes: The WoW Forever edition. It loads nothing in this client, on purpose.
+## Author: Kumlust
+
+# WHY THIS FILE EXISTS (20 Sep 2026). A TBC client picks BiSHealing_TBC.toc over BiSHealing.toc
+# when both are present - learned from RestedXP, which ships one TOC per flavour. The base TOC
+# claims TBC as well as Forever, so without this file the Forever addon loaded in TBC, found the
+# OLD BiS Healing's saved table, and emptied it: 4,039 fight records in one logout.
+#
+# So on TBC this folder loads ONE file, which only says what this is. No SavedVariables are
+# declared here on purpose: this TOC must never be in a position to read or write BiSHealingDB,
+# which belongs to BiS Healing (TBC) on this client.
+#
+# No ## Version either - the base TOC is the only place the version lives, and a second copy is a
+# second thing to forget to bump.
+TBC.lua

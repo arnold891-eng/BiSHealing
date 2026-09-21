@@ -61,6 +61,7 @@ local DEFAULTS = {
     -- then thought about it: "pyramid is a hard pill to swallow we keep it a toggle regular grid
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
+    pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
 }
 
 NS.DBVER = 1
@@ -371,6 +372,16 @@ function NS.DO.text(unit)
     p:Show()
 end
 
+--- Pets on or off. No argument flips it, which is what a toggle wants.
+function NS.DO.pets(on)
+    local d = DB()
+    if on == nil then on = not d.pets end
+    d.pets = on and true or false
+    if not (InCombatLockdown and InCombatLockdown()) and NS.FG and NS.FG.Layout then NS.FG.Layout() end
+    Print(d.pets and "pets shown - in a column of their own" or "pets hidden")
+    return d.pets
+end
+
 function NS.DO.help()
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
@@ -413,6 +424,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.db()
     elseif msg == "keep" or msg == "macro" then
         NS.DO.keep()
+    elseif msg == "pets" or msg == "pet" then
+        NS.DO.pets()
     elseif msg == "text" or msg:match("^text%s") then
         NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"

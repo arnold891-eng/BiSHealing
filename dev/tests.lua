@@ -1086,6 +1086,45 @@ do
        row("abbrev"))
 end
 
+-- PETS. Arn: "toggel to see pets". Off by default - a raid of five hunters and three warlocks is
+-- eight more cells - and when on, they get a column of their own rather than lengthening their
+-- owner's group until a real player falls off the bottom.
+do
+    local d = NS.DB()
+    STATE.units.pet, STATE.units.partypet1 = true, true
+
+    ok(d.pets == false, "pets are off on a fresh install")
+    local off = table.concat(FG.Roster(), " ")
+    ok(not off:find("pet", 1, true), "and while off, no pet is in the roster even when one exists", off)
+
+    ok(NS.DO.pets() == true and d.pets == true, "/bish pets turns them on")
+    local on = table.concat(FG.Roster(), " ")
+    ok(on:find("partypet1", 1, true) and on:find(" pet", 1, true), "and then the pets are in it", on)
+
+    d.layout = "columns"
+    local units, place, cols = FG.ByGroup(FG.Roster())
+    local petCol, playerCol
+    for i, u in ipairs(units) do
+        if u == "partypet1" then petCol = place[i].col end
+        if u == "player" then playerCol = place[i].col end
+    end
+    ok(petCol and playerCol and petCol > playerCol and petCol == cols,
+       "in the grid the pets have the LAST column, not a seat in their owner's group",
+       ("pet col %s of %s, player col %s"):format(tostring(petCol), tostring(cols), tostring(playerCol)))
+
+    STATE.roles = { player = "HEALER", party1 = "TANK" }
+    local ranked = FG.ByRole(FG.Roster())
+    ok(FG.IsPetUnit(ranked[#ranked]), "in the pyramid a pet has no role, so it sits at the bottom",
+       ranked[#ranked])
+    STATE.roles = nil
+
+    ok(fire(FG.events, "UNIT_PET"), "a pet summoned mid-session is noticed - UNIT_PET is registered")
+
+    ok(NS.DO.pets() == false, "and /bish pets turns them off again")
+    STATE.units.pet, STATE.units.partypet1 = nil, nil
+    FG.Layout(FG.anchor)
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

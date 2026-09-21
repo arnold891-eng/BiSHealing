@@ -1,5 +1,31 @@
 # BiS Healing
 
+## 0.3.1
+
+- **Fixed: "BiS Healing tried to call the protected function TogglePVP()".** Typing `/pvp` - or
+  any other game command that needs special permission - could be blocked, with BiS Healing
+  named as the culprit. The addon had written to the game's own list of slash commands, which made
+  the game treat every command typed in chat as coming from BiS Healing. It no longer touches that
+  list.
+
+- **Missing health is shorter, and counts heals already on the way.** `3.2K` instead of `3247`,
+  still blank at full health. A heal that is already landing comes off the number, so two healers
+  stop filling the same gap.
+
+- **Or a percentage instead**: `87%`. Choose `lost`, `%` or `off` under "number" in options, or
+  `/bish missing`, `/bish percent`, `/bish number off`.
+
+- **Bars coloured by health, if you want it** - green, then amber below 70%, red below 35%. The
+  names take their class colour instead, so you still know who is who. Class-coloured bars stay the
+  default. Options, or `/bish colour`.
+
+- **Both settings survive a restart**, kept in the `BiSHealing` macro beside your binds and the
+  size of the cells.
+
+- **One click on the minimap button.** Left and right click both open the options window now - the
+  small menu is gone, since everything in it was already in the window. **Mouse binds are the
+  first row.**
+
 ## 0.3.0
 
 - **Missing health on every cell, blank at full.** How much each person needs, on the right of

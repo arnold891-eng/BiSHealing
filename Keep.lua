@@ -38,6 +38,7 @@ FK.MACRO = "BiSHealing"
 FK.ICON  = "INV_Misc_QuestionMark"
 FK.LIMIT = 255
 FK.TAG   = "BiSH1"
+FK.POS_ZERO = 5000     -- added to the grid's position so a negative offset fits a digits-only row
 
 -- one letter per slot and per modifier, because the budget is characters
 local SLOTCODE = { left = "l", right = "r", wheelup = "u", wheeldown = "d",
@@ -93,6 +94,19 @@ local function settingRows(settings)
     if s and s ~= 1 then out[#out + 1] = "S=" .. math.floor(s * 100 + 0.5) end
     if TEXTCODE[settings.text or ""] then out[#out + 1] = "T=" .. TEXTCODE[settings.text] end
     if settings.color == "health" then out[#out + 1] = "C=1" end
+    -- 21 Sep, the same again: where the grid was dragged (P) and whether it is hidden (H). Arn:
+    -- "when i log on it puts the frames back in the center". The position is the grid's offset
+    -- from the middle of the screen, which can be negative, and a row only carries digits - so
+    -- both numbers ride with POS_ZERO added, "P=4800:5120" for 200 left and 120 up.
+    local p = settings.pos
+    if type(p) == "table" and tonumber(p.x) and tonumber(p.y) then
+        local x = math.floor(tonumber(p.x) + 0.5) + FK.POS_ZERO
+        local y = math.floor(tonumber(p.y) + 0.5) + FK.POS_ZERO
+        if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+            out[#out + 1] = ("P=%d:%d"):format(x, y)
+        end
+    end
+    if settings.hidden then out[#out + 1] = "H=1" end
     return out
 end
 
@@ -165,6 +179,10 @@ function FK.Decode(body)
             settings.text = CODETEXT[tonumber(idx)]
         elseif code == "C" then
             settings.color = tonumber(idx) == 1 and "health" or "class"
+        elseif code == "P" and tonumber(idx) and tonumber(rank) then
+            settings.pos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "H" then
+            settings.hidden = tonumber(idx) == 1
         elseif code then
             local slot = CODESLOT[code:sub(-1)]
             local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
@@ -207,7 +225,14 @@ function FK.Save(binds)
     if InCombatLockdown and InCombatLockdown() then return false, "combat" end
     local d = NS.DB and NS.DB()
     local t = type(d) == "table" and d or {}
-    local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color })
+    -- the position only when it is pinned by the centre (FG.Recenter); any other kind of point
+    -- is not two numbers, and "back in the middle" is what writing nothing means
+    local gp, pos = t.gridPos, nil
+    if type(gp) == "table" and gp.point == "CENTER" and (gp.rel == nil or gp.rel == "CENTER") then
+        pos = { x = gp.x or 0, y = gp.y or 0 }
+    end
+    local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
+                                             pos = pos, hidden = t.shown == false })
     if not body then return false, "nothing to write" end
 
     local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)

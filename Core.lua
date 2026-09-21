@@ -320,11 +320,55 @@ function NS.DO.text(unit)
         Print(("  %-10s %-7s %s"):format(name, secret and "secret" or "plain",
             painted and "|cff4fd0cfpaints|r" or "|cfff08cb0refused|r"))
     end
-    try("missing",   function() return UnitHealthMissing(unit) end)
-    try("percent",   function() return UnitHealthPercent(unit) end)
-    try("abbrev",    function() return AbbreviateNumbers(UnitHealthMissing(unit)) end)
-    try("hide-zero", function() return C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit)) end)
-    try("absorbs",   function() return UnitGetTotalAbsorbs(unit) end)
+    local variants = {
+        { "missing",   function() return UnitHealthMissing(unit) end },
+        { "percent",   function() return UnitHealthPercent(unit) end },
+        { "abbrev",    function() return AbbreviateNumbers(UnitHealthMissing(unit)) end },
+        { "hide-zero", function() return C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit)) end },
+        { "absorbs",   function() return UnitGetTotalAbsorbs(unit) end },
+        -- THE ONE WE ACTUALLY WANT is both: abbreviated AND blank at full health. Each helper was
+        -- tried alone; which order they compose in is a separate question, so both are asked.
+        { "abbr>hide", function() return C_StringUtil.TruncateWhenZero(AbbreviateNumbers(UnitHealthMissing(unit))) end },
+        { "hide>abbr", function() return AbbreviateNumbers(C_StringUtil.TruncateWhenZero(UnitHealthMissing(unit))) end },
+    }
+    for _, v in ipairs(variants) do try(v[1], v[2]) end
+
+    -- AND SHOW THEM. "It paints" says nothing about what it paints - 87, 0.87 or 87% - and a
+    -- secret cannot be read back to find out. So each variant is drawn, labelled, on a small
+    -- panel, and a person looks at it. One screenshot answers what the chat lines cannot.
+    local p = NS.textPanel
+    if not p then
+        p = CreateFrame("Frame", nil, UIParent)
+        p:SetSize(230, 20 * #variants + 30)
+        p:SetPoint("CENTER", UIParent, "CENTER", 0, 120)
+        p:SetFrameStrata("DIALOG")
+        local bg = p:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0, 0, 0, 0.85)
+        p.head = p:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        p.head:SetPoint("TOPLEFT", 10, -8)
+        p.rows = {}
+        for i = 1, #variants do
+            local label = p:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            label:SetPoint("TOPLEFT", 10, -12 - i * 20)
+            local val = p:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            val:SetPoint("TOPLEFT", 110, -10 - i * 20)
+            p.rows[i] = { label = label, val = val }
+        end
+        p:EnableMouse(true)
+        p:SetScript("OnMouseDown", function(self) self:Hide() end)   -- click it away
+        NS.textPanel = p
+    end
+    p.head:SetText(("|cffb980ff%s|r  -  click to close"):format(unit))
+    for i, v in ipairs(variants) do
+        local r = p.rows[i]
+        r.label:SetText(v[1])
+        local asked, got = pcall(v[2])
+        if not (asked and pcall(r.val.SetText, r.val, got)) then
+            r.val:SetText("|cfff08cb0refused|r")
+        end
+    end
+    p:Show()
 end
 
 function NS.DO.help()

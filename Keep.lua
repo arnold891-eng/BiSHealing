@@ -68,9 +68,28 @@ local function split(cast)
     return (name:gsub("%s+$", "")), tonumber(rank:match("%d+") or "")
 end
 
+--- The settings that ride along with the binds, as rows of their own. Arn, 20 Sep: "put scale in
+--- the macro" - it is a saved variable, and on this client a saved variable does not survive a
+--- restart, so a size set "once, from the beginning" would reset at every login.
+---
+--- WRITTEN SO BOTH DIRECTIONS ARE SAFE, because people on 0.1.0 and 0.2.0 already have macros:
+---   * an OLD install reading a new body sees `S=90`, looks for a slot called "S", finds none,
+---     and skips the row - exactly as it skips any row it cannot read. Bind codes are l r u d m 4 5
+---     with an optional lowercase s c a in front; an uppercase S is none of them.
+---   * a NEW install reading an old body finds no S row and leaves the scale at 100%.
+--- And they go FIRST, because the trimmer drops rows from the END when a full mouse overflows the
+--- 255 characters: a setting must never be what gets cut to make room for a bind.
+local function settingRows(settings)
+    local out = {}
+    local s = type(settings) == "table" and tonumber(settings.scale)
+    if s and s ~= 1 then out[#out + 1] = "S=" .. math.floor(s * 100 + 0.5) end
+    return out
+end
+
 --- The binds as a macro body, and how many would not fit.
-function FK.Encode(binds)
+function FK.Encode(binds, settings)
     if type(binds) ~= "table" then return nil, 0 end
+    local lead = settingRows(settings)
     local rows, spells, at = {}, {}, {}
     for _, e in ipairs(eachKey()) do
         local cast = binds[e.key]
@@ -83,7 +102,7 @@ function FK.Encode(binds)
             rows[#rows + 1] = { code = e.code, spell = at[name], rank = rank }
         end
     end
-    if #rows == 0 then return FK.TAG .. "#", 0 end
+    if #rows == 0 then return FK.TAG .. "#" .. table.concat(lead, ";"), 0 end
 
     -- built longest-first, then shortened from the END until it fits: the last binds go, and the
     -- spell list is rebuilt each time so a name nobody references any more stops costing anything
@@ -96,6 +115,7 @@ function FK.Encode(binds)
         end
         for i = 1, #list do used[list[i]] = i end
         local parts = {}
+        for i = 1, #lead do parts[#parts + 1] = lead[i] end
         for i = 1, #rows do
             local r = rows[i]
             parts[#parts + 1] = r.code .. "=" .. used[spells[r.spell]] .. (r.rank and (":" .. r.rank) or "")
@@ -124,11 +144,14 @@ function FK.Decode(body)
     if tag ~= FK.TAG then return nil end
     local spells = {}
     for n in (names or ""):gmatch("[^;]+") do spells[#spells + 1] = n end
-    local out, n = {}, 0
+    local out, n, settings = {}, 0, {}
     for row in (rest or ""):gmatch("[^;]+") do
         row = row:match("^%s*(.-)%s*$") or row      -- and per row, for anything hand-edited
         local code, idx, rank = row:match("^(%a?%w)=(%d+):?(%d*)$")
-        if code then
+        if code == "S" then
+            -- a setting, not a bind: the scale, as a whole percentage
+            settings.scale = tonumber(idx) and (tonumber(idx) / 100) or nil
+        elseif code then
             local slot = CODESLOT[code:sub(-1)]
             local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
             local name = spells[tonumber(idx)]
@@ -140,8 +163,9 @@ function FK.Decode(body)
             end
         end
     end
-    if n == 0 then return nil end
-    return out
+    -- no binds is still an answer about the settings: a macro can hold a size and nothing else
+    if n == 0 then return nil, settings end
+    return out, settings
 end
 
 --- Is the macro API here and willing to talk? Asked separately so the caller can tell "no macro
@@ -167,7 +191,8 @@ function FK.Save(binds)
         return false, "no macro api"
     end
     if InCombatLockdown and InCombatLockdown() then return false, "combat" end
-    local body, dropped = FK.Encode(binds)
+    local d = NS.DB and NS.DB()
+    local body, dropped = FK.Encode(binds, { scale = type(d) == "table" and d.scale or nil })
     if not body then return false, "nothing to write" end
 
     local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)

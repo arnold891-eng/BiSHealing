@@ -1256,6 +1256,71 @@ do
     FG.RestorePos()
 end
 
+-- THE SIZE RIDES IN THE MACRO. Arn: "put scale in the macro". It is a saved variable, and on this
+-- client a saved variable does not survive a restart - only the macro does.
+do
+    local FK, FM = NS.FK, NS.FM
+    local binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+
+    local body = FK.Encode(binds, { scale = 0.9 })
+    ok(body:find("#S=90;", 1, true) ~= nil,
+       "the scale is written FIRST, so a full mouse can never trim it off: " .. body)
+    ok(not FK.Encode(binds, { scale = 1 }):find("S=", 1, true),
+       "at 100% nothing is written - a player who never touches it keeps the macro they had")
+
+    local back, settings = FK.Decode(body)
+    ok(back and back["wheelup"] == "Healing Wave(Rank 2)", "the binds still come back")
+    ok(settings and settings.scale == 0.9, "and so does the size")
+
+    -- A 0.2.0 MACRO, with no S row, must still read - and must not invent a size
+    local old, oldSettings = FK.Decode("BiSH1;Healing Wave#u=1:2")
+    ok(old and old["wheelup"] == "Healing Wave(Rank 2)" and oldSettings and oldSettings.scale == nil,
+       "an old macro reads exactly as before, at the default size")
+
+    -- AND A 0.2.0 INSTALL READING THE NEW MACRO. That code is not in this repo any more, so its
+    -- row rule is replayed here verbatim: a code must end in one of the seven slot letters. "S"
+    -- does not, so the row is skipped - the claim the whole format rests on, checked not assumed.
+    local OLD_SLOTS = { l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 }
+    local oldReads = 0
+    for row in (body:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and OLD_SLOTS[code:sub(-1)] then oldReads = oldReads + 1 end
+    end
+    ok(oldReads == 1, "an older install reads the one bind and skips the size row", oldReads)
+
+    -- a mouse too full to fit still keeps its size
+    local many = {}
+    for _, m in ipairs(FM.MODS) do
+        for i, sl in ipairs(FM.SLOTS) do
+            many[m.key .. sl.key] = ("Greater Healing Spell %s%d(Rank 9)"):format(m.key:sub(1, 1), i)
+        end
+    end
+    local fat, dropped = FK.Encode(many, { scale = 1.25 })
+    local _, fatSettings = FK.Decode(fat)
+    ok(dropped > 0 and fatSettings and fatSettings.scale == 1.25,
+       "when binds are trimmed to fit, the size is not among them")
+
+    -- THE WHOLE TRIP: change the size, "restart", and it is back
+    MACROS = {}
+    local d = NS.DB()
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    FG.SetScale(0.85)
+    local stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and stored:find("S=85", 1, true), "changing the size writes it into the macro", stored)
+
+    d.binds, d.bindsSeeded, FM.asked, d.scale = {}, nil, false, 1      -- the restart
+    FG.anchor:SetScale(1)
+    FM.Get("", "wheelup")                                              -- the first read at login
+    ok(d.scale == 0.85 and FG.anchor:GetScale() == 0.85,
+       "and after a restart the size is back, on the grid, not just in the table",
+       ("%s / %s"):format(tostring(d.scale), tostring(FG.anchor:GetScale())))
+
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FG.SetScale(1, true)
+    FM.Get("", "left")
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

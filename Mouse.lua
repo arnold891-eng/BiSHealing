@@ -143,8 +143,16 @@ local function db()
     if not FM.asked and not next(d.binds) then
         if NS.FK and NS.FK.Ready and NS.FK.Ready() then
             FM.asked = true                    -- the api answered, so once is enough
-            local kept = NS.FK.Load and NS.FK.Load()
+            local kept, settings = nil, nil
+            if NS.FK.Load then kept, settings = NS.FK.Load() end
             if type(kept) == "table" then for k, v in pairs(kept) do d.binds[k] = v end end
+            -- AND THE SIZE, which rides in the same macro because it would not survive a restart
+            -- anywhere else on this client. Applied WITHOUT saving: writing back to the macro in
+            -- the middle of reading it would store a half-restored mouse.
+            if type(settings) == "table" and settings.scale then
+                d.scale = settings.scale
+                if NS.FG and NS.FG.SetScale then NS.FG.SetScale(settings.scale, true) end
+            end
         end
     end
     if not d.bindsSeeded and not next(d.binds) then

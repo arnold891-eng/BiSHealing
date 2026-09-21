@@ -568,15 +568,22 @@ end
 ---
 --- Out of combat only - scaling a parent resizes its secure children, which the lockdown refuses.
 --- In combat the setting is kept and applied when the fight ends.
-function FG.SetScale(v)
+function FG.SetScale(v, fromMacro)
     local s = FG.ClampScale(v)
     local d = NS.DB and NS.DB()
     if type(d) == "table" then d.scale = s end
+    -- KEPT IN THE MACRO, beside the binds - the only thing on this client that survives a restart.
+    -- Not when the value CAME from the macro: that is a read, and writing back mid-read would store
+    -- a half-restored mouse. The macro refuses in combat anyway; the fight's end re-applies the
+    -- scale through here and writes it then.
+    local function keep()
+        if not fromMacro and NS.FK and NS.FK.Save and type(d) == "table" then NS.FK.Save(d.binds or {}) end
+    end
     local a = FG.anchor
-    if not (a and a.SetScale) then return true, s end
+    if not (a and a.SetScale) then keep() return true, s end
     if InCombatLockdown and InCombatLockdown() then return false, s end
     local old = (a.GetScale and a:GetScale()) or 1
-    if old == s then return true, s end
+    if old == s then keep() return true, s end
     local ok, point, rel, relPoint, x, y = pcall(a.GetPoint, a, 1)
     a:SetScale(s)
     if ok and point then
@@ -584,6 +591,7 @@ function FG.SetScale(v)
         a:SetPoint(point, rel, relPoint, (x or 0) * old / s, (y or 0) * old / s)
         FG.SavePos()
     end
+    keep()
     return true, s
 end
 

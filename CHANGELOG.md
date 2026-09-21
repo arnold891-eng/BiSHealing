@@ -1,5 +1,34 @@
 # BiS Healing
 
+## 0.3.0
+
+- **Missing health on every cell, blank at full.** How much each person needs, on the right of
+  their cell - and nothing at all when they are topped up, so a full raid is quiet and a hurt one
+  stands out. Someone else's health is hidden from addons on this client even out of combat, so
+  the game works the number out and draws it; the addon never sees it. Switch it off in options or
+  with `/bish missing`.
+
+- **The grid really is by group now.** One column per raid group, in group order. It used to fill
+  columns in the order people *joined*, which only looked grouped when they had joined in order.
+
+- **A pyramid, if you want one.** Tanks on top, then healers, then damage - an apex, a pair, then
+  rows of six. The raid's **Main Tank** counts as a tank even with no role set, which is how most
+  Classic raids mark one. It rearranges only between fights; the game will not move the cells
+  mid-pull. Off by default - switch it on in options, or `/bish pyramid`.
+
+- **Size of the cells**, 60% to 160%, in options or `/bish scale 90`. The grid stays where you put
+  it when you resize it. **It survives a restart** - it is kept in the `BiSHealing` macro beside
+  your binds, since this client forgets addon settings at every login. Macros made by 0.1.0 and
+  0.2.0 still read exactly as before.
+
+- **Pets, if you want them** - a column of their own, so a raid full of hunters does not push a
+  player off the bottom. Off by default; options or `/bish pets`.
+
+- **It does nothing at all in a TBC client**, on purpose. It used to load there, and on 20 Sep it
+  emptied an older BiS Healing's saved history in one logout. A TBC client now loads a single line
+  saying this is the Forever edition, and nothing else - whether or not "Load out of date AddOns"
+  is ticked.
+
 ## 0.2.0
 
 - **It will not throw away another addon's saved data.** This addon's TOC claims TBC as well as

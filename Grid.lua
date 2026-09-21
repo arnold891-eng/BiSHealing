@@ -230,20 +230,22 @@ function FG.Make(i, parent)
     -- not just in combat - so the subtraction cannot be ours. UnitHealthMissing does it client-
     -- side, and C_StringUtil.TruncateWhenZero turns a 0 into nothing at all, which is "hide it at
     -- full health" with no `> 0` for us to be refused. /bish text measured both painting in a
-    -- fight (20 Sep). Made BEFORE the name, because the name is anchored to it.
-    -- (and since 21 Sep, a percentage instead if the player would rather: FG.PaintText)
+    -- fight (20 Sep). (And since 21 Sep, a percentage instead if the player would rather:
+    -- FG.PaintText.)
+    --
+    -- TWO LINES, NOT ONE. Arn, 21 Sep, looking at "Kumlust S 38": "names and health are sharing
+    -- the same line maybe we put them in different lines". They shared one line and the name was
+    -- cut short to make room for the number. Now the name has the top line to itself (up to the
+    -- role icon), and the number sits on the bottom line, right-aligned.
     f.htext = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.htext:SetPoint("RIGHT", -3, 0)
+    f.htext:SetPoint("BOTTOMRIGHT", -3, 4)
     f.htext:SetJustifyH("RIGHT")
     if f.htext.SetTextColor then f.htext:SetTextColor(1, 0.55, 0.55) end
 
     f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.__nameParent = f.bar        -- dev/forever.lua asserts the label belongs to the bar
-    f.name:SetPoint("LEFT", 3, 0)
-    -- ONE BAR, ONE LABEL AT A TIME: the name stops where the number starts, instead of printing
-    -- through it. When the number is blank - full health - it is zero wide, and the name gets the
-    -- whole cell back without anyone having to measure a secret.
-    f.name:SetPoint("RIGHT", f.htext, "LEFT", -2, 0)
+    f.name:SetPoint("TOPLEFT", 3, -4)
+    f.name:SetPoint("TOPRIGHT", -14, -4)    -- stops short of the role icon in the corner
     f.name:SetJustifyH("LEFT")
     if f.name.SetWordWrap then f.name:SetWordWrap(false) end
 
@@ -405,7 +407,10 @@ function FG.ShortName(unit)
     local name = UnitName and UnitName(unit) or unit
     if type(name) ~= "string" then return tostring(unit) end
     name = name:match("^([^-]+)") or name
-    if #name > 9 then name = name:sub(1, 9) end
+    -- FIRST NAME ONLY. Forever characters can have a surname ("Kumlust Surname"), and cutting at
+    -- nine letters left "Kumlust S" - a stray initial nobody reads. Arn: "get rid of last names".
+    name = name:match("^%s*(%S+)") or name
+    if #name > 12 then name = name:sub(1, 12) end
     return name
 end
 

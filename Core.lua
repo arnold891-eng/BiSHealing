@@ -161,6 +161,8 @@ function NS.DO.show(on)
         return db.shown
     end
     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+    -- kept in the macro, so hidden stays hidden after a restart (Keep.lua, H=1)
+    if NS.FK and NS.FK.Save then NS.FK.Save(db.binds or {}) end
     local vis = 0
     for _, f in ipairs((NS.FG and NS.FG.frames) or {}) do
         if f:IsShown() then vis = vis + 1 end
@@ -185,6 +187,7 @@ function NS.DO.center()
     end
     DB().gridPos = nil              -- forget where it was dragged to, then take the default
     if NS.FG.RestorePos then NS.FG.RestorePos() end
+    if NS.FK and NS.FK.Save then NS.FK.Save(DB().binds or {}) end   -- and out of the macro
     Print("back to the middle -- drag the header to put it somewhere else")
 end
 

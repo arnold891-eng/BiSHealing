@@ -157,6 +157,18 @@ local function db()
             if type(settings) == "table" then
                 if settings.text then d.text = settings.text end
                 if settings.color then d.color = settings.color end
+                -- and where the grid was, and whether it was hidden: Arn, 21 Sep, "when i log on
+                -- it puts the frames back in the center". Pinned by the centre, as it was saved.
+                if type(settings.pos) == "table" then
+                    d.gridPos = { point = "CENTER", rel = "CENTER", x = settings.pos.x, y = settings.pos.y }
+                    if NS.FG and NS.FG.RestorePos and not (InCombatLockdown and InCombatLockdown()) then
+                        NS.FG.RestorePos()
+                    end
+                end
+                if settings.hidden then
+                    d.shown = false
+                    if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the
+                end                                                      -- grid's own retry obeys
             end
         end
     end

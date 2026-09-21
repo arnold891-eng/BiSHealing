@@ -416,6 +416,11 @@ end
 
 --------------------------------------------------------------------- layout --
 
+--- Take a cell off the client's unit watch (RegisterUnitWatch), so a Hide() stays hidden.
+function FG.Unwatch(f)
+    if f and UnregisterUnitWatch then pcall(UnregisterUnitWatch, f) end
+end
+
 --- Where the cells sit. Blocked in combat by the client, so it answers false there and the caller
 --- tries again when the fight ends.
 function FG.Layout(anchor)
@@ -426,11 +431,19 @@ function FG.Layout(anchor)
     if not anchor then return false end
     local roster = FG.Roster()
     -- "the frames" is one switch on both clients: /bish hide means this grid too
+    --
+    -- HIDDEN MEANS THE WATCH STOPS TOO. Each cell is under RegisterUnitWatch, which is the
+    -- client showing the cell whenever its unit exists - so f:Hide() lasted until the next tick
+    -- and the cell came straight back. Arn, 21 Sep: "show the cells does nothing, it just keep
+    -- showing up". The watch is lifted, the cells hidden, and the anchor with them (the header
+    -- lives on it), so nothing is left on screen but the minimap button to bring it back.
     local d = NS.DB and NS.DB()
     if type(d) == "table" and d.shown == false then
-        for _, f in ipairs(FG.frames) do f:Hide() end
+        for _, f in ipairs(FG.frames) do FG.Unwatch(f); f:Hide() end
+        if anchor.Hide then anchor:Hide() end
         return true, 0
     end
+    if anchor.Show then anchor:Show() end
     local pyramid = type(d) == "table" and d.layout == "pyramid"
     local place, span, grid, groups = nil, 0, nil, 0
     if not pyramid then
@@ -478,7 +491,10 @@ function FG.Layout(anchor)
     for i = #roster + 1, #FG.frames do
         local f = FG.frames[i]
         if f then
+            -- a spare cell keeps its old unit attribute; under the watch it would reappear the
+            -- moment that unit existed again, so the watch goes with the unit
             f.unit = nil
+            FG.Unwatch(f)
             f:Hide()
         end
     end
@@ -516,6 +532,28 @@ function FG.Layout(anchor)
         end
     end
     return true, #roster
+end
+
+--- ONE LAYOUT AT A TIME. Laying the cells out arms the mouse on them, and the mouse's first read
+--- of the macro happens right there - at login, INSIDE the first layout. The macro can say "hidden"
+--- (Keep.lua, H=1), which asks for a layout of its own: that inner one hid every cell, and then
+--- the outer one carried on and showed them all again. So a layout asked for mid-layout waits, and
+--- runs once the first has finished - with the setting it asked for already in place.
+local layoutOnce = FG.Layout
+function FG.Layout(anchor)
+    if FG.laying then
+        FG.layAgain = true
+        return false
+    end
+    FG.laying = true
+    local ok, done, n = pcall(layoutOnce, anchor)
+    FG.laying = false
+    if FG.layAgain then
+        FG.layAgain = false
+        return FG.Layout(anchor)
+    end
+    if not ok then error(done, 0) end
+    return done, n
 end
 
 ---------------------------------------------------------------------- paint --
@@ -704,6 +742,26 @@ function FG.SetScale(v, fromMacro)
     return true, s
 end
 
+--- Pin the grid by its CENTRE, to the centre of the screen, wherever the drag left it. A drag
+--- ends on whatever corner the client chose; one kind of point is what lets the position be
+--- written into the macro as two numbers (Keep.lua) - and read back after a restart. SetPoint
+--- offsets are in the frame's own scale, so the screen's centre is converted into it first.
+function FG.Recenter()
+    local a = FG.anchor
+    if not (a and a.GetCenter and UIParent and UIParent.GetCenter) then return false end
+    local ok, cx, cy = pcall(a.GetCenter, a)
+    local uok, ux, uy = pcall(UIParent.GetCenter, UIParent)
+    if not (ok and uok and cx and ux) then return false end
+    local as = (a.GetEffectiveScale and a:GetEffectiveScale()) or (a.GetScale and a:GetScale()) or 1
+    local us = (UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+    local k = us / as
+    local x = math.floor(cx - ux * k + 0.5)
+    local y = math.floor(cy - uy * k + 0.5)
+    a:ClearAllPoints()
+    a:SetPoint("CENTER", UIParent, "CENTER", x, y)
+    return true, x, y
+end
+
 function FG.SavePos()
     local a = FG.anchor
     if not a or not a.GetPoint then return nil end
@@ -780,7 +838,13 @@ local function makeHeader(anchor)
         if not h.moving then return end
         h.moving = false
         anchor:StopMovingOrSizing()
+        FG.Recenter()
         FG.SavePos()
+        -- AND INTO THE MACRO. A saved variable does not survive a restart on this client, so the
+        -- grid came back in the middle at every login (Arn, 21 Sep). Keep.lua writes it beside
+        -- the binds; a drag always ends out of combat, which is when the client allows that.
+        local d = NS.DB and NS.DB()
+        if NS.FK and NS.FK.Save and type(d) == "table" then NS.FK.Save(d.binds or {}) end
     end)
     -- THE HINT IS A TOOLTIP, not a second label. A "drag" caption on the right printed straight
     -- through the prompt's rotating word on a header the width of one cell (seen in game, 19 Sep):

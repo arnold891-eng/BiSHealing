@@ -165,7 +165,19 @@ end
 _G.UnitHealth = function() return secret() end
 _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
 _G.IsSpellInRange = function(_, u) return STATE.range[u] == 0 and 0 or 1 end
-_G.RegisterUnitWatch = function() end
+-- THE UNIT WATCH SHOWS FRAMES BY ITSELF. It was a no-op here, which is kinder than the client:
+-- the real one shows a watched frame whenever its unit exists, whatever the addon last said - so
+-- "show the cells" off did nothing in game for a week while this suite passed (Arn, 21 Sep).
+-- WATCH_TICK() is the client's next look: call it after a Hide that is meant to stick.
+local WATCHED = setmetatable({}, { __mode = "k" })
+_G.RegisterUnitWatch = function(f) WATCHED[f] = true end
+_G.UnregisterUnitWatch = function(f) WATCHED[f] = nil end
+local function WATCH_TICK()
+    for f in pairs(WATCHED) do
+        local u = f.GetAttribute and f:GetAttribute("unit")
+        if u and STATE.units[u] then f:Show() else f:Hide() end
+    end
+end
 -- THE CLIENT'S OWN ANSWERS ABOUT SECRECY. There is a C_Secrets question for every kind of secret
 -- on this client - our BiSProbe census lists 27 of them - and asking is always better than
 -- handing the client a value and watching for the error. STATE.maxSecret is the one the grid
@@ -1546,6 +1558,107 @@ do
     d.text, d.color = "missing", "class"
     MACROS = {}
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+end
+
+-- HIDDEN STAYS HIDDEN, and the grid stays where it was put. Arn, 21 Sep: "show the cells does
+-- nothing, it just keep showing up and when i log on it puts the frames back in the cetner".
+do
+    local FK, FM = NS.FK, NS.FM
+    local d = NS.DB()
+    FG.Layout(FG.anchor)
+    WATCH_TICK()
+    local shown = 0
+    for _, f in ipairs(FG.frames) do if f:IsShown() then shown = shown + 1 end end
+    ok(shown > 0, "the cells are up to begin with", shown)
+
+    -- the switch, and then the client's own next look at the watched frames
+    NS.DO.show(false)
+    WATCH_TICK()
+    local back = 0
+    for _, f in ipairs(FG.frames) do if f:IsShown() then back = back + 1 end end
+    ok(back == 0, "switched off, the unit watch does not bring the cells back", back)
+    ok(not FG.anchor:IsShown(), "and the grid's header goes with them")
+
+    NS.DO.show(true)
+    WATCH_TICK()
+    shown = 0
+    for _, f in ipairs(FG.frames) do if f:IsShown() then shown = shown + 1 end end
+    ok(shown > 0 and FG.anchor:IsShown(), "switched on, they are back", shown)
+
+    -- a spare cell - someone left - must not be brought back by the watch either
+    STATE.units.party2 = nil
+    FG.Layout(FG.anchor)
+    STATE.units.party2 = true              -- a unit by that token exists again
+    WATCH_TICK()
+    local ghosts = 0
+    for _, f in ipairs(FG.frames) do if f:IsShown() and not f.unit then ghosts = ghosts + 1 end end
+    ok(ghosts == 0, "a spare cell stays hidden when its old unit turns up again", ghosts)
+    FG.Layout(FG.anchor)
+
+    -- THE POSITION. A drag ends on whatever corner the client picked; it is re-pinned by the
+    -- centre so it can be written as two numbers.
+    local a = FG.anchor
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    a.GetCenter = function() return 760, 660 end          -- 200 left, 120 up
+    ok(FG.Recenter(), "a dragged grid is pinned by its centre")
+    local p1, _, p3, px, py = a:GetPoint()
+    ok(p1 == "CENTER" and p3 == "CENTER" and px == -200 and py == 120,
+       "at its offset from the middle of the screen", ("%s %s %s %s"):format(
+           tostring(p1), tostring(p3), tostring(px), tostring(py)))
+
+    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { pos = { x = -200, y = 120 }, hidden = true })
+    ok(body:find("P=4800:5120", 1, true) and body:find("H=1", 1, true), "both written into the macro: " .. body)
+    local _, st = FK.Decode(body)
+    ok(st and st.pos and st.pos.x == -200 and st.pos.y == 120 and st.hidden == true, "and both read back")
+
+    local OLD_SLOTS = { l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 }
+    local reads = 0
+    for row in (body:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and OLD_SLOTS[code:sub(-1)] then reads = reads + 1 end
+    end
+    ok(reads == 1, "an older install skips P and H", reads)
+
+    -- THE WHOLE TRIP: drag, hide, "restart", and it is where it was and still hidden
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    local hs = FG.header and FG.header.__scripts
+    ok(hs and hs.OnDragStart and hs.OnDragStop, "the header can be dragged")
+    hs.OnDragStart(FG.header)
+    hs.OnDragStop(FG.header)
+    local idx = GetMacroIndexByName(FK.MACRO)
+    local dragged = idx and idx > 0 and GetMacroBody(idx) or nil
+    ok(dragged and dragged:find("P=4800:5120", 1, true), "the drag alone writes the position", dragged)
+    NS.DO.show(false)
+    local stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and stored:find("P=4800:5120", 1, true) and stored:find("H=1", 1, true),
+       "a drag and the switch both write into the macro", stored)
+
+    d.binds, d.bindsSeeded, FM.asked, d.gridPos, d.shown = {}, nil, false, nil, true   -- the restart
+    a:ClearAllPoints()
+    a:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    FG.Layout(FG.anchor)
+    FM.Get("", "wheelup")                                              -- the first read at login
+    WATCH_TICK()
+    p1, _, p3, px, py = a:GetPoint()
+    ok(px == -200 and py == 120, "after a restart the grid is where it was dragged, not the middle",
+       ("%s,%s"):format(tostring(px), tostring(py)))
+    local up = 0
+    for _, f in ipairs(FG.frames) do if f:IsShown() then up = up + 1 end end
+    ok(d.shown == false and up == 0, "and hidden is still hidden", up)
+
+    -- /bish center forgets it, in the macro too
+    NS.DO.show(true)
+    NS.DO.center()
+    stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and not stored:find("P=", 1, true), "centre takes the position out of the macro", stored)
+
+    UIParent.GetCenter, a.GetCenter = realUC, nil
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched, d.gridPos = {}, nil, false, nil, nil
+    FG.RestorePos()
     FM.Get("", "left")
 end
 

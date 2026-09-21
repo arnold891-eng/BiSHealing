@@ -120,7 +120,17 @@ function FG.ByRole(roster)
             local ok, r = pcall(UnitGroupRolesAssigned, u)
             role = ok and NS.Plain(r) or nil
         end
-        keyed[i] = { unit = u, rank = ROLE_RANK[role or ""] or 4, at = i }
+        local rank = ROLE_RANK[role or ""] or 4
+        -- THE RAID'S OWN WORD FOR IT. Classic raids rarely set LFG roles - the leader right-clicks
+        -- someone and makes them Main Tank instead - so with roles alone a real raid night sorts
+        -- everyone as the same thing and the pyramid is just join order (Arn's party, 20 Sep: four
+        -- identical badges, and himself on the apex). A main tank is a tank, whatever the LFG
+        -- role says.
+        if rank ~= 1 and GetPartyAssignment then
+            local ok, mt = pcall(GetPartyAssignment, "MAINTANK", u)
+            if ok and NS.Plain(mt) then rank = 1 end
+        end
+        keyed[i] = { unit = u, rank = rank, at = i }
     end
     table.sort(keyed, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
@@ -541,6 +551,42 @@ local THROTTLE = 0.1
 --- Where the grid sits, kept in the saved variables. Arn, 19 Sep 2026: "lets add a our header to
 --- this so we can drag and move". The anchor had no handle at all - the cells were the only thing
 --- on screen, and a secure button cannot be dragged without taking its click away.
+-- SCALE (Arn, 20 Sep: "a slider that lets people set the scale of the frames, this is perfect for
+-- me but some people like larger smaller"). The anchor is scaled, so the cells, the header and the
+-- gaps between them all grow and shrink together.
+FG.SCALE_MIN, FG.SCALE_MAX, FG.SCALE_STEP = 0.6, 1.6, 0.05
+
+function FG.ClampScale(v)
+    v = tonumber(v) or 1
+    if v < FG.SCALE_MIN then v = FG.SCALE_MIN elseif v > FG.SCALE_MAX then v = FG.SCALE_MAX end
+    return math.floor(v * 100 + 0.5) / 100          -- 0.8500000001 is not a setting anyone chose
+end
+
+--- Set the scale, and KEEP THE GRID WHERE IT IS. A saved offset is measured in the frame's own
+--- scaled units, so scaling a frame anchored 192 from the right edge moves it: at 150% it would
+--- slide to 288 away. The offset is converted by old/new so the grid stays put on screen.
+---
+--- Out of combat only - scaling a parent resizes its secure children, which the lockdown refuses.
+--- In combat the setting is kept and applied when the fight ends.
+function FG.SetScale(v)
+    local s = FG.ClampScale(v)
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" then d.scale = s end
+    local a = FG.anchor
+    if not (a and a.SetScale) then return true, s end
+    if InCombatLockdown and InCombatLockdown() then return false, s end
+    local old = (a.GetScale and a:GetScale()) or 1
+    if old == s then return true, s end
+    local ok, point, rel, relPoint, x, y = pcall(a.GetPoint, a, 1)
+    a:SetScale(s)
+    if ok and point then
+        a:ClearAllPoints()
+        a:SetPoint(point, rel, relPoint, (x or 0) * old / s, (y or 0) * old / s)
+        FG.SavePos()
+    end
+    return true, s
+end
+
 function FG.SavePos()
     local a = FG.anchor
     if not a or not a.GetPoint then return nil end
@@ -657,6 +703,8 @@ function FG.Start()
     if anchor.SetFrameStrata then anchor:SetFrameStrata("HIGH") end
     anchor:SetSize(FRAME_W, FRAME_H)
     FG.anchor = anchor
+    local ds = NS.DB and NS.DB()
+    if anchor.SetScale then anchor:SetScale(FG.ClampScale(type(ds) == "table" and ds.scale or 1)) end
     FG.RestorePos()
     makeHeader(anchor)
 
@@ -688,6 +736,11 @@ function FG.Start()
         pending = true                      -- the update loop relays out when the lockdown lets it
         -- a bind changed mid-fight is queued, not lost: the moment the lockdown lifts it lands
         if event == "PLAYER_REGEN_ENABLED" and NS.FM and NS.FM.pending then NS.FM.Apply() end
+        -- a scale changed mid-fight waits for this moment
+        if event == "PLAYER_REGEN_ENABLED" then
+            local dd = NS.DB and NS.DB()
+            if type(dd) == "table" and dd.scale then FG.SetScale(dd.scale) end
+        end
         -- the macro list filling in late: what is on the mouse may be our guess, not their binds
         if event == "UPDATE_MACROS" and NS.FM and NS.FM.Reconsider then NS.FM.Reconsider() end
     end)

@@ -1809,6 +1809,51 @@ SAID = {}
 ok(FB.Report() == 0 and #SAID == 0, "the same findings a moment later are not repeated")
 ok(FB.Report(true) ~= 0 and #SAID > 0, "unless asked for outright (/bish scan)")
 
+-- OUT OF COMBAT IS NOT "EVERYTHING READS". Arn, 21 Sep, in a dungeon, two seconds after a pull:
+-- "attempt to perform boolean test on local 'have' (a secret boolean value)" from GetTotemInfo.
+-- The brain asks the client whether auras are hidden (as ForeverAuras does), and guards every
+-- value it reads even when the client says no.
+do
+    local realSecrets = _G.C_Secrets
+    _G.C_Secrets = setmetatable({ ShouldAurasBeSecret = function() return true end },
+                                { __index = realSecrets })
+    local s, w = FB.Scan()
+    ok(s == nil and tostring(w):find("hiding"), "out of combat, the client saying auras are hidden is enough", tostring(w))
+    _G.C_Secrets.ShouldAurasBeSecret = function() return secret() end
+    ok(NS.Blind() == true, "and an answer that is itself secret counts as hidden")
+    _G.C_Secrets.ShouldAurasBeSecret = function() error("no", 2) end
+    ok(NS.Blind() == true, "as does one that errors")
+    _G.C_Secrets = realSecrets
+    ok(NS.Blind() == false, "and back in the open world, it scans again")
+
+    -- the client says auras are fine, and a single value comes back secret anyway: the crash
+    local realTotem, realDead = _G.GetTotemInfo, _G.UnitIsDeadOrGhost
+    _G.GetTotemInfo = function() return secret(), secret() end
+    _G.UnitIsDeadOrGhost = function() return secret() end
+    AURAS.party2.HARMFUL[3] = { name = secret(), dispelName = secret() }
+    AURAS.party1.HELPFUL[1] = { name = secret() }
+    local ran, got = pcall(FB.Scan)
+    ok(ran, "a secret totem, dead flag and aura do not throw the scan: " .. tostring(got))
+    local kinds2 = {}
+    for _, f in ipairs(ran and got or {}) do kinds2[f.kind] = true end
+    ok(not kinds2.totems, "a totem it cannot see is not reported as missing")
+    ok(FB.totemsKnown == 0, "and all four are counted as unknown - never put in an `if`",
+       tostring(FB.totemsKnown))
+    ok(not kinds2.dead, "nobody is called dead on a flag it cannot read")
+    ok(not kinds2.earthshield, "and an unreadable buff is not called a missing Earth Shield")
+    ok(pcall(FB.Dump), "/bish scan's dump survives them too")
+    _G.GetTotemInfo, _G.UnitIsDeadOrGhost = realTotem, realDead
+    AURAS.party2.HARMFUL[3] = nil
+    AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
+
+    -- a hidden NAME: the cell paints it whole; nothing tries to cut it
+    local realName = _G.UnitName
+    _G.UnitName = function() return secret() end
+    local r2, nm = pcall(FG.ShortName, "party1")
+    ok(r2 and getmetatable(nm) == secretMeta, "a hidden name goes to the cell whole, not cut")
+    _G.UnitName = realName
+end
+
 -- ALONE, IT SAYS NOTHING AT ALL. This is a brain for a group: who still has a debuff, who is
 -- dead, whether the shield is up. Solo there is nobody to tell.
 SAID = {}
@@ -2226,6 +2271,23 @@ do
         w.__scripts.OnKeyDown(w, "A")
         ok(w:IsShown() == true, "while any other key is passed through and changes nothing")
         w:Hide()
+
+        -- NOT IN COMBAT. SetPropagateKeyboardInput is protected in the lockdown - the client
+        -- blocked it with a popup when Arn pressed a key mid-pull (21 Sep). The mock blocks it the
+        -- same way: it counts, and the check is that nothing was ever asked of it in a fight.
+        local blocked, realProp = 0, w.SetPropagateKeyboardInput
+        w.SetPropagateKeyboardInput = function(self, on)
+            if InCombatLockdown() then blocked = blocked + 1; return end
+            self.__propagate = on
+        end
+        STATE.inCombat = true
+        w:Show()
+        w.__scripts.OnKeyDown(w, "A")
+        w.__scripts.OnKeyDown(w, "ESCAPE")
+        ok(blocked == 0, "no protected keyboard call in combat", blocked)
+        ok(w:IsShown() == false, "and Escape still closes the window mid-fight")
+        STATE.inCombat = false
+        w.SetPropagateKeyboardInput = realProp
 
         ok(pcall(FM.Toggle) and pcall(FM.Toggle), "toggling it open and shut does not throw")
 

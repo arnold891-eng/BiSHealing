@@ -404,7 +404,12 @@ end
 --- A cell is 84 wide: "Longnamedhealer-Realmone" does not fit and the realm never matters in a group.
 --- Realm off, then cut to what the cell holds.
 function FG.ShortName(unit)
-    local name = UnitName and UnitName(unit) or unit
+    local name = UnitName and UnitName(unit)
+    -- A HIDDEN NAME IS PAINTED WHOLE. It still answers type() == "string", so the cut below would
+    -- index it and throw - taking the layout down with it. A label may be handed a secret; a
+    -- pattern may not. So it goes to the cell as it came, surname and all.
+    if NS.Secret(name) then return name end
+    if name == nil then name = unit end
     if type(name) ~= "string" then return tostring(unit) end
     name = name:match("^([^-]+)") or name
     -- FIRST NAME ONLY. Forever characters can have a surname ("Kumlust Surname"), and cutting at

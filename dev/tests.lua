@@ -2317,8 +2317,28 @@ do
     -- does not stop it.
     ok(cell.__attrs["*type1"] == "target", "and the cleared button now targets the person",
        tostring(cell.__attrs["*type1"]))
-    ok(cell.__attrs["alt-type4"] == "target" and cell.__attrs["alt-spell4"] == nil,
-       "every empty click targets, modifiers and thumb buttons too")
+    ok(cell.__attrs["alt-type2"] == "target" and cell.__attrs["alt-spell2"] == nil,
+       "empty right click targets too, with a modifier")
+    -- BUTTONS 3-5 ARE DIFFERENT. Measured on the beta (22 Sep): an empty thumb or wheel click set to
+    -- type "target" did nothing - the SecureUnitButton path honours "target" for buttons 1-2 only -
+    -- while a spell bound to the same button cast. So 3-5 target through a secure macro instead.
+    for _, b in ipairs({ 3, 4, 5 }) do
+        for _, p in ipairs({ "*", "shift-", "ctrl-", "alt-" }) do
+            if not FM.Get(p == "*" and "" or p, ({ [3] = "middle", [4] = "button4", [5] = "button5" })[b]) then
+                ok(cell.__attrs[p .. "type" .. b] == "macro"
+                   and cell.__attrs[p .. "macrotext" .. b] == "/target [@mouseover]",
+                   ("empty %stype%d targets by macro, not the 'target' type the client ignores there"):format(p, b),
+                   tostring(cell.__attrs[p .. "type" .. b]))
+            end
+        end
+    end
+    ok(cell.__attrs["*macrotext1"] == nil and cell.__attrs["*macrotext2"] == nil,
+       "buttons 1-2 keep the built-in target, with no macro on them")
+    FM.Set("", "button4", "Healing Wave(Rank 1)")
+    FM.ApplyTo(cell)
+    ok(cell.__attrs["*type4"] == "spell" and cell.__attrs["*macrotext4"] == nil,
+       "a spell dropped on a thumb button replaces the target macro, and none is left behind")
+    FM.Clear("", "button4")
     FM.Set("", "left", "Healing Wave(Rank 1)")
     FM.ApplyTo(cell)
     ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Healing Wave(Rank 1)",
@@ -2340,7 +2360,7 @@ do
     FM.ApplyTo(cell)
     local ours = 0
     for k, v in pairs(cell.__attrs) do
-        if (k:find("type%d$") or k:find("spell%d$")) and v ~= nil then ours = ours + 1 end
+        if (k:find("type%d$") or k:find("spell%d$") or k:find("macrotext%d$")) and v ~= nil then ours = ours + 1 end
     end
     ok(ours == 0, "with Clique on, none of our click attributes are left on the cell", ours)
     ok(registered[cell] == true, "and the cell is registered with Clique")

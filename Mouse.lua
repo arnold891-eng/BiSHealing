@@ -483,6 +483,7 @@ function FM.ApplyTo(cell)
                     local prefix = m.key == "" and "*" or m.key
                     cell:SetAttribute(prefix .. "type" .. slot.attr, nil)
                     cell:SetAttribute(prefix .. "spell" .. slot.attr, nil)
+                    cell:SetAttribute(prefix .. "macrotext" .. slot.attr, nil)
                 end
             end
         end
@@ -496,8 +497,18 @@ function FM.ApplyTo(cell)
             for _, m in ipairs(FM.MODS) do
                 local spell = FM.Get(m.key, slot.key)
                 local prefix = m.key == "" and "*" or m.key
-                cell:SetAttribute(prefix .. "type" .. slot.attr, spell and "spell" or "target")
+                -- EMPTY 3-5 TARGET BY MACRO. Measured on the beta (22 Sep): the thumbs and the
+                -- wheel click reach the cell - a bound spell casts - but an empty one set to type
+                -- "target" does nothing; the SecureUnitButton path honours "target" for buttons 1
+                -- and 2 only. So 1-2 keep the built-in action, and 3-5 get a secure macro that does
+                -- the same thing through the one unit the cursor is on.
+                local kind, text
+                if spell then kind = "spell"
+                elseif slot.attr <= 2 then kind = "target"
+                else kind, text = "macro", "/target [@mouseover]" end
+                cell:SetAttribute(prefix .. "type" .. slot.attr, kind)
                 cell:SetAttribute(prefix .. "spell" .. slot.attr, spell or nil)
+                cell:SetAttribute(prefix .. "macrotext" .. slot.attr, text)
                 if spell then n = n + 1 end
             end
         end

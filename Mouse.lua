@@ -172,6 +172,11 @@ local function db()
                     if NS.FA then NS.FA.sig = nil end
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
                 end
+                -- clicks handed to Clique: the relayout clears ours and registers every cell
+                if settings.clique == true then
+                    d.clique = true
+                    if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+                end
                 if settings.hidden then
                     d.shown = false
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the
@@ -413,9 +418,53 @@ end
 --- at all; now it selects the person, the way Blizzard's own frames do - through the client's
 --- built-in "target" action, which is secure and so works in a fight too. The wheel is not a
 --- click on the cell (FM.ApplyWheel) and is untouched: an empty wheel still zooms the camera.
+---
+--- LET CLIQUE HAVE THEM. Arn, 22 Sep: "im a clique user and it uses all of theirs". Two addons
+--- writing what a click means onto the same frame is a race - whichever wrote last wins, and that
+--- changes with every layout. So it is ONE OWNER, by the player's switch (d.clique):
+---   on   our click attributes are cleared, the wheel is let go, and the cell is registered in
+---        ClickCastFrames - the shared list Clique (and Clicked, oUF, Healium) use. Clique then
+---        owns every click, key and wheel turn on the grid.
+---   off  the cell is unregistered and our binds go back on. With `= nil`, not `= false`: Clique
+---        (v5.1, core.lua CaptureGlobalRegistry) takes nil and false alike as "unregister" once it
+---        has loaded, but a frame already in the list when it loads is registered WHATEVER its
+---        value - a `false` left behind before Clique arrived would register the cell anyway.
+--- Registration is the documented `ClickCastFrames[frame] = true`; the table is made only when no
+--- click-cast addon has made it yet, never written over (see the Blizzard-global test).
+function FM.CliqueOn()
+    local d = NS.DB and NS.DB()
+    return type(d) == "table" and d.clique == true
+end
+
+local function cliqueRegister(cell, on)
+    if on then
+        if not ClickCastFrames then ClickCastFrames = {} end
+        ClickCastFrames[cell] = true
+        cell.__clique = true
+    elseif cell.__clique then
+        if ClickCastFrames then ClickCastFrames[cell] = nil end
+        cell.__clique = nil
+    end
+end
+
 function FM.ApplyTo(cell)
     if InCombatLockdown and InCombatLockdown() then return false end
     if not cell or not cell.SetAttribute then return false end
+    if FM.CliqueOn() then
+        -- clear everything of ours first, so nothing of ours is left for Clique to fight
+        for _, slot in ipairs(FM.SLOTS) do
+            if slot.attr then
+                for _, m in ipairs(FM.MODS) do
+                    local prefix = m.key == "" and "*" or m.key
+                    cell:SetAttribute(prefix .. "type" .. slot.attr, nil)
+                    cell:SetAttribute(prefix .. "spell" .. slot.attr, nil)
+                end
+            end
+        end
+        cliqueRegister(cell, true)
+        return true, 0
+    end
+    cliqueRegister(cell, false)
     local n = 0
     for _, slot in ipairs(FM.SLOTS) do
         if slot.attr then
@@ -439,6 +488,7 @@ function FM.ApplyWheel(owner)
     if InCombatLockdown and InCombatLockdown() then return false end
     owner = owner or (NS.FG and NS.FG.anchor) or UIParent
     if ClearOverrideBindings then pcall(ClearOverrideBindings, owner) end
+    if FM.CliqueOn() then return true, 0 end      -- Clique owns the wheel too: let it go
     local n = 0
     for _, slot in ipairs(FM.SLOTS) do
         if slot.bind then

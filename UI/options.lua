@@ -34,6 +34,10 @@ function CFG.Sections()
         { title = "clicks", options = {
             { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
               action = function() if DO.mouse then DO.mouse() end end },
+            -- one owner of the clicks: ours, or Clique's (Arn, 22 Sep: "im a clique user")
+            { key = "clique", kind = "toggle", label = "let Clique handle clicks",
+              get = function(db) return db.clique == true end,
+              set = function(_, on) if DO.clique then DO.clique(on) end end },
         } },
         { title = "frames", options = {
             { key = "shown", kind = "toggle", label = "show the cells",
@@ -75,16 +79,11 @@ function CFG.Sections()
               action = function() if DO.rescan then DO.rescan() end end },
         } },
         { title = "this client", options = {
+            -- "test the debuff marker" lived here until 22 Sep: the window was at its 12-row cap and
+            -- a diagnostic gave way to a setting, as the cap's own note said the next row should.
+            -- It is still /bish auras.
             { key = "scan", kind = "button", label = "what can I see?", button = "ask",
               action = function() if DO.scan then DO.scan() end end },
-            -- a switch, not a command you have to type twice to turn off
-            { key = "pipTest", kind = "toggle", label = "test the debuff marker",
-              get = function() return (NS.FA and NS.FA.debug) and true or false end,
-              set = function(_, on)
-                  if NS.FA and NS.FA.Debug and ((NS.FA.debug and true or false) ~= on) then
-                      NS.FA.Debug(on)
-                  end
-              end },
         } },
     }
 end

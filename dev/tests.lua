@@ -2247,6 +2247,57 @@ do
     FM.ApplyTo(cell)
     ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Healing Wave(Rank 1)",
        "and a bound button still casts")
+
+    -- LET CLIQUE HAVE THEM. Arn, 22 Sep: "im a clique user and it uses all of theirs". One owner:
+    -- switched on, nothing of ours is left on the cell and the cell is in ClickCastFrames.
+    -- The registry behaves like Clique v5.1's (core.lua): nil or false unregisters.
+    local realCCF = _G.ClickCastFrames
+    local registered = {}
+    _G.ClickCastFrames = setmetatable({}, { __newindex = function(_, k, v)
+        if v == nil or v == false then registered[k] = nil else registered[k] = true end
+    end })
+    local d = NS.DB()
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { left = "Healing Wave(Rank 1)", wheelup = "Healing Wave(Rank 2)" }
+    NS.DO.clique(true)
+    FM.ApplyTo(cell)
+    local ours = 0
+    for k, v in pairs(cell.__attrs) do
+        if (k:find("type%d$") or k:find("spell%d$")) and v ~= nil then ours = ours + 1 end
+    end
+    ok(ours == 0, "with Clique on, none of our click attributes are left on the cell", ours)
+    ok(registered[cell] == true, "and the cell is registered with Clique")
+    local wheelBound = false
+    for key in pairs(BOUND) do if key:find("MOUSEWHEEL") then wheelBound = true end end
+    ok(not wheelBound, "and the wheel is let go too")
+    local stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(stored and stored:find("K=1", 1, true), "Clique mode is kept in the macro", stored)
+    local _, st = NS.FK.Decode(stored or "")
+    ok(st and st.clique == true, "and reads back")
+
+    NS.DO.clique(false)
+    FM.ApplyTo(cell)
+    ok(registered[cell] == nil, "switched off, the cell is unregistered")
+    ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Healing Wave(Rank 1)",
+       "and our binds are back on it")
+    stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(stored and not stored:find("K=", 1, true), "and off - the default - writes nothing")
+
+    -- no click-cast addon at all: switching on still leaves one clean owner, and nothing throws
+    _G.ClickCastFrames = nil
+    ok(pcall(NS.DO.clique, true) and pcall(FM.ApplyTo, cell), "with no Clique loaded, it does not throw")
+    ok(type(_G.ClickCastFrames) == "table" and _G.ClickCastFrames[cell] == true,
+       "and the cell waits in the list for Clique to pick up when it loads")
+    NS.DO.clique(false)
+    FM.ApplyTo(cell)
+    ok(_G.ClickCastFrames[cell] == nil,
+       "off removes it outright - Clique would register a leftover `false` when it loads")
+
+    _G.ClickCastFrames = realCCF
+    d.binds = keptBinds
+    MACROS = {}
+    FM.ApplyTo(cell)
 end
 
 ---------------------------------------------------------------- the window --
@@ -2562,7 +2613,7 @@ do
             ok(pcall(opt.get, NS.DB()), ("reading %q threw"):format(opt.key))
         end
     end
-    for _, want in ipairs({ "shown", "minimap", "mouse", "scan", "pipTest" }) do
+    for _, want in ipairs({ "shown", "minimap", "mouse", "scan", "clique" }) do
         ok(keys[want], ("the window lost %q"):format(want))
     end
     -- RAISED FROM 10 TO 12, ON PURPOSE (20 Sep 2026), and not to make a red line go away. The cap

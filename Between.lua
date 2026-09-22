@@ -50,10 +50,26 @@ local function auras(unit, filter)
     return out
 end
 
+--- One field of an aura, or nil when the client will not let us read it. The aura table itself
+--- can refuse to be indexed, so the read is guarded as well as the value.
+local function field(a, k)
+    local ok, v = pcall(function() return a[k] end)
+    if not ok then return nil end
+    return NS.Plain(v)
+end
+
+--- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
+--- chat may not be built from one.
+local function nameOf(unit)
+    local n = NS.FG and NS.FG.ShortName and NS.FG.ShortName(unit)
+    n = NS.Plain(n)
+    return type(n) == "string" and n or unit
+end
+
 --- What is wrong with the raid right now. Returns a list of { kind, unit, text } and never prints:
 --- a scan that talks cannot be tested, and a scan that runs in combat cannot be trusted.
 function FB.Scan()
-    if NS.Blind and NS.Blind() then return nil, "blind: inside the lockdown" end
+    if NS.Blind and NS.Blind() then return nil, "blind: the client is hiding auras right now" end
     local found = {}
     local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
 
@@ -61,39 +77,52 @@ function FB.Scan()
     -- Barrens about a spell learned at 50, on a client where it may not exist at all: "BiS
     -- Healing: Earth Shield is not up on anyone", after every mob (Arn, 19 Sep). The spellbook
     -- answers whether this character has trained it, the same way the mouse's defaults do.
+    -- EVERY VALUE IS ASKED ABOUT BEFORE IT IS USED, even with Blind() saying no. Blind() is the
+    -- client's word for auras as a whole; a single field can still come back secret (a totem did,
+    -- 21 Sep), and one unguarded `if` on it throws the whole scan. What cannot be read is treated
+    -- as not known: never "missing", never "empty", never "dead".
     if FB.Knows(EARTH_SHIELD) then
-        local esOn
+        local esOn, unsure = nil, false
         for _, unit in ipairs(roster) do
             for _, a in ipairs(auras(unit, "HELPFUL")) do
-                if a.name == EARTH_SHIELD then esOn = unit end
+                local name = field(a, "name")
+                if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
             end
         end
-        if not esOn then
+        if not esOn and not unsure then
             found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
         end
     end
 
     for _, unit in ipairs(roster) do
+        local who = nameOf(unit)
         for _, a in ipairs(auras(unit, "HARMFUL")) do
-            if CURABLE[a.dispelName] then
+            local kind = field(a, "dispelName")
+            if kind and CURABLE[kind] then
                 found[#found + 1] = { kind = "dispel", unit = unit,
-                                      text = (NS.FG and NS.FG.ShortName(unit) or unit) ..
-                                             " still has " .. tostring(a.name) }
+                                      text = who .. " still has " .. (field(a, "name") or "a " .. kind:lower()) }
             end
         end
-        if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
-            found[#found + 1] = { kind = "dead", unit = unit,
-                                  text = (NS.FG and NS.FG.ShortName(unit) or unit) .. " is dead" }
+        if UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit)) == true then
+            found[#found + 1] = { kind = "dead", unit = unit, text = who .. " is dead" }
         end
     end
 
     if GetTotemInfo then
-        local empty = 0
+        local empty, known = 0, 0
         for slot = 1, TOTEM_SLOTS do
             local ok, have = pcall(GetTotemInfo, slot)
-            if ok and not have then empty = empty + 1 end
+            if ok then have = NS.Plain(have) else have = nil end   -- a failed ask is not "empty"
+            if have ~= nil then
+                known = known + 1
+                if not have then empty = empty + 1 end
+            end
         end
-        if empty == TOTEM_SLOTS then
+        -- kept for /bish scan and the suite: how many slots the client would actually answer
+        -- for. A secret yes/no cannot be made to refuse a test outside the client, so "it was
+        -- counted as unknown" is the evidence that it was never tested.
+        FB.totemsKnown = known
+        if known == TOTEM_SLOTS and empty == TOTEM_SLOTS then
             found[#found + 1] = { kind = "totems", text = "no totems down" }
         end
     end
@@ -152,7 +181,8 @@ end
 function FB.Dump()
     local say = NS.Print or function(msg) print(msg) end
     if NS.Blind and NS.Blind() then
-        say("BiS Healing: in combat -- auras and totems are secret until the fight ends")
+        say("BiS Healing: the client is hiding auras and totems right now -- in combat, or in"
+            .. " an instance that keeps them hidden")
         return
     end
     local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
@@ -160,15 +190,19 @@ function FB.Dump()
     for _, unit in ipairs(roster) do
         local helpful, harmful = auras(unit, "HELPFUL"), auras(unit, "HARMFUL")
         local names = {}
-        for _, a in ipairs(helpful) do names[#names + 1] = tostring(a.name) end
+        for _, a in ipairs(helpful) do names[#names + 1] = field(a, "name") or "(hidden)" end
         say(("  %s: %d buff(s), %d debuff(s)%s"):format(
-            (NS.FG and NS.FG.ShortName(unit)) or unit, #helpful, #harmful,
+            nameOf(unit), #helpful, #harmful,
             #names > 0 and ("  [" .. table.concat(names, ", ") .. "]") or ""))
     end
     if GetTotemInfo then
         for slot = 1, TOTEM_SLOTS do
             local ok, have, name = pcall(GetTotemInfo, slot)
-            say(("  totem %d: %s"):format(slot, (ok and have) and tostring(name) or "empty"))
+            local plainHave = nil
+            if ok then plainHave = NS.Plain(have) end
+            local shown = plainHave == nil and "(hidden)"
+                or (plainHave and (NS.Plain(name) or "(hidden)")) or "empty"
+            say(("  totem %d: %s"):format(slot, shown))
         end
     end
     local found = FB.Scan()

@@ -382,6 +382,15 @@ function FM.Window()
     foot:SetWidth(230)
     foot:SetText("binds are written out of combat")
 
+    -- SAID WHERE IT IS SEEN. An empty button targets the person (FM.ApplyTo, 0.4.1), and nothing
+    -- on the drawing says so. Arn, 22 Sep: "write on the bottom of the window anything not bound
+    -- targets the unit". One line above the foot, in the 30 pixels under the mouse.
+    local targets = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    targets:SetPoint("BOTTOM", foot, "TOP", 0, 2)
+    targets:SetWidth(230)
+    targets:SetText("anything not bound targets the unit")
+    w.targetsNote = targets
+
     -- the header prompt is where this window talks back, if BiSTheme's console is loaded
     function w:Say(text)
         if self.con and self.con.Say then self.con:Say(text) end

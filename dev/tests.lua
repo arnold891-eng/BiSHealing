@@ -2360,6 +2360,9 @@ do
         FM.win = nil
         ok(FM.Toggle() == true, "the very first click opens the window")
         ok(FM.Toggle() == false, "and the second one shuts it")
+        -- Arn, 22 Sep: "write on the bottom of the window anything not bound targets the unit"
+        ok(FM.win and FM.win.targetsNote and FM.win.targetsNote.__text == "anything not bound targets the unit",
+           "the window says that an empty button targets", FM.win and FM.win.targetsNote and FM.win.targetsNote.__text)
 
         -- WHERE IT SITS. Arn: "if we open the spellbook window and we have the bind window open
         -- can we anchor it to this spot ... defualt place the last place it was in".

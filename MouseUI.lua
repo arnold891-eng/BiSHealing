@@ -207,7 +207,8 @@ local function makeSlot(parent, slot)
         GameTooltip:AddLine(slot.label, rgb("accent"))
         local spell = FM.Get(parent.mod, slot.key)
         local name, rank = FM.Split(spell)
-        GameTooltip:AddLine(name or "empty", rgb("ink"))
+        -- an empty CLICK targets the person (FM.ApplyTo); an empty wheel does nothing of ours
+        GameTooltip:AddLine(name or (slot.attr and "empty - a click targets them" or "empty"), rgb("ink"))
         if rank then GameTooltip:AddLine(rank, rgb("muted")) end
         GameTooltip:AddLine(spell and "right-click to clear" or "drag a spell here",
                             rgb("muted"))

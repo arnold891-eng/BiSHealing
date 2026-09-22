@@ -407,6 +407,12 @@ end
 
 --- Write every click bind onto one cell. OUT OF COMBAT ONLY: SetAttribute on a secure frame is
 --- refused inside the lockdown, so this answers false there and the caller tries again later.
+---
+--- AN EMPTY BUTTON TARGETS. Arn, 22 Sep 2026, from a player's request: "if a key is not bound to
+--- anything on the mouse that defaults to target". A click with nothing on it used to do nothing
+--- at all; now it selects the person, the way Blizzard's own frames do - through the client's
+--- built-in "target" action, which is secure and so works in a fight too. The wheel is not a
+--- click on the cell (FM.ApplyWheel) and is untouched: an empty wheel still zooms the camera.
 function FM.ApplyTo(cell)
     if InCombatLockdown and InCombatLockdown() then return false end
     if not cell or not cell.SetAttribute then return false end
@@ -416,7 +422,7 @@ function FM.ApplyTo(cell)
             for _, m in ipairs(FM.MODS) do
                 local spell = FM.Get(m.key, slot.key)
                 local prefix = m.key == "" and "*" or m.key
-                cell:SetAttribute(prefix .. "type" .. slot.attr, spell and "spell" or nil)
+                cell:SetAttribute(prefix .. "type" .. slot.attr, spell and "spell" or "target")
                 cell:SetAttribute(prefix .. "spell" .. slot.attr, spell or nil)
                 if spell then n = n + 1 end
             end

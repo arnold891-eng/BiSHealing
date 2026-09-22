@@ -2234,8 +2234,19 @@ do
     -- clearing
     FM.Clear("", "left")
     FM.ApplyTo(cell)
-    ok(cell.__attrs["*spell1"] == nil and cell.__attrs["*type1"] == nil,
-       "clearing a slot removes the attribute rather than leaving a dead spell")
+    ok(cell.__attrs["*spell1"] == nil,
+       "clearing a slot removes the spell rather than leaving a dead one")
+    -- AN EMPTY BUTTON TARGETS. A player's request (22 Sep): "if a key is not bound to anything on
+    -- the mouse that defaults to target". The client's own secure "target" action, so a fight
+    -- does not stop it.
+    ok(cell.__attrs["*type1"] == "target", "and the cleared button now targets the person",
+       tostring(cell.__attrs["*type1"]))
+    ok(cell.__attrs["alt-type4"] == "target" and cell.__attrs["alt-spell4"] == nil,
+       "every empty click targets, modifiers and thumb buttons too")
+    FM.Set("", "left", "Healing Wave(Rank 1)")
+    FM.ApplyTo(cell)
+    ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Healing Wave(Rank 1)",
+       "and a bound button still casts")
 end
 
 ---------------------------------------------------------------- the window --

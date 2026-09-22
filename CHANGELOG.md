@@ -1,5 +1,17 @@
 # BiS Healing
 
+## 0.4.3
+
+- **Fixed: mouse binds being wiped.** Two bugs, one symptom:
+  - The `BiSHealing` macro that keeps your binds was being made in **General Macros**, shared by
+    every character on your account - so your druid and your priest overwrote each other's binds.
+    It is now made in each character's own tab, so every healer keeps their own.
+  - At login the addon could save before it had read your macro back, and write an empty mouse
+    over your real binds. It now waits until it has read the macro before it writes anything.
+- **Moving over is automatic.** The first time each character logs in, its binds are read from the
+  old shared macro and written into its own. The old one in General Macros is left alone - delete
+  it whenever you like. `/bish keep` shows which one is in use.
+
 ## 0.4.2
 
 - **Clique users: let Clique handle the clicks.** A new switch in options, "let Clique handle

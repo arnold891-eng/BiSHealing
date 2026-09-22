@@ -1,5 +1,14 @@
 # BiS Healing
 
+## 0.4.2
+
+- **Clique users: let Clique handle the clicks.** A new switch in options, "let Clique handle
+  clicks" (or `/bish clique`), hands every click, key and wheel turn on the cells to Clique, and
+  BiS Healing's own mouse binds step aside - one owner, so the two never fight over a click. Switch
+  it off and your BiS Healing binds are back. The setting survives a restart.
+- **The mouse binds window says it:** "anything not bound targets the unit".
+- "Test the debuff marker" left the options window to make room; `/bish auras` still does it.
+
 ## 0.4.1
 
 - **A mouse button with nothing on it targets the person.** Clear a slot in the mouse binds window

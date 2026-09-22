@@ -1,5 +1,12 @@
 # BiS Healing
 
+## 0.4.1
+
+- **A mouse button with nothing on it targets the person.** Clear a slot in the mouse binds window
+  and clicking that button on a cell selects them, the way Blizzard's own frames do - with any
+  modifier, and in combat too. Buttons with a spell on them cast as before. The mouse wheel is
+  unchanged.
+
 ## 0.4.0
 
 - **The dispel marker shows what it is.** When someone has something you can remove, the small

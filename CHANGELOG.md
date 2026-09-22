@@ -1,5 +1,21 @@
 # BiS Healing
 
+## 0.4.0
+
+- **The dispel marker shows what it is.** When someone has something you can remove, the small
+  marker on the left of their cell now shows the kind - magic, curse, poison or disease - as the
+  game's own icon, instead of a plain green square. The game draws it, so it works in combat.
+- **Your heals over time on each cell.** A small icon for each one you have cast on that person,
+  bottom left, with the game's countdown sweep over it: Renew for priests, Rejuvenation and
+  Regrowth for druids. Only your own casts, every rank. `/bish hots` turns them off or on, and the
+  setting survives a restart.
+- **Fixed: an error after pulls in dungeons.** The between-fights check (missing Earth Shield, no
+  totems, someone dead) read your totems while the game was still hiding them. It now asks the game
+  first, and never says something is missing when it simply cannot tell.
+- **Fixed: "BiS Healing tried to call a protected function" when pressing a key** with the mouse
+  binds window open during a fight.
+- **Fixed: a hidden player name could have broken the grid.** It is shown in full instead.
+
 ## 0.3.3
 
 - **Fixed: "show the cells" did nothing.** Switching it off hid the cells for a moment and the

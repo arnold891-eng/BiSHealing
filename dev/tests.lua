@@ -205,6 +205,7 @@ _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
 -- The aura containers. A client that HAS them (Forever, retail) draws auras the addon may not
 -- read, so what the addon DECLARES is the only thing there is to test - recorded here.
 local CONTAINERS = {}
+local SLOT_CALLS = { missing = false }
 containersExist = true
 _G.C_XMLUtil = { GetTemplateInfo = function(t)
     return (t == "CustomAuraContainerTemplate" and containersExist) and { name = t } or nil
@@ -221,6 +222,15 @@ _G.CreateFrame = function(kind, name, parent, template)
         function c:AddAuraSlot(key, filter, opts)
             local slot = newFrame("AuraSlot")
             slot.key, slot.filter, slot.opts = key, filter, opts
+            -- THE BUTTON'S OWN DRAWING CALLS, recorded - an auto no-op would answer "yes" to
+            -- anything and remember nothing (ForeverAuras 0.1.148 uses both on this client).
+            -- SLOT_CALLS.missing = true is a client that does not have them.
+            if SLOT_CALLS.missing then
+                slot.AddDispelTypeTexture, slot.SetDurationCooldown = false, false
+            else
+                function slot:AddDispelTypeTexture(tex, o) self.dispelTex, self.dispelOpts = tex, o end
+                function slot:SetDurationCooldown(cd) self.durationCooldown = cd end
+            end
             self.slots[key] = slot
             if opts and opts.initializeFrame then opts.initializeFrame(slot) end
             return slot
@@ -1923,6 +1933,101 @@ do
     ok(FA.Attach(plain, "party1") == false and plain.auras == nil, "no container, no marker, no error")
     containersExist = true
     FA.available = nil
+end
+
+-- THE DISPEL TYPE AND YOUR HEALS OVER TIME (21 Sep, from ForeverAuras 0.1.148): the client draws
+-- the type into a texture we hand it, and runs a countdown from an aura's duration - neither read.
+do
+    local FA = NS.FA
+    _G.C_UnitAuras, _G.AuraUtil = nil, nil
+    local cell = FG.frames[1]
+    cell.auras = nil
+    FA.sig, FA.typed = nil, nil
+    FA.Attach(cell, "party1")
+    local dispel = cell.auras.slots["BiSHealDispel"]
+    ok(dispel.dispelTex ~= nil, "the dispel marker hands the client a texture for the TYPE")
+    ok(dispel.dispelOpts and dispel.dispelOpts.showWhenHarmful == true, "for harmful auras")
+    ok(FA.typed == true, "and says it is drawing the type")
+
+    -- a client without the call keeps the green square rather than losing the marker
+    SLOT_CALLS.missing = true
+    FA.typed, FA.sig = nil, nil
+    local plain = FG.frames[2]
+    plain.auras = nil
+    ok(pcall(FA.Attach, plain, "party2"), "a client without AddDispelTypeTexture attaches anyway")
+    ok(plain.auras and plain.auras.slots["BiSHealDispel"] ~= nil and FA.typed == nil,
+       "and keeps the plain marker")
+    SLOT_CALLS.missing = false
+
+    -- a shaman has no heal over time here: no slot is built for one
+    FA.sig = nil
+    cell.auras = nil
+    FA.Attach(cell, "party1")
+    local anyHot = false
+    for k in pairs(cell.auras.slots) do if k:find("^BiSHealHot") then anyHot = true end end
+    ok(not anyHot, "no heal-over-time slot for a class without one")
+
+    -- A PRIEST: Renew, every rank, only the priest's own, with the client's countdown
+    local realClass, realInfo, realName = _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName
+    _G.UnitClass = function() return "Priest", "PRIEST" end
+    _G.C_Spell.GetSpellName = function(id) return id == 139 and "Renew" or nil end
+    BOOK[6] = { name = "Renew", rank = "Rank 11" }
+    _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+        if type(bank) ~= "number" then error("bad argument", 2) end
+        return n == 6 and { spellID = 99011 } or nil
+    end
+    FA.sig = nil
+    ok(pcall(FA.Attach, cell, "party1"), "a priest's cell attaches")
+    local renew = cell.auras.slots["BiSHealHotRenew"]
+    ok(renew ~= nil, "a Renew slot is built")
+    ok(renew and renew.filter == "HELPFUL|PLAYER", "for YOUR Renew only: " .. tostring(renew and renew.filter))
+    local ids = renew and renew.opts.candidateFilters.includeSpellIDs or {}
+    ok(ids[139] and ids[25315], "every Classic rank is asked for")
+    ok(ids[99011], "and the rank this client's book says you know, whatever its id")
+    ok(renew and renew.durationCooldown ~= nil, "the client runs the countdown from the aura itself")
+    ok(renew and renew.points and renew.points[1] and renew.points[1][1] == "BOTTOMLEFT",
+       "bottom left, clear of the name and the number")
+
+    -- THE LOCKDOWN: building it reads no aura
+    local boom = function() error("Auras cannot be accessed when secret while tainted", 2) end
+    _G.C_UnitAuras = setmetatable({}, { __index = function() return boom end })
+    FA.sig = nil
+    cell.auras = nil
+    ok(pcall(FA.Attach, cell, "party2"), "the heal-over-time slot reads no aura either")
+    _G.C_UnitAuras = nil
+
+    -- /bish hots off: the container is rebuilt without them, and the old one stops drawing
+    MACROS = {}
+    local d = NS.DB()
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    local old = cell.auras
+    NS.DO.hots(false)
+    ok(cell.auras ~= old and cell.auras.slots["BiSHealHotRenew"] == nil, "switched off, no Renew slot")
+    ok(old.enabled == false and old.__shown == false, "and the old container is switched off, not left drawing")
+    local stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(stored and stored:find("O=0", 1, true), "off is kept in the macro", stored)
+    local _, st = NS.FK.Decode(stored or "")
+    ok(st and st.hots == false, "and reads back as off")
+    NS.DO.hots(true)
+    ok(cell.auras.slots["BiSHealHotRenew"] ~= nil, "back on, back again")
+    stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(stored and not stored:find("O=", 1, true), "and on - the default - writes nothing")
+
+    -- an older install skips the O row
+    local reads = 0
+    local body = NS.FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { hots = false })
+    for row in (body:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and ({ l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 })[code:sub(-1)] then reads = reads + 1 end
+    end
+    ok(reads == 1, "an older install skips O", reads)
+
+    BOOK[6] = nil
+    _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName = realClass, realInfo, realName
+    FA.sig = nil
+    MACROS = {}
+    d.binds = keptBinds
 end
 
 -- The pyramid must not ASK for the combat log on a client that forbids it. Registering

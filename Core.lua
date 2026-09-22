@@ -62,6 +62,7 @@ local DEFAULTS = {
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
+    hots    = true,      -- your own heals over time on the cells, with the client's countdown
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
@@ -200,6 +201,18 @@ function NS.DO.auras()
     local on = NS.FA.Debug(not NS.FA.debug)
     Print(("debug aura marker %s"):format(
         on and "ON -- take any debuff and watch the cells" or "off"))
+end
+
+--- Your heals over time on the cells (Renew, Rejuvenation, Regrowth), on or off. No argument flips.
+function NS.DO.hots(on)
+    local d = DB()
+    if on == nil then on = d.hots == false end
+    local now = NS.FA and NS.FA.SetHots and NS.FA.SetHots(on)
+    d.hots = on and true or false
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print((d.hots and "your heals over time shown on the cells" or "heals over time hidden")
+        .. ((now == false) and " - after this fight" or ""))
+    return d.hots
 end
 
 function NS.DO.minimap()
@@ -480,6 +493,7 @@ function NS.DO.help()
     Print("  |cffb980ffminimap|r  hide or show the button")
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
     Print("  |cffb980ffcolour|r  bars by class, or by health")
+    Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
 end
 
 --------------------------------------------------------------------- slash --
@@ -532,6 +546,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.colour()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
+    elseif msg == "hots" or msg == "hot" then
+        NS.DO.hots()
     elseif msg == "text" or msg:match("^text%s") then
         NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"

@@ -107,7 +107,133 @@ local function pip(colour)
         t:SetAllPoints(auraButton)
         t:SetVertexColor(colour[1], colour[2], colour[3], colour[4])
         if auraButton.SetMouseMotionEnabled then auraButton:SetMouseMotionEnabled(false) end
+        return t
     end
+end
+
+--- THE DISPEL TYPE, drawn by the client. ForeverAuras 0.1.148 (21 Sep) hands an aura button a
+--- texture with AddDispelTypeTexture and the client paints the TYPE into it - Magic, Curse, Poison,
+--- Disease, in the game's own icon and colour - for an aura we are never allowed to read. So the
+--- marker says what it is, not only that it is there.
+---
+--- The green square is made first and stays the fallback: a client without the call, or one that
+--- refuses it, still gets "something here you can cure". Only when the client took the texture is
+--- the square hidden.
+local function dispelPip(colour)
+    local square = pip(colour)
+    return function(auraButton)
+        local t = square(auraButton)
+        if not (auraButton and type(auraButton.AddDispelTypeTexture) == "function") then return end
+        local styles = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+        local icon = auraButton:CreateTexture(nil, "OVERLAY", nil, 1)
+        icon:SetAllPoints(auraButton)
+        local ok = pcall(auraButton.AddDispelTypeTexture, auraButton, icon, {
+            showWhenHarmful = true, showWhenHelpful = false,
+            style = styles and styles.Icon or nil,
+        })
+        if ok then
+            if t and t.Hide then t:Hide() end
+            FA.typed = true                      -- /bish scan can say which marker is in use
+        elseif icon.Hide then
+            icon:Hide()
+        end
+    end
+end
+
+-- YOUR HEALS OVER TIME, on the cell, with the client's own countdown. By family: every rank of a
+-- spell is its own spell id, and a slot shows whichever rank of the family is on the target. The
+-- ids are Classic's - and the book is read too (FA.HotIds), because this client's ids for the
+-- higher ranks are not something anyone here has measured, while the ones YOU know are in your
+-- spellbook. Only spells you cast ("HELPFUL|PLAYER"): another healer's Renew is not your timer.
+FA.HOTS = {
+    PRIEST = {
+        { key = "Renew", ids = { 139, 6074, 6075, 6076, 6077, 6078, 10927, 10928, 10929, 25315 } },
+    },
+    DRUID = {
+        { key = "Rejuvenation", ids = { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299 } },
+        { key = "Regrowth", ids = { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 } },
+    },
+}
+local HOT_SIZE, HOT_GAP = 10, 2
+
+--- Every spell id for one family: the listed ones, plus every rank of that name in the book.
+function FA.HotIds(family)
+    local ids = {}
+    for _, id in ipairs(family.ids) do ids[id] = true end
+    local name = C_Spell and C_Spell.GetSpellName and family.ids[1]
+        and select(2, pcall(C_Spell.GetSpellName, family.ids[1])) or nil
+    if type(name) ~= "string" or name == "" or NS.Secret(name) then return ids end
+    local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
+    if C_SpellBook and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemInfo then
+        for i = 1, 500 do
+            local got, nm = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
+            if got and nm == name then
+                local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
+                local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
+                if type(id) == "number" then ids[id] = true end
+            end
+        end
+    end
+    return ids
+end
+
+--- The families this character casts, or nothing: a paladin has no heal over time here.
+function FA.Hots()
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" and d.hots == false then return {} end
+    local class = UnitClass and NS.Plain(select(2, UnitClass("player"))) or nil
+    return FA.HOTS[class or ""] or {}
+end
+
+--- A heal-over-time marker: the spell's own icon (the client sets it), its border gone, and a
+--- Cooldown the client runs from the aura's duration - SetDurationCooldown, as ForeverAuras does.
+--- The swipe IS the time left, and we never read it.
+local function hotIcon(auraButton)
+    if not auraButton then return end
+    for _, k in ipairs({ "Border", "border", "Count", "count" }) do
+        local part = auraButton[k]
+        if type(part) == "table" and part.Hide then pcall(part.Hide, part) end
+    end
+    if auraButton.SetMouseMotionEnabled then auraButton:SetMouseMotionEnabled(false) end
+    if auraButton.EnableMouse then pcall(auraButton.EnableMouse, auraButton, false) end
+    if type(auraButton.SetDurationCooldown) == "function" then
+        local ok, cd = pcall(CreateFrame, "Cooldown", nil, auraButton, "CooldownFrameTemplate")
+        if ok and cd then
+            cd:SetAllPoints(auraButton)
+            if cd.SetDrawBling then cd:SetDrawBling(false) end
+            if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+            if cd.SetReverse then cd:SetReverse(true) end    -- fills in as it runs out
+            pcall(auraButton.SetDurationCooldown, auraButton, cd)
+        end
+    end
+end
+
+--- A fingerprint of what the containers were built for: the debug switch and every heal-over-time
+--- id. When it changes - the book filled in after login, a new rank learned, /bish hots - each
+--- cell's container is rebuilt; otherwise the one it has is only pointed at its unit.
+local function signature()
+    -- read the book once per pass, not once per cell: a layout attaches forty cells in one frame
+    local now = GetTime and GetTime() or 0
+    if FA.sig and FA.sigAt == now then return FA.sig end
+    local parts = { FA.debug and "d" or "" }
+    for _, fam in ipairs(FA.Hots()) do
+        local ids = {}
+        for id in pairs(FA.HotIds(fam)) do ids[#ids + 1] = id end
+        table.sort(ids)
+        parts[#parts + 1] = fam.key .. ":" .. table.concat(ids, ",")
+    end
+    FA.sig, FA.sigAt = table.concat(parts, "|"), now
+    return FA.sig
+end
+
+--- Take a cell's container down before a new one is built: the old one would otherwise go on
+--- drawing underneath it.
+local function release(cell)
+    local old = cell.auras
+    if not old then return end
+    if old.SetEnabled then pcall(old.SetEnabled, old, false) end
+    if old.Hide then pcall(old.Hide, old) end
+    cell.auras, cell.dispelSlot, cell.watchSlot, cell.anySlot, cell.hotSlots = nil, nil, nil, nil, nil
 end
 
 --- Give one grid cell its markers. Returns false when this client has no containers, which is the
@@ -115,10 +241,12 @@ end
 --- rather than erroring every frame.
 function FA.Attach(cell, unit)
     if not FA.Available() or not cell or not unit then return false end
-    if cell.auras then
+    local sig = signature()
+    if cell.auras and cell.aurasSig == sig then
         if cell.auras.SetUnit then pcall(cell.auras.SetUnit, cell.auras, unit) end
         return true
     end
+    release(cell)
 
     -- Blizzard's own AuraContainer addon owns this template. Without it the template is still
     -- KNOWN to C_XMLUtil - so feature detection says yes - and building one is refused as a
@@ -146,7 +274,7 @@ function FA.Attach(cell, unit)
 
     -- 1. anything WE can cure, washed over the health bar
     local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
-        initializeFrame = pip(DISPEL_TINT),
+        initializeFrame = dispelPip(DISPEL_TINT),
     })
     if dispel and dispel.SetPoint then
         dispel:SetSize(10, 10)
@@ -184,8 +312,24 @@ function FA.Attach(cell, unit)
         cell.anySlot = any
     end
 
+    -- 3. YOUR heals over time, bottom left in a row, each with the client's countdown swipe. The
+    --    number owns the bottom right, the name the top line; these sit under the name's start.
+    local hots = {}
+    for i, fam in ipairs(FA.Hots()) do
+        local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
+            candidateFilters = { includeSpellIDs = FA.HotIds(fam) },
+            initializeFrame = hotIcon,
+        })
+        if slot and slot.SetPoint then
+            slot:SetSize(HOT_SIZE, HOT_SIZE)
+            slot:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 3 + (i - 1) * (HOT_SIZE + HOT_GAP), 3)
+        end
+        hots[fam.key] = slot
+    end
+
     if container.SetEnabled then container:SetEnabled(true) end
-    cell.auras, cell.dispelSlot, cell.watchSlot = container, dispel, es
+    cell.auras, cell.dispelSlot, cell.watchSlot, cell.hotSlots = container, dispel, es, hots
+    cell.aurasSig = sig
     return true
 end
 
@@ -200,11 +344,23 @@ end
 --- Off by default and never shipped on: it marks every debuff, which in a raid is noise.
 function FA.Debug(on, frames)
     FA.debug = on and true or false
+    FA.sig = nil                            -- the fingerprint changed: every container is rebuilt
     for _, f in ipairs(frames or (NS.FG and NS.FG.frames) or {}) do
-        f.auras = nil                       -- rebuilt with (or without) the extra slot
         if f.unit then FA.Attach(f, f.unit) end
     end
     return FA.debug
+end
+
+--- Your heals over time on the cells, on or off. Out of combat only, like every container change.
+function FA.SetHots(on)
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" then d.hots = on and true or false end
+    FA.sig = nil
+    if InCombatLockdown and InCombatLockdown() then return false end
+    for _, f in ipairs((NS.FG and NS.FG.frames) or {}) do
+        if f.unit then FA.Attach(f, f.unit) end
+    end
+    return true
 end
 
 --- Point every cell's container at whatever unit that cell now holds. Called from the layout, out

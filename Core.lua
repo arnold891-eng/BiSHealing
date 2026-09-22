@@ -63,6 +63,7 @@ local DEFAULTS = {
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
+    clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
@@ -150,7 +151,33 @@ function NS.DO.options()
 end
 
 function NS.DO.mouse()
+    if NS.FM and NS.FM.CliqueOn and NS.FM.CliqueOn() then
+        Print("Clique is handling clicks on the cells, so these binds are off - /bish clique to take them back")
+    end
     if NS.FM and NS.FM.Toggle then NS.FM.Toggle() end
+end
+
+--- Hand every click on the cells to Clique, or take them back. One owner at a time: two addons
+--- writing what a click means onto the same frame is a race (FM.ApplyTo). No argument flips it.
+function NS.DO.clique(on)
+    local d = DB()
+    if on == nil then on = not (d.clique == true) end
+    d.clique = on and true or false
+    local loaded = false
+    if C_AddOns and C_AddOns.IsAddOnLoaded then
+        local ok, yes = pcall(C_AddOns.IsAddOnLoaded, "Clique")
+        loaded = ok and yes and true or false
+    end
+    local now = NS.FM and NS.FM.Apply and NS.FM.Apply()
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    if d.clique then
+        Print("clicks on the cells now belong to Clique"
+            .. (loaded and "" or " - it is not loaded, so they do nothing until it is")
+            .. ((now == false) and " (after this fight)" or ""))
+    else
+        Print("BiS Healing's mouse binds are back on the cells" .. ((now == false) and " (after this fight)" or ""))
+    end
+    return d.clique
 end
 
 function NS.DO.show(on)
@@ -494,6 +521,7 @@ function NS.DO.help()
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
+    Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
 end
 
 --------------------------------------------------------------------- slash --
@@ -548,6 +576,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.pets()
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
+    elseif msg == "clique" then
+        NS.DO.clique()
     elseif msg == "text" or msg:match("^text%s") then
         NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"

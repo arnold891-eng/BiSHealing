@@ -214,13 +214,73 @@ function FK.Ready()
     return type(GetMacroIndexByName) == "function" and type(GetMacroBody) == "function"
 end
 
---- The binds this character kept, or nil.
+--- How many macros each tab holds, from the client. GSE reads the same constants; 120 and 18 are
+--- only the fallbacks for a client that does not say.
+function FK.Limits()
+    local c = Constants and Constants.MacroConsts
+    local acc = (c and tonumber(c.MAX_ACCOUNT_MACROS)) or tonumber(MAX_ACCOUNT_MACROS) or 120
+    local chr = (c and tonumber(c.MAX_CHARACTER_MACROS)) or tonumber(MAX_CHARACTER_MACROS) or 18
+    return acc, chr
+end
+
+--- WHERE OURS IS: this character's own BiSHealing macro, and separately any shared one.
+---
+--- THE SHARED ONE WAS A BUG. Arn, 22 Sep 2026, a screenshot of the macro window: "its saving to
+--- general". Every character on the account read and wrote that one macro, so whichever logged in
+--- and saved last decided everyone's binds - "it's still wiping the keybinds from time to time".
+--- So ours is looked for ONLY in this character's tab (the indices after General's). A shared one
+--- is reported, so its binds can be carried over once, and never written to again.
+function FK.Find()
+    local acc, chr = FK.Limits()
+    local mine, shared
+    if type(GetMacroInfo) == "function" then
+        for i = acc + 1, acc + chr do
+            local ok, name = pcall(GetMacroInfo, i)
+            if ok and name == FK.MACRO then mine = i break end
+        end
+        for i = 1, acc do
+            local ok, name = pcall(GetMacroInfo, i)
+            if ok and name == FK.MACRO then shared = i break end
+        end
+    else
+        local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)
+        if ok and type(idx) == "number" and idx > 0 then
+            if idx > acc then mine = idx else shared = idx end
+        end
+    end
+    return mine, shared
+end
+
+--- HAS THE MACRO LIST ARRIVED? Nothing is written until it has. The other half of the wipe: at login
+--- the list can come in late, and a save made before it did (the grid's position, from the look of
+--- Arn's macro - "BiSH1#P=5960:5164", no binds at all) wrote an empty mouse over the real one. The
+--- list is known to be in when ours is found, when the client counts any macro at all, or when
+--- UPDATE_MACROS has fired (FK.MacrosArrived).
+FK.read = false
+local function listIsIn()
+    if FK.read then return true end
+    local ok, g, p = pcall(GetNumMacros)
+    if ok and ((tonumber(g) or 0) + (tonumber(p) or 0)) > 0 then FK.read = true end
+    return FK.read
+end
+
+function FK.MacrosArrived()
+    FK.read = true
+end
+
+--- The binds this character kept, or nil. Its own macro first; failing that, a shared one from
+--- before this was fixed, whose binds are carried over ONCE (FK.adopted says so) and then written
+--- into this character's own at the next save.
 function FK.Load()
     if not FK.Ready() then return nil end
-    local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)
-    if not ok or type(idx) ~= "number" or idx <= 0 then return nil end
+    local mine, shared = FK.Find()
+    local idx = mine or shared
+    if mine or shared then FK.read = true else listIsIn() end
+    FK.shared = shared
+    if not idx then return nil end
     local got, body = pcall(GetMacroBody, idx)
     if not got or type(body) ~= "string" then return nil end
+    FK.adopted = (not mine and shared) and true or nil
     return FK.Decode(body)
 end
 
@@ -231,6 +291,12 @@ function FK.Save(binds)
         return false, "no macro api"
     end
     if InCombatLockdown and InCombatLockdown() then return false, "combat" end
+    -- never before the list is in: a write now would put an empty mouse over the real one
+    if not listIsIn() then
+        FK.pending = true
+        return false, "not read yet"
+    end
+    FK.pending = nil
     local d = NS.DB and NS.DB()
     local t = type(d) == "table" and d or {}
     -- the position only when it is pinned by the centre (FG.Recenter); any other kind of point
@@ -244,20 +310,33 @@ function FK.Save(binds)
                                              clique = t.clique })
     if not body then return false, "nothing to write" end
 
-    local ok, idx = pcall(GetMacroIndexByName, FK.MACRO)
-    if ok and type(idx) == "number" and idx > 0 then
-        local done = pcall(EditMacro, idx, FK.MACRO, FK.ICON, body)
+    -- only ever THIS character's own: a shared one in General is left exactly as it is
+    local mine = FK.Find()
+    if mine then
+        local done = pcall(EditMacro, mine, FK.MACRO, FK.ICON, body)
         return done and true or false, done and dropped or "the client refused the edit"
     end
 
-    -- no room is a real answer, not a failure to hide: 18 per-character slots, and they are the
-    -- player's before they are ours
+    -- no room is a real answer, not a failure to hide: the character tab's slots are the
+    -- player's before they are ours, and how many there are is the client's to say
+    local _, chrLimit = FK.Limits()
     local gok, _, perChar = pcall(GetNumMacros)
-    if gok and type(perChar) == "number" and perChar >= 18 then
+    if gok and type(perChar) == "number" and perChar >= chrLimit then
         return false, "your character macro slots are full"
     end
-    local made = pcall(CreateMacro, FK.MACRO, FK.ICON, body, 1)   -- 1 = this character only
-    return made and true or false, made and dropped or "the client refused to make the macro"
+    -- tried once and the client filed it under General anyway: do not make a second, and a third
+    if FK.landedShared then return false, "the client keeps macros in General" end
+    -- TRUE, not 1. This was `1` from the start, and this client filed the macro under General
+    -- (22 Sep). The flag is a boolean on the modern API; a number is not one.
+    local made, at = pcall(CreateMacro, FK.MACRO, FK.ICON, body, true)
+    if not made then return false, "the client refused to make the macro" end
+    -- and LOOK where it went, rather than trust the flag a second time
+    local acc = FK.Limits()
+    if type(at) == "number" and at <= acc then
+        FK.landedShared = true
+        return false, "the client put the macro in General, shared by all your characters"
+    end
+    return true, dropped
 end
 
 NS.FK = FK

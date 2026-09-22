@@ -264,15 +264,35 @@ end
 -- survive the restart that empties every SavedVariables file. This is the store, and it behaves
 -- like the client's: CreateMacro appends, EditMacro needs a real index, GetNumMacros counts the
 -- two kinds separately, and a name that is not there answers 0 rather than nil.
-local MACROS = {}
+--
+-- TWO TABS, BY INDEX, AND A STRICT FLAG. Arn, 22 Sep 2026, a screenshot of the macro window: the
+-- BiSHealing macro sat in GENERAL Macros, shared by every character on the account, holding only
+-- a grid position. CreateMacro had been handed `1` for "this character only" since the day
+-- Keep.lua was written, and the client put it in the shared tab. This store used to take any
+-- true-ish value as per-character and kept both tabs in one list, so the suite passed "this
+-- character's own - not a general slot" over exactly that bug. Now General is 1..120 and the
+-- character's tab 121..138, as in the client, and only a real `true` makes a character macro.
+local MACROS = {}                -- index -> { name, icon, body }; General 1..120, character 121+
+_G.MAX_ACCOUNT_MACROS, _G.MAX_CHARACTER_MACROS = 120, 18
+local function macroIndices()
+    local ks = {}
+    for i in pairs(MACROS) do ks[#ks + 1] = i end
+    table.sort(ks)
+    return ks
+end
 _G.GetMacroIndexByName = function(n)
-    for i, m in ipairs(MACROS) do if m.name == n then return i end end
+    for _, i in ipairs(macroIndices()) do if MACROS[i].name == n then return i end end
     return 0
+end
+_G.GetMacroInfo = function(i)
+    local m = MACROS[i]
+    if not m then return nil end
+    return m.name, m.icon, m.body
 end
 _G.GetMacroBody = function(i) return MACROS[i] and MACROS[i].body or nil end
 _G.GetNumMacros = function()
     local g, p = 0, 0
-    for _, m in ipairs(MACROS) do if m.perChar then p = p + 1 else g = g + 1 end end
+    for i in pairs(MACROS) do if i > 120 then p = p + 1 else g = g + 1 end end
     return g, p
 end
 -- THE CLIENT ADDS A NEWLINE. Measured, 19 Sep 2026: a body of 31 characters came back as 32,
@@ -284,9 +304,15 @@ local function asTheClientStoresIt(body)
     return tostring(body) .. "\n"
 end
 _G.CreateMacro = function(n, icon, body, perChar)
-    MACROS[#MACROS + 1] = { name = n, icon = icon, body = asTheClientStoresIt(body),
-                            perChar = perChar and true or false }
-    return #MACROS
+    local first, last = 1, 120
+    if perChar == true then first, last = 121, 138 end
+    for i = first, last do
+        if not MACROS[i] then
+            MACROS[i] = { name = n, icon = icon, body = asTheClientStoresIt(body) }
+            return i
+        end
+    end
+    error("macro tab is full", 2)
 end
 _G.EditMacro = function(i, n, icon, body)
     local m = MACROS[i]
@@ -391,6 +417,10 @@ do
     toc:close()
 end
 ok(#LOADED >= 8, "the TOC's files all load: " .. #LOADED)
+-- THE MACRO LIST ARRIVES. The client sends UPDATE_MACROS once it has the list, at every login;
+-- until then Keep writes nothing (the 22 Sep wipe). This is that moment. The before-it case has
+-- its own block, "NOTHING IS WRITTEN BEFORE THE LIST IS IN".
+NS.FK.MacrosArrived()
 local FG = NS.FG
 local FRAME_W_FOR_TEST = 84 - 10 + 1    -- Grid.lua's FRAME_W less the header padding, for the fit check
 
@@ -634,20 +664,50 @@ do
 
     -- writing: made once, edited after
     MACROS = {}
+    local function count() local n = 0 for _ in pairs(MACROS) do n = n + 1 end return n end
     local wrote = FK.Save({ ["wheelup"] = "Healing Wave(Rank 2)" })
-    ok(wrote == true and #MACROS == 1, "the first save makes the macro")
-    ok(MACROS[1].name == FK.MACRO and MACROS[1].perChar == true,
-       "named, and this character's own - not a general slot")
+    ok(wrote == true and count() == 1, "the first save makes the macro")
+    ok(MACROS[121] and MACROS[121].name == FK.MACRO,
+       "named, and in THIS CHARACTER's tab - not General, where every character would share it")
     FK.Save({ ["wheelup"] = "Healing Wave(Rank 3)" })
-    ok(#MACROS == 1, "the second save edits it rather than making another")
+    ok(count() == 1, "the second save edits it rather than making another")
     ok(FK.Load()["wheelup"] == "Healing Wave(Rank 3)", "and reading it back gives the new one")
 
     -- the player's own macros are none of our business
-    MACROS = { { name = "1 Focus", body = "/focus party1", perChar = false } }
+    MACROS = { [1] = { name = "1 Focus", body = "/focus party1" } }
     FK.Save({ ["left"] = "Healing Wave(Rank 1)" })
     ok(MACROS[1].name == "1 Focus" and MACROS[1].body == "/focus party1",
        "a macro that is not ours is never touched")
-    ok(#MACROS == 2, "ours is made beside it")
+    ok(count() == 2 and MACROS[121] and MACROS[121].name == FK.MACRO, "ours is made beside it")
+
+    -- OFF THE SHARED MACRO. Every install before this fix wrote BiSHealing into General (Arn's
+    -- screenshot, 22 Sep). Its binds are read once, written into this character's own, and the
+    -- shared one is never written again - it may hold another character's mouse.
+    MACROS = { [5] = { name = FK.MACRO, body = "BiSH1;Healing Wave#u=1:2\n" } }
+    local mine, shared = FK.Find()
+    ok(mine == nil and shared == 5, "a shared one in General is found as shared, not as ours")
+    local back = FK.Load()
+    ok(back and back["wheelup"] == "Healing Wave(Rank 2)" and FK.adopted,
+       "its binds are read, once, and marked as carried over")
+    FK.Save(back)
+    ok(MACROS[121] and MACROS[121].body:find("u=1:2", 1, true), "and written into this character's own")
+    FK.Save({ ["left"] = "Chain Heal(Rank 1)" })
+    ok(MACROS[5].body == "BiSH1;Healing Wave#u=1:2\n", "the shared one is never written again")
+    ok(MACROS[121].body:find("Chain Heal", 1, true), "every later save goes to the character's own")
+    local m2 = FK.Find()
+    ok(m2 == 121, "and it is the one found from now on, the shared one beside it or not")
+    FK.adopted = nil
+
+    -- A CLIENT THAT FILES IT UNDER GENERAL EVEN FOR `true`: said once, and no pile of copies
+    local realCreate = _G.CreateMacro
+    _G.CreateMacro = function(n, icon, body) return realCreate(n, icon, body, false) end
+    MACROS, FK.landedShared = {}, nil
+    local okA, whyA = FK.Save({ ["left"] = "Healing Wave(Rank 1)" })
+    ok(okA == false and tostring(whyA):find("General"), "it says the client put it in General", tostring(whyA))
+    FK.Save({ ["left"] = "Healing Wave(Rank 2)" })
+    FK.Save({ ["left"] = "Healing Wave(Rank 3)" })
+    ok(count() == 1, "and does not make a second and a third", count())
+    _G.CreateMacro, FK.landedShared = realCreate, nil
 
     -- in combat the client will not make a macro, and pretending otherwise loses the change
     STATE.inCombat = true
@@ -657,7 +717,7 @@ do
 
     -- and there is no room left
     MACROS = {}
-    for i = 1, 18 do MACROS[i] = { name = "mine" .. i, body = "x", perChar = true } end
+    for i = 121, 138 do MACROS[i] = { name = "mine" .. i, body = "x" } end
     local full, reason = FK.Save({ ["left"] = "Healing Wave(Rank 1)" })
     ok(full == false and tostring(reason):find("full"),
        "a full macro list is an answer, not a silent failure: " .. tostring(reason))
@@ -695,19 +755,35 @@ do
     -- the player's real setup, kept from last time - but the list is not readable yet
     MACROS = {}
     FK.Save({ ["wheelup"] = "Healing Wave(Rank 2)" })
-    local realIndex = _G.GetMacroIndexByName
-    _G.GetMacroIndexByName = function() return 0 end        -- "no macros", as an empty list reads
+    local kept = MACROS[121] and MACROS[121].body
+    local realInfo, realNum, realIndex = _G.GetMacroInfo, _G.GetNumMacros, _G.GetMacroIndexByName
+    _G.GetMacroInfo = function() return nil end              -- an empty list, as it reads at login
+    _G.GetNumMacros = function() return 0, 0 end
+    _G.GetMacroIndexByName = function() return 0 end
+    FK.read = false
 
+    -- NOTHING IS WRITTEN BEFORE THE LIST IS IN. Arn's macro on 22 Sep: "BiSH1#P=5960:5164", a grid
+    -- position and no binds - something saved before the list had been read, over the real one.
     local d = NS.DB()
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
-    ok(FM.Get("", "left") ~= nil, "with the list unreadable, the class default lands as before")
+    ok(FM.Get("", "left") == nil, "with the list not in yet, no class default is seeded")
     ok(FM.Get("", "wheelup") == nil, "and the kept wheel bind is not there yet")
+    d.gridPos = { point = "CENTER", rel = "CENTER", x = 40, y = -20 }   -- dragged, before the list
+    local early, why = FK.Save(d.binds)                      -- the grid's position, say
+    ok(early == false and why == "not read yet", "a save this early is refused, and says why", tostring(why))
+    ok(MACROS[121] and MACROS[121].body == kept, "and the real macro is untouched",
+       MACROS[121] and MACROS[121].body)
 
-    _G.GetMacroIndexByName = realIndex                      -- the list fills in, a moment later
+    _G.GetMacroInfo, _G.GetNumMacros, _G.GetMacroIndexByName = realInfo, realNum, realIndex
     ok(fire(FG.events, "UPDATE_MACROS"), "the grid asked for UPDATE_MACROS in the first place")
     ok(FM.Get("", "wheelup") == "Healing Wave(Rank 2)",
        "the kept bind arrives once the list does", tostring(FM.Get("", "wheelup")))
-    ok(FM.Get("", "left") == nil, "and our guess is off left click again")
+    ok(FM.Get("", "left") == nil, "and no guess of ours is on left click")
+    ok(MACROS[121] and MACROS[121].body:find("u=1:2", 1, true)
+       and MACROS[121].body:find("P=5040:4980", 1, true),
+       "and the waiting save went once the list was in - the drag AND the real binds",
+       MACROS[121] and MACROS[121].body)
+    d.gridPos = nil
 
     -- BUT NEVER A BIND THE PLAYER PUT THERE. Reconsidering is allowed to discard our own guess
     -- and nothing else.

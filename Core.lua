@@ -290,13 +290,20 @@ function NS.DO.keep()
         Print("no macro api on this client - nothing is being kept")
         return
     end
-    local idx = GetMacroIndexByName and GetMacroIndexByName(FK.MACRO) or 0
-    if not idx or idx <= 0 then
-        Print(("no macro called |cffb980ff%s|r yet - bind something and it appears"):format(FK.MACRO))
+    -- WHICH TAB, said out loud: the shared one in General was the whole 22 Sep bug
+    local mine, shared = FK.Find()
+    if shared then
+        Print(("an old shared |cffb980ff%s|r is in General Macros (slot %d) - no longer used, safe to delete")
+            :format(FK.MACRO, shared))
+    end
+    local idx = mine
+    if not idx then
+        Print(("no |cffb980ff%s|r in this character's macros yet - bind something and it appears"):format(FK.MACRO))
         return
     end
     local body = GetMacroBody and GetMacroBody(idx) or ""
-    Print(("macro |cffb980ff%s|r at slot %d, %d of %d characters:"):format(FK.MACRO, idx, #body, FK.LIMIT))
+    Print(("macro |cffb980ff%s|r in this character's macros (slot %d), %d of %d characters:")
+        :format(FK.MACRO, idx, #body, FK.LIMIT))
     Print("  " .. tostring(body))
     local back = FK.Decode(body)
     if not back then

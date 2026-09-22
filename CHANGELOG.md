@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 0.4.4
+
+- **Wheel click and thumb buttons target when unbound.** Left and right click already selected the
+  person when nothing was on them; the wheel click and the two thumb buttons did nothing. Now every
+  empty mouse button targets, with or without a modifier.
+
 ## 0.4.3
 
 - **Fixed: mouse binds being wiped.** Two bugs, one symptom:

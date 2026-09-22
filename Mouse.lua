@@ -142,9 +142,13 @@ local function db()
     -- makes the mouse non-empty, and seeding never runs at all.
     if not FM.asked and not next(d.binds) then
         if NS.FK and NS.FK.Ready and NS.FK.Ready() then
-            FM.asked = true                    -- the api answered, so once is enough
             local kept, settings = nil, nil
             if NS.FK.Load then kept, settings = NS.FK.Load() end
+            -- ASKED ONLY ONCE THE LIST IS IN. Before it arrives "no macro" is not an answer, and
+            -- taking it for one seeded the class defaults - which the next save then wrote over
+            -- the real macro (Arn's, 22 Sep: a grid position and no binds). So until Keep says
+            -- the list is in, this asks again, and seeds nothing.
+            FM.asked = NS.FK.read and true or false
             if type(kept) == "table" then for k, v in pairs(kept) do d.binds[k] = v end end
             -- AND THE SIZE, which rides in the same macro because it would not survive a restart
             -- anywhere else on this client. Applied WITHOUT saving: writing back to the macro in
@@ -182,9 +186,26 @@ local function db()
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the
                 end                                                      -- grid's own retry obeys
             end
+            -- CARRIED OVER FROM THE SHARED MACRO, once: the binds came from the old General one,
+            -- so they are written into this character's own now, and the old one is left alone
+            -- for the player to delete - it is theirs, and it may hold another character's mouse.
+            if NS.FK.adopted then
+                NS.FK.adopted = nil
+                local wrote = NS.FK.Save and NS.FK.Save(d.binds)
+                if NS.Print then
+                    NS.Print(wrote and "your binds now live in this character's own BiSHealing macro."
+                        .. " The old one in General Macros is no longer used - delete it whenever you like."
+                        or "your binds were read from the shared BiSHealing macro in General Macros;"
+                        .. " they move to this character's own at the next change out of combat.")
+                end
+            end
         end
     end
-    if not d.bindsSeeded and not next(d.binds) then
+    -- a save that came before the list was in, now it is
+    if NS.FK and NS.FK.pending and NS.FK.read and FM.asked then NS.FK.Save(d.binds) end
+    -- SEEDED ONLY AFTER THE MACRO WAS ASKED: defaults written in before then were the empty mouse
+    -- that got saved over a real one
+    if FM.asked and not d.bindsSeeded and not next(d.binds) then
         local defaults, booked = FM.Defaults()
         for k, v in pairs(defaults) do d.binds[k] = v end
         if booked then d.bindsSeeded = true end
@@ -383,10 +404,14 @@ end
 --- ask again. Never a mouse the player has touched - FM.touched is the difference between our
 --- guess and their act, and their act wins every time.
 function FM.Reconsider()
+    if NS.FK and NS.FK.MacrosArrived then NS.FK.MacrosArrived() end   -- the event means the list is in
     local d = db()
     if FM.touched then return false end
-    if not d.bindsSeeded then return false end
-    for k in pairs(d.binds) do d.binds[k] = nil end
+    if d.bindsSeeded then
+        for k in pairs(d.binds) do d.binds[k] = nil end
+    elseif next(d.binds) then
+        return false                   -- binds that came from the macro are not a guess to throw away
+    end
     d.bindsSeeded, FM.asked = nil, false
     db()                           -- asks the macro first, seeds again only if it is empty
     return true

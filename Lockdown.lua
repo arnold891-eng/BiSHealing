@@ -69,11 +69,24 @@ else
     NS.SECRET = (C_Secrets ~= nil) and true or false
 end
 
---- True when the client is hiding numbers AND we are inside the secure lockdown: the window in
---- which auras, cooldowns and stats are secret too. Out of combat on the same client, they read.
+--- True when the client is hiding numbers AND auras are secret right now.
+---
+--- IT IS NOT ONLY COMBAT. This used to be "inside the secure lockdown", on the 17 Sep measurement
+--- that out of combat everything reads. Then, 21 Sep, in a dungeon, two seconds after a pull:
+--- "attempt to perform boolean test on local 'have' (a secret boolean value)" - GetTotemInfo, out
+--- of combat, still secret. ForeverAuras 0.1.148 never trusted combat for this: it asks
+--- C_Secrets.ShouldAurasBeSecret, and re-asks on ENCOUNTER_STATE_CHANGED, CHALLENGE_MODE_START and
+--- the restriction events. So this asks the client too. An answer that is itself secret, or an
+--- error, counts as blind - the safe side of not knowing.
 function NS.Blind()
     if not NS.SECRET then return false end
-    return InCombatLockdown and InCombatLockdown() or false
+    if InCombatLockdown and InCombatLockdown() then return true end
+    if C_Secrets and C_Secrets.ShouldAurasBeSecret then
+        local ok, yes = pcall(C_Secrets.ShouldAurasBeSecret)
+        if not ok or NS.Secret(yes) then return true end
+        if yes == true then return true end
+    end
+    return false
 end
 
 --- IS THIS PARTICULAR VALUE SECRET? (19 Sep 2026)

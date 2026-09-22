@@ -288,19 +288,29 @@ function FM.Window()
     --
     -- So the key is handled here. Escape is swallowed while the window is up; every other key
     -- propagates, so typing still reaches the chat box.
+    --
+    -- NOT IN COMBAT. SetPropagateKeyboardInput is protected once the lockdown is on: Arn, 21 Sep,
+    -- in a dungeon - "[ADDON_ACTION_BLOCKED] AddOn 'BiSHealing' tried to call the protected function
+    -- 'BiSHealingMouse:SetPropagateKeyboardInput()'", from a key pressed with the window open
+    -- mid-pull. A blocked call is a popup, not an error pcall can catch, so it is simply not made
+    -- there: in a fight every key passes through (the last setting, always "propagate"), and
+    -- Escape closes the window without being swallowed.
+    local function propagate(self, on)
+        if InCombatLockdown and InCombatLockdown() then return false end
+        if self.SetPropagateKeyboardInput then self:SetPropagateKeyboardInput(on) end
+        return true
+    end
     w:EnableKeyboard(true)
-    w:SetPropagateKeyboardInput(true)
+    propagate(w, true)
     w:SetScript("OnKeyDown", function(self, key)
         if key == "ESCAPE" then
-            self:SetPropagateKeyboardInput(false)
+            propagate(self, false)
             self:Hide()
         else
-            self:SetPropagateKeyboardInput(true)
+            propagate(self, true)
         end
     end)
-    w:SetScript("OnHide", function(self)
-        if self.SetPropagateKeyboardInput then self:SetPropagateKeyboardInput(true) end
-    end)
+    w:SetScript("OnHide", function(self) propagate(self, true) end)
 
     -- under the tabs, not beside the header: the console's rotating word lives up there and the
     -- two of them were printing on top of each other

@@ -2054,6 +2054,7 @@ end
 do
     local FR = NS.FR
     local realRegen, realCost = _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost
+    local realPower, realForType = _G.GetPowerRegen, _G.GetPowerRegenForPowerType
     _G.GetManaRegen = function() return 100, 30 end          -- 30% while casting, as a talent gives
     _G.C_Spell.GetSpellPowerCost = function(id)
         if id == 999 then return { { type = 0, cost = 0 } } end       -- a free spell
@@ -2112,15 +2113,28 @@ do
     FG.PaintRegen(h)
     ok(h.fsr.__shown == false, "and when the five seconds are up it is gone")
 
-    -- a client that will not say: nothing is drawn, and nothing throws
+    -- WHICHEVER CALL THIS CLIENT ANSWERS. Arn, 23 Sep, mid-fight: the header said "Healing" while
+    -- he was casting, which means GetManaRegen answered nothing on that character. There are four
+    -- ways to ask on this client; the first that gives two real numbers wins.
     FR.OnCast("player", 331)
-    _G.GetManaRegen = function() return secret(), secret() end
-    ok(FR.Fraction() == nil and FR.Text() == nil, "a secret regen is not a number we invent")
+    _G.GetManaRegen = function() return nil end
+    _G.GetPowerRegen = function() return 200, 50 end
+    ok(select(3, FR.Rates()) == "GetPowerRegen" and FR.Text() == "regen 25%",
+       "with the first call silent, the next one answers", tostring(FR.Text()))
+    _G.GetPowerRegen = nil
+    _G.GetPowerRegenForPowerType = function() return 100, 45 end
+    ok(FR.Text() == "regen 45%", "and the one after that", tostring(FR.Text()))
+
+    -- and when none of them will say: it still says the five seconds are running
+    _G.GetPowerRegenForPowerType = function() return secret(), secret() end
+    ok(FR.Fraction() == nil and FR.Text() == "regen ?",
+       "no number is invented, and the header still says which mode it is in", tostring(FR.Text()))
     ok(pcall(FG.PaintRegen, h), "and the header survives it")
-    _G.GetManaRegen = nil
-    ok(FR.Fraction() == nil, "nor is a client that does not have the call at all")
+    _G.GetPowerRegenForPowerType = nil
+    ok(FR.Fraction() == nil, "nor does a client with none of the calls at all")
 
     _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost = realRegen, realCost
+    _G.GetPowerRegen, _G.GetPowerRegenForPowerType = realPower, realForType
     FR.spentAt = nil
     FG.PaintRegen(h)
 end

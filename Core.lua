@@ -246,6 +246,28 @@ function NS.DO.hots(on)
     return d.hots
 end
 
+--- WHAT THIS CLIENT SAYS ABOUT YOUR MANA. The header showed "regen ?" for Arn mid-fight, which is
+--- the honest answer when no call will say what you regenerate while casting. This prints what
+--- each one answered, so the next question is about a number rather than a guess.
+function NS.DO.regen()
+    local FR = NS.FR
+    if not FR then Print("the five second rule is not loaded") return end
+    Print(("the five second rule: %s"):format(
+        FR.Left() > 0 and ("%.1fs left"):format(FR.Left()) or "not running"))
+    for _, src in ipairs(FR.SOURCES or {}) do
+        local ok, base, casting = pcall(src.get)
+        local pb, pc = NS.Plain(base), NS.Plain(casting)
+        Print(("  %-26s %s"):format(src.name,
+            not ok and "|cfff08cb0refused|r"
+            or (pb == nil and base ~= nil and "|cfff08cb0secret|r")
+            or (pb == nil and "nothing")
+            or ("%s standing, %s casting"):format(tostring(pb), tostring(pc))))
+    end
+    local base, casting, from = FR.Rates()
+    Print(base and ("  -> %s answers: %s"):format(from, FR.Text() or "?")
+        or "  -> none of them will say; the header shows regen ?")
+end
+
 function NS.DO.minimap()
     if not NS.MM then return end
     local hidden = NS.MM.Hidden()
@@ -656,6 +678,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.target()
     elseif msg:match("^target%s+%a+$") then
         NS.DO.target(msg:match("^target%s+(%a+)$"))
+    elseif msg == "regen" or msg == "fsr" then
+        NS.DO.regen()
     elseif msg == "markers" or msg:match("^markers%s") then
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then

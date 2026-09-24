@@ -42,25 +42,59 @@ function FR.Left()
     return left
 end
 
+--- THE TWO NUMBERS, from whichever call this client answers with. Arn, 23 Sep, in a fight: the
+--- header fell back to "Healing" while he was casting, which means GetManaRegen said nothing on
+--- this character. The client's API list has four ways to ask, so all of them are asked in turn
+--- and the first pair of real numbers wins. `/bish regen` prints what each one said.
+FR.SOURCES = {
+    -- WRITTEN OUT, NOT `f and f()`: that idiom keeps only the FIRST return value, so the second
+    -- number - what you regenerate while casting, the whole point of asking - was thrown away
+    -- before anything could read it, and the header fell back to "Healing" mid-fight (23 Sep).
+    { name = "GetManaRegen", get = function()
+        if type(GetManaRegen) ~= "function" then return nil end
+        return GetManaRegen()
+    end },
+    { name = "GetPowerRegen", get = function()
+        if type(GetPowerRegen) ~= "function" then return nil end
+        return GetPowerRegen()
+    end },
+    { name = "GetPowerRegenForPowerType", get = function()
+        if type(GetPowerRegenForPowerType) ~= "function" then return nil end
+        local mana = (Enum and Enum.PowerType and Enum.PowerType.Mana) or 0
+        return GetPowerRegenForPowerType(mana)
+    end },
+}
+
+--- What the client says: standing still, and while casting. Nil when none of them will answer.
+function FR.Rates()
+    for _, src in ipairs(FR.SOURCES) do
+        local ok, base, casting = pcall(src.get)
+        base, casting = NS.Plain(base), NS.Plain(casting)
+        if ok and type(base) == "number" and type(casting) == "number" and base > 0 then
+            return base, casting, src.name
+        end
+    end
+    return nil
+end
+
 --- What share of your standing-still regeneration you are getting right now: 1 when the five
 --- seconds are up, and the character sheet's "while casting" share while they are not. Nil when
---- this client will not say, so the caller can draw nothing rather than a wrong number.
+--- no call on this client will say, so the header can show that rather than invent a number.
 function FR.Fraction()
     if FR.Left() <= 0 then return 1 end
-    if type(GetManaRegen) ~= "function" then return nil end
-    local ok, base, casting = pcall(GetManaRegen)
-    base, casting = NS.Plain(base), NS.Plain(casting)
-    if not ok or type(base) ~= "number" or type(casting) ~= "number" then return nil end
-    if base <= 0 then return nil end
+    local base, casting = FR.Rates()
+    if not base then return nil end
     local f = casting / base
     if f < 0 then f = 0 elseif f > 1 then f = 1 end
     return f
 end
 
---- The words for it: "regen 100%" when the five seconds are up, "regen 30%" while they are not.
+--- The words for it: "regen 100%" when the five seconds are up, "regen 30%" while they are not,
+--- and "regen ?" when this client will not say what the while-casting share is. It still says
+--- "regen", because the five seconds ARE running and that is the thing worth knowing.
 function FR.Text()
     local f = FR.Fraction()
-    if not f then return nil end
+    if not f then return "regen ?" end
     return ("regen %d%%"):format(math.floor(f * 100 + 0.5))
 end
 

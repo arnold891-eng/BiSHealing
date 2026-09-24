@@ -1930,8 +1930,17 @@ do
         -- goes with it, and when you have no target at all the client hides the parent and this
         -- with it. Two frames merely placed beside each other would come apart at the first drag.
         ok(tt:GetParent() == t, "it hangs off the target cell, so the two cannot come apart")
+        -- BESIDE IT, NOT UNDER IT. It was stacked underneath to begin with, and a column four
+        -- frames deep hung across the grid as soon as the block was dragged near it. Arn: "i want
+        -- tot to the right of the target window".
         local tp = tt.points and tt.points[#tt.points]
-        ok(tp and tp[1] == "TOPLEFT" and tp[3] == "BOTTOMLEFT", "and it stacks underneath", tp and tp[1])
+        ok(tp and tp[1] == "TOPLEFT" and tp[3] == "TOPRIGHT",
+           "and it sits to the RIGHT of the target cell",
+           tp and (tostring(tp[1]) .. "->" .. tostring(tp[3])))
+        local hp = tt.handle and tt.handle.points and tt.handle.points[#tt.handle.points]
+        ok(hp and hp[1] == "BOTTOMRIGHT" and hp[3] == "TOPRIGHT",
+           "with its own bar on top of its own cell, level with the target's",
+           hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])))
         ok(tt.handle and tt.handle.__fontstrings and tt.handle.__fontstrings[1].__text == "BiS> tot",
            "with its own header on top of it",
            tt.handle and tt.handle.__fontstrings and tostring(tt.handle.__fontstrings[1].__text))

@@ -69,8 +69,9 @@ health, and that is exactly what this client will not allow.
 **A cell for your target** (`/bish target`) gets a small header of its own —
 `BiS> target` — which you drag to move it, or shift-click to send it round the
 grid (top, right, under, left). **And their target** (`/bish tot`) adds a second
-cell below it under a `BiS> tot` bar. The two are attached: drag either header
-and the pair moves together, and with no target at all both disappear.
+cell to the right of it under a `BiS> tot` bar. The two are attached: drag
+either header and the pair moves together, and with no target at all both
+disappear.
 
 ## The header
 

@@ -371,20 +371,24 @@ function FG.LayoutToT(parent)
     return true, true
 end
 
---- The stack, top to bottom: the target's bar, the target's cell, the tot's bar, the tot's cell.
---- Always downwards, wherever the block is - a header carries a name now, and a named bar under
---- the thing it names reads as the label of whatever sits beneath it.
+--- SIDE BY SIDE, the tot to the RIGHT of the target. Arn, 23 Sep, looking at it stacked: "i want
+--- tot to the right of the target window".
+---
+--- Both bars then sit on one line with a cell under each - two pairs read left to right, instead
+--- of a column four frames deep that hung down across the grid the moment the block was dragged
+--- anywhere near it (his second screenshot: the tot's cell over the raid's).
 function FG.PlaceToT(f, parent)
     f = f or FG.tot
     parent = parent or FG.target
     if not (f and parent) then return false end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", parent, "TOPRIGHT", PAD * 2, 0)
+    -- its own bar on top of its own cell, level with the target's
     if f.handle then
         f.handle:ClearAllPoints()
-        f.handle:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, -2)
-        f.handle:SetPoint("TOPRIGHT", parent, "BOTTOMRIGHT", 0, -2)
+        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
+        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
     end
-    f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", f.handle or parent, "BOTTOMLEFT", 0, -1)
     return true
 end
 

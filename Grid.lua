@@ -347,7 +347,10 @@ function FG.PlaceTarget(f, anchor)
         end
     end
     if at == "free" and type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
-        f:SetPoint("CENTER", UIParent, "CENTER", pos.x, pos.y)
+        -- pos is where it sits ON SCREEN; the point is in the cell's own units, which are the
+        -- grid's scale, so it is converted back every time it is placed
+        local k = FG.ScaleOf(f)
+        f:SetPoint("CENTER", UIParent, "CENTER", pos.x / k, pos.y / k)
     elseif at == "right" then
         f:SetPoint("TOPLEFT", anchor, "TOPRIGHT", PAD * 2, 0)
     elseif at == "left" then
@@ -401,7 +404,7 @@ function FG.TargetHandle(f)
         h.moving, h.dragged = false, true
         f:StopMovingOrSizing()
         local d = NS.DB and NS.DB()
-        local ok, x, y = FG.CenterOffsetOf(f)
+        local ok, x, y = FG.ScreenOffsetOf(f)
         if ok and type(d) == "table" then
             d.targetAt, d.targetPos = "free", { x = x, y = y }
             FG.PlaceTarget(f)
@@ -921,6 +924,9 @@ function FG.SetScale(v, fromMacro)
         a:SetPoint(point, rel, relPoint, (x or 0) * old / s, (y or 0) * old / s)
         FG.SavePos()
     end
+    -- and the target cell, which wears this scale but is pinned to the screen when it has been
+    -- dragged: its point has to be worked out again at the new scale or it slides away
+    if FG.target then FG.PlaceTarget(FG.target, a) end
     keep()
     return true, s
 end
@@ -932,6 +938,27 @@ end
 --- Where a frame's centre is, measured from the middle of the screen, in that frame's own scale.
 --- Shared by the grid and the target cell: both are dragged, and both are written into the macro
 --- as two numbers (Keep.lua).
+--- The same measurement in SCREEN units, which is what a frame that must not move when its parent
+--- is resized has to remember. The grid keeps its own position in its own units (it IS the thing
+--- being scaled, and SetScale converts as it goes); a free target cell cannot, because the scale
+--- it wears is the grid's.
+function FG.ScreenOffsetOf(f)
+    local ok, x, y = FG.CenterOffsetOf(f)
+    if not ok then return false end
+    local k = FG.ScaleOf(f)
+    return true, math.floor(x * k + 0.5), math.floor(y * k + 0.5)
+end
+
+--- A frame's scale against the screen's: multiply an offset in the frame's own units by this and
+--- you have the screen; divide to go the other way.
+function FG.ScaleOf(f)
+    local fs = (f and f.GetEffectiveScale and f:GetEffectiveScale())
+        or (f and f.GetScale and f:GetScale()) or 1
+    local us = (UIParent and UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
+    if not (type(fs) == "number" and type(us) == "number") or us == 0 or fs == 0 then return 1 end
+    return fs / us
+end
+
 function FG.CenterOffsetOf(f)
     if not (f and f.GetCenter and UIParent and UIParent.GetCenter) then return false end
     local ok, cx, cy = pcall(f.GetCenter, f)

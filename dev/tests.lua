@@ -61,12 +61,27 @@ local function autoMethods(t)
     end })
 end
 
-local function newFrame(kind, name)
+local function newFrame(kind, name, parent)
     -- SHOWN, like the client's. A frame you create is visible until you hide it, and a mock that
     -- starts everything hidden turns "I never hid this" into a passing test - which is exactly
     -- how the mouse window shipped needing two clicks to open.
     local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = true,
-                __alpha = 1, points = {} }
+                __alpha = 1, points = {}, __parent = parent }
+    -- SCALE IS INHERITED, as in the client: a child of a frame at 1.4 is itself at 1.4, so an
+    -- offset written in its own units covers 1.4 times the screen it used to. The mock had no
+    -- parents and no effective scale at all, which is how the target cell's free position could
+    -- be stored in the wrong units and no test noticed (Arn, 23 Sep: "when i increased the scale
+    -- size ... the target frames moved up and to the right").
+    function f:GetParent() return self.__parent end
+    function f:GetEffectiveScale()
+        local s = self.__scale or 1
+        local p = self.__parent
+        while p do
+            s = s * (p.__scale or 1)
+            p = p.__parent
+        end
+        return s
+    end
     if name then _G[name] = f end          -- the client puts a named frame in _G; so does this
     -- WHERE IT IS ANCHORED, recorded and readable. The client answers GetPoint; this used to
     -- answer nothing at all, which made "put the window back where it was" untestable - and a
@@ -148,7 +163,7 @@ local function newFrame(kind, name)
     return autoMethods(f)
 end
 
-_G.CreateFrame = function(kind, name) return newFrame(kind, name) end
+_G.CreateFrame = function(kind, name, parent) return newFrame(kind, name, parent) end
 _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
 -- the shift key, held or not, as the client answers it
@@ -221,7 +236,7 @@ end }
 local realCreateFrame = _G.CreateFrame
 _G.CreateFrame = function(kind, name, parent, template)
     if kind == "AuraContainer" then
-        local c = newFrame(kind)
+        local c = newFrame(kind, nil, parent)
         c.slots, c.unit, c.enabled = {}, nil, false
         function c:SetUnit(u) self.unit = u end
         function c:SetEnabled(v) self.enabled = v and true or false end
@@ -1789,6 +1804,42 @@ do
     local fp = t.points and t.points[#t.points]
     ok(fp and fp[1] == "CENTER" and fp[4] == -300, "and it is pinned to the screen, not the grid",
        fp and tostring(fp[1]))
+    -- AND IT STAYS PUT WHEN THE GRID IS RESIZED. Arn, 23 Sep: "when i increased the scale size the
+    -- main window moved down and the target frames moved up and to the right". The cell is a child
+    -- of the grid, so it wears the grid's scale: an offset written in its own units covers more
+    -- screen at 1.4 than at 1.0, and the cell slides away from the middle. What is stored is the
+    -- offset ON SCREEN, and the point is worked back from it at whatever scale is in force.
+    local function screenXY()
+        local p = t.points and t.points[#t.points]
+        local k = (t.GetEffectiveScale and t:GetEffectiveScale()) or 1
+        return p and (p[4] or 0) * k, p and (p[5] or 0) * k
+    end
+    local wasX, wasY = screenXY()
+    FG.SetScale(1.4)
+    local nowX, nowY = screenXY()
+    ok(math.abs(nowX - wasX) < 1 and math.abs(nowY - wasY) < 1,
+       "a dragged target cell does not move on screen when the grid is resized",
+       ("%s,%s -> %s,%s"):format(wasX, wasY, nowX, nowY))
+    FG.SetScale(1)
+
+    -- AND THE GRID ITSELF stays where it is: the anchor is pinned by its centre, so resizing grows
+    -- it about that centre rather than walking it across the screen.
+    local function anchorScreenXY()
+        local p = FG.anchor.points and FG.anchor.points[#FG.anchor.points]
+        local k = (FG.anchor.GetEffectiveScale and FG.anchor:GetEffectiveScale()) or 1
+        return p and (p[4] or 0) * k, p and (p[5] or 0) * k
+    end
+    FG.anchor:ClearAllPoints()
+    FG.anchor:SetPoint("CENTER", UIParent, "CENTER", 120, -80)
+    FG.SavePos()
+    local gx, gy = anchorScreenXY()
+    FG.SetScale(1.4)
+    local gx2, gy2 = anchorScreenXY()
+    ok(math.abs(gx2 - gx) < 1 and math.abs(gy2 - gy) < 1,
+       "and the grid stays where it was put when it is resized",
+       ("%s,%s -> %s,%s"):format(gx, gy, gx2, gy2))
+    FG.SetScale(1)
+
     UIParent.GetCenter, t.GetCenter = realUC, nil
 
     -- it goes away again, and takes the client's watch with it. STATE.units.target says you HAVE

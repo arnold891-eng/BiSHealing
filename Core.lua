@@ -63,6 +63,7 @@ local DEFAULTS = {
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
+    between = false,     -- the between-pulls reminders in chat; off since 23 Sep ("put it away")
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
     target  = false,     -- a cell of its own for whoever you have targeted
     targetAt = "top",    -- where it sits: top / left / right / under, or "free" once dragged
@@ -273,6 +274,17 @@ function NS.DO.regen()
     Print(("  -> %s: %s%s"):format(from, FR.Text() or "?",
         remembered and (" (remembered%s - your own regen is a secret in a fight)")
             :format(age and (", %ds ago"):format(math.floor(age)) or "") or " (live)"))
+end
+
+--- The between-pulls reminders in chat, on or off. Off since 23 Sep: they were written for a TBC
+--- shaman and say less than they used to on this client. /bish scan still asks outright.
+function NS.DO.between(on)
+    local d = DB()
+    if on == nil then on = not d.between end
+    d.between = on and true or false
+    Print(d.between and "between-pulls reminders on - what is missing after each fight"
+        or "between-pulls reminders off - /bish scan still asks")
+    return d.between
 end
 
 function NS.DO.minimap()
@@ -687,6 +699,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.target(msg:match("^target%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then
         NS.DO.regen()
+    elseif msg == "between" or msg == "reminders" then
+        NS.DO.between()
     elseif msg == "markers" or msg:match("^markers%s") then
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then

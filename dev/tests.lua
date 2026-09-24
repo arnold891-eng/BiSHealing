@@ -2285,8 +2285,18 @@ for _, f in ipairs(found) do if f.kind == "dead" then dead = dead + 1 end end
 ok(dead == 1, "the dead are listed for the rez")
 STATE.dead.party2 = nil
 
+-- QUIET BY DEFAULT SINCE 23 SEP. Arn: "lets get rid of the reminders in the chat window that was
+-- from tbc version ... lets put it away for now". They were written for a TBC shaman; on this
+-- client they arrive between pulls knowing half of what they used to.
+SAID = {}
+ok(select(1, FB.Report()) == 0 and #SAID == 0,
+   "with the reminders off, a fight ending says nothing at all")
+ok(FB.Report(true) ~= 0 and #SAID > 0, "/bish scan still asks outright")
+ok(NS.DO.between(true) == true, "/bish between turns them back on")
+
 -- it speaks only when there is something to say
 SAID = {}
+FB.lastSig = nil
 local n = FB.Report()
 ok(n and n > 0 and #SAID == n, "Report says one line per finding")
 ok(not tostring(SAID[1]):find("BiS Healing", 1, true),
@@ -2352,6 +2362,9 @@ local quiet, reason = FB.Report()
 ok(quiet == 0 and reason == "alone" and #SAID == 0, "playing alone, it stays quiet")
 GROUPED = true
 FB.lastSig = nil
+NS.DO.between(false)                              -- back to the shipped default: quiet
+ok(NS.DB().between == false and select(1, FB.Report()) == 0, "and off again is the default")
+NS.DO.between(true)
 
 -- and a character who has not trained Earth Shield is never told it is missing
 BOOK[20] = nil

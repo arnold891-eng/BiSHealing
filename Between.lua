@@ -150,7 +150,18 @@ end
 ---      "BiS Healing: BiS Healing: Earth Shield is not up on anyone".
 local QUIET = 300          -- five minutes before the same news is worth repeating
 
+--- OFF BY DEFAULT SINCE 23 SEP. Arn: "lets get rid of the reminders in the chat window that was
+--- from tbc version. sometimes it says totems down that one lets put it away for now". The lines
+--- were written for a TBC shaman with four totems and an Earth Shield to keep up, and on this
+--- client they arrive between pulls with half of what they used to know. The machinery stays -
+--- /bish scan asks for it outright, and `/bish between` turns the automatic ones back on.
+function FB.Speaks()
+    local d = NS.DB and NS.DB()
+    return type(d) == "table" and d.between == true
+end
+
 function FB.Report(force)
+    if not (force or FB.Speaks()) then return 0, "quiet" end
     local found, why = FB.Scan()
     if not found then return nil, why end
     if #found == 0 then return 0 end

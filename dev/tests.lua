@@ -2234,9 +2234,62 @@ do
     NS.DO.buff("reset")
     ok(table.concat(FS.List(), ",") == "Water Shield", "and reset goes back to the class's one")
 
+    -- A SOUND WHEN IT DROPS, played by the client. The header cannot say it mid-fight - your own
+    -- buffs are secret there - but C_UnitAuras.AddAuraSound makes a noise without anything being
+    -- read. Registered per spell id, so every rank is covered, and taken down when the list changes.
+    local registered, removed, nextID = {}, {}, 0
+    local auras = _G.C_UnitAuras
+    auras.AddAuraSound = function(trigger, opts)
+        if type(opts) ~= "table" or not opts.spellID then return nil end
+        nextID = nextID + 1
+        registered[nextID] = { trigger = trigger, spellID = opts.spellID, unit = opts.unitToken,
+                               file = opts.soundFileID or opts.soundFileName }
+        return nextID
+    end
+    auras.RemoveAuraSound = function(id) removed[id] = true; registered[id] = nil end
+    local realEnum = _G.Enum
+    _G.Enum = setmetatable({ UnitAuraSoundTrigger = { Added = 1, Removed = 2 } },
+                           { __index = realEnum })
+    BOOK[22] = { name = "Water Shield", rank = "Rank 2" }      -- two ranks trained
+    local realInfo2 = _G.C_SpellBook.GetSpellBookItemInfo
+    _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+        if type(bank) ~= "number" then error("bad argument", 2) end
+        if n == 21 then return { spellID = 24398 } end
+        if n == 22 then return { spellID = 24399 } end
+        return nil
+    end
+
+    local howMany = FS.Sounds()
+    ok(howMany == 2, "both ranks of the buff are registered", tostring(howMany))
+    local trig, whose, ids = nil, nil, {}
+    for _, r in pairs(registered) do trig, whose = r.trigger, r.unit; ids[r.spellID] = true end
+    ok(trig == 2 and whose == "player", "for when it LEAVES you, on you", tostring(trig))
+    ok(ids[24398] and ids[24399], "one for each rank")
+
+    -- changing the list takes the old registrations down. FS.Add, not the slash command: that
+    -- prints a report which asks for the sounds anyway, and would hide a missing refresh here.
+    FS.Add("Lightning Shield")
+    local live = 0
+    for _ in pairs(registered) do live = live + 1 end
+    ok(next(removed) ~= nil and live == 0,
+       "watching something else removes the old sounds rather than leaving them playing", live)
+    FS.Reset()
+
+    -- switched off, and a client without the call: both quiet, neither an error
+    NS.DO.buffsound("off")
+    ok(FS.Sounds() == false, "off registers nothing")
+    NS.DO.buffsound("on")
+    auras.AddAuraSound = nil
+    local none, why = FS.Sounds()
+    ok(none == false and tostring(why):find("no aura sounds"),
+       "a client without the call says so rather than throwing", tostring(why))
+
+    _G.Enum = realEnum
+    BOOK[22] = nil
+    _G.C_SpellBook.GetSpellBookItemInfo = realInfo2
     _G.C_UnitAuras, _G.UnitClass = realAuras, realClass
-    d.selfBuffs = nil
-    FS.known = nil
+    d.selfBuffs, d.buffSound = nil, nil
+    FS.known, FS.soundIDs = nil, {}
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The

@@ -102,13 +102,76 @@ function FS.Add(name)
     list[#list + 1] = name
     list.none = nil
     d.selfBuffs = list
+    FS.Sounds()                       -- the new list, and nothing left over from the old one
     return name
 end
 
 function FS.Reset()
     local d = NS.DB and NS.DB()
     if type(d) == "table" then d.selfBuffs = nil end
+    FS.Sounds()
     return FS.List()
+end
+
+-- A SOUND WHEN IT DROPS, PLAYED BY THE CLIENT. The header cannot tell you mid-fight, because your
+-- own buffs are secret there - but the client will make a noise for you without an addon reading
+-- anything: C_UnitAuras.AddAuraSound(Enum.UnitAuraSoundTrigger.Removed, { unitToken, spellID, ... }).
+-- ForeverAuras 0.1.148 ships exactly this call, which is where the shape came from.
+--
+-- Registered per SPELL ID, so every rank of the buff this character has trained is covered, and
+-- taken down again whenever the list changes - a registration nobody removes is a sound that keeps
+-- playing for a buff you stopped watching.
+FS.SOUND = 567458          -- a file id: the client's own alarm. /bish buffsound sets another
+FS.soundIDs = {}
+
+--- Every spell id this character has for a name: a buff is a different id at every rank.
+function FS.SpellIds(name)
+    local ids = {}
+    local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
+    if not (C_SpellBook and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemInfo) then
+        return ids
+    end
+    for i = 1, 500 do
+        local got, nm = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
+        if got and nm == name then
+            local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
+            local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
+            if type(id) == "number" then ids[#ids + 1] = id end
+        end
+    end
+    return ids
+end
+
+--- Ask the client to make a noise when one of these leaves you. Answers how many it registered,
+--- or false and why - a client without the call is not an error, it is a client without the call.
+function FS.Sounds()
+    for _, id in ipairs(FS.soundIDs) do
+        if C_UnitAuras and C_UnitAuras.RemoveAuraSound then pcall(C_UnitAuras.RemoveAuraSound, id) end
+    end
+    FS.soundIDs = {}
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" and d.buffSound == false then return false, "off" end
+    if not (C_UnitAuras and C_UnitAuras.AddAuraSound and Enum and Enum.UnitAuraSoundTrigger
+            and Enum.UnitAuraSoundTrigger.Removed) then
+        return false, "this client has no aura sounds"
+    end
+    local file = (type(d) == "table" and d.buffSound) or FS.SOUND
+    local n = 0
+    for _, name in ipairs(FS.List()) do
+        for _, spellID in ipairs(FS.SpellIds(name)) do
+            local ok, id = pcall(C_UnitAuras.AddAuraSound, Enum.UnitAuraSoundTrigger.Removed, {
+                unitToken = "player", spellID = spellID,
+                soundFileID = type(file) == "number" and file or nil,
+                soundFileName = type(file) == "string" and file or nil,
+                outputChannel = "Master",
+            })
+            if ok and id then
+                FS.soundIDs[#FS.soundIDs + 1] = id
+                n = n + 1
+            end
+        end
+    end
+    return n
 end
 
 function FS.Start()
@@ -118,12 +181,15 @@ function FS.Start()
                          "SPELLS_CHANGED" }) do
         pcall(f.RegisterEvent, f, e)
     end
-    f:SetScript("OnEvent", function(_, _, unit)
+    f:SetScript("OnEvent", function(_, event, unit)
         if unit ~= nil and unit ~= "player" then return end
         FS.Check()
+        -- the book fills in late at login, and a rank learned later is a new spell id
+        if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then FS.Sounds() end
     end)
     FS.frame = f
     FS.Check()
+    FS.Sounds()
     return true
 end
 

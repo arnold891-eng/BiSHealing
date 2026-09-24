@@ -305,6 +305,9 @@ function NS.DO.buff(name)
     local list = FS.List()
     Print(#list == 0 and "no self buffs watched - /bish buff Water Shield"
         or ("watching: " .. table.concat(list, ", ")))
+    local sounds, why = FS.Sounds()
+    Print(sounds and sounds > 0 and ("  a sound when one drops: %d registered"):format(sounds)
+        or ("  no sound when one drops (%s)"):format(tostring(why or "nothing to register")))
     local missing = FS.Check()
     if type(missing) == "table" and #missing > 0 then
         Print("  missing now: " .. table.concat(missing, ", "))
@@ -314,6 +317,29 @@ function NS.DO.buff(name)
         Print("  the client will not say while you are in a fight")
     end
     return list
+end
+
+--- The sound the client plays when a watched buff leaves you. A number is a file id, a path is a
+--- file, "off" is silence, and nothing at all puts it back to the client's own alarm.
+function NS.DO.buffsound(arg)
+    local d, FS = DB(), NS.FS
+    if not FS then return end
+    if arg == "off" or arg == "none" then
+        d.buffSound = false
+    elseif arg == "on" or arg == nil or arg == "" then
+        d.buffSound = nil
+    else
+        d.buffSound = tonumber(arg) or arg
+    end
+    local n, why = FS.Sounds()
+    if d.buffSound == false then
+        Print("no sound when a watched buff drops")
+    else
+        Print(n and n > 0 and ("a sound when a watched buff drops: %d spell(s) registered with %s")
+            :format(n, tostring(d.buffSound or FS.SOUND))
+            or ("could not register a sound: %s"):format(tostring(why or "nothing to register")))
+    end
+    return d.buffSound
 end
 
 function NS.DO.minimap()
@@ -731,6 +757,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.regen()
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
+    elseif msg == "buffsound" or msg:match("^buffsound%s") then
+        NS.DO.buffsound(msg:match("^buffsound%s+(%S+)"))
     elseif msg == "buff" or msg == "buffs" then
         NS.DO.buff()
     elseif msg:match("^buffs?%s") then

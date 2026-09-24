@@ -65,7 +65,7 @@ local DEFAULTS = {
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
     target  = false,     -- a cell of its own for whoever you have targeted
-    targetAt = "under",  -- where it sits: under / right / left / top, or "free" once dragged
+    targetAt = "top",    -- where it sits: top / left / right / under, or "free" once dragged
     targetPos = nil,     -- where it was dragged to, from the middle of the screen
     markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,

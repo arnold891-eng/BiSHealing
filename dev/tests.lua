@@ -1710,7 +1710,9 @@ do
         local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
         return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
     end
-    ok(spot() == "TOPLEFT->BOTTOMLEFT", "under the grid to begin with, not over it", spot())
+    -- TOP BY DEFAULT. Arn, 23 Sep: under the grid, the handle is in the gap between the two and
+    -- the grid covers it - "you cant see the header to move it".
+    ok(spot() == "BOTTOMLEFT->TOPLEFT", "above the grid to begin with", spot())
     ok(t.__attrs["*type1"] ~= nil, "with the mouse binds on it like any other cell")
 
     -- FOUR PLACES, and its own handle for anywhere else. Arn, 23 Sep: "lets do a toggle under grid
@@ -1723,8 +1725,17 @@ do
     NS.DO.target("top")
     ok(spot() == "BOTTOMLEFT->TOPLEFT" and d.targetAt == "top", "top is above it", spot())
     NS.DO.target("under")
-    ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under puts it back")
-    ok(NS.DO.target("sideways") ~= nil and d.targetAt == "under",
+    ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under hangs it below the grid")
+    -- and THERE the handle swaps sides, or it would sit in the gap with the grid over it
+    local function handleAt()
+        local hp = t.handle and t.handle.points and t.handle.points[#t.handle.points]
+        return hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])) or "nowhere"
+    end
+    ok(handleAt() == "TOPRIGHT->BOTTOMRIGHT", "with its handle UNDER it, where you can grab it",
+       handleAt())
+    NS.DO.target("top")
+    ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
+    ok(NS.DO.target("sideways") ~= nil and d.targetAt == "top",
        "a word it does not know moves nothing")
 
     -- the handle: a drag sets it free, and where it landed is remembered

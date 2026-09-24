@@ -310,10 +310,13 @@ end
 -- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
 FG.TARGET_SPOTS = { under = true, right = true, left = true, top = true, free = true }
 
+--- TOP BY DEFAULT. Arn, 23 Sep: "make it defaut to the top window when it starts at the bottom you
+--- cant see the header to move it" - under the grid, the handle sits in the gap between the two and
+--- the grid covers it, so the one thing that moves the cell is the one thing you cannot grab.
 function FG.TargetSpot()
     local d = NS.DB and NS.DB()
     local at = type(d) == "table" and d.targetAt or nil
-    return FG.TARGET_SPOTS[at or ""] and at or "under"
+    return FG.TARGET_SPOTS[at or ""] and at or "top"
 end
 
 --- Put it where the player asked. Against the grid, the anchor moves it along with the cells; set
@@ -327,6 +330,18 @@ function FG.PlaceTarget(f, anchor)
     local d = NS.DB and NS.DB()
     local pos = type(d) == "table" and d.targetPos or nil
     f:ClearAllPoints()
+    -- AND THE HANDLE GOES ON THE FAR SIDE FROM THE GRID. Above the cell everywhere except when the
+    -- cell is under the grid, where "above" is the gap between them and the grid draws over it.
+    if f.handle then
+        f.handle:ClearAllPoints()
+        if at == "under" then
+            f.handle:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -1)
+            f.handle:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -1)
+        else
+            f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
+            f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+        end
+    end
     if at == "free" and type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
         f:SetPoint("CENTER", UIParent, "CENTER", pos.x, pos.y)
     elseif at == "right" then

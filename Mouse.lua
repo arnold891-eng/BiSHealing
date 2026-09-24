@@ -176,6 +176,16 @@ local function db()
                     if NS.FA then NS.FA.sig = nil end
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
                 end
+                -- the three a player asked for on 23 Sep, all of them the layout's business
+                if settings.layout then d.layout = settings.layout end
+                if settings.target == true then d.target = true end
+                if settings.markers then
+                    d.markers = settings.markers
+                    if NS.FA then NS.FA.sig = nil end
+                end
+                if settings.layout or settings.target or settings.markers then
+                    if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+                end
                 -- clicks handed to Clique: the relayout clears ours and registers every cell
                 if settings.clique == true then
                     d.clique = true

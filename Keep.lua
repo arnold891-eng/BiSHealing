@@ -84,6 +84,8 @@ end
 --- 21 Sep, the same way: the number on the cells (T) and the bar colour (C). Only written when
 --- they differ from the default, so a mouse nobody has styled pays nothing for them. Uppercase
 --- again, for the same reason as S.
+local LAYOUTCODE = { rows = 1, pyramid = 2 }          -- columns is 0, the default, never written
+local CODELAYOUT = { [0] = "columns", [1] = "rows", [2] = "pyramid" }
 local TEXTCODE = { off = 0, percent = 2 }             -- 1, "missing", is the default and not written
 local CODETEXT = { [0] = "off", [1] = "missing", [2] = "percent" }
 
@@ -111,6 +113,12 @@ local function settingRows(settings)
     if settings.hots == false then out[#out + 1] = "O=0" end
     -- clicks handed to Clique (K for clicK); off is the default and is not written
     if settings.clique == true then out[#out + 1] = "K=1" end
+    -- 23 Sep, a player's three requests: the layout (L), a cell for your target (G, for tarGet),
+    -- and how big the markers are (M). Defaults - columns, no target cell, 10 pixels - write nothing.
+    if LAYOUTCODE[settings.layout or ""] then out[#out + 1] = "L=" .. LAYOUTCODE[settings.layout] end
+    if settings.target == true then out[#out + 1] = "G=1" end
+    local px = tonumber(settings.markers)
+    if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
     return out
 end
 
@@ -189,6 +197,12 @@ function FK.Decode(body)
             settings.hidden = tonumber(idx) == 1
         elseif code == "K" then
             settings.clique = tonumber(idx) == 1
+        elseif code == "L" then
+            settings.layout = CODELAYOUT[tonumber(idx)]
+        elseif code == "G" then
+            settings.target = tonumber(idx) == 1
+        elseif code == "M" then
+            settings.markers = tonumber(idx)
         elseif code == "O" then
             settings.hots = tonumber(idx) ~= 0
         elseif code then
@@ -307,7 +321,8 @@ function FK.Save(binds)
     end
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
-                                             clique = t.clique })
+                                             clique = t.clique, layout = t.layout,
+                                             target = t.target, markers = t.markers })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

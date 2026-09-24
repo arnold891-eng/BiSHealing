@@ -64,6 +64,8 @@ local DEFAULTS = {
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
+    target  = false,     -- a cell of its own for whoever you have targeted, under the grid
+    markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
@@ -326,23 +328,31 @@ function NS.DO.keep()
 end
 
 --- Switch layout. No argument flips between the two, which is what a toggle button wants.
+-- THREE LAYOUTS SINCE 23 SEP. A player asked for cells "vertically and horizontally"
+-- (paszczyszyn, CurseForge): a group can be a column of names, or a row of them. The pyramid is
+-- the third. No argument still walks through them, so the old `/bish layout` keeps working.
+local LAYOUTS = { columns = "grid: one column per raid group",
+                  rows    = "grid: one row per raid group, names across",
+                  pyramid = "pyramid: tanks on top, then healers, then damage" }
+local NEXT_LAYOUT = { columns = "rows", rows = "pyramid", pyramid = "columns" }
+
 function NS.DO.layout(mode)
     local d = DB()
-    if mode ~= "pyramid" and mode ~= "columns" then
-        mode = (d.layout == "pyramid") and "columns" or "pyramid"
-    end
+    if mode == "grid" or mode == "cols" then mode = "columns" end
+    if mode == "across" or mode == "horizontal" then mode = "rows" end
+    if not LAYOUTS[mode or ""] then mode = NEXT_LAYOUT[d.layout or "columns"] or "columns" end
     d.layout = mode
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end     -- it outlives a restart
     if InCombatLockdown and InCombatLockdown() then
         Print(("%s after this fight -- the cells are secure frames and will not move mid-pull")
-              :format(mode == "pyramid" and "pyramid" or "grid by group"))
+              :format(LAYOUTS[mode]))
         -- nothing to queue: the grid relayouts on PLAYER_REGEN_ENABLED anyway, and reads
         -- d.layout fresh when it does. (A `NS.FG.pending = true` here once looked like the
         -- mechanism and did nothing at all - the grid's pending flag is a local of its own.)
         return mode
     end
     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
-    Print(mode == "pyramid" and "pyramid: tanks on top, then healers, then damage"
-          or "grid: one column per raid group")
+    Print(LAYOUTS[mode])
     return mode
 end
 
@@ -448,6 +458,44 @@ function NS.DO.pets(on)
     return d.pets
 end
 
+--- A cell for whoever you have targeted, under the grid. A player's request (paszczyszyn, 22 Sep).
+--- No argument flips it.
+function NS.DO.target(on)
+    local d = DB()
+    if on == nil then on = not d.target end
+    d.target = on and true or false
+    local done = true
+    if NS.FG and NS.FG.LayoutTarget then done = NS.FG.LayoutTarget() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print((d.target and "a cell for your target, under the grid" or "no target cell")
+        .. (done and "" or " - after this fight"))
+    return d.target
+end
+
+--- How big the dispel marker and the heal-over-time icons are. A player's request (paszczyszyn):
+--- "Is there a possibility of an option to adjust the size of buffs and debuffs?".
+function NS.DO.markers(px)
+    local d = DB()
+    local n = tonumber(px)
+    if not n then
+        Print(("markers are %d pixels - /bish markers 14 (6 to 20)"):format(d.markers or 10))
+        return d.markers or 10
+    end
+    n = math.floor(n + 0.5)
+    if n < 6 then n = 6 elseif n > 20 then n = 20 end
+    d.markers = n
+    if NS.FA then NS.FA.sig = nil end                   -- the containers are rebuilt at the size
+    local done = true
+    if not (InCombatLockdown and InCombatLockdown()) and NS.FG and NS.FG.Layout then
+        NS.FG.Layout()
+    else
+        done = false
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print(("markers %d pixels%s"):format(n, done and "" or " - after this fight"))
+    return n
+end
+
 --- Repaint every cell now, rather than waiting for somebody's health to change.
 local function repaint()
     if NS.FG and NS.FG.frames and NS.FG.Paint then
@@ -529,6 +577,7 @@ function NS.DO.help()
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
+    Print("  |cffb980fftarget|r  a cell for your current target    |cffb980ffmarkers 12|r  marker size")
 end
 
 --------------------------------------------------------------------- slash --
@@ -581,6 +630,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.colour()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
+    elseif msg == "target" or msg == "targetcell" then
+        NS.DO.target()
+    elseif msg == "markers" or msg:match("^markers%s") then
+        NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
     elseif msg == "clique" then
@@ -588,9 +641,9 @@ SlashCmdList.BISHEALING = function(input)
     elseif msg == "text" or msg:match("^text%s") then
         NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"
-        or msg:match("^layout%s") then
+        or msg == "rows" or msg == "across" or msg:match("^layout%s") then
         local want = msg:match("^layout%s+(%a+)")
-        if msg == "pyramid" then want = "pyramid" elseif msg == "grid" or msg == "columns" then want = "columns" end
+        if msg ~= "layout" and msg ~= "" and not msg:match("^layout%s") then want = msg end
         NS.DO.layout(want)
     else
         NS.DO.help()

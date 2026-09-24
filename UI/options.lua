@@ -70,21 +70,34 @@ function CFG.Sections()
             { key = "pets", kind = "toggle", label = "show pets",
               get = function(db) return db.pets == true end,
               set = function(_, on) if DO.pets then DO.pets(on) end end },
-            { key = "pyramid", kind = "toggle", label = "pyramid: tanks on top",
-              get = function(db) return db.layout == "pyramid" end,
-              set = function(_, on) if DO.layout then DO.layout(on and "pyramid" or "columns") end end },
+            -- THREE LAYOUTS, one row. A player asked for cells "vertically and horizontally"
+            -- (paszczyszyn, 22 Sep); the pyramid was already here, so a switch became segments.
+            { key = "layout", kind = "seg", label = "groups",
+              values = { "down", "across", "tanks" },
+              get = function(db)
+                  return (db.layout == "rows" and "across") or (db.layout == "pyramid" and "tanks") or "down"
+              end,
+              set = function(_, v)
+                  if DO.layout then
+                      DO.layout((v == "across" and "rows") or (v == "tanks" and "pyramid") or "columns")
+                  end
+              end },
+            { key = "target", kind = "toggle", label = "a cell for your target",
+              get = function(db) return db.target == true end,
+              set = function(_, on) if DO.target then DO.target(on) end end },
+            { key = "markers", kind = "step", label = "marker size",
+              min = 6, max = 20, step = 2,
+              get = function(db) return db.markers or 10 end,
+              set = function(_, v) if DO.markers then DO.markers(v) end end,
+              show = function(db) return ("%dpx"):format(db.markers or 10) end },
             { key = "center", kind = "button", label = "centre on screen", button = "centre",
               action = function() if DO.center then DO.center() end end },
             { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
               action = function() if DO.rescan then DO.rescan() end end },
         } },
-        { title = "this client", options = {
-            -- "test the debuff marker" lived here until 22 Sep: the window was at its 12-row cap and
-            -- a diagnostic gave way to a setting, as the cap's own note said the next row should.
-            -- It is still /bish auras.
-            { key = "scan", kind = "button", label = "what can I see?", button = "ask",
-              action = function() if DO.scan then DO.scan() end end },
-        } },
+        -- "this client" held two diagnostics. "test the debuff marker" gave way to a setting on
+        -- 22 Sep and "what can I see?" on the 23rd, when a player's three requests arrived at once.
+        -- Both are still one word away: /bish auras and /bish scan.
     }
 end
 

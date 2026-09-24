@@ -154,7 +154,19 @@ FA.HOTS = {
         { key = "Regrowth", ids = { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 } },
     },
 }
-local HOT_SIZE, HOT_GAP = 10, 2
+local HOT_GAP = 2
+
+--- HOW BIG THE MARKERS ARE. A player's request (paszczyszyn, 22 Sep): "Is there a possibility of
+--- an option to adjust the size of buffs and debuffs?". One number for all of them (the dispel
+--- marker, the heal-over-time icons, the watched-buff pip), because three sliders for three dots
+--- is three questions where the player had one. 10 is what they have always been.
+function FA.MarkerSize()
+    local d = NS.DB and NS.DB()
+    local n = type(d) == "table" and tonumber(d.markers) or nil
+    if not n then return 10 end
+    if n < 6 then return 6 elseif n > 20 then return 20 end
+    return math.floor(n + 0.5)
+end
 
 --- Every spell id for one family: the listed ones, plus every rank of that name in the book.
 function FA.HotIds(family)
@@ -215,7 +227,7 @@ local function signature()
     -- read the book once per pass, not once per cell: a layout attaches forty cells in one frame
     local now = GetTime and GetTime() or 0
     if FA.sig and FA.sigAt == now then return FA.sig end
-    local parts = { FA.debug and "d" or "" }
+    local parts = { FA.debug and "d" or "", "px" .. FA.MarkerSize() }
     for _, fam in ipairs(FA.Hots()) do
         local ids = {}
         for id in pairs(FA.HotIds(fam)) do ids[#ids + 1] = id end
@@ -277,7 +289,8 @@ function FA.Attach(cell, unit)
         initializeFrame = dispelPip(DISPEL_TINT),
     })
     if dispel and dispel.SetPoint then
-        dispel:SetSize(10, 10)
+        local px = FA.MarkerSize()
+        dispel:SetSize(px, px)
         dispel:SetPoint("LEFT", cell, "LEFT", 2, 0)      -- a pip at the edge, never over the bar
     end
 
@@ -295,7 +308,8 @@ function FA.Attach(cell, unit)
             initializeFrame = pip(ES_TINT),
         })
         if es and es.SetPoint then
-            es:SetSize(8, 8)
+            local px = math.max(6, FA.MarkerSize() - 2)
+            es:SetSize(px, px)
             es:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -2, -2)
         end
     end
@@ -306,7 +320,8 @@ function FA.Attach(cell, unit)
             initializeFrame = pip({ 1.00, 0.45, 0.10, 0.95 }),
         })
         if any and any.SetPoint then
-            any:SetSize(10, 10)
+            local px = FA.MarkerSize()
+            any:SetSize(px, px)
             any:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 2, 2)
         end
         cell.anySlot = any
@@ -321,8 +336,9 @@ function FA.Attach(cell, unit)
             initializeFrame = hotIcon,
         })
         if slot and slot.SetPoint then
-            slot:SetSize(HOT_SIZE, HOT_SIZE)
-            slot:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 3 + (i - 1) * (HOT_SIZE + HOT_GAP), 3)
+            local px = FA.MarkerSize()
+            slot:SetSize(px, px)
+            slot:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 3 + (i - 1) * (px + HOT_GAP), 3)
         end
         hots[fam.key] = slot
     end

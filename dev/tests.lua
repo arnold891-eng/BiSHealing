@@ -151,6 +151,12 @@ end
 _G.CreateFrame = function(kind, name) return newFrame(kind, name) end
 _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
+-- A CLOCK THAT MOVES, like the client's. There was none at all, so GetTime was nil everywhere and
+-- anything cached "for this frame" was cached for the whole suite - kinder than the client, where
+-- the number changes sixty times a second. TICK() is a frame going by.
+local CLOCK = 1000
+_G.GetTime = function() return CLOCK end
+local function TICK(seconds) CLOCK = CLOCK + (seconds or 0.1) return CLOCK end
 _G.UnitExists = function(u) return STATE.units[u] and true or false end
 _G.IsInRaid = function() return false end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
@@ -1051,6 +1057,33 @@ do
     FG.Layout(FG.anchor)
     ok(FG.frames[1].unit == "player" and FG.frames[1].__w == 84,
        "/bish layout columns puts it back: raid order, every cell the same")
+
+    -- AND ACROSS. A player's request (paszczyszyn, 22 Sep): cells "vertically and horizontally".
+    -- The same group, turned: what was a column of names is a row of them. Measured from where
+    -- the cells are actually put, not from the setting.
+    local function xy(f)
+        local p = f.points and f.points[#f.points]
+        return p and p[4] or 0, p and p[5] or 0
+    end
+    d.layout = "columns"
+    FG.Layout(FG.anchor)
+    local downX, downY = xy(FG.frames[2])
+    ok(downX == 0 and downY < 0, "down the screen, the second cell is BELOW the first",
+       ("%s,%s"):format(downX, downY))
+    local tallW, tallH = FG.anchor.__w, FG.anchor.__h
+
+    d.layout = "rows"
+    FG.Layout(FG.anchor)
+    local acrossX, acrossY = xy(FG.frames[2])
+    ok(acrossY == 0 and acrossX > 0, "across the screen, it is BESIDE it",
+       ("%s,%s"):format(acrossX, acrossY))
+    ok(FG.frames[1].unit == "player", "with the same order and the same groups")
+    -- the grid's own size follows, so the header spans the cells rather than one of them. Not a
+    -- swap of width and height: a cell is 84 x 34, so three across is wider than three down is tall.
+    ok(FG.anchor.__w == 3 * (84 + 3) - 3 and FG.anchor.__h == 34,
+       "and the grid is as wide as the group is long, one row deep",
+       ("%sx%s (was %sx%s)"):format(FG.anchor.__w, FG.anchor.__h, tallW, tallH))
+
     d.layout = "columns"          -- the DEFAULT, so nothing after this runs in the pyramid by accident
     STATE.roles = nil
     FG.Layout(FG.anchor)
@@ -1085,17 +1118,25 @@ end
 do
     local d = NS.DB()
     d.layout = "columns"
-    ok(NS.DO.layout() == "pyramid" and d.layout == "pyramid", "/bish layout with nothing flips to the pyramid")
-    ok(NS.DO.layout() == "columns" and d.layout == "columns", "and again flips back")
+    -- THREE LAYOUTS since 23 Sep (a player asked for cells "vertically and horizontally"), so the
+    -- no-argument command walks: columns -> rows -> pyramid -> columns.
+    ok(NS.DO.layout() == "rows" and d.layout == "rows", "/bish layout with nothing goes to rows")
+    ok(NS.DO.layout() == "pyramid", "then the pyramid")
+    ok(NS.DO.layout() == "columns", "then back to columns")
     ok(NS.DO.layout("pyramid") == "pyramid", "or it can be told which")
+    ok(NS.DO.layout("across") == "rows", "and 'across' is another word for rows")
     NS.DO.layout("columns")
 
     local found
     for _, sec in ipairs(NS.CFG.Sections()) do
-        for _, o in ipairs(sec.options) do if o.key == "pyramid" then found = o end end
+        for _, o in ipairs(sec.options) do if o.key == "layout" then found = o end end
     end
-    ok(found and found.kind == "toggle", "the options window has a pyramid switch")
-    ok(found and found.get(d) == false, "and it reads off while the grid is showing")
+    ok(found and found.kind == "seg" and #found.values == 3,
+       "the options window offers all three layouts in one row")
+    ok(found and found.get(d) == "down", "and it reads 'down' while the grid is in columns")
+    found.set(d, "across")
+    ok(d.layout == "rows", "picking 'across' turns the grid")
+    found.set(d, "down")
 end
 
 -- ON TBC THIS FOLDER LOADS NOTHING THAT CAN TOUCH YOUR DATA. 20 Sep 2026: the base TOC claims TBC
@@ -1645,6 +1686,92 @@ do
     MACROS = {}
     d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
     FM.Get("", "left")
+end
+
+-- A CELL FOR YOUR TARGET, and how big the markers are. Both asked for by a player on CurseForge
+-- (paszczyszyn, 22 Sep), with the layout above: "Any chance to a separate cell appear for your
+-- current target?" and "an option to adjust the size of buffs and debuffs?".
+do
+    local FM = NS.FM
+    local d = NS.DB()
+    d.target = false
+    FG.Layout(FG.anchor)
+    ok(FG.target == nil or not FG.target:IsShown(), "off by default: no target cell")
+
+    ok(NS.DO.target(true) == true, "/bish target turns it on")
+    local t = FG.target
+    ok(t ~= nil and t:IsShown(), "the cell is there")
+    ok(t and t:GetAttribute("unit") == "target",
+       "and it is the CLIENT's target token, so it follows your target in a fight",
+       t and tostring(t:GetAttribute("unit")))
+    local p = t and t.points and t.points[#t.points]
+    ok(p and p[1] == "TOPLEFT" and p[3] == "BOTTOMLEFT", "under the grid, not over it",
+       p and (tostring(p[1]) .. "/" .. tostring(p[3])))
+    ok(t.__attrs["*type1"] ~= nil, "with the mouse binds on it like any other cell")
+
+    -- it goes away again, and takes the client's watch with it. STATE.units.target says you HAVE
+    -- a target, which is exactly when a still-watched cell would be shown again by the client.
+    STATE.units.target = true
+    NS.DO.target(false)
+    ok(not FG.target:IsShown() and FG.target.unit == nil, "switched off, the cell goes")
+    WATCH_TICK()
+    ok(not FG.target:IsShown(), "and the unit watch does not bring it back, even with a target up")
+    STATE.units.target = nil
+
+    -- MARKER SIZE. One number for the dispel marker and the heal-over-time icons.
+    local FA = NS.FA
+    ok(FA.MarkerSize() == 10, "ten pixels to begin with")
+    ok(NS.DO.markers(16) == 16 and FA.MarkerSize() == 16, "/bish markers 16 makes them bigger")
+    ok(NS.DO.markers(2) == 6 and NS.DO.markers(99) == 20, "and it is held between 6 and 20")
+    NS.DO.markers(14)
+    FA.sig = nil
+    local cell = FG.frames[1]
+    cell.auras = nil
+    FA.Attach(cell, "party1")
+    local dispel = cell.auras.slots["BiSHealDispel"]
+    ok(dispel and dispel.__w == 14, "and the dispel marker is built at that size",
+       dispel and tostring(dispel.__w))
+    -- and the size is part of the containers' fingerprint, so a cell built at one size is rebuilt
+    -- at another even when nothing cleared it by hand (the macro restoring a size does exactly that)
+    d.markers = 10
+    TICK()                      -- a frame goes by, so the per-frame fingerprint is asked again
+    FA.Attach(cell, "party1")
+    ok(cell.auras.slots["BiSHealDispel"].__w == 10,
+       "a size changed underneath them rebuilds the markers on their own",
+       cell.auras.slots["BiSHealDispel"].__w)
+
+    -- ALL THREE RIDE IN THE MACRO, like the size and the binds before them
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.layout("rows"); NS.DO.target(true); NS.DO.markers(14)
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("L=1", 1, true) and body:find("G=1", 1, true) and body:find("M=14", 1, true),
+       "the layout, the target cell and the marker size are all written", body)
+    local _, st = NS.FK.Decode(body or "")
+    ok(st and st.layout == "rows" and st.target == true and st.markers == 14, "and all three read back")
+
+    d.layout, d.target, d.markers = "columns", false, 10
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    FM.Get("", "wheelup")                                    -- the first read after a restart
+    ok(d.layout == "rows" and d.target == true and d.markers == 14,
+       "after a restart all three are back",
+       ("%s / %s / %s"):format(tostring(d.layout), tostring(d.target), tostring(d.markers)))
+
+    -- an older install skips all three. Trimmed first, because the client adds a newline to every
+    -- macro body and an anchored row pattern chokes on it - a different bug, fixed on 19 Sep.
+    local reads = 0
+    local trimmed = (body or ""):match("^%s*(.-)%s*$")
+    for row in (trimmed:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and ({ l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 })[code:sub(-1)] then reads = reads + 1 end
+    end
+    ok(reads == 1, "an older install reads the one bind and skips L, G and M", reads)
+
+    NS.DO.layout("columns"); NS.DO.target(false); NS.DO.markers(10)
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = keptBinds, nil, false, nil
+    FG.Layout(FG.anchor)
 end
 
 -- HIDDEN STAYS HIDDEN, and the grid stays where it was put. Arn, 21 Sep: "show the cells does
@@ -2712,18 +2839,20 @@ do
             ok(pcall(opt.get, NS.DB()), ("reading %q threw"):format(opt.key))
         end
     end
-    for _, want in ipairs({ "shown", "minimap", "mouse", "scan", "clique" }) do
+    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "target", "markers" }) do
         ok(keys[want], ("the window lost %q"):format(want))
     end
-    -- RAISED FROM 10 TO 12, ON PURPOSE (20 Sep 2026), and not to make a red line go away. The cap
-    -- was set when the window had six rows. Four real settings arrived in one evening, each asked
-    -- for by the player - pyramid, pets, missing health, size of the cells - and that is what the
-    -- window is for. Eleven rows today.
+    -- 10 -> 12 (20 Sep) -> 13 (23 Sep), each time on purpose and not to make a red line go away.
+    -- The last note said the next row was a decision: fold the two diagnostics rather than bump the
+    -- number. Both are folded now - "test the debuff marker" went on the 22nd, "what can I see?" on
+    -- the 23rd, and each is still one word away (/bish auras, /bish scan). Three of a player's
+    -- requests then arrived at once, and two of them are settings: a cell for your target, and the
+    -- size of the markers. The third shares the old pyramid row, since "groups: down / across /
+    -- tanks" is one question with three answers.
     --
-    -- THE NEXT ROW IS A DECISION, NOT A BUMP: "what can I see?" and "test the debuff marker" are
-    -- diagnostics sitting beside real settings. When this goes red again, fold those two behind
-    -- one "diagnostics" button rather than raising the number a second time.
-    ok(#NS.UI.Rows() <= 12, "the window stays short: " .. #NS.UI.Rows())
+    -- THIRTEEN IS THE LAST ONE. There is nothing left to fold: every row is a setting a player
+    -- asked for. The next one costs a real setting, or the window grows a second page.
+    ok(#NS.UI.Rows() <= 13, "the window stays short: " .. #NS.UI.Rows())
 
     -- and the slash command reaches them. "/bish nonsense" prints the help rather than throwing.
     for _, cmd in ipairs({ "", "show", "hide", "mouse", "rescan", "scan", "auras", "nonsense" }) do

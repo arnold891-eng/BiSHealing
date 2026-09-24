@@ -258,8 +258,47 @@ function FG.Make(i, parent)
     f.role:SetPoint("TOPRIGHT", -1, -1)
     f.role:Hide()
 
-    FG.frames[i] = f
+    if i then FG.frames[i] = f end
     return f
+end
+
+--- A CELL FOR WHOEVER YOU HAVE TARGETED, under the grid. A player's request (paszczyszyn, 22 Sep):
+--- "Any chance to a separate cell appear for your current target?".
+---
+--- It is an ordinary cell with the unit token "target", which the client re-points by itself every
+--- time you target someone - so it follows along mid-fight, where nothing of ours may move. The
+--- client's own unit watch shows it when you have a target and hides it when you do not, which is
+--- why there is nothing here that asks whether you have one.
+---
+--- Built and bound OUT OF COMBAT with everything else; off by default, since a healer watching the
+--- grid did not ask for another frame.
+function FG.LayoutTarget(anchor)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    anchor = anchor or FG.anchor
+    if not anchor then return false end
+    local d = NS.DB and NS.DB()
+    local want = type(d) == "table" and d.target == true and d.shown ~= false
+    if not want then
+        if FG.target then
+            FG.Unwatch(FG.target)
+            FG.target.unit = nil
+            FG.target:Hide()
+        end
+        return true, false
+    end
+    local f = FG.target
+    if not f then
+        f = FG.Make("Target", anchor)
+        FG.target = f
+    end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2))
+    f:SetSize(FRAME_W, FRAME_H)
+    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
+    if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
+    f:Show()
+    return true, true
 end
 
 -- Tank, healer or damage, as this client will say it. `role` and the enum behind it are both
@@ -450,6 +489,7 @@ function FG.Layout(anchor)
     end
     if anchor.Show then anchor:Show() end
     local pyramid = type(d) == "table" and d.layout == "pyramid"
+    local across = type(d) == "table" and d.layout == "rows"      -- groups across, not down
     local place, span, grid, groups = nil, 0, nil, 0
     if not pyramid then
         roster, grid, groups = FG.ByGroup(roster)
@@ -475,9 +515,16 @@ function FG.Layout(anchor)
             local x = (span - rowW) / 2 + (p.col - 1) * (w + PAD)
             f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, -(p.row - 1) * (FRAME_H + PAD))
         else
+            -- ACROSS, OR DOWN. A player's request (paszczyszyn, 22 Sep): "Can we have an option to
+            -- setup cells? vertically and horizontally?". A group is a COLUMN by default - five
+            -- names down, groups side by side. Turned, the same group is a ROW: five names across,
+            -- groups stacked. Nothing else changes, so the sorting, the pets column and the spare
+            -- cells are all still the ones ByGroup worked out - only where they are put.
             local g = grid[i]
+            local col, row = g.col, g.row
+            if across then col, row = row, col end
             f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                       (g.col - 1) * (FRAME_W + PAD), -(g.row - 1) * (FRAME_H + PAD))
+                       (col - 1) * (FRAME_W + PAD), -(row - 1) * (FRAME_H + PAD))
         end
         f:SetSize(w, FRAME_H)
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
@@ -504,6 +551,8 @@ function FG.Layout(anchor)
         end
     end
 
+    FG.LayoutTarget(anchor)         -- the target's own cell, under the grid, when it is wanted
+
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
     -- Arn, 19 Sep 2026: "the binds saved and the window where the bind saved but they dont do
@@ -522,9 +571,14 @@ function FG.Layout(anchor)
         if pyramid then
             w, rows = span, place[n].row
         else
-            rows = 0
-            for _, g in ipairs(grid) do if g.row > rows then rows = g.row end end
-            w = groups * (FRAME_W + PAD) - PAD
+            local deep = 0            -- the longest group
+            for _, g in ipairs(grid) do if g.row > deep then deep = g.row end end
+            -- turned on its side, the longest group is the WIDTH and the groups are the rows
+            if across then
+                rows, w = groups, deep * (FRAME_W + PAD) - PAD
+            else
+                rows, w = deep, groups * (FRAME_W + PAD) - PAD
+            end
         end
         anchor:SetSize(w, rows * (FRAME_H + PAD) - PAD)
         -- and the prompt is trimmed to the header it now sits in: one cell wide is 84 pixels, and
@@ -902,6 +956,13 @@ function FG.Start()
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
         for _, f in ipairs(FG.frames) do
             if f.unit and f:IsShown() then FG.Paint(f) end
+        end
+        -- the target's cell is not in that list (it belongs to no group), and its NAME changes
+        -- under it every time you target someone else, so it is repainted here by name as well
+        local t = FG.target
+        if t and t.unit and t:IsShown() then
+            if t.name then t.name:SetText(FG.ShortName("target")) end
+            FG.Paint(t)
         end
     end)
 

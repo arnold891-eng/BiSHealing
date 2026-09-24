@@ -64,7 +64,9 @@ local DEFAULTS = {
     pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
-    target  = false,     -- a cell of its own for whoever you have targeted, under the grid
+    target  = false,     -- a cell of its own for whoever you have targeted
+    targetAt = "under",  -- where it sits: under / right / left / top, or "free" once dragged
+    targetPos = nil,     -- where it was dragged to, from the middle of the screen
     markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
@@ -333,7 +335,7 @@ end
 -- the third. No argument still walks through them, so the old `/bish layout` keeps working.
 local LAYOUTS = { columns = "grid: one column per raid group",
                   rows    = "grid: one row per raid group, names across",
-                  pyramid = "pyramid: tanks on top, then healers, then damage" }
+                  pyramid = "pyramid: tanks on top, then damage, healers at the bottom" }
 local NEXT_LAYOUT = { columns = "rows", rows = "pyramid", pyramid = "columns" }
 
 function NS.DO.layout(mode)
@@ -462,13 +464,31 @@ end
 --- No argument flips it.
 function NS.DO.target(on)
     local d = DB()
+    -- "under", "left", "right" or "top" both places it and turns it on; a drag on its own little
+    -- header sets "free" and remembers where (FG.TargetHandle)
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.targetAt = where
+            if where ~= "free" then d.targetPos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
     if on == nil then on = not d.target end
     d.target = on and true or false
     local done = true
     if NS.FG and NS.FG.LayoutTarget then done = NS.FG.LayoutTarget() and true or false end
     if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
-    Print((d.target and "a cell for your target, under the grid" or "no target cell")
-        .. (done and "" or " - after this fight"))
+    local where = (NS.FG and NS.FG.TargetSpot and NS.FG.TargetSpot()) or "under"
+    local said = { under = "under the grid", right = "to the right of the grid",
+                   left = "to the left of the grid", top = "above the grid",
+                   free = "where you dragged it" }
+    Print((d.target and ("a cell for your target, " .. (said[where] or "under the grid"))
+        or "no target cell") .. (done and "" or " - after this fight"))
     return d.target
 end
 
@@ -577,7 +597,9 @@ function NS.DO.help()
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
-    Print("  |cffb980fftarget|r  a cell for your current target    |cffb980ffmarkers 12|r  marker size")
+    Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
+        .. " |cffb980fftop|r |cffb980ffunder|r, or drag its handle")
+    Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
 end
 
 --------------------------------------------------------------------- slash --
@@ -632,6 +654,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.pets()
     elseif msg == "target" or msg == "targetcell" then
         NS.DO.target()
+    elseif msg:match("^target%s+%a+$") then
+        NS.DO.target(msg:match("^target%s+(%a+)$"))
     elseif msg == "markers" or msg:match("^markers%s") then
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then

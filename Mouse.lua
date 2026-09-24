@@ -178,7 +178,11 @@ local function db()
                 end
                 -- the three a player asked for on 23 Sep, all of them the layout's business
                 if settings.layout then d.layout = settings.layout end
-                if settings.target == true then d.target = true end
+                if settings.target == true then
+                    d.target = true
+                    if settings.targetAt then d.targetAt = settings.targetAt end
+                    if settings.targetPos then d.targetPos = settings.targetPos end
+                end
                 if settings.markers then
                     d.markers = settings.markers
                     if NS.FA then NS.FA.sig = nil end

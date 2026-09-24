@@ -1016,13 +1016,15 @@ do
     ok(p[1].wide and p[2].wide and p[3].wide and not p[4].wide,
        "the apex and the pair are full width, the rows under them are not")
 
-    -- THE ORDER: tanks first, then healers, then damage, and raid order kept inside each
+    -- THE ORDER: tanks first, then damage, then the healers, and raid order kept inside each.
+    -- Arn, 23 Sep: "tanks dps and healers at the bottom" - in a fight you watch the tank and
+    -- whoever is in the fire; the other healers are the glance you take last.
     local raid = { "raid1", "raid2", "raid3", "raid4", "raid5", "raid6", "raid7" }
     STATE.roles = { raid1 = "DAMAGER", raid2 = "HEALER", raid3 = "TANK", raid4 = "DAMAGER",
                     raid5 = "TANK", raid6 = "NONE", raid7 = "HEALER" }
     local by = table.concat(FG.ByRole(raid), " ")
-    ok(by == "raid3 raid5 raid2 raid7 raid1 raid4 raid6",
-       "tanks, then healers, then damage, then nobody - and nobody reshuffled within a role", by)
+    ok(by == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
+       "tanks, then damage, then healers, then nobody - and nobody reshuffled within a role", by)
 
     -- IN COMBAT a role is a secret; the sort must survive it and not reorder on a guess
     STATE.roleSecret = true
@@ -1704,10 +1706,42 @@ do
     ok(t and t:GetAttribute("unit") == "target",
        "and it is the CLIENT's target token, so it follows your target in a fight",
        t and tostring(t:GetAttribute("unit")))
-    local p = t and t.points and t.points[#t.points]
-    ok(p and p[1] == "TOPLEFT" and p[3] == "BOTTOMLEFT", "under the grid, not over it",
-       p and (tostring(p[1]) .. "/" .. tostring(p[3])))
+    local function spot()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
+    end
+    ok(spot() == "TOPLEFT->BOTTOMLEFT", "under the grid to begin with, not over it", spot())
     ok(t.__attrs["*type1"] ~= nil, "with the mouse binds on it like any other cell")
+
+    -- FOUR PLACES, and its own handle for anywhere else. Arn, 23 Sep: "lets do a toggle under grid
+    -- to the right left or top. and we can give it its own little header where they can drag it
+    -- where ever they want on screen".
+    NS.DO.target("right")
+    ok(spot() == "TOPLEFT->TOPRIGHT" and d.targetAt == "right", "/bish target right puts it beside the grid", spot())
+    NS.DO.target("left")
+    ok(spot() == "TOPRIGHT->TOPLEFT" and d.targetAt == "left", "left is the other side", spot())
+    NS.DO.target("top")
+    ok(spot() == "BOTTOMLEFT->TOPLEFT" and d.targetAt == "top", "top is above it", spot())
+    NS.DO.target("under")
+    ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under puts it back")
+    ok(NS.DO.target("sideways") ~= nil and d.targetAt == "under",
+       "a word it does not know moves nothing")
+
+    -- the handle: a drag sets it free, and where it landed is remembered
+    local h = t.handle
+    ok(h ~= nil and h.__scripts and h.__scripts.OnDragStart, "the cell has a handle to drag")
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    t.GetCenter = function() return 660, 440 end            -- 300 left, 100 down
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    ok(d.targetAt == "free" and d.targetPos and d.targetPos.x == -300 and d.targetPos.y == -100,
+       "dragging it sets it free, and remembers where",
+       d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+    local fp = t.points and t.points[#t.points]
+    ok(fp and fp[1] == "CENTER" and fp[4] == -300, "and it is pinned to the screen, not the grid",
+       fp and tostring(fp[1]))
+    UIParent.GetCenter, t.GetCenter = realUC, nil
 
     -- it goes away again, and takes the client's watch with it. STATE.units.target says you HAVE
     -- a target, which is exactly when a still-watched cell would be shown again by the client.
@@ -1744,19 +1778,35 @@ do
     MACROS = {}
     local keptBinds = d.binds
     d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
-    NS.DO.layout("rows"); NS.DO.target(true); NS.DO.markers(14)
+    NS.DO.layout("rows"); NS.DO.target("left"); NS.DO.markers(14)
     local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
-    ok(body and body:find("L=1", 1, true) and body:find("G=1", 1, true) and body:find("M=14", 1, true),
-       "the layout, the target cell and the marker size are all written", body)
+    ok(body and body:find("L=1", 1, true) and body:find("G=3", 1, true) and body:find("M=14", 1, true),
+       "the layout, the target cell (with its place) and the marker size are all written", body)
     local _, st = NS.FK.Decode(body or "")
-    ok(st and st.layout == "rows" and st.target == true and st.markers == 14, "and all three read back")
+    ok(st and st.layout == "rows" and st.target == true and st.targetAt == "left" and st.markers == 14,
+       "and all of it reads back")
 
-    d.layout, d.target, d.markers = "columns", false, 10
+    d.layout, d.target, d.markers, d.targetAt = "columns", false, 10, "under"
     d.binds, d.bindsSeeded, FM.asked = {}, nil, false
     FM.Get("", "wheelup")                                    -- the first read after a restart
-    ok(d.layout == "rows" and d.target == true and d.markers == 14,
-       "after a restart all three are back",
-       ("%s / %s / %s"):format(tostring(d.layout), tostring(d.target), tostring(d.markers)))
+    ok(d.layout == "rows" and d.target == true and d.targetAt == "left" and d.markers == 14,
+       "after a restart all of it is back, the target cell on the side it was put",
+       ("%s / %s %s / %s"):format(tostring(d.layout), tostring(d.target), tostring(d.targetAt),
+                                  tostring(d.markers)))
+
+    -- and a DRAGGED one comes back where it was dragged, not against the grid
+    d.targetAt, d.targetPos = "free", { x = -300, y = -100 }
+    NS.FK.Save(d.binds)
+    local dragged = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(dragged and dragged:find("G=5", 1, true) and dragged:find("Q=4700:4900", 1, true),
+       "a dragged target cell writes where it is", dragged)
+    d.targetAt, d.targetPos = "under", nil
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    FM.Get("", "wheelup")
+    ok(d.targetAt == "free" and d.targetPos and d.targetPos.x == -300,
+       "and comes back there after a restart",
+       d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+    d.targetAt, d.targetPos = "under", nil
 
     -- an older install skips all three. Trimmed first, because the client adds a newline to every
     -- macro body and an anchored row pattern chokes on it - a different bug, fixed on 19 Sep.

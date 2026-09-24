@@ -48,7 +48,11 @@ local TAIL  = 6
 local HALF_W = FRAME_W                  -- the ordinary cell
 local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them,
                                         -- so the rows line up on one grid instead of drifting
-local ROLE_RANK = { TANK = 1, HEALER = 2, DAMAGER = 3 }
+-- TANKS, THEN DAMAGE, THEN THE HEALERS AT THE BOTTOM. Arn, 23 Sep: "when we arrange by tanks.
+-- lets do tanks dps and healers at the bottom". The healers were second when the pyramid was
+-- built; in a fight the people you watch hardest are the tank and whoever is standing in the
+-- fire, and your fellow healers are the ones you glance at last.
+local ROLE_RANK = { TANK = 1, DAMAGER = 2, HEALER = 3 }
 
 --- Where each of `n` cells goes: its row, its place in the row, how many share the row, and
 --- whether the row is full width. Pure - no frames - so it can be asked without a client.
@@ -290,15 +294,100 @@ function FG.LayoutTarget(anchor)
     if not f then
         f = FG.Make("Target", anchor)
         FG.target = f
+        FG.TargetHandle(f)
     end
-    f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2))
+    FG.PlaceTarget(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
     f:Show()
     return true, true
+end
+
+-- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
+-- top. and we can give it its own little header where they can drag it where ever they want on
+-- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
+FG.TARGET_SPOTS = { under = true, right = true, left = true, top = true, free = true }
+
+function FG.TargetSpot()
+    local d = NS.DB and NS.DB()
+    local at = type(d) == "table" and d.targetAt or nil
+    return FG.TARGET_SPOTS[at or ""] and at or "under"
+end
+
+--- Put it where the player asked. Against the grid, the anchor moves it along with the cells; set
+--- free, it is pinned to the screen's centre like the grid itself (FG.Recenter), so it stays where
+--- it was dragged whatever the grid does afterwards.
+function FG.PlaceTarget(f, anchor)
+    f = f or FG.target
+    anchor = anchor or FG.anchor
+    if not (f and anchor) then return false end
+    local at = FG.TargetSpot()
+    local d = NS.DB and NS.DB()
+    local pos = type(d) == "table" and d.targetPos or nil
+    f:ClearAllPoints()
+    if at == "free" and type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
+        f:SetPoint("CENTER", UIParent, "CENTER", pos.x, pos.y)
+    elseif at == "right" then
+        f:SetPoint("TOPLEFT", anchor, "TOPRIGHT", PAD * 2, 0)
+    elseif at == "left" then
+        f:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -(PAD * 2), 0)
+    elseif at == "top" then
+        -- above the grid's own header, so the two do not sit on each other
+        f:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 20)
+    else
+        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2))
+    end
+    return true, at
+end
+
+--- Its own little handle, above the cell: a thin bar you can take hold of. Dragging it sets the
+--- spot to "free" and writes where it landed into the macro, the way the grid's header does.
+function FG.TargetHandle(f)
+    if not f or f.handle then return f and f.handle end
+    local h = CreateFrame("Frame", "BiSHealingForeverTargetHandle", f)
+    h:SetHeight(8)
+    h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
+    h:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+    h:EnableMouse(true)
+    h:RegisterForDrag("LeftButton")
+    local bg = h:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.08, 0.06, 0.12, 0.75)
+
+    f:SetMovable(true)
+    h:SetScript("OnDragStart", function()
+        if InCombatLockdown and InCombatLockdown() then return end
+        f:StartMoving()
+        h.moving = true
+    end)
+    h:SetScript("OnDragStop", function()
+        if not h.moving then return end
+        h.moving = false
+        f:StopMovingOrSizing()
+        local d = NS.DB and NS.DB()
+        local ok, x, y = FG.CenterOffsetOf(f)
+        if ok and type(d) == "table" then
+            d.targetAt, d.targetPos = "free", { x = x, y = y }
+            FG.PlaceTarget(f)
+            if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+        end
+    end)
+    h:SetScript("OnEnter", function()
+        bg:SetColorTexture(0.13, 0.10, 0.19, 0.95)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(h, "ANCHOR_TOP")
+        GameTooltip:AddLine("drag to move the target cell")
+        GameTooltip:AddLine("/bish target under | left | right | top", 0.6, 0.6, 0.6)
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function()
+        bg:SetColorTexture(0.08, 0.06, 0.12, 0.75)
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    f.handle = h
+    return h
 end
 
 -- Tank, healer or damage, as this client will say it. `role` and the enum behind it are both
@@ -805,17 +894,24 @@ end
 --- ends on whatever corner the client chose; one kind of point is what lets the position be
 --- written into the macro as two numbers (Keep.lua) - and read back after a restart. SetPoint
 --- offsets are in the frame's own scale, so the screen's centre is converted into it first.
-function FG.Recenter()
-    local a = FG.anchor
-    if not (a and a.GetCenter and UIParent and UIParent.GetCenter) then return false end
-    local ok, cx, cy = pcall(a.GetCenter, a)
+--- Where a frame's centre is, measured from the middle of the screen, in that frame's own scale.
+--- Shared by the grid and the target cell: both are dragged, and both are written into the macro
+--- as two numbers (Keep.lua).
+function FG.CenterOffsetOf(f)
+    if not (f and f.GetCenter and UIParent and UIParent.GetCenter) then return false end
+    local ok, cx, cy = pcall(f.GetCenter, f)
     local uok, ux, uy = pcall(UIParent.GetCenter, UIParent)
     if not (ok and uok and cx and ux) then return false end
-    local as = (a.GetEffectiveScale and a:GetEffectiveScale()) or (a.GetScale and a:GetScale()) or 1
+    local fs = (f.GetEffectiveScale and f:GetEffectiveScale()) or (f.GetScale and f:GetScale()) or 1
     local us = (UIParent.GetEffectiveScale and UIParent:GetEffectiveScale()) or 1
-    local k = us / as
-    local x = math.floor(cx - ux * k + 0.5)
-    local y = math.floor(cy - uy * k + 0.5)
+    local k = us / fs
+    return true, math.floor(cx - ux * k + 0.5), math.floor(cy - uy * k + 0.5)
+end
+
+function FG.Recenter()
+    local a = FG.anchor
+    local ok, x, y = FG.CenterOffsetOf(a)
+    if not ok then return false end
     a:ClearAllPoints()
     a:SetPoint("CENTER", UIParent, "CENTER", x, y)
     return true, x, y

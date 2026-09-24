@@ -84,6 +84,8 @@ end
 --- 21 Sep, the same way: the number on the cells (T) and the bar colour (C). Only written when
 --- they differ from the default, so a mouse nobody has styled pays nothing for them. Uppercase
 --- again, for the same reason as S.
+local SPOTCODE = { under = 1, right = 2, left = 3, top = 4, free = 5 }
+local CODESPOT = { [1] = "under", [2] = "right", [3] = "left", [4] = "top", [5] = "free" }
 local LAYOUTCODE = { rows = 1, pyramid = 2 }          -- columns is 0, the default, never written
 local CODELAYOUT = { [0] = "columns", [1] = "rows", [2] = "pyramid" }
 local TEXTCODE = { off = 0, percent = 2 }             -- 1, "missing", is the default and not written
@@ -116,7 +118,19 @@ local function settingRows(settings)
     -- 23 Sep, a player's three requests: the layout (L), a cell for your target (G, for tarGet),
     -- and how big the markers are (M). Defaults - columns, no target cell, 10 pixels - write nothing.
     if LAYOUTCODE[settings.layout or ""] then out[#out + 1] = "L=" .. LAYOUTCODE[settings.layout] end
-    if settings.target == true then out[#out + 1] = "G=1" end
+    -- the target cell: G says WHERE as well as whether, and a dragged one writes its place in Q
+    -- (the same two-numbers-from-the-middle trick as the grid's P)
+    if settings.target == true then
+        out[#out + 1] = "G=" .. (SPOTCODE[settings.targetAt or ""] or 1)
+        local q = settings.targetPos
+        if (settings.targetAt == "free") and type(q) == "table" and tonumber(q.x) and tonumber(q.y) then
+            local x = math.floor(tonumber(q.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(q.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("Q=%d:%d"):format(x, y)
+            end
+        end
+    end
     local px = tonumber(settings.markers)
     if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
     return out
@@ -200,7 +214,10 @@ function FK.Decode(body)
         elseif code == "L" then
             settings.layout = CODELAYOUT[tonumber(idx)]
         elseif code == "G" then
-            settings.target = tonumber(idx) == 1
+            settings.target = (tonumber(idx) or 0) > 0
+            settings.targetAt = CODESPOT[tonumber(idx)]
+        elseif code == "Q" and tonumber(idx) and tonumber(rank) then
+            settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
             settings.markers = tonumber(idx)
         elseif code == "O" then
@@ -322,7 +339,8 @@ function FK.Save(binds)
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
                                              clique = t.clique, layout = t.layout,
-                                             target = t.target, markers = t.markers })
+                                             target = t.target, markers = t.markers,
+                                             targetAt = t.targetAt, targetPos = t.targetPos })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

@@ -309,6 +309,10 @@ end
 -- top. and we can give it its own little header where they can drag it where ever they want on
 -- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
 FG.TARGET_SPOTS = { under = true, right = true, left = true, top = true, free = true }
+-- shift-clicking the handle walks them, the way round a clock: top, right, under, left. "free"
+-- is not in the ring - it is where a drag put it - so a shift-click on a dragged cell brings it
+-- back to the grid, starting at the top.
+FG.TARGET_RING = { top = "right", right = "under", under = "left", left = "top", free = "top" }
 
 --- TOP BY DEFAULT. Arn, 23 Sep: "make it defaut to the top window when it starts at the bottom you
 --- cant see the header to move it" - under the grid, the handle sits in the gap between the two and
@@ -377,9 +381,24 @@ function FG.TargetHandle(f)
         f:StartMoving()
         h.moving = true
     end)
+    -- SHIFT-CLICK WALKS IT ROUND THE GRID, left-click still drags. Arn, 23 Sep: "how about if we
+    -- shift click the header it it toggles between top left right bottom and left click still
+    -- drags". A drag ends with a mouse-up too, so a drag that just happened is not a click.
+    h:SetScript("OnMouseUp", function(_, button)
+        if h.dragged then h.dragged = nil return end
+        if button ~= "LeftButton" or not (IsShiftKeyDown and IsShiftKeyDown()) then return end
+        if InCombatLockdown and InCombatLockdown() then return end
+        local d = NS.DB and NS.DB()
+        if type(d) ~= "table" then return end
+        d.targetAt = FG.TARGET_RING[FG.TargetSpot()] or "top"
+        d.targetPos = nil
+        FG.PlaceTarget(f)
+        if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+        if NS.Print then NS.Print("target cell: " .. d.targetAt) end
+    end)
     h:SetScript("OnDragStop", function()
         if not h.moving then return end
-        h.moving = false
+        h.moving, h.dragged = false, true
         f:StopMovingOrSizing()
         local d = NS.DB and NS.DB()
         local ok, x, y = FG.CenterOffsetOf(f)
@@ -394,6 +413,7 @@ function FG.TargetHandle(f)
         if not GameTooltip then return end
         GameTooltip:SetOwner(h, "ANCHOR_TOP")
         GameTooltip:AddLine("drag to move the target cell")
+        GameTooltip:AddLine("shift-click to send it round the grid", 0.6, 0.6, 0.6)
         GameTooltip:AddLine("/bish target under | left | right | top", 0.6, 0.6, 0.6)
         GameTooltip:Show()
     end)

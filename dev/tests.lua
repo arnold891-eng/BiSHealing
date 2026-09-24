@@ -151,6 +151,8 @@ end
 _G.CreateFrame = function(kind, name) return newFrame(kind, name) end
 _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
+-- the shift key, held or not, as the client answers it
+_G.IsShiftKeyDown = function() return STATE.shift and true or false end
 -- A CLOCK THAT MOVES, like the client's. There was none at all, so GetTime was nil everywhere and
 -- anything cached "for this frame" was cached for the whole suite - kinder than the client, where
 -- the number changes sixty times a second. TICK() is a frame going by.
@@ -1746,6 +1748,29 @@ do
     ok(NS.DO.target("sideways") ~= nil and d.targetAt == "top",
        "a word it does not know moves nothing")
 
+    -- SHIFT-CLICK WALKS IT ROUND THE GRID. Arn, 23 Sep: "if we shift click the header it toggles
+    -- between top left right bottom and left click still drags".
+    NS.DO.target("top")
+    local hclick = t.handle and t.handle.__scripts and t.handle.__scripts.OnMouseUp
+    ok(hclick ~= nil, "the handle takes a click as well as a drag")
+    STATE.shift = true
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "right", "top goes to right", tostring(d.targetAt))
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "under", "right goes to under", tostring(d.targetAt))
+    hclick(t.handle, "LeftButton")
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "left, and round to the top again", tostring(d.targetAt))
+    STATE.shift = false
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "without shift, a click moves nothing - that is the drag's business")
+    STATE.shift = true
+    STATE.inCombat = true
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "and not in combat either: the cell is a secure frame")
+    STATE.inCombat = false
+    STATE.shift = false
+
     -- the handle: a drag sets it free, and where it landed is remembered
     local h = t.handle
     ok(h ~= nil and h.__scripts and h.__scripts.OnDragStart, "the cell has a handle to drag")
@@ -1754,6 +1779,10 @@ do
     t.GetCenter = function() return 660, 440 end            -- 300 left, 100 down
     h.__scripts.OnDragStart(h)
     h.__scripts.OnDragStop(h)
+    -- the mouse-up that ends a drag is not a shift-click, even with shift held
+    STATE.shift = true
+    h.__scripts.OnMouseUp(h, "LeftButton")
+    STATE.shift = false
     ok(d.targetAt == "free" and d.targetPos and d.targetPos.x == -300 and d.targetPos.y == -100,
        "dragging it sets it free, and remembers where",
        d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))

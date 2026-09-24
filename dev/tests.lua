@@ -1713,6 +1713,14 @@ do
     -- TOP BY DEFAULT. Arn, 23 Sep: under the grid, the handle is in the gap between the two and
     -- the grid covers it - "you cant see the header to move it".
     ok(spot() == "BOTTOMLEFT->TOPLEFT", "above the grid to begin with", spot())
+    -- said in two places, and both have to agree: the fresh-install default (Core) and the answer
+    -- for a table that has no such key at all (Grid)
+    local realDB = NS.DB
+    NS.DB = function() return { target = true } end          -- a table with no spot in it at all
+    ok(FG.TargetSpot() == "top", "and with nothing saved at all, still the top", FG.TargetSpot())
+    NS.DB = function() return { target = true, targetAt = "sideways" } end   -- or nonsense in it
+    ok(FG.TargetSpot() == "top", "and a spot it does not know is the top too", FG.TargetSpot())
+    NS.DB = realDB
     ok(t.__attrs["*type1"] ~= nil, "with the mouse binds on it like any other cell")
 
     -- FOUR PLACES, and its own handle for anywhere else. Arn, 23 Sep: "lets do a toggle under grid

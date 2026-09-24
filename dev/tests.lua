@@ -1802,8 +1802,8 @@ do
        "dragging it sets it free, and remembers where",
        d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
     local fp = t.points and t.points[#t.points]
-    ok(fp and fp[1] == "CENTER" and fp[4] == -300, "and it is pinned to the screen, not the grid",
-       fp and tostring(fp[1]))
+    ok(fp and fp[1] == "CENTER" and math.abs((fp[4] or 0) - -300) < 1,
+       "and it is pinned to the screen, not the grid", fp and tostring(fp[1]))
     -- AND IT STAYS PUT WHEN THE GRID IS RESIZED. Arn, 23 Sep: "when i increased the scale size the
     -- main window moved down and the target frames moved up and to the right". The cell is a child
     -- of the grid, so it wears the grid's scale: an offset written in its own units covers more
@@ -1814,6 +1814,19 @@ do
         local k = (t.GetEffectiveScale and t:GetEffectiveScale()) or 1
         return p and (p[4] or 0) * k, p and (p[5] or 0) * k
     end
+    -- and a drag made while the grid is BIGGER than life size writes the same kind of number: at
+    -- 1.0 the cell's own units and the screen's agree, so only a drag at another scale can tell
+    -- which of the two was written down
+    FG.SetScale(1.4)
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    local atBig = d.targetPos and d.targetPos.x
+    local onScreenBig = select(2, FG.ScreenOffsetOf(t))
+    ok(atBig == onScreenBig, "a drag at another scale writes where it is on screen",
+       ("%s vs %s"):format(tostring(atBig), tostring(onScreenBig)))
+    FG.SetScale(1)
+    ok(d.targetPos.x == atBig, "and that number does not change when the grid is resized back")
+
     local wasX, wasY = screenXY()
     FG.SetScale(1.4)
     local nowX, nowY = screenXY()

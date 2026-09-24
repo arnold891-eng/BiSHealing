@@ -1,5 +1,24 @@
 # BiS Healing
 
+## 0.5.0
+
+Three of these came from paszczyszyn on CurseForge - thank you.
+
+- **Groups across or down.** A raid group can be a column of names, as before, or a row of them.
+  In options: **groups: down / across / tanks**. Or `/bish across`, `/bish grid`, `/bish pyramid`.
+- **A cell for whoever you have targeted.** Off by default; switch it on in options or with
+  `/bish target`. It sits above the grid, and it has its own small handle: **drag it anywhere on
+  screen**, or **shift-click the handle** to send it round the grid - top, right, under, left.
+  `/bish target left` (or `right`, `top`, `under`) does the same from the chat box.
+- **The markers have a size.** The dispel marker and the heal-over-time icons, 6 to 20 pixels:
+  the **marker size** stepper in options, or `/bish markers 14`.
+- **The pyramid puts healers at the bottom**: tanks first, then damage, then the healers.
+- **Empty mouse buttons all target now.** Left and right click already did; the wheel click and
+  the two thumb buttons do as well, with or without a modifier.
+- Everything above is kept in your `BiSHealing` macro, so it survives a restart.
+- The options window lost its two diagnostic rows to make room. Both are still one word away:
+  `/bish scan` and `/bish auras`.
+
 ## 0.4.4
 
 - **Wheel click and thumb buttons target when unbound.** Left and right click already selected the

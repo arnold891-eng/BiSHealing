@@ -1789,12 +1789,23 @@ do
     -- FOUR PLACES, and its own handle for anywhere else. Arn, 23 Sep: "lets do a toggle under grid
     -- to the right left or top. and we can give it its own little header where they can drag it
     -- where ever they want on screen".
+    -- AND ALWAYS THE GRID'S OWN GAP AWAY FROM IT: three pixels, the same as between two columns.
+    -- Anything else reads as "nearly lined up" (Arn, 23 Sep: "make sure all the windows line up").
+    local function offs()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return (p and p[4]) or 0, (p and p[5]) or 0
+    end
     NS.DO.target("right")
     ok(spot() == "TOPLEFT->TOPRIGHT" and d.targetAt == "right", "/bish target right puts it beside the grid", spot())
+    ok(offs() == 3, "one column's gap from the grid, not two", offs())
     NS.DO.target("left")
     ok(spot() == "TOPRIGHT->TOPLEFT" and d.targetAt == "left", "left is the other side", spot())
+    ok(offs() == -3, "and the same gap on that side", offs())
     NS.DO.target("top")
     ok(spot() == "BOTTOMLEFT->TOPLEFT" and d.targetAt == "top", "top is above it", spot())
+    -- 2 (the grid's bar floats) + 16 (that bar) + 3 (the gap). Its own bar is above it and needs
+    -- nothing underneath, which is what the old 34 was paying for.
+    ok(select(2, offs()) == 21, "clear of the grid's own bar by that same gap", select(2, offs()))
     NS.DO.target("under")
     ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under hangs it below the grid")
     -- THE HEADER STAYS ON TOP OF ITS OWN CELL, everywhere. It used to swap to the underside here,
@@ -1811,7 +1822,11 @@ do
         return p and p[5] or 0
     end
     ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "its header is above it, under the grid", handleAt())
-    ok(dropOf() <= -20, "and the cell drops clear of the grid to leave the header room", dropOf())
+    -- EXACTLY THE ROOM ITS BAR NEEDS, AND THE GRID'S OWN GAP. Arn, 23 Sep: "make sure all the
+    -- windows line up". A block a different distance from the grid than the grid's own columns
+    -- are from each other reads as "nearly lined up", which is worse than plainly apart.
+    -- 3 (the cells' own gap) + 1 (a bar floats a pixel above its cell) + 14 (the bar).
+    ok(dropOf() == -18, "and it drops by exactly its bar plus the grid's own gap", dropOf())
     NS.DO.target("top")
     ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
     ok(t.handle and t.handle.__fontstrings and #t.handle.__fontstrings == 1
@@ -1941,6 +1956,37 @@ do
         ok(hp and hp[1] == "BOTTOMRIGHT" and hp[3] == "TOPRIGHT",
            "with its own bar on top of its own cell, level with the target's",
            hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])))
+        -- LINED UP WITH THE GRID. The gap between the two cells is the gap between two grid
+        -- columns, so the pair is exactly as wide as two columns - which on the pyramid is one
+        -- wide cell, and the edges agree. It was twice that, and the block overhung by 3 pixels.
+        ok(tp and tp[4] == 3, "the gap between them is the grid's own, so the edges agree", tp and tp[4])
+
+        -- AND IT GROWS AWAY FROM THE GRID. Parked on the grid's left, a tot on the right-hand
+        -- side sits straight on top of the raid - Arn moved it over and saw it: "when i move it
+        -- to the left now it should not overlap the tot".
+        NS.DO.target("left")
+        local lp = tt.points and tt.points[#tt.points]
+        ok(lp and lp[1] == "TOPRIGHT" and lp[3] == "TOPLEFT" and lp[4] == -3,
+           "on the grid's left the pair mirrors, so the tot is on the outside",
+           lp and (tostring(lp[1]) .. "->" .. tostring(lp[3]) .. " " .. tostring(lp[4])))
+        NS.DO.target("right")
+        local rp = tt.points and tt.points[#tt.points]
+        ok(rp and rp[1] == "TOPLEFT" and rp[3] == "TOPRIGHT",
+           "and on the right it is back on the right", rp and tostring(rp[1]))
+        -- and by the OTHER door: a shift-click on a bar walks the block round the grid without
+        -- going near the layout, so the side has to be decided where the spot is set
+        NS.DO.target("under")
+        STATE.shift = true
+        -- the mouse-up that ended the drag further up is still owed: a drag is not a click, and
+        -- the bar swallows exactly one. The second is a player pressing the button on purpose.
+        t.handle.__scripts.OnMouseUp(t.handle, "LeftButton")
+        t.handle.__scripts.OnMouseUp(t.handle, "LeftButton")      -- under -> left
+        STATE.shift = false
+        local sp = tt.points and tt.points[#tt.points]
+        ok(d.targetAt == "left" and sp and sp[1] == "TOPRIGHT",
+           "a shift-click onto the grid's left mirrors it too",
+           tostring(d.targetAt) .. " " .. (sp and tostring(sp[1]) or "nowhere"))
+        NS.DO.target("top")
         ok(tt.handle and tt.handle.__fontstrings and tt.handle.__fontstrings[1].__text == "BiS> tot",
            "with its own header on top of it",
            tt.handle and tt.handle.__fontstrings and tostring(tt.handle.__fontstrings[1].__text))

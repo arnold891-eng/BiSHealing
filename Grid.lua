@@ -30,7 +30,14 @@ NS.FG = FG
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
 -- the little bar on top of the target cell and the tot cell (FG.CellHeader). Two pixels shorter
 -- than the grid's own 16, so the block reads as hanging off the grid rather than competing with it.
-local HEADER_H = 14
+local HEADER_H, HEADER_LIFT = 14, 1
+-- the grid's own bar, and how far it floats above the anchor (makeHeader)
+local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
+-- EVERY GAP IN THE BLOCK IS THE GRID'S OWN PAD. Arn, 23 Sep, looking at the two of them lined up:
+-- "make sure all the windows line up". The target and tot cells had twice the gap between them
+-- that two grid columns have, which made the block three pixels wider than the grid beneath it -
+-- and on the pyramid, where one wide cell is exactly two columns and the gap, that mismatch was
+-- the whole difference between "lined up" and "nearly".
 --- THE WORD AFTER "BiS>". Arn, 23 Sep: "BiS> always stays . we then cycle when nothing is
 --- happening keep healing , when combat starts switch to regen mode and the % and the glow".
 --- So one word, never two labels fighting over an 84 pixel bar: the addon's name while nothing is
@@ -371,25 +378,36 @@ function FG.LayoutToT(parent)
     return true, true
 end
 
---- SIDE BY SIDE, the tot to the RIGHT of the target. Arn, 23 Sep, looking at it stacked: "i want
---- tot to the right of the target window".
+--- SIDE BY SIDE, the tot beside the target. Arn, 23 Sep, looking at it stacked: "i want tot to the
+--- right of the target window".
 ---
 --- Both bars then sit on one line with a cell under each - two pairs read left to right, instead
 --- of a column four frames deep that hung down across the grid the moment the block was dragged
 --- anywhere near it (his second screenshot: the tot's cell over the raid's).
+---
+--- AND IT GROWS AWAY FROM THE GRID, never into it. Parked on the grid's LEFT, a tot added to the
+--- right-hand side sits straight on top of the raid - Arn saw it the minute he moved the block
+--- over: "when i move it to the left now it should not overlap the tot". So on that one side the
+--- pair mirrors, and the block is the same shape either way: the target cell against the grid,
+--- the tot on the outside.
 function FG.PlaceToT(f, parent)
     f = f or FG.tot
     parent = parent or FG.target
     if not (f and parent) then return false end
+    local mirrored = FG.TargetSpot() == "left"
     f:ClearAllPoints()
-    f:SetPoint("TOPLEFT", parent, "TOPRIGHT", PAD * 2, 0)
+    if mirrored then
+        f:SetPoint("TOPRIGHT", parent, "TOPLEFT", -PAD, 0)
+    else
+        f:SetPoint("TOPLEFT", parent, "TOPRIGHT", PAD, 0)
+    end
     -- its own bar on top of its own cell, level with the target's
     if f.handle then
         f.handle:ClearAllPoints()
-        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
-        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
+        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, HEADER_LIFT)
     end
-    return true
+    return true, mirrored
 end
 
 -- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
@@ -428,25 +446,32 @@ function FG.PlaceTarget(f, anchor)
     -- the grid is the tot cell. So the bar stays put and the whole block is pushed clear instead.
     if f.handle then
         f.handle:ClearAllPoints()
-        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
-        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
+        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, HEADER_LIFT)
     end
     if at == "free" and type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
         -- pos is where it sits ON SCREEN; the point is in the cell's own units, which are the
         -- grid's scale, so it is converted back every time it is placed
         local k = FG.ScaleOf(f)
         f:SetPoint("CENTER", UIParent, "CENTER", pos.x / k, pos.y / k)
+    -- THE SAME GAP THE CELLS USE, on every side: a block a different distance away from the grid
+    -- than the grid's own columns are from each other reads as "nearly lined up", which is worse
+    -- than either lined up or plainly apart.
     elseif at == "right" then
-        f:SetPoint("TOPLEFT", anchor, "TOPRIGHT", PAD * 2, 0)
+        f:SetPoint("TOPLEFT", anchor, "TOPRIGHT", PAD, 0)
     elseif at == "left" then
-        f:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -(PAD * 2), 0)
+        f:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -PAD, 0)
     elseif at == "top" then
-        -- above the grid's own header AND its own, so no two bars sit on each other
-        f:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 20 + HEADER_H)
+        -- clear of the grid's own bar, by that same gap; its own bar is above it and needs nothing
+        f:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, GRID_HEADER_LIFT + GRID_HEADER_H + PAD)
     else
-        -- under the grid, far enough down that its header clears the last row of cells
-        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2 + HEADER_H + 2))
+        -- under the grid, far enough down that ITS bar clears the last row of cells
+        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD + HEADER_LIFT + HEADER_H))
     end
+    -- the cell beside it moves with the spot, not just with the layout: a shift-click on either
+    -- bar comes through here and nowhere else, and a tot left on the wrong side of a block that
+    -- has just moved to the grid's left is a tot sitting on the raid.
+    if FG.tot then FG.PlaceToT(FG.tot, f) end
     return true, at
 end
 
@@ -466,8 +491,8 @@ function FG.CellHeader(f, word, moves)
     moves = moves or f
     local h = CreateFrame("Frame", "BiSHealingForeverHeader" .. tostring(word), f)
     h:SetHeight(HEADER_H)
-    h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
-    h:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
+    h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
+    h:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, HEADER_LIFT)
     h:EnableMouse(true)
     h:RegisterForDrag("LeftButton")
     local bg = h:CreateTexture(nil, "BACKGROUND")
@@ -1127,9 +1152,9 @@ end
 --- pull, so the drag simply does not start and the header says why.
 local function makeHeader(anchor)
     local h = CreateFrame("Frame", "BiSHealingForeverHeader", anchor)
-    h:SetHeight(16)
-    h:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 2)
-    h:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 2)
+    h:SetHeight(GRID_HEADER_H)
+    h:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, GRID_HEADER_LIFT)
+    h:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, GRID_HEADER_LIFT)
     h:EnableMouse(true)
     h:RegisterForDrag("LeftButton")
 

@@ -28,6 +28,9 @@ local FG = {}
 NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
+-- the little bar on top of the target cell and the tot cell (FG.CellHeader). Two pixels shorter
+-- than the grid's own 16, so the block reads as hanging off the grid rather than competing with it.
+local HEADER_H = 14
 --- THE WORD AFTER "BiS>". Arn, 23 Sep: "BiS> always stays . we then cycle when nothing is
 --- happening keep healing , when combat starts switch to regen mode and the % and the glow".
 --- So one word, never two labels fighting over an 84 pixel bar: the addon's name while nothing is
@@ -306,13 +309,17 @@ function FG.LayoutTarget(anchor)
             FG.target.unit = nil
             FG.target:Hide()
         end
+        -- and the cell hanging off it. Hiding a parent hides a child on screen but leaves its own
+        -- shown flag alone, and the client's unit watch will happily keep showing it - an invisible
+        -- frame that the client still thinks is up is the "show cells does nothing" bug again.
+        FG.LayoutToT(nil)
         return true, false
     end
     local f = FG.target
     if not f then
         f = FG.Make("Target", anchor)
         FG.target = f
-        FG.TargetHandle(f)
+        FG.CellHeader(f, "target", f)
     end
     FG.PlaceTarget(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
@@ -320,7 +327,65 @@ function FG.LayoutTarget(anchor)
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
     f:Show()
+    FG.LayoutToT(f)
     return true, true
+end
+
+--- AND WHOEVER THEY ARE TARGETING, under it. Arn, 23 Sep: "another option that frame will also
+--- have target of target with its on header on top BiS>tot the frames are attached to each other".
+---
+--- ATTACHED MEANS A CHILD, not a second frame that is placed beside the first. It hangs off the
+--- target cell, so dragging any part of the block moves all of it, the scale reaches it without
+--- being told, and when you have no target at all the client hides the parent and this goes with
+--- it - which is the truth, since a target of no target is nothing.
+---
+--- Its unit token is "targettarget", which the client re-points by itself exactly like "target".
+--- The addon reads neither; it says who to watch and the client does the rest.
+function FG.LayoutToT(parent)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    parent = parent or FG.target
+    local d = NS.DB and NS.DB()
+    local want = type(d) == "table" and d.tot == true and d.target == true and d.shown ~= false
+    if not (want and parent) then
+        if FG.tot then
+            FG.Unwatch(FG.tot)
+            FG.tot.unit = nil
+            FG.tot:Hide()
+            if FG.tot.handle then FG.tot.handle:Hide() end
+        end
+        return true, false
+    end
+    local f = FG.tot
+    if not f then
+        f = FG.Make("ToT", parent)
+        FG.tot = f
+        FG.CellHeader(f, "tot", parent)     -- its own bar, but a drag on it moves the whole block
+    end
+    FG.PlaceToT(f, parent)
+    f:SetSize(FRAME_W, FRAME_H)
+    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    FG.Bind(f, "targettarget")
+    if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "targettarget") end
+    if f.handle then f.handle:Show() end
+    f:Show()
+    return true, true
+end
+
+--- The stack, top to bottom: the target's bar, the target's cell, the tot's bar, the tot's cell.
+--- Always downwards, wherever the block is - a header carries a name now, and a named bar under
+--- the thing it names reads as the label of whatever sits beneath it.
+function FG.PlaceToT(f, parent)
+    f = f or FG.tot
+    parent = parent or FG.target
+    if not (f and parent) then return false end
+    if f.handle then
+        f.handle:ClearAllPoints()
+        f.handle:SetPoint("TOPLEFT", parent, "BOTTOMLEFT", 0, -2)
+        f.handle:SetPoint("TOPRIGHT", parent, "BOTTOMRIGHT", 0, -2)
+    end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", f.handle or parent, "BOTTOMLEFT", 0, -1)
+    return true
 end
 
 -- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
@@ -352,17 +417,15 @@ function FG.PlaceTarget(f, anchor)
     local d = NS.DB and NS.DB()
     local pos = type(d) == "table" and d.targetPos or nil
     f:ClearAllPoints()
-    -- AND THE HANDLE GOES ON THE FAR SIDE FROM THE GRID. Above the cell everywhere except when the
-    -- cell is under the grid, where "above" is the gap between them and the grid draws over it.
+    -- THE HEADER IS ALWAYS ON TOP OF ITS OWN CELL. It used to swap to the underside when the cell
+    -- hung below the grid, because a bare 8 px handle in that gap was covered by the grid and
+    -- "you cant see the header to move it" (23 Sep). It carries a NAME now - "BiS> target" - and a
+    -- named bar under the thing it names reads as the label of whatever is beneath it, which under
+    -- the grid is the tot cell. So the bar stays put and the whole block is pushed clear instead.
     if f.handle then
         f.handle:ClearAllPoints()
-        if at == "under" then
-            f.handle:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -1)
-            f.handle:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -1)
-        else
-            f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
-            f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
-        end
+        f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
+        f.handle:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
     end
     if at == "free" and type(pos) == "table" and tonumber(pos.x) and tonumber(pos.y) then
         -- pos is where it sits ON SCREEN; the point is in the cell's own units, which are the
@@ -374,32 +437,50 @@ function FG.PlaceTarget(f, anchor)
     elseif at == "left" then
         f:SetPoint("TOPRIGHT", anchor, "TOPLEFT", -(PAD * 2), 0)
     elseif at == "top" then
-        -- above the grid's own header, so the two do not sit on each other
-        f:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 20)
+        -- above the grid's own header AND its own, so no two bars sit on each other
+        f:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 20 + HEADER_H)
     else
-        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2))
+        -- under the grid, far enough down that its header clears the last row of cells
+        f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD * 2 + HEADER_H + 2))
     end
     return true, at
 end
 
---- Its own little handle, above the cell: a thin bar you can take hold of. Dragging it sets the
---- spot to "free" and writes where it landed into the macro, the way the grid's header does.
-function FG.TargetHandle(f)
+--- A HEADER OF ITS OWN, on top of the cell, wearing the family's prompt. Arn, 23 Sep: "for the
+--- target header lets add BiS>target and another option that frame will also have target of target
+--- with its on header on top BiS>tot the frames are attached to each other".
+---
+--- It was a bare 8 px bar you could take hold of and nothing else. Now it says which cell it is -
+--- which is the whole point once there are two of them stacked up.
+---
+--- `moves` is the frame a drag MOVES, which for both bars is the target cell: the tot cell hangs
+--- off it, so grabbing either bar picks up the whole block and the two can never come apart.
+--- ONE LABEL IN THE BAR, per the header law: an 84 pixel bar has room for "BiS> target" and
+--- nothing else, and a second FontString in it would print straight through the first.
+function FG.CellHeader(f, word, moves)
     if not f or f.handle then return f and f.handle end
-    local h = CreateFrame("Frame", "BiSHealingForeverTargetHandle", f)
-    h:SetHeight(8)
+    moves = moves or f
+    local h = CreateFrame("Frame", "BiSHealingForeverHeader" .. tostring(word), f)
+    h:SetHeight(HEADER_H)
     h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, 1)
     h:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, 1)
     h:EnableMouse(true)
     h:RegisterForDrag("LeftButton")
     local bg = h:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
-    bg:SetColorTexture(0.08, 0.06, 0.12, 0.75)
+    bg:SetColorTexture(0.08, 0.06, 0.12, 0.85)
 
-    f:SetMovable(true)
+    local title = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("LEFT", 4, 0)
+    title:SetText("BiS> " .. tostring(word))
+    local T = _G.BiSTheme
+    if T and T.rgb and title.SetTextColor then title:SetTextColor(T.rgb("accent")) end
+    h.title, h.word = title, word
+
+    moves:SetMovable(true)
     h:SetScript("OnDragStart", function()
         if InCombatLockdown and InCombatLockdown() then return end
-        f:StartMoving()
+        moves:StartMoving()
         h.moving = true
     end)
     -- SHIFT-CLICK WALKS IT ROUND THE GRID, left-click still drags. Arn, 23 Sep: "how about if we
@@ -413,19 +494,22 @@ function FG.TargetHandle(f)
         if type(d) ~= "table" then return end
         d.targetAt = FG.TARGET_RING[FG.TargetSpot()] or "top"
         d.targetPos = nil
-        FG.PlaceTarget(f)
+        FG.PlaceTarget(moves)
         if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
         if NS.Print then NS.Print("target cell: " .. d.targetAt) end
     end)
     h:SetScript("OnDragStop", function()
         if not h.moving then return end
         h.moving, h.dragged = false, true
-        f:StopMovingOrSizing()
+        moves:StopMovingOrSizing()
         local d = NS.DB and NS.DB()
-        local ok, x, y = FG.ScreenOffsetOf(f)
+        -- WHERE THE BLOCK LANDED, measured on the frame that moved. Dragging the tot's bar moves
+        -- the target cell, so asking the tot where IT is would write the wrong spot into the macro
+        -- and the block would jump a cell's height at the next login.
+        local ok, x, y = FG.ScreenOffsetOf(moves)
         if ok and type(d) == "table" then
             d.targetAt, d.targetPos = "free", { x = x, y = y }
-            FG.PlaceTarget(f)
+            FG.PlaceTarget(moves)
             if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
         end
     end)
@@ -439,7 +523,7 @@ function FG.TargetHandle(f)
         GameTooltip:Show()
     end)
     h:SetScript("OnLeave", function()
-        bg:SetColorTexture(0.08, 0.06, 0.12, 0.75)
+        bg:SetColorTexture(0.08, 0.06, 0.12, 0.85)
         if GameTooltip then GameTooltip:Hide() end
     end)
     f.handle = h
@@ -1182,6 +1266,12 @@ function FG.Start()
         if t and t.unit and t:IsShown() then
             if t.name then t.name:SetText(FG.ShortName("target")) end
             FG.Paint(t)
+        end
+        -- and whoever they are targeting, whose name changes under it twice as often
+        local tt = FG.tot
+        if tt and tt.unit and tt:IsShown() then
+            if tt.name then tt.name:SetText(FG.ShortName("targettarget")) end
+            FG.Paint(tt)
         end
     end)
 

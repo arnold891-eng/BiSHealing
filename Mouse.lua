@@ -182,6 +182,7 @@ local function db()
                     d.target = true
                     if settings.targetAt then d.targetAt = settings.targetAt end
                     if settings.targetPos then d.targetPos = settings.targetPos end
+                    d.tot = settings.tot == true      -- the cell under it, from the same row
                 end
                 if settings.markers then
                     d.markers = settings.markers

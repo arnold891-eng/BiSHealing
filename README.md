@@ -64,6 +64,14 @@ health, and that is exactly what this client will not allow.
 - Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
   own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
 
+### The target block
+
+**A cell for your target** (`/bish target`) gets a small header of its own —
+`BiS> target` — which you drag to move it, or shift-click to send it round the
+grid (top, right, under, left). **And their target** (`/bish tot`) adds a second
+cell below it under a `BiS> tot` bar. The two are attached: drag either header
+and the pair moves together, and with no target at all both disappear.
+
 ## The header
 
 The bar above the cells is the handle you drag them by, and it says one thing at

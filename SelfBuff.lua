@@ -126,7 +126,8 @@ end
 -- is WHETHER. They were one field to begin with, where `false` meant silence, and switching the
 -- sound off and on again threw away the number the player had typed. A switch and a number are
 -- two questions, and the options window asks them in two places.
-FS.SOUND = 567458          -- a file id: the client's own alarm. /bish buffsound sets another
+-- Arn picked it by ear, 23 Sep, after hearing 567458: "567474 make this the default sound".
+FS.SOUND = 567474          -- a file id out of the game's own files. /bish buffsound sets another
 FS.soundIDs = {}
 
 --- The sound that would play: the player's number, or ours.

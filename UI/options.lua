@@ -85,6 +85,12 @@ function CFG.Sections()
             { key = "target", kind = "toggle", label = "a cell for your target",
               get = function(db) return db.target == true end,
               set = function(_, on) if DO.target then DO.target(on) end end },
+            -- and directly under it, as Arn asked for it: "first check box turn on cell for
+            -- target option under it turn on target of target". Switching this one on switches
+            -- the one above on too - the cell hangs off it.
+            { key = "tot", kind = "toggle", label = "and their target",
+              get = function(db) return db.tot == true end,
+              set = function(_, on) if DO.tot then DO.tot(on) end end },
             { key = "markers", kind = "step", label = "marker size",
               min = 6, max = 20, step = 2,
               get = function(db) return db.markers or 10 end,

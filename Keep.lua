@@ -121,7 +121,9 @@ local function settingRows(settings)
     -- the target cell: G says WHERE as well as whether, and a dragged one writes its place in Q
     -- (the same two-numbers-from-the-middle trick as the grid's P)
     if settings.target == true then
-        out[#out + 1] = "G=" .. (SPOTCODE[settings.targetAt or ""] or 1)
+        -- the tot cell rides in the SAME row, after the colon: it only exists hanging off the
+        -- target cell, so a row of its own would be a row that can contradict this one
+        out[#out + 1] = "G=" .. (SPOTCODE[settings.targetAt or ""] or 1) .. (settings.tot and ":1" or "")
         local q = settings.targetPos
         if (settings.targetAt == "free") and type(q) == "table" and tonumber(q.x) and tonumber(q.y) then
             local x = math.floor(tonumber(q.x) + 0.5) + FK.POS_ZERO
@@ -225,6 +227,7 @@ function FK.Decode(body)
         elseif code == "G" then
             settings.target = (tonumber(idx) or 0) > 0
             settings.targetAt = CODESPOT[tonumber(idx)]
+            settings.tot = tonumber(rank) == 1
         elseif code == "Q" and tonumber(idx) and tonumber(rank) then
             settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
@@ -354,7 +357,7 @@ function FK.Save(binds)
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
                                              clique = t.clique, layout = t.layout,
-                                             target = t.target, markers = t.markers,
+                                             target = t.target, markers = t.markers, tot = t.tot,
                                              targetAt = t.targetAt, targetPos = t.targetPos,
                                              sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
     if not body then return false, "nothing to write" end

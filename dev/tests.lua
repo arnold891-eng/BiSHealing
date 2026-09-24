@@ -207,7 +207,7 @@ _G.IsShiftKeyDown = function() return STATE.shift and true or false end
 -- file id it has not got, and a mock that says "played it" for every number turns "did that id
 -- work?" into a question nobody can ask - which is the whole reason the drawer has a `hear`
 -- button. STATE.sounds is the client's sound folder; STATE.played is what came out of it.
-STATE.sounds = { [567458] = true }
+STATE.sounds = { [567458] = true, [567474] = true }      -- the two Arn listened to, 23 Sep
 STATE.played = {}
 _G.PlaySoundFile = function(file, channel)
     if type(file) ~= "number" or not STATE.sounds[file] then return false end
@@ -1797,15 +1797,28 @@ do
     ok(spot() == "BOTTOMLEFT->TOPLEFT" and d.targetAt == "top", "top is above it", spot())
     NS.DO.target("under")
     ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under hangs it below the grid")
-    -- and THERE the handle swaps sides, or it would sit in the gap with the grid over it
+    -- THE HEADER STAYS ON TOP OF ITS OWN CELL, everywhere. It used to swap to the underside here,
+    -- because a bare 8 px handle in the gap was covered by the grid ("you cant see the header to
+    -- move it"). It carries a NAME now - and a named bar under the thing it names is the label of
+    -- whatever sits beneath it, which under the grid is the tot cell. So the block drops clear
+    -- instead: far enough that the header has its own room between the two.
     local function handleAt()
         local hp = t.handle and t.handle.points and t.handle.points[#t.handle.points]
         return hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])) or "nowhere"
     end
-    ok(handleAt() == "TOPRIGHT->BOTTOMRIGHT", "with its handle UNDER it, where you can grab it",
-       handleAt())
+    local function dropOf()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return p and p[5] or 0
+    end
+    ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "its header is above it, under the grid", handleAt())
+    ok(dropOf() <= -20, "and the cell drops clear of the grid to leave the header room", dropOf())
     NS.DO.target("top")
     ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
+    ok(t.handle and t.handle.__fontstrings and #t.handle.__fontstrings == 1
+       and t.handle.__fontstrings[1].__text == "BiS> target",
+       "and it says which cell it is - one label in the bar, per the header law",
+       t.handle and t.handle.__fontstrings and t.handle.__fontstrings[1]
+       and tostring(t.handle.__fontstrings[1].__text))
     ok(NS.DO.target("sideways") ~= nil and d.targetAt == "top",
        "a word it does not know moves nothing")
 
@@ -1900,6 +1913,82 @@ do
     FG.SetScale(1)
 
     UIParent.GetCenter, t.GetCenter = realUC, nil
+
+    -- AND WHOEVER THEY ARE TARGETING, under it. Arn, 23 Sep: "another option that frame will also
+    -- have target of target with its on header on top BiS>tot the frames are attached to each
+    -- other".
+    do
+        NS.DO.target("top")
+        ok(FG.tot == nil or not FG.tot:IsShown(), "off by default: no target-of-target cell")
+        ok(NS.DO.tot(true) == true, "/bish tot turns it on")
+        local tt = FG.tot
+        ok(tt ~= nil and tt:IsShown(), "the second cell is there")
+        ok(tt:GetAttribute("unit") == "targettarget",
+           "and it is the client's own target-of-target token", tostring(tt:GetAttribute("unit")))
+
+        -- ATTACHED, which means a CHILD of the target cell: a drag moves one frame and the other
+        -- goes with it, and when you have no target at all the client hides the parent and this
+        -- with it. Two frames merely placed beside each other would come apart at the first drag.
+        ok(tt:GetParent() == t, "it hangs off the target cell, so the two cannot come apart")
+        local tp = tt.points and tt.points[#tt.points]
+        ok(tp and tp[1] == "TOPLEFT" and tp[3] == "BOTTOMLEFT", "and it stacks underneath", tp and tp[1])
+        ok(tt.handle and tt.handle.__fontstrings and tt.handle.__fontstrings[1].__text == "BiS> tot",
+           "with its own header on top of it",
+           tt.handle and tt.handle.__fontstrings and tostring(tt.handle.__fontstrings[1].__text))
+
+        -- A DRAG ON THE TOT'S BAR MOVES THE TARGET CELL, and writes down where the TARGET cell
+        -- landed. Asking the tot where it is would write a spot a cell's height too low, and the
+        -- block would walk down the screen a little at every login.
+        local realUC2, moved = UIParent.GetCenter, nil
+        UIParent.GetCenter = function() return 960, 540 end
+        t.GetCenter = function() return 760, 640 end            -- 200 left, 100 up
+        t.StartMoving = function() moved = "target" end
+        tt.StartMoving = function() moved = "tot" end
+        tt.handle.__scripts.OnDragStart(tt.handle)
+        tt.handle.__scripts.OnDragStop(tt.handle)
+        ok(moved == "target", "dragging the tot's bar picks up the whole block", tostring(moved))
+        ok(d.targetPos and d.targetPos.x == -200 and d.targetPos.y == 100,
+           "and remembers where the TARGET cell landed, not where the tot did",
+           d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+        UIParent.GetCenter, t.GetCenter = realUC2, nil
+        t.StartMoving, tt.StartMoving = nil, nil
+        NS.DO.target("top")
+
+        -- IT RIDES IN THE TARGET'S OWN MACRO ROW. One row for one block: a row of its own could
+        -- say "tot on" while the target row says "target off", and then the setting means nothing.
+        MACROS = {}
+        local keep = d.binds
+        d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+        NS.DO.tot(true)
+        local stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+        ok(stored and stored:find("G=4:1", 1, true), "the target row carries it after the colon", stored)
+        local _, back = NS.FK.Decode(stored or "")
+        ok(back.target == true and back.tot == true and back.targetAt == "top", "and both come back")
+        -- the cold start: a login with no clicks has the second cell up
+        d.binds, d.bindsSeeded, FM.asked, d.target, d.tot = {}, nil, false, false, false
+        FM.Get("", "wheelup")
+        ok(d.target == true and d.tot == true, "after a restart both cells are back",
+           tostring(d.target) .. "/" .. tostring(d.tot))
+        d.binds = keep
+        MACROS = {}
+
+        -- SWITCHED ON FROM COLD it turns the target cell on with it, rather than doing nothing
+        -- visible: it has nothing to hang off otherwise.
+        NS.DO.target(false)
+        NS.DO.tot(false)
+        NS.DO.tot(true)
+        ok(d.target == true and FG.tot and FG.tot:IsShown(),
+           "asking for it with the target cell off switches that one on too")
+
+        -- and switching the TARGET cell off takes it with it: the parent is gone
+        STATE.units.target, STATE.units.targettarget = true, true
+        NS.DO.target(false)
+        ok(not FG.tot:IsShown() and FG.tot.unit == nil, "switching the target cell off takes it too")
+        WATCH_TICK()
+        ok(not FG.tot:IsShown(), "and the client's watch does not bring it back on its own")
+        STATE.units.target, STATE.units.targettarget = nil, nil
+        d.tot = false
+    end
 
     -- it goes away again, and takes the client's watch with it. STATE.units.target says you HAVE
     -- a target, which is exactly when a still-watched cell would be shown again by the client.
@@ -2339,6 +2428,10 @@ do
     -- than look like it worked.
     local n0 = #STATE.played
     ok(FS.Play(567458) == true and #STATE.played == n0 + 1, "hear plays the id")
+    -- the one we ship, played with no argument at all: a default nobody can hear is a default
+    -- nobody chose. This one Arn chose by ear (567474, 23 Sep) after listening to 567458.
+    ok(FS.Play() == true and STATE.played[#STATE.played].file == FS.SOUND,
+       "and with nothing typed it plays the one we ship", tostring(FS.SOUND))
     ok(STATE.played[#STATE.played].channel == "Master", "on the master channel, so it is audible")
     local played, whyNot = FS.Play(4242)
     ok(played == false and tostring(whyNot):find("id"),
@@ -3393,7 +3486,8 @@ do
             ok(pcall(opt.get, NS.DB()), ("reading %q threw"):format(opt.key))
         end
     end
-    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "target", "markers" }) do
+    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "target", "tot",
+                            "markers", "buffsound", "buffsoundid" }) do
         ok(keys[want], ("the window lost %q"):format(want))
     end
     -- 10 -> 12 (20 Sep) -> 13 (23 Sep), each time on purpose and not to make a red line go away.
@@ -3412,7 +3506,14 @@ do
     -- another sound id number") - and "look at the group again" paid for one of them: the grid
     -- rescans on every roster event by itself, so that button was a fix for a bug, not a setting,
     -- and /bish rescan still presses it. Fourteen, and the same rule stands for the fifteenth.
-    ok(#NS.UI.Rows() <= 14, "the window stays short: " .. #NS.UI.Rows())
+    --
+    -- The fifteenth came the same afternoon, and this time the window grew - which is the other
+    -- half of the rule, and a decision rather than a slip. Arn asked for the target-of-target
+    -- switch in a particular place: "first check box turn on cell for target option under it turn
+    -- on target of target". Folding the two into one three-way row would have been the cheap way
+    -- and would not have been what he asked for. Fifteen rows is 256 pixels of a 230 wide window,
+    -- which still opens and closes in one look. The next one is a second page for real.
+    ok(#NS.UI.Rows() <= 15, "the window stays short: " .. #NS.UI.Rows())
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
     -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the

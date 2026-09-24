@@ -22,6 +22,12 @@ The header above the cells does the talking now, and the chat frame stops.
   put a different one in, with a `hear` button to try it first. `/bish buffsound
   off`, `on`, `default`, `test`, or a number. It rides in your `BiSHealing`
   macro with the other settings, so it survives a restart.
+- **The target cell has a header now**, `BiS> target`, instead of a blank little
+  bar: drag it to move the cell, shift-click it to send it round the grid.
+- **And a cell for your target's target** under it, with a `BiS> tot` bar of its
+  own — **and their target** in the options window, right under the target one,
+  or `/bish tot`. The two are attached: drag either header and the pair moves
+  together, and with no target at all both go away.
 - **The between-pulls reminders in chat are off.** They were written for a TBC
   shaman with four totems to keep up and say less than that here. `/bish scan`
   still asks outright, and `/bish between` turns them back on.

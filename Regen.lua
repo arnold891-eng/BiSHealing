@@ -122,10 +122,16 @@ end
 --- The words for it: "regen 100%" when the five seconds are up, "regen 30%" while they are not,
 --- and "regen ?" when this client will not say what the while-casting share is. It still says
 --- "regen", because the five seconds ARE running and that is the thing worth knowing.
-function FR.Text()
+--- SHORT, for a header one cell wide. Arn, 23 Sep: "in the regular down toggel the regen gets cut
+--- off" - a party grid is 84 pixels across and "BiS> regen 62%" does not fit in it, so the client
+--- trimmed it to "BiS> regen ..." and the one thing worth reading was the thing that went. The
+--- number is what a healer is deciding on; the word in front of it is the part they can spare, and
+--- the bar draining across the bar already says what the number is about.
+function FR.Text(short)
     local f = FR.Fraction()
-    if not f then return "regen ?" end
-    return ("regen %d%%"):format(math.floor(f * 100 + 0.5))
+    if not f then return short and "?" or "regen ?" end
+    local pct = ("%d%%"):format(math.floor(f * 100 + 0.5))
+    return short and pct or ("regen " .. pct)
 end
 
 --- Does this spell cost mana? Only then does the clock start. Asked of the client rather than

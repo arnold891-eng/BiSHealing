@@ -1,5 +1,14 @@
 # BiS Healing
 
+## 0.5.2
+
+- **Fixed: the header's word was cut off on a party grid.** One group down is one
+  cell wide, and "BiS> regen 62%" came back from the client as "BiS> regen ..." -
+  it trims from the right, so the part it threw away was the number. On a bar
+  that narrow the header now says `BiS> 62%`, and `BiS> no WS` for a missing
+  buff; hovering it spells out the whole thing. A wider grid says it in full, as
+  before.
+
 ## 0.5.1
 
 The header above the cells does the talking now, and the chat frame stops.

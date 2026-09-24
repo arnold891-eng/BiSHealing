@@ -2282,6 +2282,18 @@ do
     FG.PaintRegen(h)
     ok(h.title and h.title.__text == "BiS> regen 30%", "written where the prompt goes",
        h.title and tostring(h.title.__text))
+    -- AND IT FITS THE BAR IT IS IN. Arn, 23 Sep, on a party grid: "in the regular down toggel the
+    -- regen gets cut off". The header is as wide as the grid, and one group down is one cell -
+    -- 84 pixels, where "BiS> regen 30%" came out of the client as "BiS> regen ...". It trims from
+    -- the right, so the part it threw away was the number: the only part worth reading.
+    h:SetWidth(84)
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> 30%", "on a one-cell bar the number stands alone, and fits",
+       tostring(h.title.__text))
+    h:SetWidth(200)
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> regen 30%", "and the moment there is room, the word is back",
+       tostring(h.title.__text))
     STATE.inCombat = false
     FG.PaintRegen(h)
     ok(h.title.__text == "BiS> Healing", "and back to the name when the fight ends",
@@ -2361,6 +2373,13 @@ do
     FS.Check()
     ok(FS.Word() == "no Water Shield", "and the header says so", tostring(FS.Word()))
     ok(FG.HeaderWord() == "no Water Shield", "instead of the addon's name", FG.HeaderWord())
+    -- and on a bar one cell wide, where the whole name would be trimmed to "no Water Shi..."
+    ok(FS.Initials("Water Shield") == "WS" and FS.Initials("Omen of Clarity") == "OoC",
+       "a long name comes down to its initials", FS.Initials("Omen of Clarity"))
+    ok(FG.HeaderWord(84) == "no WS", "so a party grid says 'no WS' rather than half a name",
+       FG.HeaderWord(84))
+    ok(FG.HeaderWord(200) == "no Water Shield", "and a raid-wide bar says all of it",
+       FG.HeaderWord(200))
 
     mine[1] = { name = "Water Shield" }
     FS.Check()

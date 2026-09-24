@@ -42,7 +42,18 @@ local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
 --- happening keep healing , when combat starts switch to regen mode and the % and the glow".
 --- So one word, never two labels fighting over an 84 pixel bar: the addon's name while nothing is
 --- happening, and what your mana is doing once the fight starts.
-function FG.HeaderWord()
+---
+--- AND IT FITS THE BAR IT IS IN. Arn, 23 Sep, on a party grid: "in the regular down toggel the
+--- regen gets cut off" - the header is as wide as the grid, one group down is 84 pixels, and
+--- "BiS> regen 62%" came out as "BiS> regen ...". The client trims from the right, so what it
+--- throws away is always the number, which is the only part worth reading.
+---
+--- So on a narrow bar each word has a short form - "62%" and "no WS" - and the header's tooltip
+--- carries the long one. `width` is the bar's, in pixels; nothing passed means plenty of room.
+local NARROW = 120                      -- a bar one group wide (84) plus a little; two groups fit
+
+function FG.HeaderWord(width)
+    local short = type(width) == "number" and width > 0 and width < NARROW
     local fighting = InCombatLockdown and InCombatLockdown()
     -- IN A FIGHT, THE MANA. Between them, the buff you keep forgetting (Arn, 23 Sep: "like i am
     -- always forgetting about watershield"), which the client will only answer about out of
@@ -50,10 +61,10 @@ function FG.HeaderWord()
     -- first thing the header says when the fight ends.
     if fighting then
         local FR = NS.FR
-        return (FR and FR.Text and FR.Text()) or "Healing"
+        return (FR and FR.Text and FR.Text(short)) or "Healing"
     end
     local FS = NS.FS
-    local word = FS and FS.Word and FS.Word()
+    local word = FS and FS.Word and FS.Word(short)
     return word or "Healing"
 end
 local PER_COL = 5                       -- one column per party, the way a raid reads
@@ -850,7 +861,7 @@ function FG.Layout(anchor)
         if h and h.con then h.con.width = math.max(40, w - 10) end
         if h and h.title and not h.con then
             local T = _G.BiSTheme
-            if T and T.Fit then T.Fit(h.title, "BiS> " .. FG.HeaderWord(), math.max(40, w - 10)) end
+            if T and T.Fit then T.Fit(h.title, "BiS> " .. FG.HeaderWord(w), math.max(40, w - 10)) end
         end
     end
     return true, #roster
@@ -1198,8 +1209,10 @@ local function makeHeader(anchor)
 function FG.PaintRegen(header)
     header = header or FG.header
     if not (header and header.fsr) then return false end
-    -- the word first: "Healing" while nothing is happening, the regen share once the fight starts
-    local word = FG.HeaderWord()
+    -- the word first: "Healing" while nothing is happening, the regen share once the fight starts,
+    -- and the short form of either when the bar is only a cell wide
+    local bar = (header.GetWidth and header:GetWidth()) or 0
+    local word = FG.HeaderWord(type(bar) == "number" and bar or nil)
     if header.con then
         if header.__word ~= word then header.con:Set("name", word); header.__word = word end
     elseif header.title then
@@ -1243,6 +1256,12 @@ end
         bg:SetColorTexture(0.13, 0.10, 0.19, 0.95)
         if not GameTooltip then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        -- THE WHOLE OF WHAT THE BAR ABBREVIATED. On a party grid the bar has room for "no WS" and
+        -- "62%"; the tooltip has room for all of it, and costs no pixels.
+        local full = FG.HeaderWord()
+        if full and full ~= "Healing" then
+            GameTooltip:AddLine(full, 0.90, 0.88, 0.96)
+        end
         if InCombatLockdown and InCombatLockdown() then
             GameTooltip:AddLine("not while the fight is on", 0.94, 0.55, 0.69)
             GameTooltip:AddLine("the cells are secure frames; the client will not move them now",

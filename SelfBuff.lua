@@ -80,10 +80,20 @@ end
 
 --- "no Water Shield", or nil when nothing is missing or nothing is known yet. Short on purpose:
 --- it shares the header with the prompt, and a header is one cell wide on a party grid.
-function FS.Word()
+function FS.Word(short)
     local missing = FS.known
     if type(missing) ~= "table" or #missing == 0 then return nil end
-    return "no " .. missing[1]
+    return "no " .. (short and FS.Initials(missing[1]) or missing[1])
+end
+
+--- "Water Shield" -> "WS", for a header one cell wide, where the full name is trimmed to
+--- "no Water Shi..." and says less than two letters would. The header's tooltip has the whole of
+--- it, which is where a hint belongs: two things sharing 84 pixels is not a layout.
+function FS.Initials(name)
+    if type(name) ~= "string" then return tostring(name) end
+    local out = ""
+    for word in name:gmatch("%S+") do out = out .. word:sub(1, 1) end
+    return out ~= "" and out or name
 end
 
 --- The player's own list: add one, take one away, or go back to the class default.

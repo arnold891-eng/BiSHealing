@@ -2084,21 +2084,33 @@ do
     FR.spentAt = nil
     FG.PaintRegen(h)
     ok(h.fsr and h.fsr.__shown == false, "with the rule not running, no bar")
-    ok(h.regen and (h.regen.__text == "" or h.regen.__text == nil), "and no number")
+    -- ONE WORD AFTER "BiS>". Arn, 23 Sep: "BiS> always stays . we then cycle when nothing is
+    -- happening keep healing , when combat starts switch to regen mode and the % and the glow".
+    ok(FG.HeaderWord() == "Healing", "out of combat the prompt says the addon's name",
+       FG.HeaderWord())
 
     h:SetWidth(200)
     FR.OnCast("player", 331)
     FG.PaintRegen(h)
     ok(h.fsr.__shown ~= false and math.abs((h.fsr.__w or 0) - 200) < 1,
        "the moment you spend mana it fills the header", tostring(h.fsr.__w))
-    ok(h.regen.__text == "regen 30%", "with the share you are getting", tostring(h.regen.__text))
+    STATE.inCombat = true
+    ok(FG.HeaderWord() == "regen 30%", "and in a fight the word becomes what your mana is doing",
+       FG.HeaderWord())
+    FG.PaintRegen(h)
+    ok(h.title and h.title.__text == "BiS> regen 30%", "written where the prompt goes",
+       h.title and tostring(h.title.__text))
+    STATE.inCombat = false
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> Healing", "and back to the name when the fight ends",
+       tostring(h.title.__text))
     TICK(2.5)
     FG.PaintRegen(h)
     ok(math.abs((h.fsr.__w or 0) - 100) < 2, "halfway through, it is half the header",
        tostring(h.fsr.__w))
     TICK(3)
     FG.PaintRegen(h)
-    ok(h.fsr.__shown == false and h.regen.__text == "", "and when the five seconds are up it is gone")
+    ok(h.fsr.__shown == false, "and when the five seconds are up it is gone")
 
     -- a client that will not say: nothing is drawn, and nothing throws
     FR.OnCast("player", 331)
@@ -2125,20 +2137,9 @@ do
     -- label", which held until the five second rule earned a number of its own (23 Sep) - so the
     -- rule is the one that actually mattered: the prompt is pinned LEFT, anything else RIGHT, and
     -- a hint still belongs in a tooltip where it costs no pixels at all.
-    local sides = {}
-    for _, fs in ipairs(h.__fontstrings or {}) do
-        for _, pt in ipairs(fs.points or {}) do
-            local side = tostring(pt[1])
-            sides[side] = (sides[side] or 0) + 1
-        end
-    end
-    local clash
-    for side, n in pairs(sides) do if n > 1 then clash = side end end
-    ok(clash == nil, ("two labels are pinned to %s, where they will print through each other")
-       :format(tostring(clash)))
-    ok(#(h.__fontstrings or {}) <= 2,
-       ("the header carries %d labels; the prompt and the regen number, and no more")
-       :format(#(h.__fontstrings or {})))
+    ok(#(h.__fontstrings or {}) <= 1,
+       ("the header carries %d labels; one bar, one label - a second one printed through the first"
+        .. " twice in one day, and again on 23 Sep"):format(#(h.__fontstrings or {})))
 
     -- ONE THING IN THE BAR. A "drag" caption on the right printed straight through the prompt's
     -- rotating word on a header the width of one cell: "BiS> Hrsalinge" (seen in game, 19 Sep).
@@ -2147,6 +2148,12 @@ do
     ok(h.con == nil or h.con.width <= FRAME_W_FOR_TEST,
        "the prompt is trimmed to the header's own width, not 120px")
     ok(h.__scripts.OnEnter and h.__scripts.OnLeave, "the hint lives in a tooltip instead")
+
+    -- ONE WORD, so nothing can print through anything: the prompt says "Healing" while nothing is
+    -- happening and the regen share in a fight (FG.HeaderWord). The two-label version lasted one
+    -- screenshot - "BiS>Healing" over "regen 62%" on a party grid, 23 Sep.
+    ok(#(h.__fontstrings or {}) <= 1, ("the header is back to %d label")
+       :format(#(h.__fontstrings or {})))
 
     -- dragging it out of combat moves the anchor and remembers where
     STATE.inCombat = false

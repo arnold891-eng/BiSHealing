@@ -28,6 +28,16 @@ local FG = {}
 NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
+--- THE WORD AFTER "BiS>". Arn, 23 Sep: "BiS> always stays . we then cycle when nothing is
+--- happening keep healing , when combat starts switch to regen mode and the % and the glow".
+--- So one word, never two labels fighting over an 84 pixel bar: the addon's name while nothing is
+--- happening, and what your mana is doing once the fight starts.
+function FG.HeaderWord()
+    local fighting = InCombatLockdown and InCombatLockdown()
+    if not fighting then return "Healing" end
+    local FR = NS.FR
+    return (FR and FR.Text and FR.Text()) or "Healing"
+end
 local PER_COL = 5                       -- one column per party, the way a raid reads
 
 -- THE PYRAMID (Arn, 20 Sep, mid-raid with the TBC frames up: "this is how we make forever
@@ -709,12 +719,17 @@ function FG.Layout(anchor)
         end
         anchor:SetSize(w, rows * (FRAME_H + PAD) - PAD)
         -- and the prompt is trimmed to the header it now sits in: one cell wide is 84 pixels, and
-        -- a word that does not fit is a word printed over whatever is beside it
+        -- a word that does not fit is a word printed over whatever is beside it.
+        --
+        -- THE REGEN NUMBER SHARES THIS BAR (FG.PaintRegen), so it is given room, and on a header
+        -- as narrow as one group the addon's own name goes. Arn, 23 Sep, with the two printed
+        -- through each other on a party grid: "in default mode keep BiS> but drop the healing and
+        -- put it in there". The prompt still blinks; it just stops saying what you already know.
         local h = FG.header
         if h and h.con then h.con.width = math.max(40, w - 10) end
         if h and h.title and not h.con then
             local T = _G.BiSTheme
-            if T and T.Fit then T.Fit(h.title, "BiS> Healing", math.max(40, w - 10)) end
+            if T and T.Fit then T.Fit(h.title, "BiS> " .. FG.HeaderWord(), math.max(40, w - 10)) end
         end
     end
     return true, #roster
@@ -1036,12 +1051,6 @@ local function makeHeader(anchor)
     h.fsr:SetColorTexture(0.35, 0.28, 0.10, 0.85)
     h.fsr:Hide()
 
-    -- and what share you are getting while it runs, on the right of the same bar
-    h.regen = h:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    h.regen:SetPoint("RIGHT", -5, 0)
-    h.regen:SetJustifyH("RIGHT")
-    if h.regen.SetTextColor then h.regen:SetTextColor(0.95, 0.85, 0.55) end
-
     local title = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     title:SetPoint("LEFT", 5, 0)
     -- the prompt every BiS window wears, when BiSTheme is loaded; a plain word when it is not
@@ -1068,18 +1077,23 @@ local function makeHeader(anchor)
 function FG.PaintRegen(header)
     header = header or FG.header
     if not (header and header.fsr) then return false end
+    -- the word first: "Healing" while nothing is happening, the regen share once the fight starts
+    local word = FG.HeaderWord()
+    if header.con then
+        if header.__word ~= word then header.con:Set("name", word); header.__word = word end
+    elseif header.title then
+        if header.__word ~= word then header.title:SetText("BiS> " .. word); header.__word = word end
+    end
     local FR = NS.FR
     local left = FR and FR.Left and FR.Left() or 0
     if left <= 0 then
         header.fsr:Hide()
-        if header.regen then header.regen:SetText("") end
-        return false
+        return false, 0
     end
     local w = (header.GetWidth and header:GetWidth()) or 0
     if type(w) ~= "number" or w <= 0 then w = 84 end
     header.fsr:SetWidth(math.max(1, w * (left / (FR.WINDOW or 5))))
     header.fsr:Show()
-    if header.regen then header.regen:SetText(FR.Text and FR.Text() or "") end
     return true, left
 end
 

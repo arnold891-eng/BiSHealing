@@ -18,6 +18,7 @@ Libs\BiSTheme\Minimap.lua
 Lockdown.lua
 Core.lua
 Auras.lua
+Regen.lua
 Grid.lua
 Mouse.lua
 Keep.lua

@@ -1,0 +1,110 @@
+-- BiSHealing / Regen -- the five second rule, drawn where a healer is already looking.
+--
+-- Arn, 23 Sep 2026: "can we add a the 5 second mana regen rule. and say like regening mana at 100%
+-- or in combat regening combat at 50% ... itll be like a bar thats filling backwards in the header
+-- or a glow effect that start on one side and it takes 5 seconds to go to the other side".
+--
+-- THE RULE. Spend mana and your out-of-combat regeneration stops for five seconds. What you get
+-- during those five seconds is whatever "mana regeneration while casting" your character has -
+-- nothing at all for most, a share of it for a healer who has spent points on it.
+--
+-- WE DO NOT READ TALENTS FOR THIS, and we do not need to. GetManaRegen() answers with two numbers:
+-- what you regenerate standing still, and what you regenerate while casting - the same pair the
+-- character sheet shows, already carrying the talents, the gear and the buffs. One call beats a
+-- list of talent names that would be wrong for the next class and the next patch.
+--
+-- WHAT THE CLIENT ALLOWS. This is YOUR character: your own mana, your own regen. None of it is a
+-- secret the way another player's health is. Every read is still guarded - a client that refuses
+-- answers nothing and the header simply does not draw the bar.
+--
+-- WHEN THE CLOCK STARTS. UNIT_SPELLCAST_SUCCEEDED for the player, when the spell cost mana. The
+-- real rule starts the moment the mana leaves you; for an instant those are the same, and for a
+-- cast this is the end of it rather than the start - a fraction of a second late, never early, so
+-- the bar never says "regenerating" while you are not.
+
+local ADDON, NS = ...
+NS = NS or {}
+
+local FR = {}
+NS.FR = FR
+
+FR.WINDOW = 5          -- seconds, the rule itself
+
+--- When mana last left you, by the client's clock.
+FR.spentAt = nil
+
+--- Seconds left of the five, or 0 when you are regenerating normally again.
+function FR.Left()
+    if not FR.spentAt then return 0 end
+    local now = (GetTime and GetTime()) or 0
+    local left = FR.WINDOW - (now - FR.spentAt)
+    if left <= 0 then return 0 end
+    return left
+end
+
+--- What share of your standing-still regeneration you are getting right now: 1 when the five
+--- seconds are up, and the character sheet's "while casting" share while they are not. Nil when
+--- this client will not say, so the caller can draw nothing rather than a wrong number.
+function FR.Fraction()
+    if FR.Left() <= 0 then return 1 end
+    if type(GetManaRegen) ~= "function" then return nil end
+    local ok, base, casting = pcall(GetManaRegen)
+    base, casting = NS.Plain(base), NS.Plain(casting)
+    if not ok or type(base) ~= "number" or type(casting) ~= "number" then return nil end
+    if base <= 0 then return nil end
+    local f = casting / base
+    if f < 0 then f = 0 elseif f > 1 then f = 1 end
+    return f
+end
+
+--- The words for it: "regen 100%" when the five seconds are up, "regen 30%" while they are not.
+function FR.Text()
+    local f = FR.Fraction()
+    if not f then return nil end
+    return ("regen %d%%"):format(math.floor(f * 100 + 0.5))
+end
+
+--- Does this spell cost mana? Only then does the clock start. Asked of the client rather than
+--- assumed: a shapeshift, a totem recall or a free proc costs nothing and must not stop your regen.
+function FR.CostsMana(spellID)
+    local get = (C_Spell and C_Spell.GetSpellPowerCost) or GetSpellPowerCost
+    if not get or spellID == nil then return true end      -- cannot ask: treat a cast as a spend
+    local ok, costs = pcall(get, spellID)
+    if not ok or type(costs) ~= "table" then return true end
+    for _, c in ipairs(costs) do
+        local kind = NS.Plain(c.type) or NS.Plain(c.powerType)
+        local amount = NS.Plain(c.cost) or NS.Plain(c.minCost) or 0
+        -- 0 is Enum.PowerType.Mana on every client that has the enum, and the plain number on
+        -- those that do not
+        if (kind == 0 or kind == (Enum and Enum.PowerType and Enum.PowerType.Mana)) and (amount or 0) > 0 then
+            return true
+        end
+    end
+    return false
+end
+
+function FR.Spend(now)
+    FR.spentAt = now or (GetTime and GetTime()) or 0
+    return FR.spentAt
+end
+
+--- One cast, as the client reports it.
+function FR.OnCast(unit, spellID)
+    if unit ~= "player" then return false end
+    if not FR.CostsMana(spellID) then return false end
+    FR.Spend()
+    return true
+end
+
+function FR.Start()
+    if FR.frame then return true end
+    local f = CreateFrame("Frame")
+    pcall(f.RegisterEvent, f, "UNIT_SPELLCAST_SUCCEEDED")
+    f:SetScript("OnEvent", function(_, event, unit, _, spellID)
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then FR.OnCast(unit, spellID) end
+    end)
+    FR.frame = f
+    return true
+end
+
+NS.FR = FR

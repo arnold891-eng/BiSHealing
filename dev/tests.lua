@@ -110,7 +110,12 @@ local function newFrame(kind, name, parent)
     function f:SetScale(v) self.__scale = v end
     function f:GetScale() return self.__scale or 1 end
     function f:SetSize(w, h) self.__w, self.__h = w, h end
+    -- a width on its own is a size too. It was an auto no-op, so "how wide did it draw that" had
+    -- no answer at all - which is how a bar could be drawn at any width and pass (23 Sep).
+    function f:SetWidth(w) self.__w = w end
+    function f:SetHeight(h) self.__h = h end
     function f:GetWidth() return self.__w end
+    function f:GetHeight() return self.__h end
     function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
@@ -129,6 +134,10 @@ local function newFrame(kind, name, parent)
     function f:CreateTexture()
         return autoMethods({
             SetColorTexture = function() end,
+            SetWidth  = function(t, w) t.__w = w end,
+            SetHeight = function(t, h) t.__h = h end,
+            SetSize   = function(t, w, h) t.__w, t.__h = w, h end,
+            GetWidth  = function(t) return t.__w end,
             __shown  = true,
             Show     = function(t) t.__shown = true end,
             Hide     = function(t) t.__shown = false end,
@@ -2037,6 +2046,73 @@ do
     FM.Get("", "left")
 end
 
+-- THE FIVE SECOND RULE. Arn, 23 Sep: "can we add a the 5 second mana regen rule ... itll be like
+-- a bar thats filling backwards in the header". Spend mana and your standing-still regeneration
+-- stops for five seconds; what you get in the meantime is the character sheet's "while casting"
+-- share, which already carries the talents. Your own mana is yours to read - none of this asks
+-- about anybody else.
+do
+    local FR = NS.FR
+    local realRegen, realCost = _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost
+    _G.GetManaRegen = function() return 100, 30 end          -- 30% while casting, as a talent gives
+    _G.C_Spell.GetSpellPowerCost = function(id)
+        if id == 999 then return { { type = 0, cost = 0 } } end       -- a free spell
+        return { { type = 0, cost = 250 } }
+    end
+    FR.spentAt = nil
+
+    ok(FR.Left() == 0 and FR.Fraction() == 1, "standing still, you regenerate everything")
+    ok(FR.Text() == "regen 100%", "and it says so", tostring(FR.Text()))
+
+    ok(FR.OnCast("player", 331) == true, "a spell that costs mana starts the five seconds")
+    ok(math.abs(FR.Left() - 5) < 0.01, "five of them", FR.Left())
+    ok(FR.Fraction() == 0.3 and FR.Text() == "regen 30%",
+       "and while they run you get the character sheet's share", tostring(FR.Text()))
+
+    TICK(2)
+    ok(math.abs(FR.Left() - 3) < 0.01, "two seconds later, three are left", FR.Left())
+    TICK(3.5)
+    ok(FR.Left() == 0 and FR.Fraction() == 1, "and after five you are regenerating again")
+
+    -- a free spell does not stop your regeneration
+    FR.spentAt = nil
+    ok(FR.OnCast("player", 999) == false and FR.Left() == 0, "a spell that costs no mana starts nothing")
+    ok(FR.OnCast("party1", 331) == false, "and somebody else casting is none of our business")
+
+    -- THE BAR, draining across the header
+    local h = FG.header
+    FR.spentAt = nil
+    FG.PaintRegen(h)
+    ok(h.fsr and h.fsr.__shown == false, "with the rule not running, no bar")
+    ok(h.regen and (h.regen.__text == "" or h.regen.__text == nil), "and no number")
+
+    h:SetWidth(200)
+    FR.OnCast("player", 331)
+    FG.PaintRegen(h)
+    ok(h.fsr.__shown ~= false and math.abs((h.fsr.__w or 0) - 200) < 1,
+       "the moment you spend mana it fills the header", tostring(h.fsr.__w))
+    ok(h.regen.__text == "regen 30%", "with the share you are getting", tostring(h.regen.__text))
+    TICK(2.5)
+    FG.PaintRegen(h)
+    ok(math.abs((h.fsr.__w or 0) - 100) < 2, "halfway through, it is half the header",
+       tostring(h.fsr.__w))
+    TICK(3)
+    FG.PaintRegen(h)
+    ok(h.fsr.__shown == false and h.regen.__text == "", "and when the five seconds are up it is gone")
+
+    -- a client that will not say: nothing is drawn, and nothing throws
+    FR.OnCast("player", 331)
+    _G.GetManaRegen = function() return secret(), secret() end
+    ok(FR.Fraction() == nil and FR.Text() == nil, "a secret regen is not a number we invent")
+    ok(pcall(FG.PaintRegen, h), "and the header survives it")
+    _G.GetManaRegen = nil
+    ok(FR.Fraction() == nil, "nor is a client that does not have the call at all")
+
+    _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost = realRegen, realCost
+    FR.spentAt = nil
+    FG.PaintRegen(h)
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.
@@ -2044,11 +2120,24 @@ do
     local h = FG.header
     ok(h ~= nil, "the grid has a header to grab")
 
-    -- ONE LABEL IN THE BAR. Twice in one day a second FontString printed straight through the
-    -- first: "BiS> Hrsalinge" on an 84 pixel header. A hint belongs in a tooltip, where it has a
-    -- whole box to itself and costs no pixels at all.
-    ok(#(h.__fontstrings or {}) <= 1,
-       ("the header carries %d labels; one bar, one label - hints go in the tooltip")
+    -- LABELS IN THE BAR MUST NOT SHARE A SIDE. Twice in one day a second FontString printed
+    -- straight through the first: "BiS> Hrsalinge" on an 84 pixel header. The rule was "one
+    -- label", which held until the five second rule earned a number of its own (23 Sep) - so the
+    -- rule is the one that actually mattered: the prompt is pinned LEFT, anything else RIGHT, and
+    -- a hint still belongs in a tooltip where it costs no pixels at all.
+    local sides = {}
+    for _, fs in ipairs(h.__fontstrings or {}) do
+        for _, pt in ipairs(fs.points or {}) do
+            local side = tostring(pt[1])
+            sides[side] = (sides[side] or 0) + 1
+        end
+    end
+    local clash
+    for side, n in pairs(sides) do if n > 1 then clash = side end end
+    ok(clash == nil, ("two labels are pinned to %s, where they will print through each other")
+       :format(tostring(clash)))
+    ok(#(h.__fontstrings or {}) <= 2,
+       ("the header carries %d labels; the prompt and the regen number, and no more")
        :format(#(h.__fontstrings or {})))
 
     -- ONE THING IN THE BAR. A "drag" caption on the right printed straight through the prompt's

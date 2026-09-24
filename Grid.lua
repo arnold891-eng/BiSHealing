@@ -1026,6 +1026,22 @@ local function makeHeader(anchor)
     bg:SetAllPoints()
     bg:SetColorTexture(0.08, 0.06, 0.12, 0.85)
 
+    -- THE FIVE SECOND RULE, ACROSS THE HEADER. Arn, 23 Sep: "itll be like a bar thats filling
+    -- backwards in the header". Spend mana and this fills the header, then drains away over the
+    -- five seconds; when it is gone you are regenerating normally again. It is BEHIND the prompt
+    -- (BORDER, under the title's OVERLAY) so it colours the bar rather than covering the words.
+    h.fsr = h:CreateTexture(nil, "BORDER")
+    h.fsr:SetPoint("TOPLEFT")
+    h.fsr:SetPoint("BOTTOMLEFT")
+    h.fsr:SetColorTexture(0.35, 0.28, 0.10, 0.85)
+    h.fsr:Hide()
+
+    -- and what share you are getting while it runs, on the right of the same bar
+    h.regen = h:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    h.regen:SetPoint("RIGHT", -5, 0)
+    h.regen:SetJustifyH("RIGHT")
+    if h.regen.SetTextColor then h.regen:SetTextColor(0.95, 0.85, 0.55) end
+
     local title = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     title:SetPoint("LEFT", 5, 0)
     -- the prompt every BiS window wears, when BiSTheme is loaded; a plain word when it is not
@@ -1044,6 +1060,28 @@ local function makeHeader(anchor)
     end
 
     h.title = title
+
+--- Draw the five second rule on the header: the bar drains from full to nothing across those five
+--- seconds, and the share you are regenerating while it runs sits on the right. Nothing is drawn
+--- when the client will not answer, or when the rule is not running - a healer standing still
+--- should see their own prompt, not a number that never changes.
+function FG.PaintRegen(header)
+    header = header or FG.header
+    if not (header and header.fsr) then return false end
+    local FR = NS.FR
+    local left = FR and FR.Left and FR.Left() or 0
+    if left <= 0 then
+        header.fsr:Hide()
+        if header.regen then header.regen:SetText("") end
+        return false
+    end
+    local w = (header.GetWidth and header:GetWidth()) or 0
+    if type(w) ~= "number" or w <= 0 then w = 84 end
+    header.fsr:SetWidth(math.max(1, w * (left / (FR.WINDOW or 5))))
+    header.fsr:Show()
+    if header.regen then header.regen:SetText(FR.Text and FR.Text() or "") end
+    return true, left
+end
 
     anchor:SetMovable(true)
     h:SetScript("OnDragStart", function()
@@ -1117,6 +1155,7 @@ function FG.Start()
         end
         -- the target's cell is not in that list (it belongs to no group), and its NAME changes
         -- under it every time you target someone else, so it is repainted here by name as well
+        FG.PaintRegen(FG.header)        -- the five second rule, draining across the header
         local t = FG.target
         if t and t.unit and t:IsShown() then
             if t.name then t.name:SetText(FG.ShortName("target")) end
@@ -1151,6 +1190,7 @@ function FG.Start()
     end)
     FG.events = ev
     if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2
+    if NS.FR and NS.FR.Start then NS.FR.Start() end   -- the five second rule, on the header
     return true
 end
 

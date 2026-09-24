@@ -2125,12 +2125,26 @@ do
     _G.GetPowerRegenForPowerType = function() return 100, 45 end
     ok(FR.Text() == "regen 45%", "and the one after that", tostring(FR.Text()))
 
-    -- and when none of them will say: it still says the five seconds are running
-    _G.GetPowerRegenForPowerType = function() return secret(), secret() end
-    ok(FR.Fraction() == nil and FR.Text() == "regen ?",
-       "no number is invented, and the header still says which mode it is in", tostring(FR.Text()))
+    -- IN A FIGHT IT IS A SECRET, so what was read out of combat is what the header shows.
+    -- Measured in game 23 Sep: out of combat all three answer; the moment the pull starts all
+    -- three come back secret. "/bish regen" printed exactly that, twice.
+    _G.GetManaRegen = function() return 16.88, 10.44 end     -- 62%, read while standing about
+    _G.GetPowerRegenForPowerType, _G.GetPowerRegen = nil, nil
+    FR.known = nil
+    ok(FR.Text() == "regen 62%", "read live while it can be", tostring(FR.Text()))  -- no Remember()
+    _G.GetManaRegen = function() return secret(), secret() end        -- and now the pull starts
+    ok(FR.Live() == nil, "in the fight the client says nothing")
+    local f, remembered = FR.Fraction()
+    ok(f and math.abs(f - 0.62) < 0.01 and remembered == true,
+       "so the share is the one it last told us", tostring(f))
+    ok(FR.Text() == "regen 62%", "and the header says it plainly", tostring(FR.Text()))
     ok(pcall(FG.PaintRegen, h), "and the header survives it")
-    _G.GetPowerRegenForPowerType = nil
+
+    -- with nothing ever read, it still says which mode it is in rather than inventing a number
+    FR.known = nil
+    ok(FR.Fraction() == nil and FR.Text() == "regen ?",
+       "with nothing ever read, no number is invented", tostring(FR.Text()))
+    _G.GetManaRegen = nil
     ok(FR.Fraction() == nil, "nor does a client with none of the calls at all")
 
     _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost = realRegen, realCost

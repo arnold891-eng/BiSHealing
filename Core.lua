@@ -263,9 +263,16 @@ function NS.DO.regen()
             or (pb == nil and "nothing")
             or ("%s standing, %s casting"):format(tostring(pb), tostring(pc))))
     end
-    local base, casting, from = FR.Rates()
-    Print(base and ("  -> %s answers: %s"):format(from, FR.Text() or "?")
-        or "  -> none of them will say; the header shows regen ?")
+    local base, casting, from, remembered = FR.Rates()
+    if not base then
+        Print("  -> none of them will say, and nothing was read earlier: the header shows regen ?")
+        return
+    end
+    local k = FR.known
+    local age = (k and GetTime) and (GetTime() - (k.at or 0)) or nil
+    Print(("  -> %s: %s%s"):format(from, FR.Text() or "?",
+        remembered and (" (remembered%s - your own regen is a secret in a fight)")
+            :format(age and (", %ds ago"):format(math.floor(age)) or "") or " (live)"))
 end
 
 function NS.DO.minimap()

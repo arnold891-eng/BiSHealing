@@ -65,8 +65,9 @@ FR.SOURCES = {
     end },
 }
 
---- What the client says: standing still, and while casting. Nil when none of them will answer.
-function FR.Rates()
+--- What the client says RIGHT NOW: standing still, and while casting. Nil when none of them will
+--- answer - which in a fight is all of them.
+function FR.Live()
     for _, src in ipairs(FR.SOURCES) do
         local ok, base, casting = pcall(src.get)
         base, casting = NS.Plain(base), NS.Plain(casting)
@@ -77,16 +78,45 @@ function FR.Rates()
     return nil
 end
 
+--- REMEMBERED, BECAUSE IN A FIGHT IT IS A SECRET. Measured in game, 23 Sep 2026: out of combat all
+--- three calls answer (16.88 standing, 10.44 casting on Arn's shaman - 62%), and the moment the
+--- fight starts every one of them comes back SECRET. Your own regeneration is hidden from you at
+--- exactly the moment it matters.
+---
+--- So the pair is kept whenever it can be read, and that is what the header shows once the client
+--- stops talking. It changes with talents, gear and buffs - not mid-pull, for the most part - and
+--- a number from thirty seconds ago beats a question mark while you are deciding whether to cast.
+FR.known = nil
+
+function FR.Remember()
+    local base, casting, from = FR.Live()
+    if not base then return nil end
+    FR.known = { base = base, casting = casting, from = from, at = (GetTime and GetTime()) or 0 }
+    return base, casting, from
+end
+
+--- The pair to work from: what the client says now, or the last thing it said.
+function FR.Rates()
+    local base, casting, from = FR.Live()
+    if base then
+        FR.known = { base = base, casting = casting, from = from, at = (GetTime and GetTime()) or 0 }
+        return base, casting, from, false
+    end
+    local k = FR.known
+    if k then return k.base, k.casting, k.from, true end
+    return nil
+end
+
 --- What share of your standing-still regeneration you are getting right now: 1 when the five
 --- seconds are up, and the character sheet's "while casting" share while they are not. Nil when
 --- no call on this client will say, so the header can show that rather than invent a number.
 function FR.Fraction()
     if FR.Left() <= 0 then return 1 end
-    local base, casting = FR.Rates()
+    local base, casting, _, remembered = FR.Rates()
     if not base then return nil end
     local f = casting / base
     if f < 0 then f = 0 elseif f > 1 then f = 1 end
-    return f
+    return f, remembered
 end
 
 --- The words for it: "regen 100%" when the five seconds are up, "regen 30%" while they are not,
@@ -133,11 +163,21 @@ end
 function FR.Start()
     if FR.frame then return true end
     local f = CreateFrame("Frame")
-    pcall(f.RegisterEvent, f, "UNIT_SPELLCAST_SUCCEEDED")
+    for _, e in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
+                         "UNIT_AURA", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED" }) do
+        pcall(f.RegisterEvent, f, e)
+    end
     f:SetScript("OnEvent", function(_, event, unit, _, spellID)
-        if event == "UNIT_SPELLCAST_SUCCEEDED" then FR.OnCast(unit, spellID) end
+        if event == "UNIT_SPELLCAST_SUCCEEDED" then
+            FR.OnCast(unit, spellID)
+        else
+            -- the moments the pair can change AND can still be read: a fight ending, a buff, a
+            -- trinket swapped, a talent spent. In the fight itself the client says nothing.
+            FR.Remember()
+        end
     end)
     FR.frame = f
+    FR.Remember()
     return true
 end
 

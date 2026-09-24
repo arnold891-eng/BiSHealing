@@ -287,6 +287,35 @@ function NS.DO.between(on)
     return d.between
 end
 
+--- The buffs the header reminds you about. No argument lists them; a name adds it, the same name
+--- again takes it off, and "reset" goes back to your class's one.
+function NS.DO.buff(name)
+    local FS = NS.FS
+    if not FS then return end
+    if name == "reset" or name == "default" then
+        FS.Reset()
+        Print("watching your class's usual: " .. (table.concat(FS.List(), ", ") ~= "" and table.concat(FS.List(), ", ") or "nothing"))
+        return FS.List()
+    end
+    if name and name ~= "" then
+        local added, removed = FS.Add(name)
+        Print(added and ("watching |cffb980ff%s|r"):format(added)
+            or ("no longer watching |cffb980ff%s|r"):format(tostring(removed or name)))
+    end
+    local list = FS.List()
+    Print(#list == 0 and "no self buffs watched - /bish buff Water Shield"
+        or ("watching: " .. table.concat(list, ", ")))
+    local missing = FS.Check()
+    if type(missing) == "table" and #missing > 0 then
+        Print("  missing now: " .. table.concat(missing, ", "))
+    elseif missing then
+        Print("  all up")
+    else
+        Print("  the client will not say while you are in a fight")
+    end
+    return list
+end
+
 function NS.DO.minimap()
     if not NS.MM then return end
     local hidden = NS.MM.Hidden()
@@ -641,6 +670,7 @@ function NS.DO.help()
     Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its handle")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
+    Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
 end
 
 --------------------------------------------------------------------- slash --
@@ -701,6 +731,11 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.regen()
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
+    elseif msg == "buff" or msg == "buffs" then
+        NS.DO.buff()
+    elseif msg:match("^buffs?%s") then
+        -- the name as the player typed it, capitals and all: "water shield" is not a spell name
+        NS.DO.buff((input or ""):match("^%s*[Bb][Uu][Ff][Ff][Ss]?%s+(.-)%s*$"))
     elseif msg == "markers" or msg:match("^markers%s") then
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then

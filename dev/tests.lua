@@ -2153,6 +2153,92 @@ do
     FG.PaintRegen(h)
 end
 
+-- THE BUFF YOU KEEP FORGETTING. Arn, 23 Sep: "for our healers can we add to the header their main
+-- healing buffs on themselves. like i am always forgetting about watershield ... can the header say
+-- in and out of combat. missing water shield". Your own buffs read out of combat and are secret in
+-- a fight, so what the client last said is what the header shows.
+do
+    local FS, FA_AURAS = NS.FS, nil
+    local d = NS.DB()
+    d.selfBuffs = nil
+    BOOK[21] = { name = "Water Shield", rank = "Rank 1" }        -- this shaman has trained it
+    local realClass = _G.UnitClass
+    _G.UnitClass = function() return "Shaman", "SHAMAN" end
+    local mine = {}                                              -- the buffs on the player
+    local realAuras = _G.C_UnitAuras
+    _G.C_UnitAuras = { GetAuraDataByIndex = function(unit, i, filter)
+        if STATE.inCombat then error("Auras cannot be accessed when secret while tainted", 2) end
+        if unit ~= "player" or filter ~= "HELPFUL" then return nil end
+        return mine[i]
+    end }
+
+    ok(table.concat(FS.List(), ",") == "Water Shield", "a shaman watches Water Shield",
+       table.concat(FS.List(), ","))
+    local missing, readable = FS.Missing()
+    ok(readable and missing and missing[1] == "Water Shield",
+       "with nothing on you, it is missing", missing and missing[1])
+    FS.Check()
+    ok(FS.Word() == "no Water Shield", "and the header says so", tostring(FS.Word()))
+    ok(FG.HeaderWord() == "no Water Shield", "instead of the addon's name", FG.HeaderWord())
+
+    mine[1] = { name = "Water Shield" }
+    FS.Check()
+    ok(FS.Word() == nil and FG.HeaderWord() == "Healing", "up, and the header goes back to normal")
+
+    -- IN A FIGHT the client says nothing, so what it last said stands - and a check made during
+    -- the fight must not overwrite it with "nothing missing"
+    mine[1] = nil
+    FS.Check()                                                   -- read while standing about
+    STATE.inCombat = true
+    local _, readableNow = FS.Missing()
+    ok(readableNow == false, "in the fight the client will not say")
+    mine[1] = { name = "Water Shield" }                           -- and it cannot see this either
+    FS.Check()
+    ok(FS.Word() == "no Water Shield",
+       "a check made in the fight changes nothing: what it last knew is what is shown",
+       tostring(FS.Word()))
+    STATE.inCombat = false
+    FS.Check()
+    ok(FS.Word() == nil, "and the moment the fight ends it reads again")
+    mine[1] = nil
+    FS.Check()
+
+    -- an aura it cannot read is not proof that nothing is missing: a secret NAME in the list
+    -- means the whole read is unreliable, so the last known answer stands
+    mine[1] = { name = "Water Shield" }
+    FS.Check()
+    ok(FS.Word() == nil, "with the shield up, nothing is missing")
+    mine[1] = { name = secret() }
+    local m2, readable2 = FS.Missing()
+    ok(m2 == nil and readable2 == false, "a secret name makes the whole list unreadable")
+    FS.Check()
+    ok(FS.Word() == nil, "so the last answer stands, rather than a guess at what is missing")
+    mine[1] = nil
+    FS.Check()
+    ok(FS.Word() == "no Water Shield", "and a real read says what is missing again",
+       tostring(FS.Word()))
+
+    -- a spell this character has not trained is never mentioned. The Earth Shield mistake, 19 Sep:
+    -- a level 15 shaman told six times in ninety seconds about a spell learned at 50.
+    BOOK[21] = nil
+    FS.Check()
+    ok(FS.Word() == nil, "a buff you have not trained is not a buff you forgot", tostring(FS.Word()))
+    BOOK[21] = { name = "Water Shield", rank = "Rank 1" }
+
+    -- the player's own list: add, take away, reset
+    NS.DO.buff("Lightning Shield")
+    ok(table.concat(FS.List(), ",") == "Lightning Shield", "/bish buff <name> watches it instead",
+       table.concat(FS.List(), ","))
+    NS.DO.buff("Lightning Shield")
+    ok(#FS.List() == 0, "the same name again stops watching it", #FS.List())
+    NS.DO.buff("reset")
+    ok(table.concat(FS.List(), ",") == "Water Shield", "and reset goes back to the class's one")
+
+    _G.C_UnitAuras, _G.UnitClass = realAuras, realClass
+    d.selfBuffs = nil
+    FS.known = nil
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.

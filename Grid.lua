@@ -34,9 +34,17 @@ local FRAME_W, FRAME_H, PAD = 84, 34, 3
 --- happening, and what your mana is doing once the fight starts.
 function FG.HeaderWord()
     local fighting = InCombatLockdown and InCombatLockdown()
-    if not fighting then return "Healing" end
-    local FR = NS.FR
-    return (FR and FR.Text and FR.Text()) or "Healing"
+    -- IN A FIGHT, THE MANA. Between them, the buff you keep forgetting (Arn, 23 Sep: "like i am
+    -- always forgetting about watershield"), which the client will only answer about out of
+    -- combat - so what it last said is what is shown, and a shield that fell off mid-pull is the
+    -- first thing the header says when the fight ends.
+    if fighting then
+        local FR = NS.FR
+        return (FR and FR.Text and FR.Text()) or "Healing"
+    end
+    local FS = NS.FS
+    local word = FS and FS.Word and FS.Word()
+    return word or "Healing"
 end
 local PER_COL = 5                       -- one column per party, the way a raid reads
 
@@ -1205,6 +1213,7 @@ function FG.Start()
     FG.events = ev
     if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2
     if NS.FR and NS.FR.Start then NS.FR.Start() end   -- the five second rule, on the header
+    if NS.FS and NS.FS.Start then NS.FS.Start() end   -- and the buff you keep forgetting
     return true
 end
 

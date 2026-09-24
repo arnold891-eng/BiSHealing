@@ -19,6 +19,7 @@ Lockdown.lua
 Core.lua
 Auras.lua
 Regen.lua
+SelfBuff.lua
 Grid.lua
 Mouse.lua
 Keep.lua

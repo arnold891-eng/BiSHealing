@@ -74,7 +74,15 @@ local DEFAULTS = {
     text    = "missing",
     color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
+    buffQuiet = false,   -- no noise when a watched buff drops; it keeps the chosen id for later
 }
+
+-- Keys with no useful default, which a migration must still carry: `selfBuffs` is a table (a
+-- default table here would be SHARED with the database and mutated by the first /bish buff), and
+-- `buffSound` is a file id where nil means ours. Without this list the migration below would set
+-- them aside in the attic as if they belonged to another addon - a setting that quietly moves
+-- house looks exactly like one that was never saved.
+local CARRY = { "selfBuffs", "buffSound" }
 
 NS.DBVER = 1
 
@@ -98,6 +106,8 @@ function NS.DB()
         -- came back - the addon overruling a deliberate act. Mouse.lua refuses to re-seed a mouse
         -- with anything on it now, but throwing the flag away was the cause and it is carried.
         local seeded = db.bindsSeeded or (type(db.forever) == "table" and db.forever.seeded)
+        local carried = {}
+        for _, k in ipairs(CARRY) do carried[k] = db[k] end
 
         -- WHAT WE DO NOT RECOGNISE IS MOVED, NEVER DELETED. This line used to be
         --
@@ -116,7 +126,8 @@ function NS.DB()
         local attic = {}
         for k, v in pairs(db) do
             if k ~= "binds" and k ~= "minimap" and k ~= "shown" and k ~= "bindsSeeded"
-               and k ~= "dbver" and k ~= "forever" and k ~= "attic" and DEFAULTS[k] == nil then
+               and k ~= "dbver" and k ~= "forever" and k ~= "attic" and DEFAULTS[k] == nil
+               and carried[k] == nil then
                 attic[k] = v
             end
         end
@@ -131,6 +142,7 @@ function NS.DB()
         db.minimap     = type(minimap) == "table" and minimap or nil
         db.shown       = shown ~= false
         db.bindsSeeded = seeded and true or nil
+        for k, v in pairs(carried) do db[k] = v end
         db.dbver       = NS.DBVER
     end
     -- the old on/off switch for the number, carried into the three-way one and then let go
@@ -319,24 +331,35 @@ function NS.DO.buff(name)
     return list
 end
 
---- The sound the client plays when a watched buff leaves you. A number is a file id, a path is a
---- file, "off" is silence, and nothing at all puts it back to the client's own alarm.
+--- The sound the client plays when a watched buff leaves you. A number is a file id, "off" is
+--- silence, and "on" brings it back - WITH the number the player chose, which is why the switch
+--- and the id are two fields rather than one. "default" goes back to the client's own alarm, and
+--- "test" plays whatever is set, so a number can be heard before it is kept.
 function NS.DO.buffsound(arg)
     local d, FS = DB(), NS.FS
     if not FS then return end
     if arg == "off" or arg == "none" then
-        d.buffSound = false
-    elseif arg == "on" or arg == nil or arg == "" then
-        d.buffSound = nil
-    else
+        d.buffQuiet = true
+    elseif arg == "on" then
+        d.buffQuiet = false
+    elseif arg == "default" or arg == "reset" then
+        d.buffSound, d.buffQuiet = nil, false
+    elseif arg == "test" or arg == "hear" then
+        local played, why = FS.Play()
+        Print(played and ("playing %s"):format(tostring(FS.File()))
+            or ("no sound: %s"):format(tostring(why or "nothing to play")))
+        return d.buffSound
+    elseif arg ~= nil and arg ~= "" then
         d.buffSound = tonumber(arg) or arg
+        d.buffQuiet = false
     end
     local n, why = FS.Sounds()
-    if d.buffSound == false then
-        Print("no sound when a watched buff drops")
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end      -- it outlives a restart
+    if FS.Quiet() then
+        Print("no sound when a watched buff drops -- /bish buffsound on")
     else
         Print(n and n > 0 and ("a sound when a watched buff drops: %d spell(s) registered with %s")
-            :format(n, tostring(d.buffSound or FS.SOUND))
+            :format(n, tostring(FS.File()))
             or ("could not register a sound: %s"):format(tostring(why or "nothing to register")))
     end
     return d.buffSound
@@ -697,6 +720,8 @@ function NS.DO.help()
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its handle")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
     Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
+    Print("  |cffb980ffbuffsound|r  the noise when one drops - a sound id, |cffb980ffoff|r,"
+        .. " |cffb980ffon|r, |cffb980ffdefault|r, |cffb980fftest|r")
 end
 
 --------------------------------------------------------------------- slash --

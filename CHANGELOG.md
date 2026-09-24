@@ -1,5 +1,33 @@
 # BiS Healing
 
+## 0.5.1
+
+The header above the cells does the talking now, and the chat frame stops.
+
+- **The five second rule, on the header.** Spend mana and a bar drains across it
+  over the five seconds until your regeneration comes back, with the share you
+  are getting meanwhile: `regen 100%` between casts, `regen 62%` while they run.
+  The numbers are the character sheet's own, so talents, gear and buffs are
+  already in them. This client turns your own regeneration secret the moment a
+  fight starts, so the header shows the last thing it was willing to say - and
+  `regen ?` when it never has.
+- **The buff you keep forgetting.** Out of combat the header says `no Water
+  Shield` - one buff per healing class (Water Shield, Inner Fire, Omen of
+  Clarity, Blessing of Wisdom), and only if you have trained it. `/bish buff
+  <name>` watches another, the same name again stops watching it.
+- **And a sound when it drops**, played by the client itself, which is the only
+  half that works in a fight: your own buffs are secret there, so nothing can
+  look - but the game will still make a noise. **sound when it drops** in the
+  options window switches it off, and **sound id -> change** unrolls a drawer to
+  put a different one in, with a `hear` button to try it first. `/bish buffsound
+  off`, `on`, `default`, `test`, or a number. It rides in your `BiSHealing`
+  macro with the other settings, so it survives a restart.
+- **The between-pulls reminders in chat are off.** They were written for a TBC
+  shaman with four totems to keep up and say less than that here. `/bish scan`
+  still asks outright, and `/bish between` turns them back on.
+- The options window lost **look at the group again** to make room: the cells
+  rescan whenever the group changes anyway, and `/bish rescan` still presses it.
+
 ## 0.5.0
 
 Three of these came from paszczyszyn on CurseForge - thank you.

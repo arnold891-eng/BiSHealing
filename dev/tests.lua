@@ -168,6 +168,32 @@ local function newFrame(kind, name, parent)
         self.__fontstrings[#self.__fontstrings + 1] = fs
         return fs
     end
+    -- AN EDIT BOX HOLDS WHAT WAS TYPED IN IT. Every method not written down here answers nil,
+    -- which for a text field is the kindest lie there is: GetText() would come back nil, the addon
+    -- would read it as "nothing typed", and the suite would call that a pass while the player's
+    -- 567458 sat in the box in front of them. The client's own box answers "" when it is empty,
+    -- never nil, and takes digits only once SetNumeric is on - so this one does the same.
+    if kind == "EditBox" then
+        f.__text = ""
+        function f:SetText(t)
+            t = tostring(t or "")
+            if self.__numeric then t = t:gsub("%D", "") end
+            self.__text = t
+        end
+        function f:GetText() return self.__text or "" end
+        function f:GetNumber() return tonumber(self.__text) or 0 end
+        function f:SetNumeric(on) self.__numeric = on and true or false end
+        function f:SetAutoFocus(on) self.__autofocus = on and true or false end
+        function f:SetMaxLetters(n) self.__max = n end
+        function f:SetFocus() self.__focus = true end
+        function f:ClearFocus() self.__focus = false end
+        -- what a player actually does: type, then press Enter. The client fires the script itself.
+        function f:__type(t)
+            self:SetText(t)
+            local fn = self.__scripts.OnEnterPressed
+            if fn then fn(self) end
+        end
+    end
     frames[#frames + 1] = f
     return autoMethods(f)
 end
@@ -177,6 +203,17 @@ _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
 -- the shift key, held or not, as the client answers it
 _G.IsShiftKeyDown = function() return STATE.shift and true or false end
+-- A SOUND THAT DOES NOT EXIST DOES NOT PLAY. The client answers PlaySoundFile with false for a
+-- file id it has not got, and a mock that says "played it" for every number turns "did that id
+-- work?" into a question nobody can ask - which is the whole reason the drawer has a `hear`
+-- button. STATE.sounds is the client's sound folder; STATE.played is what came out of it.
+STATE.sounds = { [567458] = true }
+STATE.played = {}
+_G.PlaySoundFile = function(file, channel)
+    if type(file) ~= "number" or not STATE.sounds[file] then return false end
+    STATE.played[#STATE.played + 1] = { file = file, channel = channel }
+    return true, #STATE.played
+end
 -- A CLOCK THAT MOVES, like the client's. There was none at all, so GetTime was nil everywhere and
 -- anything cached "for this frame" was cached for the whole suite - kinder than the client, where
 -- the number changes sixty times a second. TICK() is a frame going by.
@@ -2279,6 +2316,37 @@ do
     NS.DO.buffsound("off")
     ok(FS.Sounds() == false, "off registers nothing")
     NS.DO.buffsound("on")
+
+    -- THE SWITCH AND THE NUMBER ARE TWO QUESTIONS (Arn, 23 Sep: "toggle in options to turn sound
+    -- on or off and unrolled window to put in another sound id number"). They were one field to
+    -- begin with, where `false` meant silence - so switching the sound off and on again threw the
+    -- player's number away, silently, and left them with ours.
+    NS.DO.buffsound("31578")
+    ok(d.buffSound == 31578 and FS.File() == 31578, "a number sets which sound", tostring(d.buffSound))
+    NS.DO.buffsound("off")
+    NS.DO.buffsound("on")
+    ok(d.buffSound == 31578 and not FS.Quiet(),
+       "off and on again keeps the number the player typed", tostring(d.buffSound))
+    local withTheirs = nil
+    for _, r in pairs(registered) do withTheirs = r.file end
+    ok(withTheirs == 31578, "and the client is asked to play THEIR number, not ours",
+       tostring(withTheirs))
+    NS.DO.buffsound("default")
+    ok(d.buffSound == nil and FS.File() == FS.SOUND, "default goes back to ours", tostring(d.buffSound))
+
+    -- HEARD BEFORE IT IS KEPT. A file id is a number out of the game's own files and a player
+    -- typing one has no other way to know they got it right - and a wrong one must say so rather
+    -- than look like it worked.
+    local n0 = #STATE.played
+    ok(FS.Play(567458) == true and #STATE.played == n0 + 1, "hear plays the id")
+    ok(STATE.played[#STATE.played].channel == "Master", "on the master channel, so it is audible")
+    local played, whyNot = FS.Play(4242)
+    ok(played == false and tostring(whyNot):find("id"),
+       "an id this client has not got says so rather than reporting success", tostring(whyNot))
+    local pathOk, pathWhy = FS.Play("Interface\\Sounds\\Alarm.ogg")
+    ok(pathOk == false and tostring(pathWhy):find("sound id"),
+       "and a file PATH is called what it is on this client: silent", tostring(pathWhy))
+
     auras.AddAuraSound = nil
     local none, why = FS.Sounds()
     ok(none == false and tostring(why):find("no aura sounds"),
@@ -2288,8 +2356,56 @@ do
     BOOK[22] = nil
     _G.C_SpellBook.GetSpellBookItemInfo = realInfo2
     _G.C_UnitAuras, _G.UnitClass = realAuras, realClass
-    d.selfBuffs, d.buffSound = nil, nil
+    d.selfBuffs, d.buffSound, d.buffQuiet = nil, nil, false
     FS.known, FS.soundIDs = nil, {}
+end
+
+-- AND IT SURVIVES A RESTART, which on this client means the macro. Saved variables never come
+-- back on Forever, so a sound switched off at midnight is on again at the next login unless it
+-- rides in the same 255 characters as everything else.
+do
+    local FK, d = NS.FK, NS.DB()
+    local body = FK.Encode({}, { sound = 31578, quiet = true })
+    ok(body:find("N=31578:1"), "the id AND the switch go into one row", body)
+    local _, back = FK.Decode(body)
+    ok(back.sound == 31578 and back.quiet == true, "and both come back",
+       tostring(back.sound) .. "/" .. tostring(back.quiet))
+
+    -- OFF WITH OUR OWN SOUND BEHIND IT. "N=0" is the id nobody chose; the 1 is what silence is.
+    local _, quietOnly = FK.Decode(FK.Encode({}, { quiet = true }))
+    ok(quietOnly.sound == nil and quietOnly.quiet == true, "silence with no number of its own")
+
+    -- A MACRO THAT SAYS NOTHING ABOUT THE SOUND LEAVES IT ALONE. `quiet` is nil, not false: the
+    -- difference between "the player wants it on" and "the player never touched it".
+    local _, silent = FK.Decode(FK.Encode({}, { scale = 1.2 }))
+    ok(silent.quiet == nil, "an untouched macro has no opinion about the sound", tostring(silent.quiet))
+
+    -- THE COLD START. Nobody clicks anything at login, so what the macro holds has to be LIVE
+    -- after the read: the setting back in the table AND the client asked to make the noise again.
+    -- A sound that only arms itself at the next SPELLS_CHANGED is a sound that misses the pull.
+    local FM = NS.FM
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    NS.DO.buffsound("31578")
+    NS.DO.buffsound("off")
+    local stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and stored:find("N=31578:1", 1, true), "changing it writes it into the macro", stored)
+
+    local asked, realSounds = 0, NS.FS.Sounds
+    NS.FS.Sounds = function() asked = asked + 1 return 0 end
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false                       -- the restart
+    d.buffSound, d.buffQuiet = nil, false
+    FM.Get("", "wheelup")
+    ok(d.buffSound == 31578 and d.buffQuiet == true,
+       "and after a restart the sound is what the macro said",
+       tostring(d.buffSound) .. " / " .. tostring(d.buffQuiet))
+    ok(asked > 0, "the client is asked to play it again at login, not at the next spell change", asked)
+    NS.FS.Sounds = realSounds
+
+    d.buffSound, d.buffQuiet = nil, false
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
 end
 
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
@@ -3290,7 +3406,49 @@ do
     --
     -- THIRTEEN IS THE LAST ONE. There is nothing left to fold: every row is a setting a player
     -- asked for. The next one costs a real setting, or the window grows a second page.
-    ok(#NS.UI.Rows() <= 13, "the window stays short: " .. #NS.UI.Rows())
+    --
+    -- And on 23 Sep it cost one, as promised. Two rows arrived - the buff-drop sound, and the id
+    -- behind it (Arn: "toggle in options to turn sound on or off and unrolled window to put in
+    -- another sound id number") - and "look at the group again" paid for one of them: the grid
+    -- rescans on every roster event by itself, so that button was a fix for a bug, not a setting,
+    -- and /bish rescan still presses it. Fourteen, and the same rule stands for the fifteenth.
+    ok(#NS.UI.Rows() <= 14, "the window stays short: " .. #NS.UI.Rows())
+
+    -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
+    -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the
+    -- canon - so a number that only this addon wants goes in a panel of its own, underneath.
+    do
+        local d = NS.DB()
+        d.buffSound, d.buffQuiet = nil, false
+        -- the shared lib, which the TOC loop skips: the drawer is built out of ITS primitives, so
+        -- a suite that fakes them is a suite that proves nothing about the window a player opens
+        if not (BiSTheme and BiSTheme.Options) then
+            local lib = assert(loadfile("Libs/BiSTheme/Options.lua"))
+            local loaded, why = pcall(lib)
+            ok(loaded, "the shared options lib loads headless", tostring(why))
+        end
+        local drawer = NS.UI.Drawer(true)
+        ok(drawer ~= nil and drawer:IsShown(), "the sound id drawer unrolls")
+        ok(drawer.box ~= nil, "with a box to type a number in")
+        ok(drawer.box:GetText() == tostring(NS.FS.SOUND),
+           "showing the sound that is actually set", drawer.box:GetText())
+
+        -- typed, then Enter - which is what a player does, and is the client's own script
+        drawer.box:__type("31578")
+        ok(d.buffSound == 31578, "Enter keeps the number", tostring(d.buffSound))
+        ok(drawer.box.__numeric == true and drawer.box.__autofocus == false,
+           "digits only, and it does not steal the keyboard when the window opens")
+
+        -- and it closes with the window it hangs off, rather than floating over the game alone
+        local win = NS.CFG.frame
+        NS.UI.Drawer(true)
+        win:Hide()
+        local onHide = win.__scripts and win.__scripts.OnHide
+        if onHide then onHide(win) end
+        ok(not drawer:IsShown(), "closing the options window rolls the drawer up with it")
+
+        d.buffSound, d.buffQuiet = nil, false
+    end
 
     -- and the slash command reaches them. "/bish nonsense" prints the help rather than throwing.
     for _, cmd in ipairs({ "", "show", "hide", "mouse", "rescan", "scan", "auras", "nonsense" }) do

@@ -121,8 +121,51 @@ end
 -- Registered per SPELL ID, so every rank of the buff this character has trained is covered, and
 -- taken down again whenever the list changes - a registration nobody removes is a sound that keeps
 -- playing for a buff you stopped watching.
+--
+-- TWO SETTINGS, NOT ONE. `buffSound` is WHICH sound - a file id, or nothing for ours. `buffQuiet`
+-- is WHETHER. They were one field to begin with, where `false` meant silence, and switching the
+-- sound off and on again threw away the number the player had typed. A switch and a number are
+-- two questions, and the options window asks them in two places.
 FS.SOUND = 567458          -- a file id: the client's own alarm. /bish buffsound sets another
 FS.soundIDs = {}
+
+--- The sound that would play: the player's number, or ours.
+function FS.File()
+    local d = NS.DB and NS.DB()
+    local own = type(d) == "table" and d.buffSound or nil
+    if type(own) == "number" or (type(own) == "string" and own ~= "") then return own end
+    return FS.SOUND
+end
+
+--- Is it switched off?
+function FS.Quiet()
+    local d = NS.DB and NS.DB()
+    return type(d) == "table" and d.buffQuiet == true
+end
+
+--- Play it once, right now, so a number typed into the options window can be HEARD before it is
+--- kept. Answers true when the client played it.
+---
+--- A NUMBER, NOT A PATH. BiSGamba passed the whole Forever fence with every cue silent: the modern
+--- engine will not play a game file by path any more, and says it succeeded (`_bisdev/CLAUDE.md`,
+--- "green fence not mean work"). So a path is handed over as asked and reported as a maybe; a file
+--- id is the thing that actually makes a noise.
+function FS.Play(file)
+    file = file or FS.File()
+    if type(file) == "number" then
+        if type(PlaySoundFile) ~= "function" then return false, "this client cannot play a file" end
+        local ok, played = pcall(PlaySoundFile, file, "Master")
+        if ok and played ~= false then return true end
+        -- a file id the client does not have: PlaySound takes the sound-kit ids instead
+        if type(PlaySound) == "function" and pcall(PlaySound, file, "Master") then return true end
+        return false, "no sound with that id"
+    end
+    if type(file) == "string" and file ~= "" and type(PlaySoundFile) == "function" then
+        pcall(PlaySoundFile, file, "Master")
+        return false, "a file path is silent on this client - use a sound id"
+    end
+    return false, "nothing to play"
+end
 
 --- Every spell id this character has for a name: a buff is a different id at every rank.
 function FS.SpellIds(name)
@@ -149,13 +192,12 @@ function FS.Sounds()
         if C_UnitAuras and C_UnitAuras.RemoveAuraSound then pcall(C_UnitAuras.RemoveAuraSound, id) end
     end
     FS.soundIDs = {}
-    local d = NS.DB and NS.DB()
-    if type(d) == "table" and d.buffSound == false then return false, "off" end
+    if FS.Quiet() then return false, "off" end
     if not (C_UnitAuras and C_UnitAuras.AddAuraSound and Enum and Enum.UnitAuraSoundTrigger
             and Enum.UnitAuraSoundTrigger.Removed) then
         return false, "this client has no aura sounds"
     end
-    local file = (type(d) == "table" and d.buffSound) or FS.SOUND
+    local file = FS.File()
     local n = 0
     for _, name in ipairs(FS.List()) do
         for _, spellID in ipairs(FS.SpellIds(name)) do

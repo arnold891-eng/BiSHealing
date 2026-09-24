@@ -195,6 +195,15 @@ local function db()
                     d.clique = true
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
                 end
+                -- THE BUFF-DROP SOUND, both halves. `quiet` is only set when the macro carries an
+                -- N row at all, so a player who never touched it is left alone - and the sounds
+                -- are registered again right here rather than waited for, because one that only
+                -- arms itself at the next SPELLS_CHANGED is one that misses the first pull.
+                if settings.quiet ~= nil then
+                    d.buffQuiet = settings.quiet and true or false
+                    d.buffSound = settings.sound
+                    if NS.FS and NS.FS.Sounds then NS.FS.Sounds() end
+                end
                 if settings.hidden then
                     d.shown = false
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the

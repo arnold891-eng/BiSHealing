@@ -64,6 +64,27 @@ health, and that is exactly what this client will not allow.
 - Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
   own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
 
+## The header
+
+The bar above the cells is the handle you drag them by, and it says one thing at
+a time.
+
+- **Out of combat** it says what you have forgotten: `no Water Shield`. One buff
+  per healing class to begin with — Water Shield, Inner Fire, Omen of Clarity,
+  Blessing of Wisdom — and only if you have actually trained it. `/bish buff
+  <name>` watches another, the same name again stops, `/bish buff reset` goes
+  back to your class's own.
+- **In a fight** it says how much mana you are getting: `regen 100%` between
+  casts, and your while-casting share for the five seconds after you spend any,
+  with a bar draining across the header as those seconds run out. The numbers
+  come from the character sheet's own, so your talents and gear are already in
+  them. This client hides your regeneration once the fight starts, so what you
+  see is the last thing it would tell us; `regen ?` means it never has.
+- **A sound when the buff drops**, played by the client itself — the only half
+  of the reminder that works mid-fight, where your own buffs are secret. Switch
+  it off in the options window, or put a different **sound id** in the drawer
+  under it. `/bish buffsound off`, `on`, `default`, `test`, or a number.
+
 ## Everything else
 
 `/bish`, or any click on the minimap button, opens one small window with all of

@@ -92,13 +92,144 @@ function CFG.Sections()
               show = function(db) return ("%dpx"):format(db.markers or 10) end },
             { key = "center", kind = "button", label = "centre on screen", button = "centre",
               action = function() if DO.center then DO.center() end end },
-            { key = "rescan", kind = "button", label = "look at the group again", button = "rescan",
-              action = function() if DO.rescan then DO.rescan() end end },
+        } },
+        -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
+        -- The header names it out of combat; the client makes a NOISE when it drops, which is the
+        -- only half that works mid-fight, where your own buffs are secret. Two rows, because a
+        -- switch and a number are two questions: whether, and which.
+        { title = "reminders", options = {
+            { key = "buffsound", kind = "toggle", label = "sound when it drops",
+              get = function(db) return db.buffQuiet ~= true end,
+              set = function(_, on) if DO.buffsound then DO.buffsound(on and "on" or "off") end end },
+            -- the shared lib has four control kinds and no free-text field, on purpose ("230 px
+            -- has no room"). So the number lives in a drawer that unrolls under the window, built
+            -- here out of the lib's own primitives - the copy under Libs\ is never edited.
+            { key = "buffsoundid", kind = "button", label = "sound id", button = "change",
+              action = function() CFG.Drawer() end },
         } },
         -- "this client" held two diagnostics. "test the debuff marker" gave way to a setting on
         -- 22 Sep and "what can I see?" on the 23rd, when a player's three requests arrived at once.
-        -- Both are still one word away: /bish auras and /bish scan.
+        -- Both are still one word away: /bish auras and /bish scan. "look at the group again" paid
+        -- for the sound rows the same way on the 23rd: the grid rescans on every roster event by
+        -- itself, so the button was for a bug, and /bish rescan still presses it.
     }
+end
+
+---------------------------------------------------- the sound id drawer --
+--
+-- Arn, 23 Sep 2026: "toggle in options to turn sound on or off and unrolled window to put in
+-- another sound id number if they want to change it".
+--
+-- WHY IT IS NOT A ROW. BiSTheme's options lib has four control kinds and says so in its own file:
+-- no sliders, no free-text fields, no dropdowns, because the window is 230 pixels wide. That lib
+-- is a COPY under Libs\ and the harness compares it to the canon byte for byte, so a fifth kind
+-- would be a change to every addon in the family for one number in one addon. Instead this
+-- unrolls underneath the window, where there is as much room as it needs, and is built from the
+-- primitives the lib exports for exactly this.
+--
+-- A NUMBER, NOT A FILE NAME. Playing a game file by path is silent on this client and reports
+-- success while it does it, which is how BiSGamba shipped with every cue mute. The box takes
+-- digits only, and `hear` plays it before it is kept - the one test this addon cannot run itself.
+
+function CFG.Drawer(want)
+    local f = CFG.Build()
+    if not f then return nil end
+    local T = BiSTheme
+    local P = T and T.OptionsPrimitives
+    if not P then return nil end
+    local FS, DO = NS.FS, NS.DO or {}
+
+    local d = CFG.drawer
+    if not d then
+        d = CreateFrame("Frame", "BiSHealingSoundDrawer", f)
+        d:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -2)
+        d:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", 0, -2)
+        d:SetHeight(40)
+        P.tex(d, "BACKGROUND", "frame", 0.9)
+        P.border(d, "edge", 0.35)
+
+        local cap = P.fs(d, "a sound id, not a file name", 8, "muted")
+        cap:SetPoint("TOPLEFT", 8, -6)
+
+        local field = CreateFrame("Frame", nil, d)
+        field:SetPoint("BOTTOMLEFT", 8, 7)
+        field:SetSize(72, 14)
+        P.tex(field, "BACKGROUND", "field", 0.9)
+        P.border(field, "edge", 1)
+
+        local box = CreateFrame("EditBox", nil, field)
+        box:SetPoint("TOPLEFT", 3, 0)
+        box:SetPoint("BOTTOMRIGHT", -3, 0)
+        box:SetAutoFocus(false)             -- or it eats the keyboard the moment the window opens
+        box:SetNumeric(true)                -- digits: see above
+        box:SetMaxLetters(9)
+        pcall(box.SetFont, box, STANDARD_TEXT_FONT, 9, "")
+        d.box = box
+
+        local hear = P.flat(d, 40, 14, "hear")
+        hear:SetPoint("BOTTOMLEFT", field, "BOTTOMRIGHT", 6, 0)
+        local set = P.flat(d, 40, 14, "set")
+        set:SetPoint("BOTTOMLEFT", hear, "BOTTOMRIGHT", 4, 0)
+        local ours = P.flat(d, 46, 14, "default")
+        ours:SetPoint("BOTTOMLEFT", set, "BOTTOMRIGHT", 4, 0)
+
+        --- What the box says, as a file id - or nil for "put it back to ours".
+        local function typed()
+            local t = box.GetText and box:GetText() or nil
+            return tonumber(t and t:match("%d+") or nil)
+        end
+
+        local function keep()
+            local id = typed()
+            if DO.buffsound then DO.buffsound(id and tostring(id) or "default") end
+            CFG.Fill()
+            f:Paint()
+            f:Say(id and ("sound " .. id) or "the usual sound", "good")
+        end
+
+        hear:SetScript("OnClick", function()
+            local id = typed()
+            local played, why = FS and FS.Play and FS.Play(id or (FS.File and FS.File()))
+            f:Say(played and ("playing " .. tostring(id or (FS and FS.File and FS.File())))
+                or tostring(why or "no sound"), played and "ink2" or "warn")
+        end)
+        set:SetScript("OnClick", keep)
+        ours:SetScript("OnClick", function()
+            if box.SetText then box:SetText("") end
+            keep()
+        end)
+        box:SetScript("OnEnterPressed", function() keep() if box.ClearFocus then box:ClearFocus() end end)
+        box:SetScript("OnEscapePressed", function()
+            CFG.Fill()
+            if box.ClearFocus then box:ClearFocus() end
+            d:Hide()
+        end)
+
+        -- the drawer belongs to the window: closing one closes the other, so a panel cannot be
+        -- left floating under a window that is no longer there
+        f:HookScript("OnHide", function() if CFG.drawer then CFG.drawer:Hide() end end)
+        CFG.drawer = d
+        d:Hide()
+    end
+
+    if want == nil then want = not d:IsShown() end
+    if want then
+        CFG.Fill()
+        d:Show()
+    else
+        d:Hide()
+    end
+    return d
+end
+
+--- The box shows what is actually set, every time it opens: the player's id, or ours.
+function CFG.Fill()
+    local d = CFG.drawer
+    if not (d and d.box and d.box.SetText) then return nil end
+    local FS = NS.FS
+    local file = FS and FS.File and FS.File()
+    d.box:SetText(type(file) == "number" and tostring(file) or "")
+    return file
 end
 
 --------------------------------------------------------------- the window --
@@ -143,6 +274,7 @@ end
 NS.UI = {
     Toggle = CFG.Toggle,
     Open   = CFG.Open,
+    Drawer = function(want) return CFG.Drawer(want) end,
     Rows   = function()
         local out = {}
         for _, sec in ipairs(CFG.Sections()) do

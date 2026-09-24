@@ -133,6 +133,15 @@ local function settingRows(settings)
     end
     local px = tonumber(settings.markers)
     if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
+    -- THE BUFF-DROP SOUND (N for Noise), both halves in one row: the file id, and a 1 after a
+    -- colon when it is switched off. Two numbers rather than two rows because switching the sound
+    -- off must not throw away the id the player typed - "N=0:1" is silence with our own sound
+    -- behind it, "N=567458:1" is silence with theirs. A file PATH cannot ride here (a row carries
+    -- digits only), and a path makes no sound on this client anyway.
+    local snd = tonumber(settings.sound)
+    if settings.quiet or snd then
+        out[#out + 1] = "N=" .. math.floor((snd or 0) + 0.5) .. (settings.quiet and ":1" or "")
+    end
     return out
 end
 
@@ -220,6 +229,12 @@ function FK.Decode(body)
             settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
             settings.markers = tonumber(idx)
+        elseif code == "N" then
+            -- `quiet` is always set when the row is here, and never when it is not: that is what
+            -- tells the restore "this macro has an opinion about the sound" apart from "it has
+            -- none". An id of 0 means ours.
+            settings.sound = (tonumber(idx) or 0) > 0 and tonumber(idx) or nil
+            settings.quiet = tonumber(rank) == 1
         elseif code == "O" then
             settings.hots = tonumber(idx) ~= 0
         elseif code then
@@ -340,7 +355,8 @@ function FK.Save(binds)
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers,
-                                             targetAt = t.targetAt, targetPos = t.targetPos })
+                                             targetAt = t.targetAt, targetPos = t.targetPos,
+                                             sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

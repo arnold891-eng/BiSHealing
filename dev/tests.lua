@@ -2410,7 +2410,13 @@ do
     ok(FS.Word() == nil, "with the shield up, nothing is missing")
     mine[1] = { name = secret() }
     local m2, readable2 = FS.Missing()
-    ok(m2 == nil and readable2 == false, "a secret name makes the whole list unreadable")
+    -- THE CONTRACT CHANGED ON 25 SEP, and this is the change: it used to answer `nil, false` - no
+    -- news at all - the moment one buff came back unreadable, which threw away the answers about
+    -- every other. Now it answers with what it DID learn and a flag saying the list is not whole.
+    -- What must never change: a buff the client would not talk about is never called missing.
+    ok(type(m2) == "table" and #m2 == 0 and readable2 == false,
+       "a name the client hides is not 'missing' - and the list says it is not whole",
+       tostring(m2) .. " / " .. tostring(readable2))
     FS.Check()
     ok(FS.Word() == nil, "so the last answer stands, rather than a guess at what is missing")
     mine[1] = nil
@@ -2424,6 +2430,161 @@ do
     FS.Check()
     ok(FS.Word() == nil, "a buff you have not trained is not a buff you forgot", tostring(FS.Word()))
     BOOK[21] = { name = "Water Shield", rank = "Rank 1" }
+
+    -- ASKED ABOUT ONE AURA, BY ID (read off Overlord 1.0.16, 24 Sep 2026). The walk above compares
+    -- NAMES, and a name is the first thing this client hides; these two calls need none.
+    --
+    -- The mock is as unkind as the client: the lookup THROWS when the aura is secret and is not
+    -- asked about first, the aura table it hands back can be one that may not be read, and
+    -- ShouldSpellAuraBeSecret can answer with a secret of its own.
+    do
+        local hidden, up = {}, {}                    -- spellID -> is it secret / is it on you
+        local auras = _G.C_UnitAuras
+        local realSecrets, asked = _G.C_Secrets, {}
+        _G.C_Secrets = setmetatable({
+            ShouldSpellAuraBeSecret = function(id)
+                asked[id] = (asked[id] or 0) + 1
+                return hidden[id] and true or false
+            end,
+        }, { __index = realSecrets })
+        auras.GetPlayerAuraBySpellID = function(id)
+            -- the client does not hand a secret aura to somebody who did not ask first
+            if hidden[id] then error("aura is secret", 2) end
+            return up[id] or nil
+        end
+        local realInfo = _G.C_SpellBook.GetSpellBookItemInfo
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return n == 21 and { spellID = 24398 } or nil
+        end
+
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(asked[24398] and asked[24398] > 0, "the client is asked about that one aura first")
+        ok(FS.Word() == "no Water Shield", "and with it off, the header says so", tostring(FS.Word()))
+
+        up[24398] = { name = "Water Shield", spellId = 24398 }
+        FS.Check()
+        ok(FS.Word() == nil, "with it on, nothing is missing")
+
+        -- IN A FIGHT. This is the whole point of asking per spell: the blanket question says no to
+        -- everything inside the lockdown, so the reminder has only ever worked between pulls. If
+        -- the client will still answer about THIS aura, the answer is current.
+        STATE.inCombat = true
+        up[24398] = nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield",
+           "a buff the client will still talk about mid-fight is answered mid-fight",
+           tostring(FS.Word()))
+
+        -- and when it will not talk about it, the last answer stands - never "missing"
+        up[24398] = { name = "Water Shield" }
+        FS.Check()
+        hidden[24398] = true
+        FS.Check()
+        ok(FS.Word() == nil, "a buff it has gone quiet about keeps what it last was",
+           tostring(FS.Word()))
+        local before = asked[24398]
+        FS.Check()
+        ok(pcall(FS.Check), "and the lookup is never made on a secret aura, so nothing throws")
+        ok(asked[24398] > before, "because the question is asked every time, not cached")
+        hidden[24398] = false
+        STATE.inCombat = false
+
+        -- AN AURA TABLE THAT MAY NOT BE READ is not an aura that is missing. canaccessvalue is
+        -- what Overlord asks of the table itself - issecretvalue is not for tables.
+        local realAccess = _G.canaccessvalue
+        up[24398] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "it is missing, plainly")
+        up[24398] = { name = "Water Shield" }
+        _G.canaccessvalue = function() return false end
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        -- ASKED OF FS.Present, NOT OF THE HEADER. "Unknown" and "it is on you" both leave the
+        -- header saying nothing, so the header cannot tell them apart - and a test that cannot
+        -- tell them apart passes with the guard deleted. This one names the state.
+        ok(FS.Present("Water Shield") == nil,
+           "a table the client will not let us read is UNKNOWN, not 'on you'",
+           tostring(FS.Present("Water Shield")))
+        ok(FS.Word() == nil, "so the header says nothing rather than something made up")
+        _G.canaccessvalue = realAccess
+        ok(FS.Present("Water Shield") == true, "and with the guard answering yes, it is on you")
+
+        -- A BOOK WITH NO IDS STILL HAS TO ANSWER. The by-id call exists on this client, but the
+        -- spellbook can name a spell and refuse its id - which is the ordinary state at login,
+        -- before the book has filled in. The old walk is the answer then, not "cannot say".
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return nil                                    -- named, but no id
+        end
+        -- ON you, so the two answers differ: the walk says "up", and skipping the walk entirely
+        -- says "missing" - which is the lie this is here to catch. A test with the buff OFF gets
+        -- the same word out of both and proves nothing.
+        mine[1] = { name = "Water Shield" }
+        FS.state, FS.known = {}, nil
+        ok(FS.Present("Water Shield") == true,
+           "with no spell id to ask about, the old walk still answers",
+           tostring(FS.Present("Water Shield")))
+        mine[1] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "and still says what is missing that way",
+           tostring(FS.Word()))
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return n == 21 and { spellID = 24398 } or nil
+        end
+
+        -- a secret ANSWER to "is it secret?" is itself an unknown, not a no
+        _G.C_Secrets.ShouldSpellAuraBeSecret = function() return secret() end
+        ok(FS.Present("Water Shield") == nil,
+           "a secret answer about secrecy is unknown, not permission")
+        _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("no such call", 2) end
+        ok(FS.Present("Water Shield") == nil, "and so is an error")
+
+        _G.C_Secrets = realSecrets
+        _G.C_SpellBook.GetSpellBookItemInfo = realInfo
+        auras.GetPlayerAuraBySpellID = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+    end
+
+    -- TAKING A BUFF OFF THE LIST FORGETS WHAT IT WAS. The memory is per name and outlives the
+    -- answer that filled it, so a name that comes back after being taken off would arrive with
+    -- its old verdict already in place - "no Water Shield" from ten minutes ago, before the
+    -- client has been asked once about it.
+    do
+        local auras = _G.C_UnitAuras
+        local realWalk = auras.GetAuraDataByIndex
+        mine[1] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "it is missing, and remembered as missing")
+        -- ONE call: the class default becomes an explicit list holding the same name. Two calls
+        -- would take it off again and leave NOTHING watched, where every answer is nil and the
+        -- test proves nothing - which is exactly what the first draft of this did.
+        -- FS.Add, not the slash command: /bish buff prints a report, and the report asks the
+        -- client again on its way past - so the verdict is back before the silence begins and
+        -- the forgetting is invisible. (The sound tests learned this the same way.)
+        FS.Add("Water Shield")
+        auras.GetAuraDataByIndex = function() error("the client is not answering", 2) end
+        FS.Check()
+        ok(FS.Word() == nil,
+           "a change to the list forgets the verdict, and a silent client does not refill it",
+           tostring(FS.Word()))
+        -- AND THE SILENCE ITSELF IS NOT AN ANSWER. A client that throws on the first aura slot
+        -- used to walk out of the loop and report an empty aura bar, which reads as every watched
+        -- buff missing.
+        ok(FS.Present("Water Shield") == nil,
+           "a client that refuses the walk is unknown, not an empty aura bar",
+           tostring(FS.Present("Water Shield")))
+        auras.GetAuraDataByIndex = realWalk
+        NS.DO.buff("reset")
+        FS.state, FS.known = {}, nil
+        FS.Check()
+    end
 
     -- the player's own list: add, take away, reset
     NS.DO.buff("Lightning Shield")

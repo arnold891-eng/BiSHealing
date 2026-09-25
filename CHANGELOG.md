@@ -1,5 +1,21 @@
 # BiS Healing
 
+## 0.5.3
+
+- **The buff reminder asks the game about one buff, by spell id.** It used to read every aura slot
+  on you and compare names - and a name is the first thing this client hides, so one hidden buff
+  anywhere in your list made the whole answer "cannot say". Now it asks about the buff it is
+  watching and nothing else.
+- **Which means it can work during a fight.** The old question was "are auras secret right now?",
+  and inside a fight the answer is always yes. The new one is asked per spell: where the game will
+  still answer about your shield mid-pull, the header is current rather than frozen at the last
+  thing it knew. Where it will not, nothing changes - and it never reports a buff as missing on a
+  silence.
+- **Each watched buff remembers its own last answer** instead of the whole list being kept or
+  thrown away together.
+- Fixed: a game that refused the aura list outright was read as "you have no buffs at all", which
+  would have reported every watched buff missing at once.
+
 ## 0.5.2
 
 - **Fixed: the header's word was cut off on a party grid.** One group down is one

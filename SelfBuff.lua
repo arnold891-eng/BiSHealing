@@ -47,34 +47,147 @@ function FS.Knows(name)
     return false
 end
 
---- Which of them are not on you right now. Returns the list, and false when the client would not
---- say - which is the whole of a fight, and is not the same as "none missing".
-function FS.Missing()
-    if NS.Blind and NS.Blind() then return nil, false end
+--- ASKED ABOUT ONE AURA, BY ID. Read off Overlord 1.0.16 on 24 Sep 2026, which asks these two
+--- questions before every lookup it makes:
+---
+---   C_Secrets.ShouldSpellAuraBeSecret(spellID)   is THIS aura hidden right now?
+---   C_UnitAuras.GetPlayerAuraBySpellID(spellID)  then fetch just that one
+---
+--- Both beat what was here. The old walk read forty slots and compared their NAMES, and a name is
+--- the first thing this client hides - so one secret name in a raid buff bar made the whole answer
+--- "cannot say". And `ShouldAurasBeSecret` (our NS.Blind) answers for auras as a WHOLE: inside a
+--- fight it says no to everything, which is why this reminder has only ever worked between pulls.
+--- Per spell, the client may still answer during one. It may also not - that is measured in game,
+--- not here, and either way the answer is honest.
+---
+--- THREE STATES, PER BUFF: on you, not on you, or the client will not say. "Will not say" is never
+--- folded into "not on you" - telling a healer their shield has dropped when the truth is that
+--- nobody knows is the one failure that makes a reminder worth switching off.
+local UNKNOWN = nil
+
+function FS.Present(name)
+    local ids = FS.SpellIds(name)
+    local byID = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+    -- NO IDS, OR NO CALL: the old walk, which is the only answer a TBC client can give. A
+    -- spellbook that names a spell but will not hand over its id is a real state at login, and
+    -- "the client has gone quiet" would be a lie about it.
+    if #ids == 0 or not byID then return FS.PresentByWalk(name) end
+    local sawUnknown = false
+    for _, spellID in ipairs(ids) do
+        if FS.AuraSecret(spellID) then
+            sawUnknown = true
+        else
+            local ok, aura = pcall(byID, spellID)
+            if not ok then
+                sawUnknown = true
+            elseif not FS.Readable(aura) then
+                sawUnknown = true
+            elseif aura ~= nil then
+                return true                  -- any rank of it, up: that is the whole question
+            end
+        end
+    end
+    if sawUnknown then return UNKNOWN end
+    return false
+end
+
+--- Is this one aura a secret right now? An error, or an answer we may not read, is "yes" - the
+--- lookup is then not made at all, which is Overlord's rule and the right way round: a refused
+--- read is a thrown error in the middle of a pull.
+function FS.AuraSecret(spellID)
+    local ask = C_Secrets and C_Secrets.ShouldSpellAuraBeSecret
+    if not ask then return false end
+    local ok, secret = pcall(ask, spellID)
+    if not ok then return true end
+    local plain = NS.Plain(secret)
+    if plain == nil then return true end     -- the ANSWER itself was secret
+    return plain and true or false
+end
+
+--- May this value be looked at? `canaccessvalue` answers for a whole table, which `issecretvalue`
+--- is not for - and what comes back here is an aura table. Overlord asks it 36 times to
+--- issecretvalue's one.
+function FS.Readable(v)
+    if v == nil then return true end         -- "no such aura" is an answer, not a refusal
+    if canaccessvalue then
+        local ok, yes = pcall(canaccessvalue, v)
+        return ok and yes and true or false
+    end
+    return NS.Plain(v) ~= nil
+end
+
+--- The old way, kept for a client without the by-id call: forty slots, compared by name.
+function FS.PresentByWalk(name)
+    if NS.Blind and NS.Blind() then return UNKNOWN end
     local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if not get then return nil, false end
-    local up, readable = {}, true
+    if not get then return UNKNOWN end
     for i = 1, 40 do
         local ok, a = pcall(get, "player", i, "HELPFUL")
-        if not ok or not a then break end
-        local name = pcall(function() return a.name end) and NS.Plain(a.name) or nil
-        if name == nil then readable = false else up[name] = true end
+        -- A REFUSAL IS NOT AN EMPTY AURA BAR. These two were one line - `if not ok or not a then
+        -- break end` - so a client that threw on the first slot walked out of the loop and said
+        -- "nothing on you", which reads as every watched buff missing. Nil is the end of the
+        -- list; an error is the client declining to say.
+        if not ok then return UNKNOWN end
+        if not a then break end
+        local got = pcall(function() return a.name end) and NS.Plain(a.name) or nil
+        if got == nil then return UNKNOWN end
+        if got == name then return true end
     end
-    if not readable then return nil, false end
-    local missing = {}
+    return false
+end
+
+--- Which of them are not on you right now, and whether the client answered about all of them.
+--- The second value is false when ANY watched buff came back unknown - the caller keeps what it
+--- knew for those, and takes the news for the rest.
+function FS.Missing()
+    local missing, whole = {}, true
     for _, name in ipairs(FS.List()) do
-        if FS.Knows(name) and not up[name] then missing[#missing + 1] = name end
+        if FS.Knows(name) then
+            local present = FS.Present(name)
+            if present == nil then whole = false
+            elseif present == false then missing[#missing + 1] = name end
+        end
     end
-    return missing, true
+    return missing, whole
 end
 
 --- What the header should say about it, or nil. Kept from the last readable moment, because in a
 --- fight the client says nothing: a shield that fell off mid-pull is news the moment it ends.
+--- REMEMBERED PER BUFF, not in one lump. It used to keep the whole list only when the client had
+--- answered about all of it, so one unreadable buff threw away the news about every other. Now
+--- each one keeps its own last answer: the shield the client will still talk about mid-fight is
+--- current, and the one it has gone quiet on shows what it last was.
 FS.known = nil
+FS.state = {}          -- name -> true (on you) / false (not), only ever set from a real answer
+
+--- WHAT A BUFF LAST WAS IS NOT NEWS ABOUT THE LIST IT IS ON. Every change to the watched list
+--- comes through here, so a name that goes and comes back arrives with nothing already decided
+--- about it - rather than the verdict from ten minutes ago, before the client had been asked once.
+function FS.Forget()
+    FS.state, FS.known = {}, nil
+end
 
 function FS.Check()
-    local missing, readable = FS.Missing()
-    if readable then FS.known = missing end
+    for _, name in ipairs(FS.List()) do
+        if FS.Knows(name) then
+            local present = FS.Present(name)
+            if present ~= nil then FS.state[name] = present and true or false end
+        end
+    end
+    if next(FS.state) == nil then return FS.known end     -- nothing has ever been answered
+    local missing = {}
+    for _, name in ipairs(FS.List()) do
+        if not FS.Knows(name) then
+            -- A SPELL YOU DO NOT HAVE IS NOT A SPELL YOU FORGOT. The memory is per name and
+            -- outlives the answer that filled it, so an untrained spell - or one whose book has
+            -- not arrived yet at login - would otherwise keep reporting what it last was. That is
+            -- the Earth Shield mistake again: a level 15 shaman told about a spell learned at 50.
+            FS.state[name] = nil
+        elseif FS.state[name] == false then
+            missing[#missing + 1] = name
+        end
+    end
+    FS.known = missing
     return FS.known
 end
 
@@ -106,12 +219,15 @@ function FS.Add(name)
             table.remove(list, i)
             d.selfBuffs = list
             if #list == 0 then d.selfBuffs = { none = true } end
+            FS.Forget()                                 -- and forget what it last was
+            FS.Sounds()
             return nil, n                               -- taken off the list
         end
     end
     list[#list + 1] = name
     list.none = nil
     d.selfBuffs = list
+    FS.Forget()
     FS.Sounds()                       -- the new list, and nothing left over from the old one
     return name
 end
@@ -119,6 +235,7 @@ end
 function FS.Reset()
     local d = NS.DB and NS.DB()
     if type(d) == "table" then d.selfBuffs = nil end
+    FS.Forget()
     FS.Sounds()
     return FS.List()
 end

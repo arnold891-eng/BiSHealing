@@ -2,6 +2,11 @@
 
 ## 0.6.0
 
+The last release on CurseForge was 0.5.2, so this one also carries everything in
+0.5.3, 0.5.4 and 0.5.5 below: a **cell for yourself** out of the group, the buff
+reminder learning to ask the game about **one buff at a time** (which may let it
+work during a fight), and a fix for the options window throwing errors.
+
 - **Two blocks never share a side.** Switch on a cell whose place is already taken by another and
   it goes to the next free side instead of drawing over it. Shift-clicking a bar round the grid
   skips the sides in use, too. Whatever was there first keeps its place.

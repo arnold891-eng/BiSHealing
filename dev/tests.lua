@@ -156,7 +156,19 @@ local function newFrame(kind, name, parent)
         local fs = autoMethods({
             SetText = function(self2, t) self2.__text = t end,
             GetText = function(self2) return self2.__text end,
-            SetTextColor = function(self2, r, g, b) self2.__color = { r, g, b } end,
+            -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
+            -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
+            -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
+            -- return value - painted r with g and b nil, passed the suite, and threw five times
+            -- on one click of the minimap button (26 Sep). A widget that takes anything cannot
+            -- tell you that you gave it nothing.
+            SetTextColor = function(self2, r, g, b, a)
+                if type(r) == "table" then self2.__color = r return end      -- the color-object form
+                if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+                    error("bad argument #1 to 'SetTextColor' (Usage: self:SetTextColor(color [, a]))", 2)
+                end
+                self2.__color = { r, g, b, a }
+            end,
             -- a width, as the client always gives one: ~5px a character at the small font
             GetStringWidth = function(self2)
                 return type(self2.__text) == "string" and #self2.__text * 5 or 0

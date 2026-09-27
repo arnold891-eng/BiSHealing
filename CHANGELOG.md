@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 0.5.5
+
+- **Fixed: opening the options window threw five errors** and the cells row came out uncoloured.
+  The colour was being read in a way that kept only its red and dropped the green and blue, and
+  the game refuses a colour with a hole in it. 0.5.4 only.
+
 ## 0.5.4
 
 Asked for by paszczyszyn on CurseForge - thank you.

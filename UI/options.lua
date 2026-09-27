@@ -176,7 +176,11 @@ function CFG.CellsRow(f, opt)
         for i, b in ipairs(buttons) do
             local on = opt.parts[i].get(db) == true
             b.edge:set(on and "accent" or "edge", 1)
-            local r, g, bl = (T.rgb(on and "accent" or "muted"))
+            -- NO BRACKETS ROUND THE CALL. `(f())` keeps the FIRST return value and throws the
+            -- rest away, so green and blue arrived as nil and the client refused the colour:
+            -- five errors out of one click on the minimap button (Arn, 26 Sep). The same trap
+            -- cost the header its regen number on the 23rd, in `GetManaRegen and GetManaRegen()`.
+            local r, g, bl = T.rgb(on and "accent" or "muted")
             b.label:SetTextColor(r, g, bl, 1)
             -- hover must not leave a live one looking dead (the lib's seg learned this too)
             b:SetScript("OnLeave", function(x) x.edge:set(on and "accent" or "edge", 1) end)

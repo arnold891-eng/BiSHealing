@@ -200,7 +200,7 @@ function FG.Roster()
     local d = NS.DB and NS.DB()
     -- PETS, when asked for (Arn: "toggel to see pets"). Off by default: a raid with five hunters
     -- and three warlocks is eight more cells, and most healers heal pets by exception.
-    local pets = type(d) == "table" and d.pets == true
+    local pets = FG.PetsInGrid()          -- "own" builds its own block; "off" is nowhere
     -- YOU COME OUT OF THE GRID when you have a cell of your own (paszczyszyn, 25 Sep: "lock
     -- yourself in one spot outside groups"). Left in, you are first in a party and somewhere in
     -- the middle of a raid, and the grid reshapes around you every time the group changes - which
@@ -492,6 +492,121 @@ function FG.PlaceSelf(f, anchor)
     return FG.PlaceAt(f, anchor, FG.SelfSpot(), type(d) == "table" and d.mePos or nil)
 end
 
+-- PETS: THREE ANSWERS, NOT TWO. Arn, 26 Sep: "pets should have 3 setting default is they show up
+-- on the main cells, solo cell only pets and off on all cells" - which is paszczyszyn's second
+-- request (25 Sep) in the shape Arn wants it: "separete pet group (being able to have different
+-- setup's for it and move it alone ... as pets are not that important as players but still being
+-- able to cast on them if you have mana to spare)".
+--
+--   "grid"  a column of their own inside the main grid, which is what `pets on` has always meant
+--   "own"   a block of their own, dragged where you like, with nothing but pets in it
+--   "off"   nowhere
+--
+-- The setting used to be a boolean and is still written as one by any macro made before today,
+-- so `true` reads as "grid" and `false` as "off".
+FG.PET_MODES = { grid = true, own = true, off = true }
+
+function FG.PetsMode()
+    local d = NS.DB and NS.DB()
+    local m = type(d) == "table" and d.pets or nil
+    if m == true then return "grid" end
+    if m == false or m == nil then return "off" end
+    return FG.PET_MODES[m] and m or "off"
+end
+
+function FG.PetsInGrid() return FG.PetsMode() == "grid" end
+function FG.PetsOwnBlock() return FG.PetsMode() == "own" end
+
+FG.PET_KEYS = { what = "the pet block", at = "petAt", pos = "petPos",
+                spot = function() return FG.PetSpot() end,
+                place = function(f) return FG.PlacePets(f) end }
+
+--- UNDER THE GRID by default: a pet block is a column, and a column hanging off the bottom reads
+--- as "more of the same, less important", which is what a pet is.
+function FG.PetSpot()
+    local d = NS.DB and NS.DB()
+    local at = type(d) == "table" and d.petAt or nil
+    return FG.TARGET_SPOTS[at or ""] and at or "under"
+end
+
+--- Every pet the client will admit to, in the group's order.
+function FG.PetRoster()
+    local out = {}
+    local function add(u) if UnitExists(u) then out[#out + 1] = u end end
+    if IsInRaid and IsInRaid() then
+        for i = 1, 40 do add("raidpet" .. i) end
+        return out
+    end
+    add("pet")
+    for i = 1, 4 do add("partypet" .. i) end
+    return out
+end
+
+--- A BLOCK OF THEIR OWN, moved as one thing. The single loose cells hang off nothing, but a pet
+--- block is several cells that must travel together - so they hang off a frame of their own, and
+--- that frame is what the bar drags. The same trick as the grid's anchor, one size down.
+function FG.LayoutPets(anchor)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    anchor = anchor or FG.anchor
+    if not anchor then return false end
+    local d = NS.DB and NS.DB()
+    local want = FG.PetsOwnBlock() and type(d) == "table" and d.shown ~= false
+    local roster = want and FG.PetRoster() or {}
+    if #roster == 0 then
+        -- no pets, or not wanted: the block goes away entirely rather than sitting there empty
+        for _, f in ipairs(FG.petFrames or {}) do
+            FG.Unwatch(f)
+            f.unit = nil
+            f:Hide()
+        end
+        if FG.petAnchor then FG.petAnchor:Hide() end
+        return true, false
+    end
+    if not FG.petAnchor then
+        local a = CreateFrame("Frame", "BiSHealingForeverPets", anchor)
+        a:SetSize(FRAME_W, FRAME_H)
+        FG.petAnchor = a
+        FG.petFrames = {}
+        FG.CellHeader(a, "pets", a, FG.PET_KEYS)
+    end
+    local a = FG.petAnchor
+    a:Show()
+    if a.handle then a.handle:Show() end
+    for i, unit in ipairs(roster) do
+        local f = FG.petFrames[i]
+        if not f then
+            f = FG.Make("Pet" .. i, a)
+            FG.petFrames[i] = f
+        end
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -(i - 1) * (FRAME_H + PAD))
+        f:SetSize(FRAME_W, FRAME_H)
+        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        FG.Bind(f, unit)
+        if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
+        f:Show()
+    end
+    for i = #roster + 1, #FG.petFrames do
+        local f = FG.petFrames[i]
+        if f then
+            f.unit = nil
+            FG.Unwatch(f)
+            f:Hide()
+        end
+    end
+    -- the block is the size of what is in it, so its bar spans the cells and a drag grabs all of it
+    a:SetSize(FRAME_W, #roster * (FRAME_H + PAD) - PAD)
+    FG.PlacePets(a, anchor)
+    return true, #roster
+end
+
+function FG.PlacePets(f, anchor)
+    f = f or FG.petAnchor
+    anchor = anchor or FG.anchor
+    local d = NS.DB and NS.DB()
+    return FG.PlaceAt(f, anchor, FG.PetSpot(), type(d) == "table" and d.petPos or nil)
+end
+
 -- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
 -- top. and we can give it its own little header where they can drag it where ever they want on
 -- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
@@ -500,6 +615,37 @@ FG.TARGET_SPOTS = { under = true, right = true, left = true, top = true, free = 
 -- is not in the ring - it is where a drag put it - so a shift-click on a dragged cell brings it
 -- back to the grid, starting at the top.
 FG.TARGET_RING = { top = "right", right = "under", under = "left", left = "top", free = "top" }
+-- the same ring as a list, for walking it looking for a free side
+FG.RING = { "top", "right", "under", "left" }
+
+--- WHO IS ALREADY THERE. Arn, 26 Sep, with "BiS> meget" printed across one bar: "if target is
+--- already taking up the top and i also turn on me dont overlap them send them to the next
+--- available slot".
+---
+--- Only blocks that are ON the grid can collide; a dragged one is "free", which is wherever the
+--- player put it and none of our business. `mine` is the key table of the block asking, so it
+--- never counts itself as being in its own way.
+function FG.SpotTaken(at, mine)
+    local d = NS.DB and NS.DB()
+    if type(d) ~= "table" or at == "free" then return false end
+    if mine ~= FG.TARGET_KEYS and d.target == true and FG.TargetSpot() == at then return true end
+    if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
+    if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
+    return false
+end
+
+--- The spot it asked for, or the next one round the ring that nobody is using. Every side taken
+--- means it goes where it asked and the player sorts it out with a drag - four blocks and four
+--- sides is not a situation this can fix by moving one more thing.
+function FG.FreeSpot(at, mine)
+    if not FG.SpotTaken(at, mine) then return at end
+    local next_ = FG.TARGET_RING[at] or "top"
+    for _ = 1, #FG.RING do
+        if not FG.SpotTaken(next_, mine) then return next_, at end
+        next_ = FG.TARGET_RING[next_] or "top"
+    end
+    return at
+end
 
 --- TOP BY DEFAULT. Arn, 23 Sep: "make it defaut to the top window when it starts at the bottom you
 --- cant see the header to move it" - under the grid, the handle sits in the gap between the two and
@@ -624,7 +770,8 @@ function FG.CellHeader(f, word, moves, keys)
         if InCombatLockdown and InCombatLockdown() then return end
         local d = NS.DB and NS.DB()
         if type(d) ~= "table" then return end
-        d[keys.at] = FG.TARGET_RING[keys.spot()] or "top"
+        -- round the ring, and past any side another block is already using
+        d[keys.at] = FG.FreeSpot(FG.TARGET_RING[keys.spot()] or "top", keys)
         d[keys.pos] = nil
         keys.place(moves)
         if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
@@ -914,6 +1061,7 @@ function FG.Layout(anchor)
 
     FG.LayoutTarget(anchor)         -- the target's own cell, under the grid, when it is wanted
     FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
+    FG.LayoutPets(anchor)           -- and the pets, when they have a block rather than a column
 
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
@@ -1168,6 +1316,7 @@ function FG.SetScale(v, fromMacro)
     -- dragged: its point has to be worked out again at the new scale or it slides away
     if FG.target then FG.PlaceTarget(FG.target, a) end
     if FG.me then FG.PlaceSelf(FG.me, a) end        -- and yours, which is pinned the same way
+    if FG.petAnchor then FG.PlacePets(FG.petAnchor, a) end
     keep()
     return true, s
 end
@@ -1408,6 +1557,10 @@ function FG.Start()
         if t and t.unit and t:IsShown() then
             if t.name then t.name:SetText(FG.ShortName("target")) end
             FG.Paint(t)
+        end
+        -- the pet block's cells are not in FG.frames either
+        for _, f in ipairs(FG.petFrames or {}) do
+            if f.unit and f:IsShown() then FG.Paint(f) end
         end
         -- your own cell is out of the roster, so the loop above never reaches it
         local me = FG.me

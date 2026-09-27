@@ -83,10 +83,14 @@ function CFG.Sections()
                 { key = "me", label = "me",
                   get = function(db) return db.me == true end,
                   set = function(on) if DO.me then DO.me(on) end end },
-                { key = "pets", label = "pets",
-                  get = function(db) return db.pets == true end,
-                  set = function(on) if DO.pets then DO.pets(on) end end },
             } },
+            -- PETS HAVE THREE ANSWERS, so they are not one of the switches above: in the main
+            -- cells, in a block of their own, or nowhere (Arn, 26 Sep). One question, three
+            -- answers, which is exactly what the lib's `seg` is for.
+            { key = "pets", kind = "seg", label = "pets",
+              values = { "grid", "own", "off" },
+              get = function() return (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or "off" end,
+              set = function(_, v) if DO.pets then DO.pets(v) end end },
             -- THREE LAYOUTS, one row. A player asked for cells "vertically and horizontally"
             -- (paszczyszyn, 22 Sep); the pyramid was already here, so a switch became segments.
             { key = "layout", kind = "seg", label = "groups",

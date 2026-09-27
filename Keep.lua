@@ -147,6 +147,24 @@ local function settingRows(settings)
             end
         end
     end
+    -- THE PETS (V for... the letters are running out; think "Vet"). Three answers now, and the
+    -- setting has never ridden in the macro at all - so "pets on" was forgotten at every login,
+    -- quietly, for as long as the option has existed. A dragged block writes its place after the
+    -- colon, the same shape as everything else here.
+    local PETCODE = { grid = 1, own = 2 }        -- "off" is the default and writes nothing
+    if PETCODE[settings.pets or ""] then
+        out[#out + 1] = "V=" .. PETCODE[settings.pets]
+            .. ((settings.pets == "own" and SPOTCODE[settings.petAt or ""]) and (":" .. SPOTCODE[settings.petAt]) or "")
+        local v = settings.petPos
+        if settings.pets == "own" and settings.petAt == "free"
+           and type(v) == "table" and tonumber(v.x) and tonumber(v.y) then
+            local x = math.floor(tonumber(v.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(v.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("W=%d:%d"):format(x, y)
+            end
+        end
+    end
     local px = tonumber(settings.markers)
     if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
     -- THE BUFF-DROP SOUND (N for Noise), both halves in one row: the file id, and a 1 after a
@@ -246,6 +264,11 @@ function FK.Decode(body)
             settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
             settings.markers = tonumber(idx)
+        elseif code == "V" then
+            settings.pets = tonumber(idx) == 2 and "own" or (tonumber(idx) == 1 and "grid" or nil)
+            if settings.pets == "own" then settings.petAt = CODESPOT[tonumber(rank)] end
+        elseif code == "W" and tonumber(idx) and tonumber(rank) then
+            settings.petPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "Y" then
             settings.me = (tonumber(idx) or 0) > 0
             settings.meAt = CODESPOT[tonumber(idx)]
@@ -378,6 +401,8 @@ function FK.Save(binds)
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers, tot = t.tot,
                                              me = t.me, meAt = t.meAt, mePos = t.mePos,
+                                             pets = (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or nil,
+                                             petAt = t.petAt, petPos = t.petPos,
                                              targetAt = t.targetAt, targetPos = t.targetPos,
                                              sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
     if not body then return false, "nothing to write" end

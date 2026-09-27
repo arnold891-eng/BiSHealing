@@ -61,8 +61,11 @@ health, and that is exactly what this client will not allow.
 - A green pip when there is something on them **you** can take off, a dimmed
   cell when they are out of range of whatever is on your left button, and a role
   icon (the raid's Main Tank counts as a tank).
-- Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
-  own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
+- Optional: a pyramid (`/bish pyramid`, tanks on top) and a size from 60% to
+  160% (`/bish scale 90`).
+- **Pets, three ways** (`/bish pets grid | own | off`): a column inside the main
+  cells, a block of their own with a `BiS> pets` bar you can drag anywhere, or
+  nowhere at all. Off to begin with.
 
 ### A cell for yourself
 

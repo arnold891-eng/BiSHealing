@@ -1327,11 +1327,13 @@ do
     local d = NS.DB()
     STATE.units.pet, STATE.units.partypet1 = true, true
 
-    ok(d.pets == false, "pets are off on a fresh install")
+    -- THREE SETTINGS SINCE 26 SEP, not two: in the main cells, in a block of their own, or
+    -- nowhere. Off is still what a fresh install gets - the three are about WHERE, not whether.
+    ok(FG.PetsMode() == "off", "pets are off on a fresh install", FG.PetsMode())
     local off = table.concat(FG.Roster(), " ")
     ok(not off:find("pet", 1, true), "and while off, no pet is in the roster even when one exists", off)
 
-    ok(NS.DO.pets() == true and d.pets == true, "/bish pets turns them on")
+    ok(NS.DO.pets("grid") == "grid" and FG.PetsInGrid(), "/bish pets grid puts them in the cells")
     local on = table.concat(FG.Roster(), " ")
     ok(on:find("partypet1", 1, true) and on:find(" pet", 1, true), "and then the pets are in it", on)
 
@@ -1354,7 +1356,16 @@ do
 
     ok(fire(FG.events, "UNIT_PET"), "a pet summoned mid-session is noticed - UNIT_PET is registered")
 
-    ok(NS.DO.pets() == false, "and /bish pets turns them off again")
+    -- a bare /bish pets walks the three, so the options button and the old habit both work
+    ok(NS.DO.pets() == "own", "a bare /bish pets walks on to the block")
+    ok(NS.DO.pets() == "off", "and then to off")
+    ok(NS.DO.pets() == "grid", "and round again")
+    -- A MACRO WRITTEN BEFORE TODAY HOLDS A BOOLEAN, and it still means what it meant
+    d.pets = true
+    ok(FG.PetsMode() == "grid", "an old `true` reads as the main cells", FG.PetsMode())
+    d.pets = false
+    ok(FG.PetsMode() == "off", "and an old `false` as off", FG.PetsMode())
+    ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
     FG.Layout(FG.anchor)
 end
@@ -1447,6 +1458,160 @@ do
     ok(not FG.me:IsShown(), "and the client's watch does not bring it back")
     ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are back in the group grid")
     d.me = false
+    FG.Layout(FG.anchor)
+end
+
+-- TWO BLOCKS NEVER SHARE A SIDE. Arn, 26 Sep, with one bar reading "BiS> meget" - the target's
+-- word and yours printed through each other: "if target is already taking up the top and i also
+-- turn on me dont overlap them send them to the next available slot".
+do
+    local d = NS.DB()
+    d.target, d.me, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.meAt, d.petAt = "top", "left", "under"
+    FG.Layout(FG.anchor)
+
+    NS.DO.target("top")
+    NS.DO.me("top")                                  -- asking for a side that is already taken
+    ok(d.targetAt == "top", "the block that was there first keeps its place", tostring(d.targetAt))
+    ok(d.meAt ~= "top", "and the one arriving does not land on it", tostring(d.meAt))
+    ok(FG.TARGET_SPOTS[d.meAt], "it lands on a real side", tostring(d.meAt))
+    ok(d.meAt == "right", "the next one round the ring", tostring(d.meAt))
+
+    -- AND THE OTHER WAY ROUND: yours there first, the target arriving. Tested both ways because
+    -- each block is a separate line in the "is anyone here?" question, and a test that only ever
+    -- collides one pair one way leaves the other line free to be deleted.
+    NS.DO.target(false)
+    NS.DO.me("top")
+    NS.DO.target("top")
+    ok(d.meAt == "top" and d.targetAt ~= "top",
+       "yours first, and the target cell is the one that moves",
+       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+
+    -- TWO SIDES TAKEN, so the walk has to step more than once. With only one in use, a ring walk
+    -- that gives up immediately lands on the same answer as one that looks properly.
+    NS.DO.me("top")
+    NS.DO.target("right")
+    NS.DO.pets("own")
+    d.petAt = "top"                                  -- and now ask it to sit on an occupied side
+    NS.DO.pets("own")
+    ok(d.petAt == "under",
+       "with top and right in use, the third block walks past both",
+       ("pets %s, me %s, target %s"):format(tostring(d.petAt), tostring(d.meAt), tostring(d.targetAt)))
+    ok(d.petAt ~= d.targetAt and d.petAt ~= d.meAt,
+       "and lands on a side neither of the others is on")
+
+    -- SWITCHED ON WITH A PLAIN yes, which is what the options window sends: the remembered side
+    -- may be somebody else's by now, and nothing in that path passes through a spot word.
+    NS.DO.me(false)
+    d.meAt = "right"                                 -- where the target block is sitting
+    NS.DO.me(true)
+    ok(d.meAt ~= "right", "switching it on with no side named still avoids the others",
+       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+    -- and the target cell, switched on the same way, onto a side yours is already using
+    NS.DO.target(false)
+    d.targetAt = d.meAt
+    NS.DO.target(true)
+    ok(d.targetAt ~= d.meAt, "and so does the target cell, switched on the same way",
+       ("target %s, me %s"):format(tostring(d.targetAt), tostring(d.meAt)))
+    -- AND THE PET BLOCK IS SOMETHING TO AVOID, not just something that avoids. It is the only
+    -- block that is not a single cell, and it was the last line of the question to be written.
+    NS.DO.pets("own")
+    NS.DO.me(false)
+    d.meAt = d.petAt
+    NS.DO.me(true)
+    ok(d.meAt ~= d.petAt, "a block is in the way of others, as well as avoiding them",
+       ("me %s, pets %s"):format(tostring(d.meAt), tostring(d.petAt)))
+    NS.DO.pets("off")
+
+    -- a shift-click walks past an occupied side too, rather than stopping on it
+    local h = FG.me.handle
+    STATE.shift = true
+    h.dragged = nil
+    h.__scripts.OnMouseUp(h, "LeftButton")
+    STATE.shift = false
+    ok(d.meAt ~= d.targetAt and d.meAt ~= d.petAt,
+       "shift-clicking round the ring skips the sides in use",
+       ("me %s, target %s, pets %s"):format(tostring(d.meAt), tostring(d.targetAt), tostring(d.petAt)))
+
+    -- "FREE" IS NOT A SIDE, it is wherever a drag put it - so any number of blocks can be free at
+    -- once and none of them is ever in another's way.
+    NS.DO.me(false)
+    NS.DO.pets("off")
+    NS.DO.target("top")                              -- one block in play, so the answer is its own
+    ok(FG.SpotTaken("top", FG.PET_KEYS) == true, "a block ON a side is in the way")
+    ok(FG.SpotTaken("free", FG.PET_KEYS) == false, "but nothing is ever in the way of a drag")
+    d.targetAt, d.targetPos = "free", { x = 10, y = 10 }
+    ok(FG.SpotTaken("top", FG.PET_KEYS) == false, "and one that was dragged away leaves its side")
+    ok(FG.SpotTaken("free", FG.PET_KEYS) == false, "even to another block being dragged")
+
+    d.target, d.me, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.meAt, d.petAt, d.mePos, d.targetPos = "top", "left", "under", nil, nil
+    FG.Layout(FG.anchor)
+end
+
+-- PETS IN A BLOCK OF THEIR OWN. paszczyszyn, 25 Sep: "separete pet group (being able to have
+-- different setup's for it and move it alone, just to make it smaller and in different possition,
+-- as pets are not that important as players but still being able to cast on them)".
+do
+    local d = NS.DB()
+    STATE.units.pet, STATE.units.partypet1 = true, true
+
+    NS.DO.pets("own")
+    ok(FG.PetsOwnBlock(), "/bish pets own gives them a block")
+    local roster = table.concat(FG.Roster(), " ")
+    ok(not roster:find("pet", 1, true), "and they come OUT of the main grid", roster)
+    ok(FG.petAnchor and FG.petAnchor:IsShown(), "the block is there")
+    ok(FG.petFrames and FG.petFrames[1] and FG.petFrames[1]:IsShown(), "with a cell in it")
+    ok(FG.petFrames[1]:GetAttribute("unit") == "pet"
+       and FG.petFrames[2]:GetAttribute("unit") == "partypet1",
+       "one per pet, in the group's order",
+       tostring(FG.petFrames[1]:GetAttribute("unit")))
+    ok(FG.petFrames[1].__attrs["*type1"] ~= nil,
+       "and the mouse binds on them, because a pet is still something you heal")
+    ok(FG.petAnchor.handle and FG.petAnchor.handle.__fontstrings
+       and FG.petAnchor.handle.__fontstrings[1].__text == "BiS> pets",
+       "under a bar of its own",
+       FG.petAnchor.handle and FG.petAnchor.handle.__fontstrings
+       and tostring(FG.petAnchor.handle.__fontstrings[1].__text))
+
+    -- MOVED AS ONE THING. The cells hang off the block, so the bar drags all of them at once -
+    -- which is the whole difference between a block and a handful of loose cells.
+    ok(FG.petFrames[1]:GetParent() == FG.petAnchor, "the cells hang off the block")
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    FG.petAnchor.GetCenter = function() return 760, 440 end          -- 200 left, 100 down
+    local h = FG.petAnchor.handle
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    ok(d.petAt == "free" and d.petPos and d.petPos.x == -200 and d.petPos.y == -100,
+       "and dragging the bar moves the block, and remembers where",
+       d.petPos and ("%s,%s"):format(d.petPos.x, d.petPos.y))
+    UIParent.GetCenter, FG.petAnchor.GetCenter = realUC, nil
+
+    -- IT RIDES IN THE MACRO, which pets never did before today: "pets on" was forgotten at every
+    -- single login, quietly, for as long as the option has existed.
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.pets("own")
+    NS.DO.me("left")                                  -- something else to share the row with
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("V=2", 1, true), "the pet setting goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.pets = {}, nil, false, "off"
+    NS.FM.Get("", "wheelup")
+    ok(FG.PetsMode() == "own", "and after a restart the pets are still in their block",
+       FG.PetsMode())
+    d.binds = keptBinds
+    MACROS = {}
+
+    NS.DO.pets("off")
+    ok(not FG.petAnchor:IsShown(), "switched off, the block goes")
+    ok(FG.petFrames[1].unit == nil, "and its cells stop being watched")
+    WATCH_TICK()
+    ok(not FG.petFrames[1]:IsShown(), "so the client does not bring them back")
+
+    STATE.units.pet, STATE.units.partypet1 = nil, nil
+    d.me, d.pets = false, "off"
     FG.Layout(FG.anchor)
 end
 
@@ -3837,16 +4002,19 @@ do
     do
         local parts = {}
         for _, part in ipairs((keys.cells or {}).parts or {}) do parts[part.key] = part end
-        for _, want in ipairs({ "target", "tot", "me", "pets" }) do
+        for _, want in ipairs({ "target", "tot", "me" }) do
             ok(parts[want], ("the cells row lost %q"):format(want))
         end
+        ok(keys.pets and keys.pets.kind == "seg",
+           "and pets is a row of its own, because it has three answers",
+           keys.pets and keys.pets.kind)
         -- AND EACH SWITCH READS ITS OWN SETTING. Four buttons side by side in one row is four
         -- chances to wire one to its neighbour's key, and the window would look perfectly
         -- sensible: the wrong button simply lights up.
         local db, was = NS.DB(), {}
-        for _, k in ipairs({ "target", "tot", "me", "pets" }) do was[k] = db[k] end
-        for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = false end
-        for _, k in ipairs({ "target", "tot", "me", "pets" }) do
+        for _, k in ipairs({ "target", "tot", "me" }) do was[k] = db[k] end
+        for _, k in ipairs({ "target", "tot", "me" }) do db[k] = false end
+        for _, k in ipairs({ "target", "tot", "me" }) do
             db[k] = true
             local lit = {}
             for name, part in pairs(parts) do
@@ -3857,7 +4025,7 @@ do
                table.concat(lit, ", "))
             db[k] = false
         end
-        for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = was[k] end
+        for _, k in ipairs({ "target", "tot", "me" }) do db[k] = was[k] end
 
         -- AND PRESSING ONE CHANGES ITS OWN SETTING. Reading is half the wiring; a `set` pointed at
         -- the neighbour's command looks identical until somebody clicks it.
@@ -3869,17 +4037,17 @@ do
         end
         NS.CFG.Build()
         local row = NS.CFG and NS.CFG.cells
-        ok(row and row.ctl and #row.ctl == 4, "the row has its four buttons", row and #(row.ctl or {}))
+        ok(row and row.ctl and #row.ctl == 3, "the row has its three buttons", row and #(row.ctl or {}))
         if row and row.ctl then
             for i, part in ipairs(keys.cells.parts) do
-                for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = false end
+                for _, k in ipairs({ "target", "tot", "me" }) do db[k] = false end
                 local click = row.ctl[i].__scripts and row.ctl[i].__scripts.OnClick
                 if click then click(row.ctl[i], "LeftButton") end
                 ok(db[part.key] == true,
                    ("pressing %q switches %q on"):format(part.label, part.key),
                    tostring(db[part.key]))
             end
-            for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = was[k] end
+            for _, k in ipairs({ "target", "tot", "me" }) do db[k] = was[k] end
             NS.DO.me(was.me == true)
             FG.Layout(FG.anchor)
         end
@@ -3900,11 +4068,14 @@ do
     -- roster event by itself, so that button was a fix for a bug, not a setting. Then a fifteenth
     -- came the same afternoon and the window grew, which is the other half of the rule.
     --
-    -- ON 26 SEP IT CAME BACK DOWN TO THIRTEEN. A fourth cell was asked for (paszczyszyn: one for
-    -- yourself), which would have been sixteen rows - and three of the fifteen were the same
-    -- question asked three times. "Which extra cells do you want?" is one row with four switches
-    -- on it. The rule was never about the number; it was about a window you can read in one look.
-    ok(#NS.UI.Rows() <= 13, "the window stays short: " .. #NS.UI.Rows())
+    -- ON 26 SEP IT CAME BACK DOWN. A fourth cell was asked for (paszczyszyn: one for yourself),
+    -- which would have been sixteen rows - and three of the fifteen were the same question asked
+    -- three times. "Which extra cells do you want?" is one row of switches. Pets then grew a
+    -- third answer the same day and left that row for one of their own, which is what the lib's
+    -- `seg` is for. Fourteen, two fewer than the fifteen this window was at when the day started.
+    --
+    -- The rule was never about the number; it is about a window you can read in one look.
+    ok(#NS.UI.Rows() <= 14, "the window stays short: " .. #NS.UI.Rows())
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
     -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the

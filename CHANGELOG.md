@@ -1,5 +1,19 @@
 # BiS Healing
 
+## 0.6.0
+
+- **Two blocks never share a side.** Switch on a cell whose place is already taken by another and
+  it goes to the next free side instead of drawing over it. Shift-clicking a bar round the grid
+  skips the sides in use, too. Whatever was there first keeps its place.
+- **Pets have three settings**, in the options window and on `/bish pets`:
+  - **grid** — a column of their own inside the main cells, which is what "pets on" always meant.
+  - **own** — a block of their own, with a `BiS> pets` bar: drag it anywhere, and nothing but pets
+    in it. Asked for by paszczyszyn: "separate pet group ... able to move it alone".
+  - **off** — nowhere. Still what a new install gets.
+- **Fixed: the pet setting was forgotten at every login.** It has never been kept in your
+  `BiSHealing` macro, for as long as the option has existed. It is now, along with where the pet
+  block sits.
+
 ## 0.5.5
 
 - **Fixed: opening the options window threw five errors** and the cells row came out uncoloured.

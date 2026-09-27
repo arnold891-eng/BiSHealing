@@ -186,6 +186,12 @@ local function db()
                 end
                 -- and your own cell, which is a row of its own: it has nothing to do with the
                 -- target block and a player may want one without the other
+                -- the pets, which never used to come back at all
+                if settings.pets then
+                    d.pets = settings.pets
+                    if settings.petAt then d.petAt = settings.petAt end
+                    if settings.petPos then d.petPos = settings.petPos end
+                end
                 if settings.me == true then
                     d.me = true
                     if settings.meAt then d.meAt = settings.meAt end

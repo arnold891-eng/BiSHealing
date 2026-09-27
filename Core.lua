@@ -61,7 +61,12 @@ local DEFAULTS = {
     -- then thought about it: "pyramid is a hard pill to swallow we keep it a toggle regular grid
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
-    pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
+    -- "grid" (a column inside the main grid), "own" (a block of their own), or "off". A boolean
+    -- from before 26 Sep still reads: true is "grid", false is "off". Off by default still, since
+    -- most healers heal a pet by exception - the three settings are about WHERE, not whether.
+    pets    = "off",
+    petAt   = "under",   -- where the pet block sits when it has one: under the grid by default
+    petPos  = nil,       -- where it was dragged to, from the middle of the screen
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
     between = false,     -- the between-pulls reminders in chat; off since 23 Sep ("put it away")
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
@@ -573,14 +578,54 @@ function NS.DO.text(unit)
     p:Show()
 end
 
---- Pets on or off. No argument flips it, which is what a toggle wants.
-function NS.DO.pets(on)
+--- PETS, THREE WAYS. Arn, 26 Sep: "pets should have 3 setting default is they show up on the main
+--- cells, solo cell only pets and off on all cells" - which is paszczyszyn's "separete pet group"
+--- request in the shape Arn wants it.
+---
+---   grid  a column of their own inside the main grid (what "pets on" always meant)
+---   own   a block of their own, dragged where you like, nothing but pets in it
+---   off   nowhere
+---
+--- No argument walks the three, so the button in the options window and a bare /bish pets both
+--- keep working. `true` and `false` are still understood: any macro written before today has a
+--- boolean in it, and a player who types "on" means the grid.
+local PET_WORDS = { grid = "grid", main = "grid", on = "grid", [true] = "grid",
+                    own = "own", solo = "own", block = "own",
+                    off = "off", none = "off", [false] = "off" }
+local PET_NEXT = { grid = "own", own = "off", off = "grid" }
+local PET_SAID = { grid = "pets in the main cells, in a column of their own",
+                   own = "pets in a block of their own - drag its bar to move it",
+                   off = "no pets anywhere" }
+
+function NS.DO.pets(how)
     local d = DB()
-    if on == nil then on = not d.pets end
-    d.pets = on and true or false
-    if not (InCombatLockdown and InCombatLockdown()) and NS.FG and NS.FG.Layout then NS.FG.Layout() end
-    Print(d.pets and "pets shown - in a column of their own" or "pets hidden")
-    return d.pets
+    local FG = NS.FG
+    local was = FG and FG.PetsMode and FG.PetsMode() or "off"
+    local want
+    if how == nil then
+        want = PET_NEXT[was] or "grid"
+    else
+        want = PET_WORDS[type(how) == "string" and how:lower() or how]
+        if not want then
+            Print("pets: %s, %s or %s", "|cffb980ffgrid|r", "|cffb980ffown|r", "|cffb980ffoff|r")
+            return was
+        end
+    end
+    d.pets = want
+    -- the block may need a side of its own, and the grid rebuilds either way: pets leaving the
+    -- roster changes every column in it
+    if want == "own" and FG and FG.FreeSpot then
+        d.petAt = FG.FreeSpot(FG.PetSpot(), FG.PET_KEYS)
+    end
+    local done = true
+    if not (InCombatLockdown and InCombatLockdown()) and FG and FG.Layout then
+        done = FG.Layout() and true or false
+    else
+        done = false
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print((PET_SAID[want] or want) .. (done and "" or " - after this fight"))
+    return want
 end
 
 --- A cell for whoever you have targeted, under the grid. A player's request (paszczyszyn, 22 Sep).
@@ -594,7 +639,7 @@ function NS.DO.target(on)
         if where == "bottom" or where == "below" then where = "under" end
         if where == "above" then where = "top" end
         if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
-            d.targetAt = where
+            d.targetAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.TARGET_KEYS) or where
             if where ~= "free" then d.targetPos = nil end
             on = true
         else
@@ -603,6 +648,9 @@ function NS.DO.target(on)
     end
     if on == nil then on = not d.target end
     d.target = on and true or false
+    if d.target and NS.FG and NS.FG.FreeSpot then
+        d.targetAt = NS.FG.FreeSpot(NS.FG.TargetSpot(), NS.FG.TARGET_KEYS)
+    end
     local done = true
     if NS.FG and NS.FG.LayoutTarget then done = NS.FG.LayoutTarget() and true or false end
     if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
@@ -648,7 +696,7 @@ function NS.DO.me(on)
         if where == "bottom" or where == "below" then where = "under" end
         if where == "above" then where = "top" end
         if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
-            d.meAt = where
+            d.meAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.SELF_KEYS) or where
             if where ~= "free" then d.mePos = nil end
             on = true
         else
@@ -657,6 +705,13 @@ function NS.DO.me(on)
     end
     if on == nil then on = not d.me end
     d.me = on and true or false
+    -- ARRIVING ON AN OCCUPIED SIDE MOVES YOU ALONG. Arn, 26 Sep, with both bars printed across
+    -- each other - "BiS> meget": "if target is already taking up the top and i also turn on me
+    -- dont overlap them send them to the next available slot". The block that has just been
+    -- switched on is the one that moves; whatever was already there keeps its place.
+    if d.me and NS.FG and NS.FG.FreeSpot then
+        d.meAt = NS.FG.FreeSpot(NS.FG.SelfSpot(), NS.FG.SELF_KEYS)
+    end
     -- the whole grid is rebuilt, not just the cell: you leaving the roster changes every column
     local done = true
     if NS.FG and NS.FG.Layout then done = NS.FG.Layout() and true or false end
@@ -838,6 +893,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.colour()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
+    elseif msg:match("^pets?%s+%a+$") then
+        NS.DO.pets(msg:match("^pets?%s+(%a+)$"))
     elseif msg == "target" or msg == "targetcell" then
         NS.DO.target()
     elseif msg:match("^target%s+%a+$") then

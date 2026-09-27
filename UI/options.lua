@@ -67,9 +67,26 @@ function CFG.Sections()
             { key = "colour", kind = "toggle", label = "bar colour by health",
               get = function(db) return db.color == "health" end,
               set = function(_, on) if DO.colour then DO.colour(on) end end },
-            { key = "pets", kind = "toggle", label = "show pets",
-              get = function(db) return db.pets == true end,
-              set = function(_, on) if DO.pets then DO.pets(on) end end },
+            -- FOUR SWITCHES, ONE ROW. Three of these had a row each and a fourth was asked for
+            -- (paszczyszyn, 25 Sep: a cell for yourself), which would have been sixteen rows in a
+            -- window whose own rule says thirteen was the last one. They are one question -
+            -- "which extra cells do you want?" - and the answers are not exclusive, so this is
+            -- not the lib's `seg`: it is built here from the lib's primitives, like the sound
+            -- drawer, and each button lights on its own.
+            { key = "cells", kind = "cells", label = "cells", parts = {
+                { key = "target", label = "target",
+                  get = function(db) return db.target == true end,
+                  set = function(on) if DO.target then DO.target(on) end end },
+                { key = "tot", label = "tot",
+                  get = function(db) return db.tot == true end,
+                  set = function(on) if DO.tot then DO.tot(on) end end },
+                { key = "me", label = "me",
+                  get = function(db) return db.me == true end,
+                  set = function(on) if DO.me then DO.me(on) end end },
+                { key = "pets", label = "pets",
+                  get = function(db) return db.pets == true end,
+                  set = function(on) if DO.pets then DO.pets(on) end end },
+            } },
             -- THREE LAYOUTS, one row. A player asked for cells "vertically and horizontally"
             -- (paszczyszyn, 22 Sep); the pyramid was already here, so a switch became segments.
             { key = "layout", kind = "seg", label = "groups",
@@ -82,15 +99,6 @@ function CFG.Sections()
                       DO.layout((v == "across" and "rows") or (v == "tanks" and "pyramid") or "columns")
                   end
               end },
-            { key = "target", kind = "toggle", label = "a cell for your target",
-              get = function(db) return db.target == true end,
-              set = function(_, on) if DO.target then DO.target(on) end end },
-            -- and directly under it, as Arn asked for it: "first check box turn on cell for
-            -- target option under it turn on target of target". Switching this one on switches
-            -- the one above on too - the cell hangs off it.
-            { key = "tot", kind = "toggle", label = "and their target",
-              get = function(db) return db.tot == true end,
-              set = function(_, on) if DO.tot then DO.tot(on) end end },
             { key = "markers", kind = "step", label = "marker size",
               min = 6, max = 20, step = 2,
               get = function(db) return db.markers or 10 end,
@@ -119,6 +127,62 @@ function CFG.Sections()
         -- for the sound rows the same way on the 23rd: the grid rescans on every roster event by
         -- itself, so the button was for a bug, and /bish rescan still presses it.
     }
+end
+
+------------------------------------------------------- the cells row --
+--
+-- One row, four switches that are not exclusive: the target cell, its target, your own, and pets.
+-- The shared lib has a `seg`, but a seg is one question with one answer and paints exactly one
+-- value live - which would say "you can have the target cell OR your own", and you can have both.
+-- So this is built from the lib's own primitives, the same escape hatch the sound drawer uses,
+-- and the copy under Libs\ is not touched.
+--
+-- It is also what kept the window short. These were three rows and a fourth was wanted; the
+-- window's own rule said thirteen was the last one it could afford.
+
+function CFG.CellsRow(f, opt)
+    local T = BiSTheme
+    local P = T and T.OptionsPrimitives
+    if not P then return f:Row({ kind = "button", label = opt.label, button = "?",
+                                 action = function() end }, NS.DB()) end
+    local O = T.OPTIONS
+    local row = f:AddRow()
+    row.opt = opt
+    row.name = P.fs(row, opt.label, 8, "ink2")
+    row.name:SetPoint("LEFT", O.INDENT, 0)
+
+    -- the whole width left of the edge, shared out: a label this short does not need the 110 px
+    -- the lib reserves for a control, and four words do
+    local WIDE, GAP = 42, 3
+    local buttons = {}
+    for i, part in ipairs(opt.parts) do
+        local b = P.flat(row, WIDE, 12, part.label)
+        b:SetPoint("RIGHT", -6 - (#opt.parts - i) * (WIDE + GAP), 0)
+        T.Fit(b.label, part.label, WIDE - 4)
+        b:SetScript("OnClick", function()
+            local db = NS.DB()
+            local on = not (part.get(db) == true)
+            part.set(on)
+            f:Paint()
+            f:Say(part.label .. (part.get(NS.DB()) and " on" or " off"),
+                  part.get(NS.DB()) and "good" or "warn")
+        end)
+        buttons[i] = b
+    end
+    row.ctl = buttons
+    CFG.cells = row                   -- so a suite can press the buttons, not just read the table
+    row.paint = function()
+        local db = NS.DB()
+        for i, b in ipairs(buttons) do
+            local on = opt.parts[i].get(db) == true
+            b.edge:set(on and "accent" or "edge", 1)
+            local r, g, bl = (T.rgb(on and "accent" or "muted"))
+            b.label:SetTextColor(r, g, bl, 1)
+            -- hover must not leave a live one looking dead (the lib's seg learned this too)
+            b:SetScript("OnLeave", function(x) x.edge:set(on and "accent" or "edge", 1) end)
+        end
+    end
+    return row
 end
 
 ---------------------------------------------------- the sound id drawer --
@@ -255,7 +319,7 @@ function CFG.Build()
     for _, section in ipairs(CFG.Sections()) do
         f:Section(section.title)
         for _, opt in ipairs(section.options) do
-            f:Row(opt, NS.DB())
+            if opt.kind == "cells" then CFG.CellsRow(f, opt) else f:Row(opt, NS.DB()) end
         end
     end
     f:Fit()

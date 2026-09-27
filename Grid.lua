@@ -201,13 +201,24 @@ function FG.Roster()
     -- PETS, when asked for (Arn: "toggel to see pets"). Off by default: a raid with five hunters
     -- and three warlocks is eight more cells, and most healers heal pets by exception.
     local pets = type(d) == "table" and d.pets == true
+    -- YOU COME OUT OF THE GRID when you have a cell of your own (paszczyszyn, 25 Sep: "lock
+    -- yourself in one spot outside groups"). Left in, you are first in a party and somewhere in
+    -- the middle of a raid, and the grid reshapes around you every time the group changes - which
+    -- is the thing that made him ask. Two cells for one person is also just two cells.
+    local mine = type(d) == "table" and d.me == true
     local function add(u) if UnitExists(u) then out[#out + 1] = u end end
     if IsInRaid and IsInRaid() then
-        for i = 1, 40 do add("raid" .. i) end
+        for i = 1, 40 do
+            local u = "raid" .. i
+            -- UnitIsUnit is the client's own answer to "is this me", and identity is a thing this
+            -- client can decide to hide - so an unreadable answer leaves the cell in the grid
+            -- rather than dropping somebody out of the raid by accident.
+            if not (mine and UnitIsUnit and NS.Plain(UnitIsUnit(u, "player")) == true) then add(u) end
+        end
         if pets then for i = 1, 40 do add("raidpet" .. i) end end
         return out
     end
-    out[1] = "player"
+    if not mine then out[1] = "player" end
     for i = 1, 4 do add("party" .. i) end
     if pets then
         add("pet")
@@ -421,6 +432,66 @@ function FG.PlaceToT(f, parent)
     return true, mirrored
 end
 
+--- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn on CurseForge,
+--- 25 Sep 2026): "optional (like target) self target? It may be nice option to lock yourself in
+--- one spot outside groups just to get use to it and have it in same spot for solo/or raid
+--- groups?".
+---
+--- THE POINT IS THE SPOT NEVER MOVES, and that is why switching this on takes you OUT of the
+--- group grid (FG.Roster). Left in, you would be first in the party and somewhere in the middle
+--- of a raid, and the whole grid reshapes around you every time the group does - which is the
+--- thing being asked about. One cell for you, in the same place whatever you are in tonight.
+---
+--- It is the target cell's machinery with a different unit: its own bar, dragged anywhere,
+--- shift-clicked round the grid, remembered in the macro. It defaults to the grid's LEFT, because
+--- the target block defaults to the top and two blocks in one place is a worse first impression
+--- than either of them being in the wrong one.
+function FG.LayoutSelf(anchor)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    anchor = anchor or FG.anchor
+    if not anchor then return false end
+    local d = NS.DB and NS.DB()
+    local want = type(d) == "table" and d.me == true and d.shown ~= false
+    if not want then
+        if FG.me then
+            FG.Unwatch(FG.me)
+            FG.me.unit = nil
+            FG.me:Hide()
+            if FG.me.handle then FG.me.handle:Hide() end
+        end
+        return true, false
+    end
+    local f = FG.me
+    if not f then
+        f = FG.Make("Me", anchor)
+        FG.me = f
+        FG.CellHeader(f, "me", f, FG.SELF_KEYS)
+    end
+    FG.PlaceSelf(f, anchor)
+    f:SetSize(FRAME_W, FRAME_H)
+    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    FG.Bind(f, "player")
+    if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "player") end
+    if f.handle then f.handle:Show() end
+    f:Show()
+    return true, true
+end
+
+--- LEFT BY DEFAULT, and anywhere a drag puts it. Its own setting, so it and the target cell can
+--- sit in different places - one spot setting for both would mean moving one moves the other.
+function FG.SelfSpot()
+    local d = NS.DB and NS.DB()
+    local at = type(d) == "table" and d.meAt or nil
+    return FG.TARGET_SPOTS[at or ""] and at or "left"
+end
+
+function FG.PlaceSelf(f, anchor)
+    f = f or FG.me
+    anchor = anchor or FG.anchor
+    local d = NS.DB and NS.DB()
+    return FG.PlaceAt(f, anchor, FG.SelfSpot(), type(d) == "table" and d.mePos or nil)
+end
+
 -- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
 -- top. and we can give it its own little header where they can drag it where ever they want on
 -- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
@@ -439,22 +510,19 @@ function FG.TargetSpot()
     return FG.TARGET_SPOTS[at or ""] and at or "top"
 end
 
---- Put it where the player asked. Against the grid, the anchor moves it along with the cells; set
---- free, it is pinned to the screen's centre like the grid itself (FG.Recenter), so it stays where
---- it was dragged whatever the grid does afterwards.
-function FG.PlaceTarget(f, anchor)
-    f = f or FG.target
-    anchor = anchor or FG.anchor
+--- WHERE A LOOSE CELL GOES, for any of them: the target's, and since 26 Sep your own. Four places
+--- against the grid and a fifth - "free" - the moment one is dragged. Written once because there
+--- are three cells hanging off this grid now and each copy of these numbers is a copy that can
+--- drift by a pixel and look like a bug in the other one.
+---
+--- THE HEADER IS ALWAYS ON TOP OF ITS OWN CELL. It used to swap to the underside when the cell
+--- hung below the grid, because a bare 8 px handle in that gap was covered by the grid and "you
+--- cant see the header to move it" (23 Sep). It carries a NAME now - "BiS> target" - and a named
+--- bar under the thing it names reads as the label of whatever is beneath it. So the bar stays
+--- put and the whole block is pushed clear instead.
+function FG.PlaceAt(f, anchor, at, pos)
     if not (f and anchor) then return false end
-    local at = FG.TargetSpot()
-    local d = NS.DB and NS.DB()
-    local pos = type(d) == "table" and d.targetPos or nil
     f:ClearAllPoints()
-    -- THE HEADER IS ALWAYS ON TOP OF ITS OWN CELL. It used to swap to the underside when the cell
-    -- hung below the grid, because a bare 8 px handle in that gap was covered by the grid and
-    -- "you cant see the header to move it" (23 Sep). It carries a NAME now - "BiS> target" - and a
-    -- named bar under the thing it names reads as the label of whatever is beneath it, which under
-    -- the grid is the tot cell. So the bar stays put and the whole block is pushed clear instead.
     if f.handle then
         f.handle:ClearAllPoints()
         f.handle:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
@@ -479,6 +547,19 @@ function FG.PlaceTarget(f, anchor)
         -- under the grid, far enough down that ITS bar clears the last row of cells
         f:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -(PAD + HEADER_LIFT + HEADER_H))
     end
+    return true, at
+end
+
+--- Put it where the player asked. Against the grid, the anchor moves it along with the cells; set
+--- free, it is pinned to the screen's centre like the grid itself (FG.Recenter), so it stays where
+--- it was dragged whatever the grid does afterwards.
+function FG.PlaceTarget(f, anchor)
+    f = f or FG.target
+    anchor = anchor or FG.anchor
+    if not (f and anchor) then return false end
+    local at = FG.TargetSpot()
+    local d = NS.DB and NS.DB()
+    FG.PlaceAt(f, anchor, at, type(d) == "table" and d.targetPos or nil)
     -- the cell beside it moves with the spot, not just with the layout: a shift-click on either
     -- bar comes through here and nowhere else, and a tot left on the wrong side of a block that
     -- has just moved to the grid's left is a tot sitting on the raid.
@@ -497,9 +578,20 @@ end
 --- off it, so grabbing either bar picks up the whole block and the two can never come apart.
 --- ONE LABEL IN THE BAR, per the header law: an 84 pixel bar has room for "BiS> target" and
 --- nothing else, and a second FontString in it would print straight through the first.
-function FG.CellHeader(f, word, moves)
+-- WHICH CELL'S SETTINGS A BAR EDITS. The target's bar and the tot's bar both move the target
+-- cell and write the target's spot; your own bar moves your own. One table each, so a drag can
+-- never write the wrong cell's place into the macro.
+FG.TARGET_KEYS = { what = "target cell", at = "targetAt", pos = "targetPos",
+                   spot = function() return FG.TargetSpot() end,
+                   place = function(f) return FG.PlaceTarget(f) end }
+FG.SELF_KEYS   = { what = "your own cell", at = "meAt", pos = "mePos",
+                   spot = function() return FG.SelfSpot() end,
+                   place = function(f) return FG.PlaceSelf(f) end }
+
+function FG.CellHeader(f, word, moves, keys)
     if not f or f.handle then return f and f.handle end
     moves = moves or f
+    keys = keys or FG.TARGET_KEYS
     local h = CreateFrame("Frame", "BiSHealingForeverHeader" .. tostring(word), f)
     h:SetHeight(HEADER_H)
     h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
@@ -532,11 +624,11 @@ function FG.CellHeader(f, word, moves)
         if InCombatLockdown and InCombatLockdown() then return end
         local d = NS.DB and NS.DB()
         if type(d) ~= "table" then return end
-        d.targetAt = FG.TARGET_RING[FG.TargetSpot()] or "top"
-        d.targetPos = nil
-        FG.PlaceTarget(moves)
+        d[keys.at] = FG.TARGET_RING[keys.spot()] or "top"
+        d[keys.pos] = nil
+        keys.place(moves)
         if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
-        if NS.Print then NS.Print("target cell: " .. d.targetAt) end
+        if NS.Print then NS.Print(keys.what .. ": " .. d[keys.at]) end
     end)
     h:SetScript("OnDragStop", function()
         if not h.moving then return end
@@ -548,8 +640,8 @@ function FG.CellHeader(f, word, moves)
         -- and the block would jump a cell's height at the next login.
         local ok, x, y = FG.ScreenOffsetOf(moves)
         if ok and type(d) == "table" then
-            d.targetAt, d.targetPos = "free", { x = x, y = y }
-            FG.PlaceTarget(moves)
+            d[keys.at], d[keys.pos] = "free", { x = x, y = y }
+            keys.place(moves)
             if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
         end
     end)
@@ -557,7 +649,7 @@ function FG.CellHeader(f, word, moves)
         bg:SetColorTexture(0.13, 0.10, 0.19, 0.95)
         if not GameTooltip then return end
         GameTooltip:SetOwner(h, "ANCHOR_TOP")
-        GameTooltip:AddLine("drag to move the target cell")
+        GameTooltip:AddLine("drag to move the " .. keys.what)
         GameTooltip:AddLine("shift-click to send it round the grid", 0.6, 0.6, 0.6)
         GameTooltip:AddLine("/bish target under | left | right | top", 0.6, 0.6, 0.6)
         GameTooltip:Show()
@@ -821,6 +913,7 @@ function FG.Layout(anchor)
     end
 
     FG.LayoutTarget(anchor)         -- the target's own cell, under the grid, when it is wanted
+    FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
 
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
@@ -1074,6 +1167,7 @@ function FG.SetScale(v, fromMacro)
     -- and the target cell, which wears this scale but is pinned to the screen when it has been
     -- dragged: its point has to be worked out again at the new scale or it slides away
     if FG.target then FG.PlaceTarget(FG.target, a) end
+    if FG.me then FG.PlaceSelf(FG.me, a) end        -- and yours, which is pinned the same way
     keep()
     return true, s
 end
@@ -1314,6 +1408,12 @@ function FG.Start()
         if t and t.unit and t:IsShown() then
             if t.name then t.name:SetText(FG.ShortName("target")) end
             FG.Paint(t)
+        end
+        -- your own cell is out of the roster, so the loop above never reaches it
+        local me = FG.me
+        if me and me.unit and me:IsShown() then
+            if me.name then me.name:SetText(FG.ShortName("player")) end
+            FG.Paint(me)
         end
         -- and whoever they are targeting, whose name changes under it twice as often
         local tt = FG.tot

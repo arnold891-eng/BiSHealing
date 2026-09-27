@@ -133,6 +133,20 @@ local function settingRows(settings)
             end
         end
     end
+    -- YOUR OWN CELL (Y for You), and where it was dragged (Z, the same two-numbers-from-the-middle
+    -- trick as the grid's P and the target's Q). A spot that has to be set again at every login is
+    -- not the "same spot for solo or raid" this was asked for.
+    if settings.me == true then
+        out[#out + 1] = "Y=" .. (SPOTCODE[settings.meAt or ""] or 3)
+        local z = settings.mePos
+        if (settings.meAt == "free") and type(z) == "table" and tonumber(z.x) and tonumber(z.y) then
+            local x = math.floor(tonumber(z.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(z.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("Z=%d:%d"):format(x, y)
+            end
+        end
+    end
     local px = tonumber(settings.markers)
     if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
     -- THE BUFF-DROP SOUND (N for Noise), both halves in one row: the file id, and a 1 after a
@@ -232,6 +246,11 @@ function FK.Decode(body)
             settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
             settings.markers = tonumber(idx)
+        elseif code == "Y" then
+            settings.me = (tonumber(idx) or 0) > 0
+            settings.meAt = CODESPOT[tonumber(idx)]
+        elseif code == "Z" and tonumber(idx) and tonumber(rank) then
+            settings.mePos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "N" then
             -- `quiet` is always set when the row is here, and never when it is not: that is what
             -- tells the restore "this macro has an opinion about the sound" apart from "it has
@@ -358,6 +377,7 @@ function FK.Save(binds)
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers, tot = t.tot,
+                                             me = t.me, meAt = t.meAt, mePos = t.mePos,
                                              targetAt = t.targetAt, targetPos = t.targetPos,
                                              sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
     if not body then return false, "nothing to write" end

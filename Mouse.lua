@@ -182,7 +182,14 @@ local function db()
                     d.target = true
                     if settings.targetAt then d.targetAt = settings.targetAt end
                     if settings.targetPos then d.targetPos = settings.targetPos end
-                    d.tot = settings.tot == true      -- the cell under it, from the same row
+                    d.tot = settings.tot == true      -- the cell beside it, from the same row
+                end
+                -- and your own cell, which is a row of its own: it has nothing to do with the
+                -- target block and a player may want one without the other
+                if settings.me == true then
+                    d.me = true
+                    if settings.meAt then d.meAt = settings.meAt end
+                    if settings.mePos then d.mePos = settings.mePos end
                 end
                 if settings.markers then
                     d.markers = settings.markers

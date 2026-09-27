@@ -64,6 +64,14 @@ health, and that is exactly what this client will not allow.
 - Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
   own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
 
+### A cell for yourself
+
+**`/bish me`**, or **me** in the cells row of the options window. You get one cell of your own
+under a `BiS> me` bar — drag it anywhere, or shift-click the bar to send it round the grid — and
+**you come out of the group grid**, so that spot is the same whether you are solo, in a party or
+in a 40-man. `/bish me left` (or `right`, `top`, `under`) places it from the chat box, and where
+you put it is remembered.
+
 ### The target block
 
 **A cell for your target** (`/bish target`) gets a small header of its own —

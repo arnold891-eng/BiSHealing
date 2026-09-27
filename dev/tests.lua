@@ -1347,6 +1347,97 @@ do
     FG.Layout(FG.anchor)
 end
 
+-- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn on CurseForge, 25 Sep
+-- 2026): "optional (like target) self target? It may be nice option to lock yourself in one spot
+-- outside groups just to get use to it and have it in same spot for solo/or raid groups?".
+--
+-- The spot never moving IS the feature, which is why switching it on takes you out of the grid.
+do
+    local d = NS.DB()
+    d.me = false
+    FG.Layout(FG.anchor)
+    ok(FG.me == nil or not FG.me:IsShown(), "off by default: no cell of your own")
+    ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are in the group grid")
+
+    ok(NS.DO.me(true) == true, "/bish me turns it on")
+    local mine = FG.me
+    ok(mine ~= nil and mine:IsShown(), "the cell is there")
+    ok(mine:GetAttribute("unit") == "player", "and it is you", tostring(mine:GetAttribute("unit")))
+    ok(mine.__attrs["*type1"] ~= nil, "with the mouse binds on it, like any other cell")
+    ok(mine.handle and mine.handle.__fontstrings
+       and mine.handle.__fontstrings[1].__text == "BiS> me", "under a bar that says which cell it is",
+       mine.handle and mine.handle.__fontstrings and tostring(mine.handle.__fontstrings[1].__text))
+
+    -- THE POINT OF THE WHOLE THING: out of the roster, so the grid cannot reshape around you
+    local roster = table.concat(FG.Roster(), " ")
+    ok(not roster:find("player", 1, true), "and you are OUT of the group grid", roster)
+    ok(roster:find("party1", 1, true), "while everyone else is still in it", roster)
+
+    -- in a raid it is the same, and "which one is me" is the client's own answer
+    local realRaid, realIsUnit = _G.IsInRaid, _G.UnitIsUnit
+    _G.IsInRaid = function() return true end
+    STATE.units.raid1, STATE.units.raid2 = true, true
+    _G.UnitIsUnit = function(a, b) return a == "raid2" and b == "player" end
+    local raid = table.concat(FG.Roster(), " ")
+    ok(raid:find("raid1", 1, true) and not raid:find("raid2", 1, true),
+       "in a raid, the slot that IS you is the one left out", raid)
+    -- and an identity the client hides leaves the cell where it is, rather than dropping a raider
+    _G.UnitIsUnit = function() return secret() end
+    local hidden = table.concat(FG.Roster(), " ")
+    ok(hidden:find("raid1", 1, true) and hidden:find("raid2", 1, true),
+       "an identity it will not confirm leaves everybody in the raid", hidden)
+    _G.IsInRaid, _G.UnitIsUnit = realRaid, realIsUnit
+    STATE.units.raid1, STATE.units.raid2 = nil, nil
+
+    -- it has its own spot, so moving it does not move the target block
+    NS.DO.target("top")
+    local function spotOf(f)
+        local p = f and f.points and f.points[#f.points]
+        return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
+    end
+    ok(FG.SelfSpot() == "left", "it starts on the grid's left, away from the target block")
+    ok(spotOf(mine) == "TOPRIGHT->TOPLEFT", "which is where it is drawn", spotOf(mine))
+    NS.DO.me("right")
+    ok(FG.SelfSpot() == "right" and d.targetAt == "top",
+       "moving it leaves the target cell where it was", tostring(d.targetAt))
+
+    -- a drag on its bar writes ITS place, not the target's
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    mine.GetCenter = function() return 860, 590 end            -- 100 left, 50 up
+    local h = mine.handle
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    ok(d.meAt == "free" and d.mePos and d.mePos.x == -100 and d.mePos.y == 50,
+       "dragging it sets it free and remembers where",
+       d.mePos and ("%s,%s"):format(d.mePos.x, d.mePos.y))
+    ok(d.targetAt == "top" and d.targetPos == nil,
+       "and the target block is untouched by it", tostring(d.targetAt))
+    UIParent.GetCenter, mine.GetCenter = realUC, nil
+
+    -- AND IT SURVIVES A RESTART, which on this client means the macro
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.me("under")
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("Y=1", 1, true), "where it sits goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.me, d.meAt = {}, nil, false, false, "left"
+    NS.FM.Get("", "wheelup")
+    ok(d.me == true and d.meAt == "under", "and after a restart it is back, in the same place",
+       tostring(d.me) .. "/" .. tostring(d.meAt))
+    d.binds = keptBinds
+    MACROS = {}
+
+    ok(NS.DO.me(false) == false, "/bish me turns it off")
+    ok(not FG.me:IsShown() and FG.me.unit == nil, "the cell goes")
+    WATCH_TICK()
+    ok(not FG.me:IsShown(), "and the client's watch does not bring it back")
+    ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are back in the group grid")
+    d.me = false
+    FG.Layout(FG.anchor)
+end
+
 -- THE NUMBER ON THE CELL. Arn: "any other information we can put on frames like missing health
 -- or %". /bish text measured the parts (20 Sep); the study of 21 Sep found how shipped addons put
 -- them together: short AND blank at full, net of incoming heals, a real percentage.
@@ -3717,13 +3808,69 @@ do
         keys[opt.key] = opt
         if opt.kind == "button" then
             ok(pcall(opt.action), ("pressing %q threw"):format(opt.key))
+        elseif opt.kind == "cells" then
+            -- four switches in one row, each with its own get and set
+            for _, part in ipairs(opt.parts) do
+                ok(pcall(part.get, NS.DB()), ("reading %q threw"):format(part.key))
+            end
         else
             ok(pcall(opt.get, NS.DB()), ("reading %q threw"):format(opt.key))
         end
     end
-    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "target", "tot",
+    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "cells",
                             "markers", "buffsound", "buffsoundid" }) do
         ok(keys[want], ("the window lost %q"):format(want))
+    end
+    -- and every cell the window is supposed to offer is still in that one row
+    do
+        local parts = {}
+        for _, part in ipairs((keys.cells or {}).parts or {}) do parts[part.key] = part end
+        for _, want in ipairs({ "target", "tot", "me", "pets" }) do
+            ok(parts[want], ("the cells row lost %q"):format(want))
+        end
+        -- AND EACH SWITCH READS ITS OWN SETTING. Four buttons side by side in one row is four
+        -- chances to wire one to its neighbour's key, and the window would look perfectly
+        -- sensible: the wrong button simply lights up.
+        local db, was = NS.DB(), {}
+        for _, k in ipairs({ "target", "tot", "me", "pets" }) do was[k] = db[k] end
+        for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = false end
+        for _, k in ipairs({ "target", "tot", "me", "pets" }) do
+            db[k] = true
+            local lit = {}
+            for name, part in pairs(parts) do
+                if part.get(db) == true then lit[#lit + 1] = name end
+            end
+            ok(#lit == 1 and lit[1] == k,
+               ("only the %q switch lights for the %q setting"):format(k, k),
+               table.concat(lit, ", "))
+            db[k] = false
+        end
+        for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = was[k] end
+
+        -- AND PRESSING ONE CHANGES ITS OWN SETTING. Reading is half the wiring; a `set` pointed at
+        -- the neighbour's command looks identical until somebody clicks it.
+        -- the window has to be BUILT for there to be a button to press, and the shared lib it is
+        -- built from is one the TOC loop above skips
+        if not (BiSTheme and BiSTheme.Options) then
+            local lib = assert(loadfile("Libs/BiSTheme/Options.lua"))
+            ok(pcall(lib), "the shared options lib loads headless")
+        end
+        NS.CFG.Build()
+        local row = NS.CFG and NS.CFG.cells
+        ok(row and row.ctl and #row.ctl == 4, "the row has its four buttons", row and #(row.ctl or {}))
+        if row and row.ctl then
+            for i, part in ipairs(keys.cells.parts) do
+                for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = false end
+                local click = row.ctl[i].__scripts and row.ctl[i].__scripts.OnClick
+                if click then click(row.ctl[i], "LeftButton") end
+                ok(db[part.key] == true,
+                   ("pressing %q switches %q on"):format(part.label, part.key),
+                   tostring(db[part.key]))
+            end
+            for _, k in ipairs({ "target", "tot", "me", "pets" }) do db[k] = was[k] end
+            NS.DO.me(was.me == true)
+            FG.Layout(FG.anchor)
+        end
     end
     -- 10 -> 12 (20 Sep) -> 13 (23 Sep), each time on purpose and not to make a red line go away.
     -- The last note said the next row was a decision: fold the two diagnostics rather than bump the
@@ -3737,18 +3884,15 @@ do
     -- asked for. The next one costs a real setting, or the window grows a second page.
     --
     -- And on 23 Sep it cost one, as promised. Two rows arrived - the buff-drop sound, and the id
-    -- behind it (Arn: "toggle in options to turn sound on or off and unrolled window to put in
-    -- another sound id number") - and "look at the group again" paid for one of them: the grid
-    -- rescans on every roster event by itself, so that button was a fix for a bug, not a setting,
-    -- and /bish rescan still presses it. Fourteen, and the same rule stands for the fifteenth.
+    -- behind it - and "look at the group again" paid for one of them: the grid rescans on every
+    -- roster event by itself, so that button was a fix for a bug, not a setting. Then a fifteenth
+    -- came the same afternoon and the window grew, which is the other half of the rule.
     --
-    -- The fifteenth came the same afternoon, and this time the window grew - which is the other
-    -- half of the rule, and a decision rather than a slip. Arn asked for the target-of-target
-    -- switch in a particular place: "first check box turn on cell for target option under it turn
-    -- on target of target". Folding the two into one three-way row would have been the cheap way
-    -- and would not have been what he asked for. Fifteen rows is 256 pixels of a 230 wide window,
-    -- which still opens and closes in one look. The next one is a second page for real.
-    ok(#NS.UI.Rows() <= 15, "the window stays short: " .. #NS.UI.Rows())
+    -- ON 26 SEP IT CAME BACK DOWN TO THIRTEEN. A fourth cell was asked for (paszczyszyn: one for
+    -- yourself), which would have been sixteen rows - and three of the fifteen were the same
+    -- question asked three times. "Which extra cells do you want?" is one row with four switches
+    -- on it. The rule was never about the number; it was about a window you can read in one look.
+    ok(#NS.UI.Rows() <= 13, "the window stays short: " .. #NS.UI.Rows())
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
     -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the

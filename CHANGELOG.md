@@ -1,5 +1,18 @@
 # BiS Healing
 
+## 0.5.4
+
+Asked for by paszczyszyn on CurseForge - thank you.
+
+- **A cell for yourself, out of the group.** "Lock yourself in one spot outside groups ... and have
+  it in same spot for solo or raid groups." Switch on **me** in the options window's cells row, or
+  `/bish me`. You get a cell with a `BiS> me` bar of its own: drag it anywhere, or shift-click the
+  bar to send it round the grid. **Turning it on takes you out of the group grid**, which is the
+  whole point - a spot that moves when the group changes is not a spot you can learn. Where you put
+  it is remembered, like everything else.
+- **The options window has one cells row now**, with four switches on it: target, tot, me and pets.
+  It replaces three separate rows, so the window is shorter than it was before any of this.
+
 ## 0.5.3
 
 - **The buff reminder asks the game about one buff, by spell id.** It used to read every aura slot

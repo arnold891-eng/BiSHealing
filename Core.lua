@@ -67,6 +67,9 @@ local DEFAULTS = {
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
     target  = false,     -- a cell of its own for whoever you have targeted
     tot     = false,     -- and one under it for whoever THEY have targeted
+    me      = false,     -- a cell for yourself, out of the group, in the same place always
+    meAt    = "left",    -- where it sits: left / right / top / under, or "free" once dragged
+    mePos   = nil,       -- where it was dragged to, from the middle of the screen
     targetAt = "top",    -- where it sits: top / left / right / under, or "free" once dragged
     targetPos = nil,     -- where it was dragged to, from the middle of the screen
     markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
@@ -634,6 +637,41 @@ function NS.DO.tot(on)
     return d.tot
 end
 
+--- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn, 25 Sep 2026): "lock
+--- yourself in one spot outside groups just to get use to it and have it in same spot for solo/or
+--- raid groups". Switching it on takes you out of the grid, which is the whole point: a spot that
+--- moves when the group changes is not a spot you can learn.
+function NS.DO.me(on)
+    local d = DB()
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.meAt = where
+            if where ~= "free" then d.mePos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
+    if on == nil then on = not d.me end
+    d.me = on and true or false
+    -- the whole grid is rebuilt, not just the cell: you leaving the roster changes every column
+    local done = true
+    if NS.FG and NS.FG.Layout then done = NS.FG.Layout() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    local where = (NS.FG and NS.FG.SelfSpot and NS.FG.SelfSpot()) or "left"
+    local said = { under = "under the grid", right = "to the right of the grid",
+                   left = "to the left of the grid", top = "above the grid",
+                   free = "where you dragged it" }
+    Print((d.me and ("a cell of your own, " .. (said[where] or "beside the grid")
+            .. " - and you are out of the group grid")
+        or "no cell of your own - you are back in the group grid")
+        .. (done and "" or " - after this fight"))
+    return d.me
+end
+
 --- How big the dispel marker and the heal-over-time icons are. A player's request (paszczyszyn):
 --- "Is there a possibility of an option to adjust the size of buffs and debuffs?".
 function NS.DO.markers(px)
@@ -741,7 +779,9 @@ function NS.DO.help()
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
     Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
-    Print("  |cffb980fftot|r  and one for your target's target, under it")
+    Print("  |cffb980fftot|r  and one for your target's target, beside it")
+    Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
+        .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
     Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
     Print("  |cffb980ffbuffsound|r  the noise when one drops - a sound id, |cffb980ffoff|r,"
@@ -804,6 +844,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.target(msg:match("^target%s+(%a+)$"))
     elseif msg == "tot" or msg == "targetoftarget" or msg == "totcell" then
         NS.DO.tot()
+    elseif msg == "me" or msg == "self" then
+        NS.DO.me()
+    elseif msg:match("^me%s+%a+$") or msg:match("^self%s+%a+$") then
+        NS.DO.me(msg:match("^%a+%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then
         NS.DO.regen()
     elseif msg == "between" or msg == "reminders" then

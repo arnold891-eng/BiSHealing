@@ -347,6 +347,7 @@ function FG.LayoutTarget(anchor)
     local f = FG.target
     if not f then
         f = FG.Make("Target", anchor)
+        f.mayBeHostile = true          -- whoever you have targeted is as often a mob as a friend
         FG.target = f
         FG.CellHeader(f, "target", f)
     end
@@ -387,6 +388,7 @@ function FG.LayoutToT(parent)
     local f = FG.tot
     if not f then
         f = FG.Make("ToT", parent)
+        f.mayBeHostile = true          -- and their target even more so
         FG.tot = f
         FG.CellHeader(f, "tot", parent)     -- its own bar, but a drag on it moves the whole block
     end
@@ -1360,8 +1362,14 @@ function FG.Paint(f)
     if dead then c = DEAD end
     local d = NS.DB and NS.DB()
     local byHealth = type(d) == "table" and d.color == "health"
-    if dead or not (byHealth and FG.PaintByHealth(f)) then
-        f.bar:SetStatusBarColor(c[1], c[2], c[3])
+    -- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells
+    -- cast on hostile units perfectly well - "the frames cant distinguish when its an enemy right
+    -- now enemies look like friendlies". Hostility beats both the class colour and the health
+    -- colour: a red bar on a mob is the point, and "how hurt is it" is the same question either way.
+    if not (f.mayBeHostile and FG.PaintHostile(f, unit, c)) then
+        if dead or not (byHealth and FG.PaintByHealth(f)) then
+            f.bar:SetStatusBarColor(c[1], c[2], c[3])
+        end
     end
 
     -- THE CLASS MOVES TO THE NAME when the bar is busy saying how hurt they are. Arn, 21 Sep: "if
@@ -1386,6 +1394,41 @@ function FG.Paint(f)
     -- The modern one answers true/false, the old one 1/0. Both are handled, because "which shape
     -- does this client answer in" is not a question worth a version check.
     FG.PaintRange(f, unit)
+end
+
+-- What a cell wears when the unit in it can be attacked. Not the dead grey and not a class
+-- colour: nothing in a healer's group is ever this colour.
+FG.HOSTILE = { 0.72, 0.16, 0.16 }
+FG.hostileSeen = nil
+
+--- IS THIS SOMETHING I COULD ATTACK? A plain answer paints red. A SECRET one - which is what
+--- combat gives, like everything else about somebody else - goes through the client's own
+--- ternary, the same call the range dimming uses: it picks each colour channel between hostile
+--- and friendly from a boolean nobody here may test.
+---
+--- Only the target and the tot cells ask. Your party is not hostile, and a question asked of
+--- forty raid cells ten times a second for an answer that is always no is forty questions wasted.
+function FG.PaintHostile(f, unit, friendly)
+    if not (f and f.bar and unit and UnitCanAttack) then return false end
+    local asked, hostile = pcall(UnitCanAttack, "player", unit)
+    if not asked then return false end
+    if NS.Secret and NS.Secret(hostile) then
+        local curve = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+        if not curve then FG.hostileSeen = "secret, no curve" return false end
+        local ok1, r = pcall(curve, hostile, FG.HOSTILE[1], friendly[1])
+        local ok2, g = pcall(curve, hostile, FG.HOSTILE[2], friendly[2])
+        local ok3, b = pcall(curve, hostile, FG.HOSTILE[3], friendly[3])
+        if not (ok1 and ok2 and ok3) then FG.hostileSeen = "curve refused" return false end
+        local drew = pcall(f.bar.SetStatusBarColor, f.bar, r, g, b)
+        FG.hostileSeen = drew and "secret" or "colour refused"
+        return drew
+    end
+    FG.hostileSeen = "plain"
+    if hostile == true then
+        f.bar:SetStatusBarColor(FG.HOSTILE[1], FG.HOSTILE[2], FG.HOSTILE[3])
+        return true
+    end
+    return false
 end
 
 -- How far down an unreachable cell goes. Not hidden: out of range is a thing to notice, not a

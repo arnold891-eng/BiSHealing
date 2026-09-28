@@ -2,6 +2,11 @@
 
 ## 0.7.0
 
+- **Enemies no longer look like friendlies.** The target cell and its tot go red for anything you
+  can attack — which matters because those two cells cast on hostile units perfectly well, whether
+  or not that was ever the plan. In combat the game keeps "can you attack this" secret, so the
+  colour is chosen by the game from an answer the addon never reads.
+
 - **The other healers' mana.** Switch on **mana** in the options window's cells row, or
   `/bish mana`, and a small block appears with one row per healer in your group — name and
   percent, you included. Drag its `BiS> mana` bar anywhere; it takes a side the other blocks are

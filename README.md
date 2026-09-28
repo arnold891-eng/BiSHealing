@@ -70,6 +70,10 @@ health, and that is exactly what this client will not allow.
   cells, a block of their own with a `BiS> pets` bar you can drag anywhere, or
   nowhere at all. Off to begin with.
 
+The target cell and its tot work on **enemies** too — they are ordinary unit buttons, so whatever
+is on your mouse casts at whatever is in them. Those two go **red** for anything you can attack,
+so a mob never looks like a groupmate.
+
 ### The other healers' mana
 
 **`/bish mana`**, or **mana** in the options window's cells row. A small block with one row per

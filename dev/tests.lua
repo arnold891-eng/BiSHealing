@@ -259,6 +259,14 @@ _G.UnitClass = function()
     if STATE.classSecret then return secret(), secret() end
     return "Shaman", "SHAMAN"
 end
+-- CAN I ATTACK THIS? The target cell holds whatever you clicked, which on a hunter is usually a
+-- mob - and in combat the answer is a secret like everything else about somebody else.
+STATE.hostile = {}
+STATE.hostileSecret = false
+_G.UnitCanAttack = function(_, u)
+    if STATE.hostileSecret then return secret() end
+    return STATE.hostile[u] and true or false
+end
 _G.UnitIsDeadOrGhost = function(u)
     if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
     return STATE.dead[u] and true or false
@@ -1471,6 +1479,57 @@ do
     ok(FG.PetsMode() == "off", "and an old `false` as off", FG.PetsMode())
     ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
+    FG.Layout(FG.anchor)
+end
+
+-- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells
+-- cast on hostile units perfectly well - which nobody designed and everybody likes - but "enemies
+-- look like friendlies". The bar goes red for anything you could attack.
+do
+    local d = NS.DB()
+    d.target = false
+    NS.DO.target(true)
+    local t = FG.target
+    ok(t.mayBeHostile == true, "the target cell asks whether its unit can be attacked")
+    ok(FG.frames[1].mayBeHostile ~= true, "and a group cell does not - your party is not hostile")
+
+    STATE.units.target = true
+    STATE.hostile.target = true
+    t.unit = "target"
+    FG.Paint(t)
+    ok(t.bar.__color and math.abs(t.bar.__color[1] - FG.HOSTILE[1]) < 0.01,
+       "a unit you can attack paints hostile", t.bar.__color and t.bar.__color[1])
+    ok(FG.hostileSeen == "plain", "read plainly out of combat", tostring(FG.hostileSeen))
+
+    STATE.hostile.target = false
+    FG.Paint(t)
+    ok(math.abs(t.bar.__color[1] - FG.HOSTILE[1]) > 0.01,
+       "and a friendly one does not", t.bar.__color[1])
+
+    -- IN COMBAT THE ANSWER IS SECRET, which is exactly when you are looking at the thing you are
+    -- fighting. The client's own ternary picks each channel; nothing here tests the boolean.
+    STATE.hostileSecret = true
+    ok(pcall(FG.Paint, t), "a secret answer does not throw")
+    ok(FG.hostileSeen == "secret", "the client chooses the colour for us", tostring(FG.hostileSeen))
+    -- ALL THREE CHANNELS, not just the red one: each is its own call, and a test that checks one
+    -- leaves the other two free to be deleted. (The green and blue were, by a mutation.)
+    local chans = 0
+    for i = 1, 3 do
+        if getmetatable(t.bar.__color[i]) == getmetatable(secret()) then chans = chans + 1 end
+    end
+    ok(chans == 3, "and every channel reaches the bar unread, not just the first", chans)
+
+    -- a client that will not take it leaves the cell in its friendly colour rather than throwing
+    local realCurve = _G.C_CurveUtil.EvaluateColorValueFromBoolean
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = nil
+    ok(pcall(FG.Paint, t), "and a client without the ternary does not throw")
+    ok(FG.hostileSeen == "secret, no curve", "saying so", tostring(FG.hostileSeen))
+    ok(type(t.bar.__color[1]) == "number", "the bar keeps a colour it can draw")
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = realCurve
+
+    STATE.hostileSecret = false
+    STATE.hostile.target, STATE.units.target = nil, nil
+    NS.DO.target(false)
     FG.Layout(FG.anchor)
 end
 

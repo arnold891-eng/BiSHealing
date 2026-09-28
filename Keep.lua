@@ -147,6 +147,19 @@ local function settingRows(settings)
             end
         end
     end
+    -- THE MANA BLOCK (A for... the alphabet is nearly gone; think "mAna"). Where it sits, and
+    -- where it was dragged to in B, the same two-numbers-from-the-middle shape as everything else.
+    if settings.mana == true then
+        out[#out + 1] = "A=" .. (SPOTCODE[settings.manaAt or ""] or 2)
+        local m = settings.manaPos
+        if (settings.manaAt == "free") and type(m) == "table" and tonumber(m.x) and tonumber(m.y) then
+            local x = math.floor(tonumber(m.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(m.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("B=%d:%d"):format(x, y)
+            end
+        end
+    end
     -- THE PETS (V for... the letters are running out; think "Vet"). Three answers now, and the
     -- setting has never ridden in the macro at all - so "pets on" was forgotten at every login,
     -- quietly, for as long as the option has existed. A dragged block writes its place after the
@@ -264,6 +277,11 @@ function FK.Decode(body)
             settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "M" then
             settings.markers = tonumber(idx)
+        elseif code == "A" then
+            settings.mana = (tonumber(idx) or 0) > 0
+            settings.manaAt = CODESPOT[tonumber(idx)]
+        elseif code == "B" and tonumber(idx) and tonumber(rank) then
+            settings.manaPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "V" then
             settings.pets = tonumber(idx) == 2 and "own" or (tonumber(idx) == 1 and "grid" or nil)
             if settings.pets == "own" then settings.petAt = CODESPOT[tonumber(rank)] end
@@ -401,6 +419,7 @@ function FK.Save(binds)
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers, tot = t.tot,
                                              me = t.me, meAt = t.meAt, mePos = t.mePos,
+                                             mana = t.mana, manaAt = t.manaAt, manaPos = t.manaPos,
                                              pets = (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or nil,
                                              petAt = t.petAt, petPos = t.petPos,
                                              targetAt = t.targetAt, targetPos = t.targetPos,

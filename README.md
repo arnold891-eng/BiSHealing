@@ -70,6 +70,16 @@ health, and that is exactly what this client will not allow.
   cells, a block of their own with a `BiS> pets` bar you can drag anywhere, or
   nowhere at all. Off to begin with.
 
+### The other healers' mana
+
+**`/bish mana`**, or **mana** in the options window's cells row. A small block with one row per
+healer in the group — name and percent, you included — under a `BiS> mana` bar you can drag
+anywhere.
+
+The game keeps another player's mana secret from addons, even out of combat, so this addon never
+learns the number: it asks the game for the percentage and hands it straight to the screen. What
+you see, nothing here has read.
+
 ### A cell for yourself
 
 **`/bish me`**, or **me** in the cells row of the options window. You get one cell of your own

@@ -83,6 +83,9 @@ function CFG.Sections()
                 { key = "me", label = "me",
                   get = function(db) return db.me == true end,
                   set = function(on) if DO.me then DO.me(on) end end },
+                { key = "mana", label = "mana",
+                  get = function(db) return db.mana == true end,
+                  set = function(on) if DO.mana then DO.mana(on) end end },
             } },
             -- PETS HAVE THREE ANSWERS, so they are not one of the switches above: in the main
             -- cells, in a block of their own, or nowhere (Arn, 26 Sep). One question, three

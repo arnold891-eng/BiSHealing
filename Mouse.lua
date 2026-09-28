@@ -192,6 +192,11 @@ local function db()
                     if settings.petAt then d.petAt = settings.petAt end
                     if settings.petPos then d.petPos = settings.petPos end
                 end
+                if settings.mana == true then
+                    d.mana = true
+                    if settings.manaAt then d.manaAt = settings.manaAt end
+                    if settings.manaPos then d.manaPos = settings.manaPos end
+                end
                 if settings.me == true then
                     d.me = true
                     if settings.meAt then d.meAt = settings.meAt end

@@ -1,5 +1,17 @@
 # BiS Healing
 
+## 0.7.0
+
+- **The other healers' mana.** Switch on **mana** in the options window's cells row, or
+  `/bish mana`, and a small block appears with one row per healer in your group — name and
+  percent, you included. Drag its `BiS> mana` bar anywhere; it takes a side the other blocks are
+  not using, and it is remembered.
+- This was written off as impossible in this addon's own notes for eleven days: the game keeps
+  another player's mana secret, even out of combat. That is true about *reading* it. The game will
+  still *draw* it — so the number goes straight from the game to the screen and the addon never
+  learns it. Thanks to EllesmereUI, whose party frames do the same thing and proved it could be
+  done.
+
 ## 0.6.2
 
 - **Out-of-range cells dim during a fight now** — which is when you need to know. The game keeps

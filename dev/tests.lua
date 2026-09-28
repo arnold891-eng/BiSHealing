@@ -163,6 +163,18 @@ local function newFrame(kind, name, parent)
         -- question if a label remembers what it was pinned to
         local fs = autoMethods({
             SetText = function(self2, t) self2.__text = t end,
+            -- THE FORMAT SETTER, which is how a secret number reaches the screen without anybody
+            -- reading it: the client does the formatting. EllesmereUI's healer mana is one line of
+            -- exactly this, and it is the whole reason "nobody can show another player's mana"
+            -- turned out to be wrong. It records what it was GIVEN, including a secret, so a test
+            -- can tell "drew the value" from "drew nothing".
+            SetFormattedText = function(self2, fmt, v)
+                if STATE.formatRefusesSecret and getmetatable(v) == secretMeta then
+                    error("SetFormattedText: this client refuses a secret here", 2)
+                end
+                self2.__formatted = { fmt, v }
+                self2.__text = getmetatable(v) == secretMeta and "(secret)" or tostring(v)
+            end,
             GetText = function(self2) return self2.__text end,
             -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
             -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
@@ -365,6 +377,19 @@ _G.UnitGroupRolesAssigned = function(unit)
     if STATE.roleSecret then return secret() end
     return STATE.roles and STATE.roles[unit] or "NONE"
 end
+
+-- ANOTHER PLAYER'S MANA, AS A PERCENTAGE THE CLIENT WORKS OUT. UnitPowerPercent is what
+-- EllesmereUI's healer mana is built on, with their own note beside it: "which can be secret in
+-- combat: it only ever reaches a format setter". So this answers a secret in combat, and a plain
+-- number out of it - and either way nothing may read it.
+STATE.powerSecret = false
+_G.CurveConstants = { ScaleTo100 = "scale100" }
+_G.UnitPowerPercent = function(unit, powerType, _, scale)
+    if STATE.powerNoCall then error("no such call on this client", 2) end
+    if STATE.powerSecret then return secret() end
+    return (STATE.power and STATE.power[unit]) or 100
+end
+STATE.power = {}
 
 -- MACROS, WHICH ARE THE ONE THING THIS CLIENT GIVES BACK. They live on the server, so they
 -- survive the restart that empties every SavedVariables file. This is the store, and it behaves
@@ -1446,6 +1471,103 @@ do
     ok(FG.PetsMode() == "off", "and an old `false` as off", FG.PetsMode())
     ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
+    FG.Layout(FG.anchor)
+end
+
+-- THE OTHER HEALERS' MANA. Arn, 28 Sep, with a screenshot of EllesmereUI's party frames: "the top
+-- thing is the healer mana" - on a client where this addon's own Between.lua had written, since
+-- the 17th, that "who is low on mana" could not be answered "by this addon, not by any addon".
+--
+-- It was right about READING the number and wrong about SHOWING it, which is the one mistake this
+-- addon exists to avoid. UnitPowerPercent's answer goes straight into SetFormattedText and the
+-- client does the rest.
+do
+    local d = NS.DB()
+    d.mana = false
+    STATE.roles = { player = "HEALER", party1 = "HEALER", party2 = "DAMAGER" }
+    FG.Layout(FG.anchor)
+    ok(FG.manaAnchor == nil or not FG.manaAnchor:IsShown(), "off by default: no mana block")
+
+    ok(NS.DO.mana(true) == true, "/bish mana turns it on")
+    ok(FG.manaAnchor and FG.manaAnchor:IsShown(), "the block is there")
+    local who = {}
+    for _, row in ipairs(FG.manaRows or {}) do if row:IsShown() then who[#who + 1] = row.unit end end
+    ok(#who == 2, "one row per healer, and nobody else", table.concat(who, ","))
+    ok(who[1] == "player" and who[2] == "party1", "you included - your own bar is the one you check most",
+       table.concat(who, ","))
+
+    -- THE NUMBER IS NEVER READ. It goes to the format setter, which is the client's own drawing.
+    local row = FG.manaRows[1]
+    ok(row.pct.__formatted and row.pct.__formatted[1]:find("%%d"),
+       "the percentage is handed to the client to format")
+    STATE.power.player = 42
+    FG.PaintMana(row, "player")
+    ok(row.pct.__formatted[2] == 42, "out of combat that is a plain number", row.pct.__formatted[2])
+
+    -- IN COMBAT IT IS A SECRET, and that changes nothing: there is no branch to break.
+    STATE.powerSecret = true
+    ok(pcall(FG.PaintMana, row, "player"), "a secret percentage does not throw")
+    ok(getmetatable(row.pct.__formatted[2]) == getmetatable(secret()),
+       "it reaches the setter unread, like every other secret")
+    ok(FG.manaSeen == "drawn", "and is drawn", tostring(FG.manaSeen))
+
+    -- A CLIENT THAT REFUSES IT says nothing rather than a number it made up.
+    STATE.formatRefusesSecret = true
+    row.pct:SetText("stale")
+    ok(pcall(FG.PaintMana, row, "player"), "a client refusing the secret does not throw either")
+    ok(row.pct.__text == "", "and the row is blanked rather than left with an old number",
+       tostring(row.pct.__text))
+    ok(FG.manaSeen == "refused", "with the reason recorded", tostring(FG.manaSeen))
+    STATE.formatRefusesSecret = false
+    STATE.powerSecret = false
+
+    -- a client without the call at all
+    STATE.powerNoCall = true
+    ok(pcall(FG.PaintMana, row, "player"), "and a client without the call is quiet, not broken")
+    STATE.powerNoCall = false
+
+    -- A ROLE THE CLIENT HIDES IS NOT A HEALER. Yours is read separately when you have a cell of
+    -- your own (you are out of the roster then), and that read has its own guard to keep.
+    d.me = true
+    STATE.roleSecret = true
+    local hidden = FG.Healers()
+    local sawPlayer = false
+    for _, u in ipairs(hidden) do if u == "player" then sawPlayer = true end end
+    ok(not sawPlayer, "a role the client will not say is not a healer", table.concat(hidden, ","))
+    STATE.roleSecret = false
+    d.me = false
+
+    -- IT IS A BLOCK, so it takes a side of its own like the others
+    NS.DO.target("top")
+    NS.DO.mana("top")
+    ok(d.manaAt ~= "top", "it does not land on a side another block is using", tostring(d.manaAt))
+    -- and switched on with a plain yes, which is what the options window sends: the remembered
+    -- side may belong to somebody else by now, and that path names no spot at all
+    NS.DO.mana(false)
+    d.manaAt = "top"
+    NS.DO.mana(true)
+    ok(d.manaAt ~= "top", "switching it on with no side named dodges too", tostring(d.manaAt))
+
+    -- AND IT SURVIVES A RESTART
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.mana("under")
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("A=1", 1, true), "where it sits goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.mana, d.manaAt = {}, nil, false, false, "right"
+    NS.FM.Get("", "wheelup")
+    ok(d.mana == true and d.manaAt == "under", "and comes back after a restart",
+       tostring(d.mana) .. "/" .. tostring(d.manaAt))
+    d.binds = keptBinds
+    MACROS = {}
+
+    -- a group with no other healer in it shows nothing at all, rather than an empty box
+    STATE.roles = { player = "DAMAGER", party1 = "DAMAGER" }
+    NS.DO.mana(true)
+    ok(not FG.manaAnchor:IsShown(), "no healers, no block")
+    STATE.roles = nil
+    d.mana = false
     FG.Layout(FG.anchor)
 end
 
@@ -4130,7 +4252,7 @@ do
     do
         local parts = {}
         for _, part in ipairs((keys.cells or {}).parts or {}) do parts[part.key] = part end
-        for _, want in ipairs({ "target", "tot", "me" }) do
+        for _, want in ipairs({ "target", "tot", "me", "mana" }) do
             ok(parts[want], ("the cells row lost %q"):format(want))
         end
         ok(keys.pets and keys.pets.kind == "seg",
@@ -4140,9 +4262,9 @@ do
         -- chances to wire one to its neighbour's key, and the window would look perfectly
         -- sensible: the wrong button simply lights up.
         local db, was = NS.DB(), {}
-        for _, k in ipairs({ "target", "tot", "me" }) do was[k] = db[k] end
-        for _, k in ipairs({ "target", "tot", "me" }) do db[k] = false end
-        for _, k in ipairs({ "target", "tot", "me" }) do
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do was[k] = db[k] end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do
             db[k] = true
             local lit = {}
             for name, part in pairs(parts) do
@@ -4153,7 +4275,7 @@ do
                table.concat(lit, ", "))
             db[k] = false
         end
-        for _, k in ipairs({ "target", "tot", "me" }) do db[k] = was[k] end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = was[k] end
 
         -- AND PRESSING ONE CHANGES ITS OWN SETTING. Reading is half the wiring; a `set` pointed at
         -- the neighbour's command looks identical until somebody clicks it.
@@ -4165,17 +4287,17 @@ do
         end
         NS.CFG.Build()
         local row = NS.CFG and NS.CFG.cells
-        ok(row and row.ctl and #row.ctl == 3, "the row has its three buttons", row and #(row.ctl or {}))
+        ok(row and row.ctl and #row.ctl == 4, "the row has its four buttons", row and #(row.ctl or {}))
         if row and row.ctl then
             for i, part in ipairs(keys.cells.parts) do
-                for _, k in ipairs({ "target", "tot", "me" }) do db[k] = false end
+                for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
                 local click = row.ctl[i].__scripts and row.ctl[i].__scripts.OnClick
                 if click then click(row.ctl[i], "LeftButton") end
                 ok(db[part.key] == true,
                    ("pressing %q switches %q on"):format(part.label, part.key),
                    tostring(db[part.key]))
             end
-            for _, k in ipairs({ "target", "tot", "me" }) do db[k] = was[k] end
+            for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = was[k] end
             NS.DO.me(was.me == true)
             FG.Layout(FG.anchor)
         end

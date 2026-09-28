@@ -15,8 +15,14 @@
 --   * the dead -- who needs a rez before the next pull.
 --
 -- What it deliberately does NOT check: anything about mana. `UnitPower` is secret on this client
--- even out of combat, so "who is low on mana" cannot be answered at all -- not by this addon, not
--- by any addon. Saying nothing beats guessing.
+-- even out of combat, so this brain cannot READ who is low and cannot report on it in words.
+--
+-- THAT SENTENCE USED TO END "not by this addon, not by any addon", and that part was wrong. Arn
+-- sent a screenshot of EllesmereUI's party frames on 28 Sep 2026 with the other healers' mana
+-- along the top of them. Reading it is impossible; SHOWING it is not: UnitPowerPercent's answer
+-- goes straight into SetFormattedText and the client draws the number nobody is allowed to see.
+-- The grid's mana block does exactly that (/bish mana). A sentence about what no one can do is
+-- worth checking every few weeks - this one stood for eleven days.
 --
 -- Scan() is a pure read that returns findings; Report() is the only thing that talks. That split
 -- is what lets dev/forever.lua drive the whole brain against a fake client with the game shut.

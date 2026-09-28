@@ -607,6 +607,140 @@ function FG.PlacePets(f, anchor)
     return FG.PlaceAt(f, anchor, FG.PetSpot(), type(d) == "table" and d.petPos or nil)
 end
 
+-- THE OTHER HEALERS' MANA. Arn, 28 Sep, with a screenshot of EllesmereUI's party frames: "the top
+-- thing is the healer mana".
+--
+-- THIS FILE'S NEIGHBOUR SAYS IT CANNOT BE DONE. Between.lua, since 17 Sep: "`UnitPower` is secret
+-- on this client even out of combat, so 'who is low on mana' cannot be answered at all -- not by
+-- this addon, not by any addon." That is true about READING it and wrong about SHOWING it, which
+-- is the same mistake this whole addon was built to avoid making. EllesmereUI's raid frames do:
+--
+--     valFS:SetFormattedText("%d", UnitPowerPercent(unit, 0, true, CurveConstants.ScaleTo100))
+--
+-- with their own note beside it - "which can be secret in combat: it only ever reaches a format
+-- setter". The client works the percentage out and draws it. Nothing here ever learns a number.
+--
+-- HEALERS ONLY, which is the question a healer actually has: is my co-healer about to go dry.
+-- A mage's mana is rarely your problem, and a row per mana user in a raid is a second grid.
+FG.MANA_KEYS = { what = "the mana block", at = "manaAt", pos = "manaPos",
+                 spot = function() return FG.ManaSpot() end,
+                 place = function(f) return FG.PlaceMana(f) end }
+
+local MANA_ROW_H = 13
+
+function FG.ManaSpot()
+    local d = NS.DB and NS.DB()
+    local at = type(d) == "table" and d.manaAt or nil
+    return FG.TARGET_SPOTS[at or ""] and at or "right"
+end
+
+--- Everyone in the group the game calls a healer, you included: your own bar is the one you check
+--- most, and leaving it out would make the block lie about the group.
+function FG.Healers()
+    local out = {}
+    if not UnitGroupRolesAssigned then return out end
+    for _, unit in ipairs(FG.Roster()) do
+        if not FG.IsPetUnit(unit) then
+            local ok, role = pcall(UnitGroupRolesAssigned, unit)
+            if ok and NS.Plain(role) == "HEALER" then out[#out + 1] = unit end
+        end
+    end
+    -- your own cell may be out of the roster (a cell of your own), and you are still a healer
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" and d.me == true and UnitExists and UnitExists("player") then
+        local ok, role = pcall(UnitGroupRolesAssigned, "player")
+        if ok and NS.Plain(role) == "HEALER" then table.insert(out, 1, "player") end
+    end
+    return out
+end
+
+--- One row: a name on the left, a percentage on the right. Not a cell - it is not clickable and
+--- carries no bars, because this answers one question and an 84 pixel cell already has a job.
+local function manaRow(parent, i)
+    local r = CreateFrame("Frame", nil, parent)
+    r:SetSize(FRAME_W, MANA_ROW_H)
+    r:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(i - 1) * MANA_ROW_H)
+    local bg = r:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.08, 0.08, 0.08, 0.75)
+    r.who = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.who:SetPoint("LEFT", 3, 0)
+    r.who:SetJustifyH("LEFT")
+    r.pct = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.pct:SetPoint("RIGHT", -3, 0)
+    r.pct:SetJustifyH("RIGHT")
+    if r.pct.SetTextColor then r.pct:SetTextColor(0.45, 0.62, 1) end
+    return r
+end
+
+--- THE NUMBER IS NEVER READ. UnitPowerPercent's answer goes straight into SetFormattedText, which
+--- is the same bargain the health bars have always had: the client knows, we draw. It can be
+--- secret, and that changes nothing here - there is no branch for it to break.
+function FG.PaintMana(row, unit)
+    if not (row and unit) then return false end
+    if row.who then row.who:SetText(FG.ShortName(unit)) end
+    local pct = UnitPowerPercent
+    if not (pct and row.pct) then return false end
+    local scale = CurveConstants and CurveConstants.ScaleTo100
+    -- ASKED IN ITS OWN pcall. Written as `pcall(setter, fs, "%d%%", pct(unit, ...))` the call is
+    -- evaluated BEFORE pcall ever runs, so a client that refuses it throws straight through the
+    -- guard that looks like it is covering it - and takes the whole paint loop with it.
+    local got, value = pcall(pct, unit, 0, true, scale)
+    local drew = got and pcall(row.pct.SetFormattedText, row.pct, "%d%%", value)
+    if not drew then
+        -- a client that will not hand the value to a setter says nothing rather than a wrong number
+        pcall(row.pct.SetText, row.pct, "")
+        FG.manaSeen = "refused"
+        return false
+    end
+    FG.manaSeen = "drawn"
+    return true
+end
+
+function FG.LayoutMana(anchor)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    anchor = anchor or FG.anchor
+    if not anchor then return false end
+    local d = NS.DB and NS.DB()
+    local want = type(d) == "table" and d.mana == true and d.shown ~= false
+    local healers = want and FG.Healers() or {}
+    if #healers == 0 then
+        if FG.manaAnchor then FG.manaAnchor:Hide() end
+        return true, false
+    end
+    if not FG.manaAnchor then
+        local a = CreateFrame("Frame", "BiSHealingForeverMana", anchor)
+        a:SetSize(FRAME_W, MANA_ROW_H)
+        FG.manaAnchor = a
+        FG.manaRows = {}
+        FG.CellHeader(a, "mana", a, FG.MANA_KEYS)
+    end
+    local a = FG.manaAnchor
+    a:Show()
+    if a.handle then a.handle:Show() end
+    for i, unit in ipairs(healers) do
+        local row = FG.manaRows[i] or manaRow(a, i)
+        FG.manaRows[i] = row
+        row.unit = unit
+        row:Show()
+        FG.PaintMana(row, unit)
+    end
+    for i = #healers + 1, #FG.manaRows do
+        FG.manaRows[i].unit = nil
+        FG.manaRows[i]:Hide()
+    end
+    a:SetSize(FRAME_W, #healers * MANA_ROW_H)
+    FG.PlaceMana(a, anchor)
+    return true, #healers
+end
+
+function FG.PlaceMana(f, anchor)
+    f = f or FG.manaAnchor
+    anchor = anchor or FG.anchor
+    local d = NS.DB and NS.DB()
+    return FG.PlaceAt(f, anchor, FG.ManaSpot(), type(d) == "table" and d.manaPos or nil)
+end
+
 -- WHERE THE TARGET'S CELL SITS. Arn, 23 Sep: "lets do a toggle under grid to the right left or
 -- top. and we can give it its own little header where they can drag it where ever they want on
 -- screen". So four places against the grid, and a fifth - "free" - the moment you drag it.
@@ -631,6 +765,7 @@ function FG.SpotTaken(at, mine)
     if mine ~= FG.TARGET_KEYS and d.target == true and FG.TargetSpot() == at then return true end
     if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
     if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
+    if mine ~= FG.MANA_KEYS and d.mana == true and FG.ManaSpot() == at then return true end
     return false
 end
 
@@ -1062,6 +1197,7 @@ function FG.Layout(anchor)
     FG.LayoutTarget(anchor)         -- the target's own cell, under the grid, when it is wanted
     FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
     FG.LayoutPets(anchor)           -- and the pets, when they have a block rather than a column
+    FG.LayoutMana(anchor)           -- and the other healers' mana, when it is wanted
 
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
@@ -1375,6 +1511,7 @@ function FG.SetScale(v, fromMacro)
     if FG.target then FG.PlaceTarget(FG.target, a) end
     if FG.me then FG.PlaceSelf(FG.me, a) end        -- and yours, which is pinned the same way
     if FG.petAnchor then FG.PlacePets(FG.petAnchor, a) end
+    if FG.manaAnchor then FG.PlaceMana(FG.manaAnchor, a) end
     keep()
     return true, s
 end
@@ -1615,6 +1752,10 @@ function FG.Start()
         if t and t.unit and t:IsShown() then
             if t.name then t.name:SetText(FG.ShortName("target")) end
             FG.Paint(t)
+        end
+        -- the mana rows are not cells at all: a name and a percentage the client works out
+        for _, row in ipairs(FG.manaRows or {}) do
+            if row.unit and row:IsShown() then FG.PaintMana(row, row.unit) end
         end
         -- the pet block's cells are not in FG.frames either
         for _, f in ipairs(FG.petFrames or {}) do

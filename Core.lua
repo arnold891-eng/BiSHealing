@@ -72,6 +72,9 @@ local DEFAULTS = {
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
     target  = false,     -- a cell of its own for whoever you have targeted
     tot     = false,     -- and one under it for whoever THEY have targeted
+    mana    = false,     -- the other healers' mana, in a block of its own
+    manaAt  = "right",   -- where that block sits; "free" once dragged
+    manaPos = nil,
     me      = false,     -- a cell for yourself, out of the group, in the same place always
     meAt    = "left",    -- where it sits: left / right / top / under, or "free" once dragged
     mePos   = nil,       -- where it was dragged to, from the middle of the screen
@@ -712,6 +715,38 @@ function NS.DO.tot(on)
     return d.tot
 end
 
+--- THE OTHER HEALERS' MANA. Arn, 28 Sep, with a screenshot of EllesmereUI's party frames: "the
+--- top thing is the healer mana". This addon had written that off as impossible - and it was
+--- right about reading the number and wrong about showing it, which is the mistake the whole
+--- thing was built to avoid. The client works out the percentage; nothing here ever learns it.
+function NS.DO.mana(on)
+    local d = DB()
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.manaAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.MANA_KEYS) or where
+            if where ~= "free" then d.manaPos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
+    if on == nil then on = not d.mana end
+    d.mana = on and true or false
+    if d.mana and NS.FG and NS.FG.FreeSpot then
+        d.manaAt = NS.FG.FreeSpot(NS.FG.ManaSpot(), NS.FG.MANA_KEYS)
+    end
+    local done = true
+    if NS.FG and NS.FG.LayoutMana then done = NS.FG.LayoutMana() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    local n = (NS.FG and NS.FG.Healers and #NS.FG.Healers()) or 0
+    Print((d.mana and ("the healers' mana, %d in the group right now"):format(n)
+        or "no mana block") .. (done and "" or " - after this fight"))
+    return d.mana
+end
+
 --- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn, 25 Sep 2026): "lock
 --- yourself in one spot outside groups just to get use to it and have it in same spot for solo/or
 --- raid groups". Switching it on takes you out of the grid, which is the whole point: a spot that
@@ -862,6 +897,7 @@ function NS.DO.help()
     Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980fftot|r  and one for your target's target, beside it")
+    Print("  |cffb980ffmana|r  the other healers' mana, in a block of its own")
     Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
         .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
@@ -930,6 +966,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.tot()
     elseif msg == "me" or msg == "self" then
         NS.DO.me()
+    elseif msg == "mana" then
+        NS.DO.mana()
+    elseif msg:match("^mana%s+%a+$") then
+        NS.DO.mana(msg:match("^mana%s+(%a+)$"))
     elseif msg:match("^me%s+%a+$") or msg:match("^self%s+%a+$") then
         NS.DO.me(msg:match("^%a+%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then

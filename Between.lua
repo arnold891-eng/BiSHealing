@@ -34,20 +34,26 @@ local CURABLE = { Poison = true, Disease = true }     -- what a shaman can actua
 --- Every aura on a unit, as the client hands them over. Out of combat only: inside the lockdown
 --- `GetAuraDataByIndex` errors outright and `AuraUtil.FindAuraByName` quietly returns nil, which
 --- is worse -- so this refuses to run there rather than reporting an empty raid.
+--- Returns the auras AND whether the client refused to hand them over. Those were one value -
+--- an empty list - and the difference matters: "nobody has Earth Shield" and "the client would
+--- not say" read identically from an empty table, and the first of them gets printed in chat.
+--- EllesmereUI's AuraKit made the case (28 Sep): the index walk hard-errors under instance
+--- restrictions even out of combat, where `ShouldAurasBeSecret` still answers no.
 local function auras(unit, filter)
     local out = {}
     -- guarded here as well as in Scan(): a helper that reads locked data should refuse on its own,
     -- so a future caller cannot forget. It also lets audit/lockdown.py see the guard, which it
     -- cannot do by following calls.
-    if NS.Blind and NS.Blind() then return out end
+    if NS.Blind and NS.Blind() then return out, true end
     local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
-    if not get then return out end
+    if not get then return out, true end
     for i = 1, 40 do
         local ok, a = pcall(get, unit, i, filter)
-        if not ok or not a then break end
+        if not ok then return out, true end          -- refused: not the same as "no more auras"
+        if not a then break end
         out[#out + 1] = a
     end
-    return out
+    return out, false
 end
 
 --- One field of an aura, or nil when the client will not let us read it. The aura table itself
@@ -84,7 +90,9 @@ function FB.Scan()
     if FB.Knows(EARTH_SHIELD) then
         local esOn, unsure = nil, false
         for _, unit in ipairs(roster) do
-            for _, a in ipairs(auras(unit, "HELPFUL")) do
+            local list, refused = auras(unit, "HELPFUL")
+            if refused then unsure = true end
+            for _, a in ipairs(list) do
                 local name = field(a, "name")
                 if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
             end
@@ -96,7 +104,9 @@ function FB.Scan()
 
     for _, unit in ipairs(roster) do
         local who = nameOf(unit)
-        for _, a in ipairs(auras(unit, "HARMFUL")) do
+        -- a refused list simply has nothing in it to report, which is right: this half only ever
+        -- says "somebody still HAS something", and a refusal is not evidence that they do
+        for _, a in ipairs((auras(unit, "HARMFUL"))) do
             local kind = field(a, "dispelName")
             if kind and CURABLE[kind] then
                 found[#found + 1] = { kind = "dispel", unit = unit,

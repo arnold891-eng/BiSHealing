@@ -3112,6 +3112,55 @@ for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
 ok(kinds.earthshield == 1, "a missing Earth Shield is reported")
 ok(kinds.totems == 1, "four empty totem slots are reported")
 
+-- CAN THE AURA LIST BE WALKED AT ALL? The client answers that by throwing, not by saying so:
+-- EllesmereUI 9.3's AuraKit probes one slot and catches the refusal, because the index walk
+-- hard-errors under instance restrictions even where ShouldAurasBeSecret answers no.
+do
+    local realGet = _G.C_UnitAuras.GetAuraDataByIndex
+    ok(NS.Restricted() == false, "with the client answering, the list can be walked")
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    ok(NS.Restricted() == true, "and when it throws, that is the answer")
+    -- THE CLEAR ANSWER IS NEVER CACHED. A stale "you may walk" sends the next caller into a scan
+    -- that throws; a stale "you may not" costs one frame of a display nobody was watching. So the
+    -- restriction is remembered for the frame and the permission is asked again every time.
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    ok(NS.Restricted() == true,
+       "the refusal is remembered for the rest of the frame - building that error is the cost")
+    TICK()
+    ok(NS.Restricted() == false,
+       "and the next frame asks again, rather than holding the refusal over")
+    -- AND PERMISSION IS NEVER CACHED, even for the frame it was given in: restriction engages
+    -- mid-frame at a zone edge, and a held-over "you may walk" is what sends the next caller into
+    -- a scan that throws.
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    ok(NS.Restricted() == true,
+       "restriction arriving inside the same frame is noticed at once")
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    TICK()
+end
+
+-- A CLIENT THAT REFUSES THE AURA LIST IS NOT A RAID WITH NO BUFFS ON IT. Read off EllesmereUI 9.3
+-- on 28 Sep: the index walk hard-errors under instance restrictions even out of combat, where
+-- ShouldAurasBeSecret still answers no. The walk broke out of its loop on the error and handed
+-- back an empty list, which is indistinguishable from "nobody has it" - and that one gets printed
+-- in chat. "Earth Shield is not up on anyone", to a raid where it was up the whole time.
+do
+    local realGet = _G.C_UnitAuras.GetAuraDataByIndex
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    local refusedScan = FB.Scan()
+    local said = {}
+    for _, f in ipairs(refusedScan or {}) do said[f.kind] = true end
+    ok(not said.earthshield,
+       "a refused aura list is never reported as a missing Earth Shield")
+    ok(not said.dispel, "and never as somebody standing there with a debuff on them")
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    -- and with the client answering again, the report comes back rather than staying quiet
+    local backScan = FB.Scan()
+    local kinds2 = {}
+    for _, f in ipairs(backScan or {}) do kinds2[f.kind] = true end
+    ok(kinds2.earthshield, "and when the client answers again, so does the brain")
+end
+
 -- with Earth Shield up on the tank, it stops nagging
 AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
 TOTEMS[1] = true

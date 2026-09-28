@@ -1,5 +1,12 @@
 # BiS Healing
 
+## 0.6.1
+
+- **Fixed: `/bish scan` could say "Earth Shield is not up on anyone" when the game had simply
+  refused to answer.** The aura list can be closed to addons inside instances — even out of
+  combat — and a refusal was being read as "there are no buffs on anybody". A question the game
+  will not answer is now reported as unknown, never as missing.
+
 ## 0.6.0
 
 The last release on CurseForge was 0.5.2, so this one also carries everything in

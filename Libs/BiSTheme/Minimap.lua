@@ -124,7 +124,7 @@ end
 
 local function fs(parent, text, size, name)
   local s = parent:CreateFontString(nil, "OVERLAY")
-  s:SetFont(STANDARD_TEXT_FONT, size or 9, "")
+  if T.SetFont then T.SetFont(s, size or 9) else s:SetFont(STANDARD_TEXT_FONT, size or 9, "") end
   local r, g, b = colour(name or "ink")
   s:SetTextColor(r, g, b, 1)
   s:SetText(text or "")

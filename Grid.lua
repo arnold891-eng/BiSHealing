@@ -1249,14 +1249,72 @@ function FG.Paint(f)
     --
     -- The modern one answers true/false, the old one 1/0. Both are handled, because "which shape
     -- does this client answer in" is not a question worth a version check.
-    local reach = 1
-    local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+    FG.PaintRange(f, unit)
+end
+
+-- How far down an unreachable cell goes. Not hidden: out of range is a thing to notice, not a
+-- thing to lose.
+FG.DIM = 0.45
+
+--- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. Read off ForeverAuras 0.8.6 (28 Sep 2026):
+--- `C_CurveUtil.EvaluateColorValueFromBoolean(bool, whenTrue, whenFalse)` hands back one of two
+--- values, chosen by the CLIENT from a boolean the addon may not even test for truth. It is the
+--- ternary we have never been allowed to write.
+---
+--- That is exactly what stood between this and working mid-pull. "Are they in range" goes secret
+--- in combat like everything else, `pcall` swallowed the refusal, and the cell stayed at full
+--- brightness - so the dimming has only ever worked between pulls, when you least need it.
+---
+--- The plain answer is still used when there is one: it needs no client call, it works on TBC,
+--- and a number we can read is better than a number we cannot. The curve is for the other half
+--- of the time.
+---
+--- WHAT IS NOT KNOWN YET, and is measured rather than assumed: whether SetAlpha will ACCEPT a
+--- value derived from a secret. Widgets take secret values by design - that is the whole display
+--- bargain - but no census lists which ones, so the call is guarded and what happened is recorded
+--- for `/bish range` to report. A refusal leaves the cell bright, which is where it is today.
+FG.rangeSeen = nil        -- what the last read was: "plain", "secret", "refused" or "no spell"
+
+function FG.PaintRange(f, unit)
     local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
-    if range and spell then
-        local ok, r = pcall(range, spell, unit)
-        if ok and (r == 0 or r == false) then reach = 0.45 end
+    local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+    if not (range and spell) then
+        FG.rangeSeen = "no spell"
+        f:SetAlpha(1)
+        return 1, "no spell"
     end
+    local asked, answer = pcall(range, spell, unit)
+    if not asked then
+        FG.rangeSeen = "refused"
+        f:SetAlpha(1)
+        return 1, "refused"
+    end
+    -- A SECRET ANSWER NEVER TOUCHES AN `if`. NS.Secret asks the client whether this value may be
+    -- read; everything below either hands it straight to the curve or works on a plain value.
+    if NS.Secret and NS.Secret(answer) then
+        local curve = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+        if not curve then
+            FG.rangeSeen = "secret, no curve"
+            f:SetAlpha(1)
+            return 1, "secret, no curve"
+        end
+        local made, alpha = pcall(curve, answer, 1, FG.DIM)
+        if not made then
+            FG.rangeSeen = "curve refused"
+            f:SetAlpha(1)
+            return 1, "curve refused"
+        end
+        local drew = pcall(f.SetAlpha, f, alpha)
+        FG.rangeSeen = drew and "secret" or "alpha refused"
+        if not drew then f:SetAlpha(1) end
+        return nil, FG.rangeSeen
+    end
+    -- the plain answer: the modern call says true/false, the old one 1/0, and anything that is
+    -- not a clear "no" leaves the cell bright rather than dimming someone who is reachable
+    local reach = (answer == 0 or answer == false) and FG.DIM or 1
+    FG.rangeSeen = "plain"
     f:SetAlpha(reach)
+    return reach, "plain"
 end
 
 --------------------------------------------------------------------- driving --

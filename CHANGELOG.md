@@ -1,5 +1,14 @@
 # BiS Healing
 
+## 0.6.2
+
+- **Out-of-range cells dim during a fight now** — which is when you need to know. The game keeps
+  "can you reach them" secret in combat, so the dimming has only ever worked between pulls. It now
+  asks the game to pick the brightness from the answer, without ever reading it. If the game
+  refuses, cells stay bright, exactly as before.
+- **`/bish range`** says what the game answered and what the grid did with it, for when the
+  dimming looks wrong.
+
 ## 0.6.1
 
 - **Fixed: `/bish scan` could say "Earth Shield is not up on anyone" when the game had simply

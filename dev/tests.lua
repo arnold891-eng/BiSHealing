@@ -104,7 +104,15 @@ local function newFrame(kind, name, parent)
     function f:Show() self.__shown = true end
     function f:Hide() self.__shown = false end
     function f:IsShown() return self.__shown end
-    function f:SetAlpha(a) self.__alpha = a end
+    function f:SetAlpha(a)
+        -- A WIDGET MAY REFUSE A SECRET. Which ones accept them is not in any census, so the mock
+        -- can be told to say no - and the addon has to leave the cell readable when it does,
+        -- rather than throwing in the middle of a pull.
+        if STATE.alphaRefusesSecret and getmetatable(a) == secretMeta then
+            error("SetAlpha: a secret alpha is refused by this client", 2)
+        end
+        self.__alpha = a
+    end
     function f:GetAlpha() return self.__alpha end
     function f:SetFrameStrata(v) self.__strata = v end
     function f:SetScale(v) self.__scale = v end
@@ -245,7 +253,24 @@ _G.UnitIsDeadOrGhost = function(u)
 end
 _G.UnitHealth = function() return secret() end
 _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
-_G.IsSpellInRange = function(_, u) return STATE.range[u] == 0 and 0 or 1 end
+-- IN COMBAT THE ANSWER IS A SECRET, like everything else about somebody else. It used to answer
+-- plainly always, so "the dimming works" was only ever proved for the half of the time it is not
+-- needed - and the pcall round it swallowed the refusal in the other half without a word.
+_G.IsSpellInRange = function(_, u)
+    if STATE.rangeSecret then return secret() end
+    return STATE.range[u] == 0 and 0 or 1
+end
+-- the client's ternary: it picks one of two values from a boolean nobody else may test
+_G.C_CurveUtil = _G.C_CurveUtil or {}
+_G.C_CurveUtil.EvaluateColorValueFromBoolean = function(b, whenTrue, whenFalse)
+    if getmetatable(b) == secretMeta then
+        -- a secret in, a secret out: the client knows which one it picked and we do not
+        if STATE.curveRefuses then error("the curve refuses this value", 2) end
+        return secret()
+    end
+    if type(b) ~= "boolean" then error("EvaluateColorValueFromBoolean needs a boolean", 2) end
+    return b and whenTrue or whenFalse
+end
 -- THE UNIT WATCH SHOWS FRAMES BY ITSELF. It was a no-op here, which is kinder than the client:
 -- the real one shows a watched frame whenever its unit exists, whatever the addon last said - so
 -- "show the cells" off did nothing in game for a week while this suite passed (Arn, 21 Sep).
@@ -602,13 +627,67 @@ FG.Paint(f)
 ok(f.bar.__color[1] > f.bar.__color[3], "a dead unit paints red, not class colour")
 STATE.dead.party1 = nil
 
--- range: IsSpellInRange answers plainly; UnitInRange would be a secret boolean and unusable
+-- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
 STATE.range.party1 = 0
 FG.Paint(f)
 ok(f:GetAlpha() == 0.45, "out of range dims the cell")
+ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls", FG.rangeSeen)
 STATE.range.party1 = nil
 FG.Paint(f)
 ok(f:GetAlpha() == 1, "back in range, full alpha")
+
+-- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. This is the half that has never worked: "are
+-- they in range" goes secret with everything else, the pcall round it swallowed the refusal, and
+-- the cell stayed bright - so the dimming only ever ran when it was least needed. The client's
+-- own ternary picks the alpha from a boolean we may not test (ForeverAuras 0.8.6, 28 Sep).
+do
+    STATE.rangeSecret = true
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f), "a secret range answer does not throw")
+    ok(FG.rangeSeen == "secret", "the client is asked to choose the dimming for us", FG.rangeSeen)
+    ok(getmetatable(f.__alpha) == getmetatable(secret()),
+       "and what it chose goes to the widget unread, like every other secret")
+
+    -- A WIDGET THAT WILL NOT TAKE IT leaves the cell readable, rather than throwing mid-pull.
+    -- Which widgets accept a secret is in no census, so this is a real possibility and not a
+    -- hypothetical - the grid has met a refusal before, on SetMinMaxValues.
+    STATE.alphaRefusesSecret = true
+    -- LEFT DIM ON PURPOSE before the paint: a cell that is already bright cannot show whether the
+    -- addon put it back, and "the recovery works" was passing on a cell that never moved.
+    f:SetAlpha(FG.DIM)
+    ok(pcall(FG.Paint, f), "a widget refusing the secret does not throw either")
+    ok(f:GetAlpha() == 1, "and the cell is put back to bright rather than left half faded")
+    ok(FG.rangeSeen == "alpha refused", "and the reason is recorded for /bish range",
+       FG.rangeSeen)
+    STATE.alphaRefusesSecret = false
+
+    -- a client with no such call at all: the same, said differently
+    local realCurve = _G.C_CurveUtil.EvaluateColorValueFromBoolean
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = nil
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f) and f:GetAlpha() == 1, "and a client without the call leaves it bright")
+    ok(FG.rangeSeen == "secret, no curve", "saying which of the two it was", FG.rangeSeen)
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = realCurve
+
+    -- AND A CALL THAT THROWS OUTRIGHT is not "everybody is out of range". The same mistake as the
+    -- aura walk on the 28th: a refusal is not an answer, and dimming the whole raid on one is
+    -- worse than dimming nobody.
+    local realRange = _G.C_Spell and _G.C_Spell.IsSpellInRange
+    if _G.C_Spell then _G.C_Spell.IsSpellInRange = function() error("no", 2) end end
+    local realBare = _G.IsSpellInRange
+    _G.IsSpellInRange = function() error("no", 2) end
+    f:SetAlpha(FG.DIM)
+    ok(pcall(FG.Paint, f), "a range call that throws does not take the paint with it")
+    ok(f:GetAlpha() == 1 and FG.rangeSeen == "refused",
+       "and nobody is dimmed on a refusal", tostring(FG.rangeSeen) .. " / " .. tostring(f:GetAlpha()))
+    if _G.C_Spell then _G.C_Spell.IsSpellInRange = realRange end
+    _G.IsSpellInRange = realBare
+
+    STATE.rangeSecret = false
+    FG.Paint(f)
+    ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
+end
+ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
 
 -- a client that refuses a secret max must not take the addon down with it; whether Forever does
 -- is not yet measured, so the grid asks once and remembers the answer

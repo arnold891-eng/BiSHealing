@@ -60,7 +60,10 @@ health, and that is exactly what this client will not allow.
   health colours on, the names wear the class colour instead.
 - A green pip when there is something on them **you** can take off, a dimmed
   cell when they are out of range of whatever is on your left button, and a role
-  icon (the raid's Main Tank counts as a tank).
+  icon (the raid's Main Tank counts as a tank). In combat the client keeps the
+  range answer secret, so it is handed back to the client to choose the
+  brightness from — the addon never learns who is reachable. `/bish range` says
+  what happened.
 - Optional: a pyramid (`/bish pyramid`, tanks on top) and a size from 60% to
   160% (`/bish scale 90`).
 - **Pets, three ways** (`/bish pets grid | own | off`): a column inside the main

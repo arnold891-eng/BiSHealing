@@ -374,6 +374,33 @@ function NS.DO.buffsound(arg)
     return d.buffSound
 end
 
+--- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
+--- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
+--- from the screen they all look identical.
+function NS.DO.range()
+    local FG = NS.FG
+    local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
+    Print("range is measured with |cffb980ff%s|r, whatever is on your left button",
+        tostring(spell or "nothing - bind a spell to left click"))
+    local call = (C_Spell and C_Spell.IsSpellInRange and "C_Spell.IsSpellInRange")
+        or (IsSpellInRange and "IsSpellInRange") or "no call on this client"
+    Print("  asking: |cffb980ff%s|r", call)
+    local unit = (UnitExists and UnitExists("target") and "target") or "player"
+    local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+    if range and spell then
+        local ok, answer = pcall(range, spell, unit)
+        Print("  about %s: %s", unit, not ok and "|cfff08cb0refused|r"
+            or (NS.Secret and NS.Secret(answer) and "|cffe5c04aa secret|r - which is the interesting case"
+                or ("|cff4fd0cf" .. tostring(answer) .. "|r")))
+    end
+    local curve = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+    Print("  the client's boolean-to-value call: %s",
+        curve and "|cff4fd0cfthere|r" or "|cfff08cb0missing|r")
+    Print("  last paint: |cffb980ff%s|r", tostring(FG and FG.rangeSeen or "nothing painted yet"))
+    Print("  %s", "|cff968eadplain = read normally · secret = the client chose the dimming for us"
+        .. " · alpha refused = it would not take it|r")
+end
+
 function NS.DO.minimap()
     if not NS.MM then return end
     local hidden = NS.MM.Hidden()
@@ -907,6 +934,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.me(msg:match("^%a+%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then
         NS.DO.regen()
+    elseif msg == "range" then
+        NS.DO.range()
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
     elseif msg == "buffsound" or msg:match("^buffsound%s") then

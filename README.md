@@ -58,6 +58,8 @@ health, and that is exactly what this client will not allow.
 - **Bars in class colour, or by health** (`/bish colour`): green, amber below
   70%, red below 35% — the client picks the colour from a curve we hand it. With
   health colours on, the names wear the class colour instead.
+- **DEAD**, **OFFLINE** or **AFK** in place of the number when that is the more useful thing
+  to say.
 - A green pip when there is something on them **you** can take off, a dimmed
   cell when they are out of range of whatever is on your left button, and a role
   icon (the raid's Main Tank counts as a tank). In combat the client keeps the

@@ -1104,6 +1104,16 @@ function FG.StatusWord(unit)
         local ok, dead = pcall(UnitIsDeadOrGhost, unit)
         if ok and NS.Plain(dead) == true then return "DEAD" end
     end
+    -- AND AFK LAST, because it is the only one of the three you can heal through. EllesmereUI's
+    -- frames show it too, and their note draws the line this follows: of these calls "only
+    -- UnitIsAFK can be secret". So unlike the other two it can go quiet mid-fight - and when it
+    -- does the cell shows the number again rather than a stale word. Someone's health is the more
+    -- useful of the two things that line can say, and "AFK" that might be ten minutes old is the
+    -- less useful.
+    if UnitIsAFK then
+        local ok, afk = pcall(UnitIsAFK, unit)
+        if ok and NS.Plain(afk) == true then return "AFK" end
+    end
     return nil
 end
 

@@ -283,6 +283,13 @@ _G.UnitIsConnected = function(u)
     if STATE.connectedSecret then return secret() end
     return not STATE.offline[u]
 end
+-- AWAY FROM THE KEYBOARD, which EllesmereUI's frames also show. Their note is what sets this one
+-- apart from dead and offline: "only UnitIsAFK can be secret" - so the mock can be told to hide it.
+STATE.afk = {}
+_G.UnitIsAFK = function(u)
+    if STATE.afkSecret then return secret() end
+    return STATE.afk[u] and true or false
+end
 _G.UnitIsDeadOrGhost = function(u)
     if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
     return STATE.dead[u] and true or false
@@ -736,6 +743,27 @@ ok(f.htext.__text ~= "DEAD" and f.htext.__text ~= "OFFLINE",
 ok(f.htext.__color and f.htext.__color[1] > 0.9 and f.htext.__color[2] < 0.7,
    "in the number's own colour, not the grey the word was left in",
    f.htext.__color and table.concat(f.htext.__color, ","))
+
+-- AND AFK, which is the only one of the three you can still heal through - so it comes last, and
+-- a corpse or an absent player is never called merely away.
+STATE.afk.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "AFK", "someone at the keyboard's fault says AFK", tostring(f.htext.__text))
+STATE.dead.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "DEAD", "a dead AFK is dead first", tostring(f.htext.__text))
+STATE.offline.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE", "and an offline one is offline first", tostring(f.htext.__text))
+STATE.dead.party1, STATE.offline.party1 = nil, nil
+
+-- THIS ONE CAN GO SECRET where the other two cannot (their note: "only UnitIsAFK can be secret").
+-- When it does the cell shows the number again rather than a word that may be ten minutes old.
+STATE.afkSecret = true
+FG.Paint(f)
+ok(f.htext.__text ~= "AFK", "a hidden AFK is not shown at all", tostring(f.htext.__text))
+STATE.afkSecret = false
+STATE.afk.party1 = nil
 
 -- A WORD THE CLIENT WILL NOT CONFIRM IS NOT SHOWN. Their note says these two are clean for group
 -- units, which is a measurement and not a promise; a secret answer falls back to the number.

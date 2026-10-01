@@ -1,5 +1,12 @@
 # BiS Healing
 
+## 0.7.6
+
+- **Cells say AFK too**, after DEAD and OFFLINE — it is the only one of the three you can still
+  heal through, so it never hides either of the others. Unlike those two the game can keep it
+  secret during a fight, and when it does the cell shows the health number instead of a word that
+  might be ten minutes old.
+
 ## 0.7.5
 
 - **Fixed: out-of-range cells still never dimmed.** The range was measured with whatever is on

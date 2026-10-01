@@ -1118,6 +1118,8 @@ end
 function FG.PaintRole(f)
     local icon, unit = f.role, f.unit
     if not icon then return false end
+    -- a half-size cell has no room for it, and the pyramid's shape says the role anyway
+    if f.__narrow then icon:Hide() return false end
     if not (unit and UnitGroupRolesAssigned) then icon:Hide() return false end
 
     local ok, role = pcall(UnitGroupRolesAssigned, unit)
@@ -1158,8 +1160,49 @@ function FG.Bind(f, unit)
     -- mouse's own pass wiped whatever it did not know about. One owner.
     if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(f) end
     if RegisterUnitWatch then RegisterUnitWatch(f) end
-    if f.name then f.name:SetText(FG.ShortName(unit)) end
+    if f.name then f.name:SetText(FG.CellName(f, unit)) end
     return true
+end
+
+-- A HALF-SIZE CELL HAS TO GIVE SOMETHING UP. Arn, 30 Sep, with a 40 pixel cell reading "Ch...":
+-- "lets try and modify the half size ones maybe move stuff around only those so at least the name
+-- can show".
+--
+-- What it gives up is the ROLE ICON, and that is the right thing to lose: these cells only exist
+-- in the pyramid, where the shape already says the role - tanks at the apex, healers along the
+-- bottom. The icon is repeating in 11 pixels what the position says for free, and those 11 pixels
+-- are a third of the line.
+--
+-- With the icon gone the name takes the whole width, and is cut to what the cell can actually
+-- hold rather than to a fixed twelve characters.
+local NARROW_W = 60                      -- under this is a pyramid base cell; 84 is ordinary
+local CHAR_W = 5.5                       -- the small font, measured by eye at 100%
+
+--- Set a cell up for the width it has just been given. Called from the layout, where the width is
+--- known, rather than from the paint - anchors do not change sixty times a second.
+function FG.FitCell(f, w)
+    local narrow = (tonumber(w) or FRAME_W) < NARROW_W
+    f.__chars = math.max(3, math.floor(((tonumber(w) or FRAME_W) - 6) / CHAR_W))
+    if f.__narrow == narrow then return narrow end
+    f.__narrow = narrow
+    if f.name then
+        f.name:ClearAllPoints()
+        f.name:SetPoint("TOPLEFT", 3, -4)
+        -- the corner the role icon was keeping, or all of it
+        f.name:SetPoint("TOPRIGHT", narrow and -3 or -14, -4)
+    end
+    if narrow and f.role then f.role:Hide() end
+    return narrow
+end
+
+--- The name this particular cell can hold. A secret name is handed over whole - it cannot be cut,
+--- and the client clips what will not fit.
+function FG.CellName(f, unit)
+    local name = FG.ShortName(unit)
+    if NS.Secret and NS.Secret(name) then return name end
+    local chars = f and f.__chars
+    if chars and type(name) == "string" and #name > chars then name = name:sub(1, chars) end
+    return name
 end
 
 --- A cell is 84 wide: "Longnamedhealer-Realmone" does not fit and the realm never matters in a group.
@@ -1249,6 +1292,7 @@ function FG.Layout(anchor)
                        (col - 1) * (FRAME_W + PAD), -(row - 1) * (FRAME_H + PAD))
         end
         f:SetSize(w, FRAME_H)
+        FG.FitCell(f, w)                -- before Bind, which is what writes the name
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
         -- halfway across, which reads as "only half of this is coming".

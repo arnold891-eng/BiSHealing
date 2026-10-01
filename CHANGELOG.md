@@ -1,5 +1,12 @@
 # BiS Healing
 
+## 0.7.3
+
+- **The half-size pyramid cells show a name again.** The bottom rows are 40 pixels wide and the
+  role icon was taking a third of the line, leaving room for about four letters. Those cells drop
+  the icon — in a pyramid the shape already says the role, tanks at the apex and healers along the
+  bottom — and the name takes the full width, cut to what the cell can actually hold.
+
 ## 0.7.2
 
 - **Fixed: nobody was ever dimmed for being out of range.** The game was asked with the spell's

@@ -1661,6 +1661,73 @@ do
     FG.Layout(FG.anchor)
 end
 
+-- A HALF-SIZE CELL GIVES UP ITS ROLE ICON SO THE NAME CAN SHOW. Arn, 30 Sep, with a 40 pixel
+-- pyramid cell reading "Ch...": "lets try and modify the half size ones ... so at least the name
+-- can show". The icon only appears on cells that live in the pyramid, where the shape already
+-- says the role - so it is repeating in 11 pixels what the position says for nothing.
+do
+    local cell = FG.frames[1]
+    STATE.roles = { party1 = "HEALER" }
+    cell.unit = "party1"
+
+    FG.FitCell(cell, 84)
+    FG.PaintRole(cell)
+    ok(cell.__narrow == false, "an ordinary cell is not narrow")
+    local wide = cell.name.points[#cell.name.points]
+    -- SetPoint("TOPRIGHT", x, y) with no relative frame: the offset is the SECOND value
+    ok(wide and wide[1] == "TOPRIGHT" and wide[2] == -14,
+       "and its name stops short of the role icon", wide and tostring(wide[2]))
+    ok(cell.role:IsShown(), "which is shown")
+
+    FG.FitCell(cell, 40)
+    FG.PaintRole(cell)
+    ok(cell.__narrow == true, "a half-size one is")
+    local thin = cell.name.points[#cell.name.points]
+    ok(thin and thin[1] == "TOPRIGHT" and thin[2] == -3,
+       "its name takes the whole width", thin and tostring(thin[2]))
+    ok(not cell.role:IsShown(), "and the role icon is gone - the pyramid's shape already says it")
+
+    -- AND THE NAME IS CUT TO WHAT THE CELL HOLDS, not to a fixed twelve characters
+    _G.UnitName = function() return "Chevgchelio" end
+    ok(#FG.CellName(cell, "party1") <= 7,
+       "the name is cut to what 40 pixels can hold", FG.CellName(cell, "party1"))
+    FG.FitCell(cell, 84)
+    ok(#FG.CellName(cell, "party1") > 7,
+       "and a full-width cell still gets the whole of it", FG.CellName(cell, "party1"))
+
+    -- a name the client hides cannot be cut at all - it goes over whole and the client clips it
+    _G.UnitName = function() return secret() end
+    FG.FitCell(cell, 40)
+    ok(pcall(FG.CellName, cell, "party1"), "a hidden name does not throw on the way through")
+    _G.UnitName = function(u) return "Name-" .. tostring(u) end
+
+    -- AND THE LAYOUT IS WHAT APPLIES IT. Calling FitCell by hand proves the function; it does not
+    -- prove that a cell ever meets it. The pyramid is where narrow cells come from, so lay one out
+    -- and look at the cell the shape made small.
+    _G.UnitName = function(u) return "Name-" .. tostring(u) end
+    local d = NS.DB()
+    local wasLayout = d.layout
+    d.layout = "pyramid"
+    for i = 1, 30 do STATE.units["raid" .. i] = true end
+    local realRaid = _G.IsInRaid
+    _G.IsInRaid = function() return true end
+    FG.Layout(FG.anchor)
+    local small, big = nil, nil
+    for _, g in ipairs(FG.frames) do
+        if g:IsShown() and g.__narrow == true then small = small or g end
+        if g:IsShown() and g.__narrow == false then big = big or g end
+    end
+    ok(small ~= nil, "a pyramid in a 30-man actually produces narrow cells")
+    ok(big ~= nil, "and wide ones above them")
+    ok(small and not small.role:IsShown(), "the narrow ones have no role icon after a real layout")
+
+    _G.IsInRaid = realRaid
+    for i = 1, 30 do STATE.units["raid" .. i] = nil end
+    d.layout = wasLayout
+    FG.Layout(FG.anchor)
+    STATE.roles = nil
+end
+
 -- A FRAME ROUND THE PEOPLE WHO MATTER. Arn, 30 Sep: "yellow frame around the healers and a gold
 -- frame around self". The bar is inset by a pixel, so the cell's background shows as a ring - and
 -- colouring that background is the whole implementation.

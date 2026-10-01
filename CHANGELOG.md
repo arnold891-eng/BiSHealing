@@ -1,5 +1,10 @@
 # BiS Healing
 
+## 0.7.4
+
+- **Fixed: chat lines printed `%s` instead of the thing they were meant to say.** Anything the
+  addon told you that included a value — `/bish range` most of all — printed its own punctuation.
+
 ## 0.7.3
 
 - **The half-size pyramid cells show a name again.** The bottom rows are 40 pixels wide and the

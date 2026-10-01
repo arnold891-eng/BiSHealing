@@ -40,11 +40,26 @@ NS.VERSION = metadata("Version") or "0.0.0"
 
 local PREFIX = "|cffb980ffBiS Healing|r: "
 
-function NS.Print(msg)
+--- One line in the chat frame, with the addon's name on it.
+---
+--- IT FORMATS WHEN IT IS GIVEN SOMETHING TO FORMAT. It used to take one argument and silently drop
+--- the rest, so `Print("asking: %s", call)` put the literal "%s" on screen - which is exactly what
+--- /bish range did for the two days it existed, in front of Arn, while he was trying to find out
+--- why nothing was dimming (30 Sep). Seven call sites were printing their own punctuation.
+---
+--- With no extra arguments the message is passed through untouched, so a line that happens to
+--- contain a percent sign is safe. A format that does not match its arguments falls back to the
+--- raw message rather than throwing in the chat frame.
+function NS.Print(msg, ...)
+    local text = tostring(msg)
+    if select("#", ...) > 0 then
+        local ok, made = pcall(string.format, text, ...)
+        if ok then text = made end
+    end
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. tostring(msg))
+        DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. text)
     else
-        print(PREFIX .. tostring(msg))
+        print(PREFIX .. text)
     end
 end
 local Print = NS.Print

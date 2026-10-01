@@ -587,6 +587,30 @@ do
     toc:close()
 end
 ok(#LOADED >= 8, "the TOC's files all load: " .. #LOADED)
+-- ONE LINE IN THE CHAT FRAME, AND IT FORMATS. NS.Print took a single argument and dropped the
+-- rest, so every call that passed values printed its own punctuation: "asking: %s". /bish range
+-- did that for the two days it existed, in front of Arn, while he was using it to find out why
+-- nothing was dimming (30 Sep). The suite could not see it because its own stub for Print had the
+-- same single argument.
+do
+    local heard = {}
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    NS.Print("asking: %s", "C_Spell.IsSpellInRange")
+    ok(heard[1] and heard[1]:find("C_Spell.IsSpellInRange", 1, true)
+       and not heard[1]:find("%%s"),
+       "a value handed to Print lands in the line, not a literal %s", tostring(heard[1]))
+    NS.Print("%d of %d", 3, 7)
+    ok(heard[2] and heard[2]:find("3 of 7", 1, true), "numbers too", tostring(heard[2]))
+    -- a line with a percent sign and nothing to put in it is left exactly as it is
+    NS.Print("mana is at 100% now")
+    ok(heard[3] and heard[3]:find("100% now", 1, true),
+       "and a bare percent sign in a message is not a format at all", tostring(heard[3]))
+    -- a format that does not match its arguments says the message rather than throwing in chat
+    ok(pcall(NS.Print, "%d things", "not a number"), "a mismatched format does not throw")
+    _G.DEFAULT_CHAT_FRAME = realChat
+end
+
 -- THE MACRO LIST ARRIVES. The client sends UPDATE_MACROS once it has the list, at every login;
 -- until then Keep writes nothing (the 22 Sep wipe). This is that moment. The before-it case has
 -- its own block, "NOTHING IS WRITTEN BEFORE THE LIST IS IN".
@@ -3654,7 +3678,17 @@ _G.GetTotemInfo = function(slot)
     return TOTEMS[slot] and true or false, "Totem"
 end
 local SAID = {}
-NS.Print = function(msg) SAID[#SAID + 1] = msg end
+-- FORMATS LIKE THE REAL ONE. The stub used to take one argument and drop the rest - the same lie
+-- NS.Print itself was telling - so `Print("asking: %s", call)` looked fine here and printed a
+-- literal "%s" in Arn's chat frame for two days (30 Sep).
+NS.Print = function(msg, ...)
+    local text = tostring(msg)
+    if select("#", ...) > 0 then
+        local ok, made = pcall(string.format, text, ...)
+        if ok then text = made end
+    end
+    SAID[#SAID + 1] = text
+end
 
 STATE.inCombat = true
 local blindScan, why = FB.Scan()

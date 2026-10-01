@@ -81,17 +81,51 @@ local PER_COL = 5                       -- one column per party, the way a raid 
 -- Chain Heal bounce and damage done - all out of the combat log, which is a PROTECTED call on
 -- Forever. So the body ports and the brain does not. What stands in for it is the role: tank,
 -- then healer, then damage. A cruder sort, and the only one this client will allow.
-local SHAPE = { 1, 2, 6 }               -- cells in each row; rows past the last repeat TAIL
-local WIDE  = { true, true }            -- which rows are full width
-local TAIL  = 6
-local HALF_W = FRAME_W                  -- the ordinary cell
-local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them,
-                                        -- so the rows line up on one grid instead of drifting
+-- FOUR WIDTHS DOWN THE PYRAMID, all of them dividing ONE span, so no row drifts against another.
+-- Arn, 30 Sep, looking at a 40-man in tanks mode: "third row max 4 cells, 4th row max 4 cells,
+-- 5th row and below 8 cells half size of 3rd and 4th cell".
+--
+--   row 1      1 cell   at FULL_W    the apex, two ordinary cells wide
+--   row 2      2 cells  at FULL_W
+--   rows 3-4   4 cells  at MID_W     = an ordinary cell
+--   rows 5+    8 cells  at TAIL_W    = half of one, which is what he asked for
+--
+-- SPAN is the width of row 2 and every row fits inside it: 2 FULL_W and the gap between them.
+-- MID_W and TAIL_W are worked out FROM the span rather than guessed, so four mediums and eight
+-- smalls both come to exactly the same line as the two cells above them. Before this the shape
+-- was {1, 2, 6} and the sixes were ordinary cells, which made every row below the second wider
+-- than the pyramid it was supposed to sit in.
+local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them
+local SPAN   = 2 * FULL_W + PAD         -- the widest row: what everything else divides
+local MID_W  = math.floor((SPAN - 3 * PAD) / 4)
+local TAIL_W = math.floor((SPAN - 7 * PAD) / 8)
+local SHAPE  = { 1, 2, 4, 4 }           -- cells in each row; rows past the last repeat TAIL
+local WIDTH  = { FULL_W, FULL_W, MID_W, MID_W }
+local TAIL   = 8
+local HALF_W = FRAME_W                  -- the ordinary cell, still what a non-pyramid grid uses
 -- TANKS, THEN DAMAGE, THEN THE HEALERS AT THE BOTTOM. Arn, 23 Sep: "when we arrange by tanks.
 -- lets do tanks dps and healers at the bottom". The healers were second when the pyramid was
 -- built; in a fight the people you watch hardest are the tank and whoever is standing in the
 -- fire, and your fellow healers are the ones you glance at last.
 local ROLE_RANK = { TANK = 1, DAMAGER = 2, HEALER = 3 }
+
+-- MELEE UP TOP, CASTERS AT THE BOTTOM. Arn, 30 Sep: "favor melee classes up top and caster at the
+-- bottom of pyramid". It sorts WITHIN a role, so the tanks keep the apex and the healers keep the
+-- base; it only decides the order of the damage between them, which is where a raid's melee and
+-- its casters actually mix.
+--
+-- WHY IT IS WORTH ANYTHING TO A HEALER: melee stand in whatever the boss is doing. The people who
+-- take avoidable damage are the people you want nearest the top of the shape, where your eye is.
+--
+-- CLASS, NOT SPEC, because a spec is not a thing this client will tell you about anybody else.
+-- A druid or a shaman in the DAMAGE band is feral or enhancement far more often than not - the
+-- caster ones are healing, and the role sort has already taken them to the bottom. A hunter is
+-- ranged. A class the client is hiding sorts in the middle: no guess either way.
+local MELEE_RANK = {
+    WARRIOR = 1, ROGUE = 1, PALADIN = 1, DEATHKNIGHT = 1, MONK = 1, DEMONHUNTER = 1,
+    DRUID = 1, SHAMAN = 1,
+    HUNTER = 3, MAGE = 3, WARLOCK = 3, PRIEST = 3, EVOKER = 3,
+}
 
 --- Where each of `n` cells goes: its row, its place in the row, how many share the row, and
 --- whether the row is full width. Pure - no frames - so it can be asked without a client.
@@ -100,8 +134,11 @@ function FG.Pyramid(n)
     while i <= n do
         local cap = SHAPE[r] or TAIL
         local count = math.min(cap, n - i + 1)
+        local w = WIDTH[r] or TAIL_W
         for c = 1, count do
-            out[i] = { row = r, col = c, count = count, wide = WIDE[r] and true or false }
+            -- `w` is the width this cell is drawn at; `wide` is kept as the old yes/no for
+            -- anything still asking "is this one of the big top rows"
+            out[i] = { row = r, col = c, count = count, w = w, wide = w == FULL_W }
             i = i + 1
         end
         r = r + 1
@@ -173,10 +210,14 @@ function FG.ByRole(roster)
             local ok, mt = pcall(GetPartyAssignment, "MAINTANK", u)
             if ok and NS.Plain(mt) then rank = 1 end
         end
-        keyed[i] = { unit = u, rank = rank, at = i }
+        -- and melee before casters inside the role. The class can be secret in a fight; this runs
+        -- out of combat, and an answer we cannot read sorts in the middle rather than guessing.
+        local class = UnitClass and NS.Plain(select(2, UnitClass(u))) or nil
+        keyed[i] = { unit = u, rank = rank, reach = MELEE_RANK[class or ""] or 2, at = i }
     end
     table.sort(keyed, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
+        if a.reach ~= b.reach then return a.reach < b.reach end
         return a.at < b.at
     end)
     local out = {}
@@ -245,6 +286,26 @@ function FG.Make(i, parent)
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
     f.bg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
+
+    -- THE RING IS FOUR LINES, NOT THE BACKDROP. It was the backdrop for about an hour: the bar is
+    -- inset by a pixel, so colouring the background showed as an outline - until somebody's health
+    -- dropped. A StatusBar only paints up to its value, so the backdrop shows through everywhere
+    -- the health ISN'T, and the gold filled the empty half of the cell. Arn, 30 Sep: "only the
+    -- outline not the whole cell".
+    --
+    -- OVERLAY, so the lines sit above the bar rather than behind it, and hidden until a cell is
+    -- told it is somebody worth ringing.
+    f.edge = {}
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = f:CreateTexture(nil, "OVERLAY")
+        t:SetColorTexture(1, 1, 1, 1)
+        t:Hide()
+        f.edge[side] = t
+    end
+    f.edge.top:SetPoint("TOPLEFT")      f.edge.top:SetPoint("TOPRIGHT")      f.edge.top:SetHeight(1)
+    f.edge.bottom:SetPoint("BOTTOMLEFT") f.edge.bottom:SetPoint("BOTTOMRIGHT") f.edge.bottom:SetHeight(1)
+    f.edge.left:SetPoint("TOPLEFT")     f.edge.left:SetPoint("BOTTOMLEFT")   f.edge.left:SetWidth(1)
+    f.edge.right:SetPoint("TOPRIGHT")   f.edge.right:SetPoint("BOTTOMRIGHT") f.edge.right:SetWidth(1)
 
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
@@ -1024,9 +1085,55 @@ function FG.TextMode()
     return "missing"
 end
 
+--- DEAD, OR NOT THERE AT ALL. Arn, 30 Sep, with a screenshot of EllesmereUI's raid frames: "it
+--- shows when they are dead and offline". Their own note beside the same pair is what made this
+--- safe to write: "UnitIsDeadOrGhost / UnitIsConnected return clean booleans for group units
+--- (only UnitIsAFK can be secret)" - so unlike health, these two can simply be asked.
+---
+--- Guarded anyway, because this addon asks before it reads and a measurement is not a promise: a
+--- word the client will not confirm is not shown, and the cell falls back to its number.
+--- "Offline" wins over "dead": a corpse that logged out is a person who is not coming back to it.
+function FG.StatusWord(unit)
+    if not unit then return nil end
+    if UnitIsConnected then
+        local ok, connected = pcall(UnitIsConnected, unit)
+        local plain = ok and NS.Plain(connected)
+        if plain == false then return "OFFLINE" end
+    end
+    if UnitIsDeadOrGhost then
+        local ok, dead = pcall(UnitIsDeadOrGhost, unit)
+        if ok and NS.Plain(dead) == true then return "DEAD" end
+    end
+    -- AND AFK LAST, because it is the only one of the three you can heal through. EllesmereUI's
+    -- frames show it too, and their note draws the line this follows: of these calls "only
+    -- UnitIsAFK can be secret". So unlike the other two it can go quiet mid-fight - and when it
+    -- does the cell shows the number again rather than a stale word. Someone's health is the more
+    -- useful of the two things that line can say, and "AFK" that might be ten minutes old is the
+    -- less useful.
+    if UnitIsAFK then
+        local ok, afk = pcall(UnitIsAFK, unit)
+        if ok and NS.Plain(afk) == true then return "AFK" end
+    end
+    return nil
+end
+
 function FG.PaintText(f)
     local label, unit = f.htext, f.unit
     if not label then return false end
+    -- THE WORD INSTEAD OF THE NUMBER, which is what EllesmereUI does: how much health a corpse is
+    -- missing is not a question anybody has, and the two sharing one line would print through
+    -- each other on an 84 pixel cell.
+    local word = FG.StatusWord(unit)
+    if word then
+        label:SetText(word)
+        if label.SetTextColor then label:SetTextColor(0.78, 0.78, 0.82) end
+        f.__status = word
+        return true
+    end
+    if f.__status then
+        f.__status = nil
+        if label.SetTextColor then label:SetTextColor(1, 0.55, 0.55) end   -- back to the red number
+    end
     local mode = FG.TextMode()
     local done = false
     if unit and mode == "missing" and UnitHealthMissing and C_StringUtil and C_StringUtil.TruncateWhenZero then
@@ -1041,6 +1148,8 @@ end
 function FG.PaintRole(f)
     local icon, unit = f.role, f.unit
     if not icon then return false end
+    -- a half-size cell has no room for it, and the pyramid's shape says the role anyway
+    if f.__narrow then icon:Hide() return false end
     if not (unit and UnitGroupRolesAssigned) then icon:Hide() return false end
 
     local ok, role = pcall(UnitGroupRolesAssigned, unit)
@@ -1081,8 +1190,49 @@ function FG.Bind(f, unit)
     -- mouse's own pass wiped whatever it did not know about. One owner.
     if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(f) end
     if RegisterUnitWatch then RegisterUnitWatch(f) end
-    if f.name then f.name:SetText(FG.ShortName(unit)) end
+    if f.name then f.name:SetText(FG.CellName(f, unit)) end
     return true
+end
+
+-- A HALF-SIZE CELL HAS TO GIVE SOMETHING UP. Arn, 30 Sep, with a 40 pixel cell reading "Ch...":
+-- "lets try and modify the half size ones maybe move stuff around only those so at least the name
+-- can show".
+--
+-- What it gives up is the ROLE ICON, and that is the right thing to lose: these cells only exist
+-- in the pyramid, where the shape already says the role - tanks at the apex, healers along the
+-- bottom. The icon is repeating in 11 pixels what the position says for free, and those 11 pixels
+-- are a third of the line.
+--
+-- With the icon gone the name takes the whole width, and is cut to what the cell can actually
+-- hold rather than to a fixed twelve characters.
+local NARROW_W = 60                      -- under this is a pyramid base cell; 84 is ordinary
+local CHAR_W = 5.5                       -- the small font, measured by eye at 100%
+
+--- Set a cell up for the width it has just been given. Called from the layout, where the width is
+--- known, rather than from the paint - anchors do not change sixty times a second.
+function FG.FitCell(f, w)
+    local narrow = (tonumber(w) or FRAME_W) < NARROW_W
+    f.__chars = math.max(3, math.floor(((tonumber(w) or FRAME_W) - 6) / CHAR_W))
+    if f.__narrow == narrow then return narrow end
+    f.__narrow = narrow
+    if f.name then
+        f.name:ClearAllPoints()
+        f.name:SetPoint("TOPLEFT", 3, -4)
+        -- the corner the role icon was keeping, or all of it
+        f.name:SetPoint("TOPRIGHT", narrow and -3 or -14, -4)
+    end
+    if narrow and f.role then f.role:Hide() end
+    return narrow
+end
+
+--- The name this particular cell can hold. A secret name is handed over whole - it cannot be cut,
+--- and the client clips what will not fit.
+function FG.CellName(f, unit)
+    local name = FG.ShortName(unit)
+    if NS.Secret and NS.Secret(name) then return name end
+    local chars = f and f.__chars
+    if chars and type(name) == "string" and #name > chars then name = name:sub(1, chars) end
+    return name
 end
 
 --- A cell is 84 wide: "Longnamedhealer-Realmone" does not fit and the realm never matters in a group.
@@ -1144,7 +1294,7 @@ function FG.Layout(anchor)
         place = FG.Pyramid(#roster)
         -- the widest row sets the width, and every other row is centred in it
         for _, p in ipairs(place) do
-            local w = p.wide and FULL_W or HALF_W
+            local w = p.w or (p.wide and FULL_W or HALF_W)
             local rowW = p.count * w + (p.count - 1) * PAD
             if rowW > span then span = rowW end
         end
@@ -1155,7 +1305,7 @@ function FG.Layout(anchor)
         local w = FRAME_W
         if pyramid then
             local p = place[i]
-            w = p.wide and FULL_W or HALF_W
+            w = p.w or (p.wide and FULL_W or HALF_W)
             local rowW = p.count * w + (p.count - 1) * PAD
             local x = (span - rowW) / 2 + (p.col - 1) * (w + PAD)
             f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, -(p.row - 1) * (FRAME_H + PAD))
@@ -1172,6 +1322,7 @@ function FG.Layout(anchor)
                        (col - 1) * (FRAME_W + PAD), -(row - 1) * (FRAME_H + PAD))
         end
         f:SetSize(w, FRAME_H)
+        FG.FitCell(f, w)                -- before Bind, which is what writes the name
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
         -- halfway across, which reads as "only half of this is coming".
@@ -1393,7 +1544,55 @@ function FG.Paint(f)
     --
     -- The modern one answers true/false, the old one 1/0. Both are handled, because "which shape
     -- does this client answer in" is not a question worth a version check.
+    FG.PaintEdge(f, unit)
     FG.PaintRange(f, unit)
+end
+
+-- A FRAME ROUND THE PEOPLE WHO MATTER TO A HEALER. Arn, 30 Sep: "yellow frame around the healers
+-- and a gold frame around self".
+--
+-- IT COSTS NOTHING TO DRAW. The health bar is already inset by a pixel, so the cell's own
+-- background shows as a ring around it - colouring that background IS the frame. No extra
+-- textures, no second frame per cell, nothing to lay out: forty raid cells cost forty SetColor
+-- calls that were happening anyway.
+FG.EDGE = {
+    me     = { 1.00, 0.78, 0.20 },     -- gold: you
+    healer = { 0.93, 0.90, 0.35 },     -- yellow: whoever else is keeping people alive
+    -- and no entry for "none": everybody else has no ring, which is what the cell looked like
+    -- before any of this
+}
+
+--- Which ring this cell wears. Role and identity both go secret in a fight, so each cell keeps
+--- the last answer it got rather than flickering between gold and nothing every time the client
+--- stops talking - the ring is about who someone IS, and that does not change mid-pull.
+function FG.PaintEdge(f, unit)
+    if not (f and f.bg and unit) then return nil end
+    local kind
+    if UnitIsUnit then
+        local ok, mine = pcall(UnitIsUnit, unit, "player")
+        if ok and NS.Plain(mine) == true then kind = "me" end
+    end
+    if not kind and unit == "player" then kind = "me" end
+    if not kind and UnitGroupRolesAssigned then
+        local ok, role = pcall(UnitGroupRolesAssigned, unit)
+        local plain = ok and NS.Plain(role)
+        if plain == "HEALER" then kind = "healer"
+        elseif plain then kind = "none" end            -- a role we CAN read and it is not a healer
+    end
+    kind = kind or f.__edge                            -- unreadable: keep what it last was
+    if not kind then return nil end
+    f.__edge = kind
+    if not f.edge then return kind end
+    local c = FG.EDGE[kind]
+    for _, t in pairs(f.edge) do
+        if c then
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+            t:Show()
+        else
+            t:Hide()                                   -- "none": no ring at all, not a dark one
+        end
+    end
+    return kind
 end
 
 -- What a cell wears when the unit in it can be attacked. Not the dead grey and not a class
@@ -1455,14 +1654,30 @@ FG.DIM = 0.45
 FG.rangeSeen = nil        -- what the last read was: "plain", "secret", "refused" or "no spell"
 
 function FG.PaintRange(f, unit)
-    local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
+    local spell, spellID
+    if NS.FM and NS.FM.RangeSpell then spell, spellID = NS.FM.RangeSpell() end
     local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
     if not (range and spell) then
         FG.rangeSeen = "no spell"
         f:SetAlpha(1)
         return 1, "no spell"
     end
-    local asked, answer = pcall(range, spell, unit)
+    -- THE ID FIRST, THE NAME AFTER. EllesmereUI passes ids to this call, and a name it cannot
+    -- resolve answers nil - which this code used to read as "not a clear no, so leave them bright".
+    -- Arn, 30 Sep: a whole raid at full alpha.
+    local asked, answer = pcall(range, spellID or spell, unit)
+    if asked and answer == nil and spellID then
+        asked, answer = pcall(range, spell, unit)        -- the name, in case the id was wrong
+    end
+    -- AND IF IT STILL WILL NOT SAY, ASK A DIFFERENT QUESTION. "Is this spell in range" is nil for
+    -- a spell the client will not range-check at all (a smart heal, a ground target, anything
+    -- odd). UnitInRange answers for the unit rather than the spell - about 40 yards, near enough
+    -- for a healer - and on this client it is the SECRET boolean, which is what the ternary below
+    -- is for. Their frames fall back the same way.
+    if asked and answer == nil and UnitInRange then
+        asked, answer = pcall(UnitInRange, unit)
+        if asked then FG.rangeSeen = "unit" end
+    end
     if not asked then
         FG.rangeSeen = "refused"
         f:SetAlpha(1)
@@ -1491,9 +1706,10 @@ function FG.PaintRange(f, unit)
     -- the plain answer: the modern call says true/false, the old one 1/0, and anything that is
     -- not a clear "no" leaves the cell bright rather than dimming someone who is reachable
     local reach = (answer == 0 or answer == false) and FG.DIM or 1
-    FG.rangeSeen = "plain"
+    -- nil from everything that could answer: nobody is dimmed, and /bish range says which it was
+    if answer == nil then FG.rangeSeen = "no answer" else FG.rangeSeen = FG.rangeSeen == "unit" and "unit" or "plain" end
     f:SetAlpha(reach)
-    return reach, "plain"
+    return reach, FG.rangeSeen
 end
 
 --------------------------------------------------------------------- driving --

@@ -141,7 +141,15 @@ local function newFrame(kind, name, parent)
     -- like the client's, and like the frames above.
     function f:CreateTexture()
         return autoMethods({
-            SetColorTexture = function() end,
+            -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
+            -- colour is that cell's ring" had no answer at all - the same shape of lie as the
+            -- font string that accepted a colour with no green in it (26 Sep).
+            SetColorTexture = function(t, r, g, b, a)
+                if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+                    error("bad argument to SetColorTexture: needs r, g, b numbers", 2)
+                end
+                t.__color = { r, g, b, a }
+            end,
             SetWidth  = function(t, w) t.__w = w end,
             SetHeight = function(t, h) t.__h = h end,
             SetSize   = function(t, w, h) t.__w, t.__h = w, h end,
@@ -267,6 +275,21 @@ _G.UnitCanAttack = function(_, u)
     if STATE.hostileSecret then return secret() end
     return STATE.hostile[u] and true or false
 end
+-- IS THIS PERSON EVEN HERE? EllesmereUI's raid frames say of this pair: "UnitIsDeadOrGhost /
+-- UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret)" - which is
+-- a measurement, so the mock answers plainly unless a test asks it not to.
+STATE.offline = {}
+_G.UnitIsConnected = function(u)
+    if STATE.connectedSecret then return secret() end
+    return not STATE.offline[u]
+end
+-- AWAY FROM THE KEYBOARD, which EllesmereUI's frames also show. Their note is what sets this one
+-- apart from dead and offline: "only UnitIsAFK can be secret" - so the mock can be told to hide it.
+STATE.afk = {}
+_G.UnitIsAFK = function(u)
+    if STATE.afkSecret then return secret() end
+    return STATE.afk[u] and true or false
+end
 _G.UnitIsDeadOrGhost = function(u)
     if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
     return STATE.dead[u] and true or false
@@ -276,9 +299,24 @@ _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secre
 -- IN COMBAT THE ANSWER IS A SECRET, like everything else about somebody else. It used to answer
 -- plainly always, so "the dimming works" was only ever proved for the half of the time it is not
 -- needed - and the pcall round it swallowed the refusal in the other half without a word.
-_G.IsSpellInRange = function(_, u)
+-- WHAT IT WAS ASKED WITH, recorded. EllesmereUI passes spell IDS to this call and their notes
+-- say a spell it cannot answer for leaves everyone at full alpha - so "did we ask with the id or
+-- the name" is the question, and a mock that ignores its first argument cannot be asked it.
+STATE.rangeAsked = {}
+STATE.rangeNil = false          -- the client declining to answer, which is a real shape
+_G.IsSpellInRange = function(ident, u)
+    STATE.rangeAsked[#STATE.rangeAsked + 1] = ident
     if STATE.rangeSecret then return secret() end
+    if STATE.rangeNil then return nil end
     return STATE.range[u] == 0 and 0 or 1
+end
+-- THE OTHER QUESTION: about the unit rather than the spell. On this client it is the secret
+-- boolean, which is the whole reason the grid can use it at all now.
+STATE.unitRange = {}
+_G.UnitInRange = function(u)
+    if STATE.unitRangeSecret then return secret() end
+    if STATE.unitRange[u] == nil then return nil end
+    return STATE.unitRange[u] and true or false
 end
 -- the client's ternary: it picks one of two values from a boolean nobody else may test
 _G.C_CurveUtil = _G.C_CurveUtil or {}
@@ -556,6 +594,30 @@ do
     toc:close()
 end
 ok(#LOADED >= 8, "the TOC's files all load: " .. #LOADED)
+-- ONE LINE IN THE CHAT FRAME, AND IT FORMATS. NS.Print took a single argument and dropped the
+-- rest, so every call that passed values printed its own punctuation: "asking: %s". /bish range
+-- did that for the two days it existed, in front of Arn, while he was using it to find out why
+-- nothing was dimming (30 Sep). The suite could not see it because its own stub for Print had the
+-- same single argument.
+do
+    local heard = {}
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    NS.Print("asking: %s", "C_Spell.IsSpellInRange")
+    ok(heard[1] and heard[1]:find("C_Spell.IsSpellInRange", 1, true)
+       and not heard[1]:find("%%s"),
+       "a value handed to Print lands in the line, not a literal %s", tostring(heard[1]))
+    NS.Print("%d of %d", 3, 7)
+    ok(heard[2] and heard[2]:find("3 of 7", 1, true), "numbers too", tostring(heard[2]))
+    -- a line with a percent sign and nothing to put in it is left exactly as it is
+    NS.Print("mana is at 100% now")
+    ok(heard[3] and heard[3]:find("100% now", 1, true),
+       "and a bare percent sign in a message is not a format at all", tostring(heard[3]))
+    -- a format that does not match its arguments says the message rather than throwing in chat
+    ok(pcall(NS.Print, "%d things", "not a number"), "a mismatched format does not throw")
+    _G.DEFAULT_CHAT_FRAME = realChat
+end
+
 -- THE MACRO LIST ARRIVES. The client sends UPDATE_MACROS once it has the list, at every login;
 -- until then Keep writes nothing (the 22 Sep wipe). This is that moment. The before-it case has
 -- its own block, "NOTHING IS WRITTEN BEFORE THE LIST IS IN".
@@ -658,6 +720,63 @@ end
 STATE.dead.party1 = true
 FG.Paint(f)
 ok(f.bar.__color[1] > f.bar.__color[3], "a dead unit paints red, not class colour")
+
+-- AND IT SAYS SO IN WORDS. Arn, 30 Sep, with EllesmereUI's raid frames on screen: "it shows when
+-- they are dead and offline". The word takes the number's place - how much health a corpse is
+-- missing is not a question anybody has, and both on one 84 pixel line print through each other.
+ok(f.htext.__text == "DEAD", "and the cell says DEAD where the number goes", tostring(f.htext.__text))
+STATE.dead.party1 = nil
+STATE.offline.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE", "someone logged out says OFFLINE", tostring(f.htext.__text))
+STATE.dead.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE",
+   "and offline wins over dead - a corpse that logged out is not coming back to it",
+   tostring(f.htext.__text))
+STATE.dead.party1, STATE.offline.party1 = nil, nil
+FG.Paint(f)
+ok(f.htext.__text ~= "DEAD" and f.htext.__text ~= "OFFLINE",
+   "and alive and present, the number is back", tostring(f.htext.__text))
+-- AND IN THE NUMBER'S COLOUR. The word is grey and the number is red; without putting the colour
+-- back, a living raider's missing health stayed grey from the moment they first died.
+ok(f.htext.__color and f.htext.__color[1] > 0.9 and f.htext.__color[2] < 0.7,
+   "in the number's own colour, not the grey the word was left in",
+   f.htext.__color and table.concat(f.htext.__color, ","))
+
+-- AND AFK, which is the only one of the three you can still heal through - so it comes last, and
+-- a corpse or an absent player is never called merely away.
+STATE.afk.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "AFK", "someone at the keyboard's fault says AFK", tostring(f.htext.__text))
+STATE.dead.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "DEAD", "a dead AFK is dead first", tostring(f.htext.__text))
+STATE.offline.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE", "and an offline one is offline first", tostring(f.htext.__text))
+STATE.dead.party1, STATE.offline.party1 = nil, nil
+
+-- THIS ONE CAN GO SECRET where the other two cannot (their note: "only UnitIsAFK can be secret").
+-- When it does the cell shows the number again rather than a word that may be ten minutes old.
+STATE.afkSecret = true
+FG.Paint(f)
+ok(f.htext.__text ~= "AFK", "a hidden AFK is not shown at all", tostring(f.htext.__text))
+STATE.afkSecret = false
+STATE.afk.party1 = nil
+
+-- A WORD THE CLIENT WILL NOT CONFIRM IS NOT SHOWN. Their note says these two are clean for group
+-- units, which is a measurement and not a promise; a secret answer falls back to the number.
+STATE.connectedSecret = true
+STATE.dead.party1 = true
+ok(pcall(FG.Paint, f), "a secret connection answer does not throw")
+ok(f.htext.__text == "DEAD", "a secret 'is he here' does not hide a dead man", tostring(f.htext.__text))
+STATE.connectedSecret = false
+STATE.deadSecret = true
+FG.Paint(f)
+ok(f.htext.__text ~= "DEAD", "and a secret 'is he dead' says nothing rather than guessing",
+   tostring(f.htext.__text))
+STATE.deadSecret = false
 STATE.dead.party1 = nil
 
 -- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
@@ -668,6 +787,83 @@ ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls",
 STATE.range.party1 = nil
 FG.Paint(f)
 ok(f:GetAlpha() == 1, "back in range, full alpha")
+
+-- THE RANGE SPELL IS WHATEVER IS BOUND, not only left or right click. Arn, 30 Sep, with /bish
+-- range finally able to answer him: "range is measured with nothing - bind a spell to left click".
+-- His heals are on the wheel and the thumbs; left and right are empty. The dimming had never run
+-- for him once, on any character, since the day it was written - and every test of it had put a
+-- spell on left click first, which is the one arrangement that hid the bug.
+do
+    local d = NS.DB()
+    local kept = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }          -- a wheel healer, like his
+    local name, id = NS.FM.RangeSpell()
+    ok(name == "Healing Wave",
+       "with nothing on left or right click, the wheel answers for range", tostring(name))
+
+    d.binds = { ["shift-button5"] = "Chain Heal(Rank 1)" }      -- and a thumb, under a modifier
+    ok(NS.FM.RangeSpell() == "Chain Heal", "so does a thumb button with a modifier",
+       tostring(NS.FM.RangeSpell()))
+
+    -- left click still wins when there IS one: it is what the hand reaches for
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 3)", ["wheelup"] = "Healing Wave(Rank 2)" }
+    ok(NS.FM.RangeSpell() == "Lesser Healing Wave", "left click comes first when it is bound",
+       tostring(NS.FM.RangeSpell()))
+
+    -- PLAIN RIGHT CLICK BEATS SHIFT-LEFT. The sweep below walks slot by slot and would take
+    -- shift-left first, because left comes first in the list - but a bare right click is the one
+    -- a hand actually reaches for, and that is what the two named checks are there to prefer.
+    d.binds = { ["shift-left"] = "Chain Heal(Rank 1)", ["right"] = "Healing Wave(Rank 2)" }
+    ok(NS.FM.RangeSpell() == "Healing Wave",
+       "a bare right click is preferred over a modifier on the left",
+       tostring(NS.FM.RangeSpell()))
+
+    -- and a mouse with nothing on it at all says so, rather than naming something
+    d.binds = {}
+    ok(NS.FM.RangeSpell() == nil, "an empty mouse measures nothing", tostring(NS.FM.RangeSpell()))
+    d.binds = kept
+end
+
+-- ASKED WITH THE SPELL ID, NOT ITS NAME. Arn, 30 Sep: a whole raid at full alpha, nobody dimmed.
+-- EllesmereUI passes ids, and their note names the failure exactly - a spell the call cannot
+-- answer for "stranded Evoker frames at full alpha", because nil is not "no" and the cell stays
+-- bright. The name was all this ever passed.
+do
+    STATE.rangeAsked = {}
+    STATE.range.party1 = 0
+    FG.Paint(f)
+    local asked = STATE.rangeAsked[1]
+    ok(type(asked) == "number", "the range call is asked with a spell id, not a name", tostring(asked))
+
+    -- AND WHEN IT WILL NOT ANSWER, A DIFFERENT QUESTION. nil means "cannot say about this spell";
+    -- UnitInRange answers about the unit instead, and this client makes THAT one a secret - which
+    -- is what the client's own ternary is for.
+    STATE.rangeNil = true
+    STATE.unitRange.party1 = false
+    f:SetAlpha(1)
+    FG.Paint(f)
+    ok(f:GetAlpha() == FG.DIM, "a spell it will not range-check falls back to the unit", f:GetAlpha())
+    ok(FG.rangeSeen == "unit", "and says which question it ended up asking", tostring(FG.rangeSeen))
+
+    STATE.unitRangeSecret = true
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f), "a secret answer from that one does not throw either")
+    ok(getmetatable(f.__alpha) == getmetatable(secret()),
+       "it goes through the client's ternary like the other secret did")
+    STATE.unitRangeSecret = false
+
+    -- nothing can answer: nobody is dimmed, and the state says so rather than guessing
+    STATE.unitRange.party1 = nil
+    f:SetAlpha(FG.DIM)
+    FG.Paint(f)
+    ok(f:GetAlpha() == 1 and FG.rangeSeen == "no answer",
+       "with nothing able to answer, nobody is dimmed and /bish range says so",
+       tostring(FG.rangeSeen))
+
+    STATE.rangeNil = false
+    STATE.range.party1 = nil
+    FG.Paint(f)
+end
 
 -- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. This is the half that has never worked: "are
 -- they in range" goes secret with everything else, the pcall round it swallowed the refusal, and
@@ -1198,10 +1394,33 @@ do
     end
     ok(rows(1) == "1", "solo: the apex alone", rows(1))
     ok(rows(5) == "1,2,2", "a party: apex, pair, and two below", rows(5))
-    ok(rows(25) == "1,2,6,6,6,4", "a 25-man: the base repeats in sixes", rows(25))
+    -- THE SHAPE, as Arn set it on 30 Sep looking at a 40-man: "third row max 4 cells, 4th row max
+    -- 4 cells, 5th row and below 8 cells half size of 3rd and 4th cell". It was 1,2 then sixes.
+    ok(rows(25) == "1,2,4,4,8,6", "a 25-man: a pair, two rows of four, then eights", rows(25))
+    ok(rows(40) == "1,2,4,4,8,8,8,5", "and a 40-man fills the eights", rows(40))
     local p = FG.Pyramid(9)
+    -- p1 is the apex, p2 and p3 are the pair on row two, p4 begins row three
     ok(p[1].wide and p[2].wide and p[3].wide and not p[4].wide,
-       "the apex and the pair are full width, the rows under them are not")
+       "the apex and the pair are full width; the rows under them are not")
+
+    -- AND EVERY ROW DIVIDES ONE SPAN. Four of row three and eight of row five come to the same
+    -- line as the two cells of row two - otherwise the rows drift against each other and the
+    -- thing stops being a pyramid.
+    local wide = FG.Pyramid(40)
+    local function span(row)
+        local n, w = 0, 0
+        for _, q in ipairs(wide) do if q.row == row then n = n + 1; w = q.w end end
+        return n * w + (n - 1) * 3
+    end
+    ok(span(2) == span(3), "row three is as wide as row two", span(2) .. " vs " .. span(3))
+    ok(math.abs(span(5) - span(3)) <= 4, "and so is row five", span(5) .. " vs " .. span(3))
+    local mid, tail
+    for _, q in ipairs(wide) do
+        if q.row == 3 then mid = q.w elseif q.row == 5 then tail = q.w end
+    end
+    ok(tail * 2 <= mid + 4 and tail * 2 >= mid - 4,
+       "and a row-five cell is half a row-three cell, which is what was asked for",
+       tail .. " vs " .. mid)
 
     -- THE ORDER: tanks first, then damage, then the healers, and raid order kept inside each.
     -- Arn, 23 Sep: "tanks dps and healers at the bottom" - in a fight you watch the tank and
@@ -1212,6 +1431,54 @@ do
     local by = table.concat(FG.ByRole(raid), " ")
     ok(by == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
        "tanks, then damage, then healers, then nobody - and nobody reshuffled within a role", by)
+
+    -- AND MELEE ABOVE CASTERS INSIDE A ROLE. Arn, 30 Sep: "favor melee classes up top and caster
+    -- at the bottom of pyramid". Melee stand in whatever the boss is doing, so they belong where
+    -- the eye already is. The role sort still wins: a caster tank is above a melee dps.
+    local realClass = _G.UnitClass
+    local CLASS = { raid1 = "MAGE", raid4 = "ROGUE", raid3 = "WARRIOR", raid5 = "PRIEST",
+                    raid2 = "PRIEST", raid7 = "DRUID", raid6 = "HUNTER" }
+    _G.UnitClass = function(u)
+        if STATE.classSecret then return secret(), secret() end
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local mixed = table.concat(FG.ByRole(raid), " ")
+    ok(mixed == "raid3 raid5 raid4 raid1 raid7 raid2 raid6",
+       "melee first inside each role, and the roles themselves unchanged", mixed)
+    ok(mixed:find("raid3 raid5", 1, true) == 1,
+       "the tanks keep the top whatever they are", mixed)
+
+    -- A CLASS THE CLIENT HIDES SORTS IN THE MIDDLE, between the melee and the casters - not with
+    -- either. With EVERY class hidden they all land together and the order cannot change, so this
+    -- needs a mixed group: one rogue, one hidden, one mage, all three in the damage band.
+    STATE.roles.raid6 = "DAMAGER"
+    _G.UnitClass = function(u)
+        if u == "raid6" then return secret(), secret() end        -- this one only
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local middle = table.concat(FG.ByRole(raid), " ")
+    ok(middle:find("raid4 raid6 raid1", 1, true) ~= nil,
+       "a hidden class sorts between the melee and the casters, not with them", middle)
+    -- AND THE OTHER WAY ROUND, because one arrangement can only catch one mistake: with the
+    -- hidden one FIRST in raid order, treating it as melee would put it above the rogue.
+    _G.UnitClass = function(u)
+        if u == "raid1" then return secret(), secret() end
+        if u == "raid6" then return "Mage", "MAGE" end
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local firstHidden = table.concat(FG.ByRole(raid), " ")
+    ok(firstHidden:find("raid4 raid1 raid6", 1, true) ~= nil,
+       "and is not promoted above the melee just because it came first", firstHidden)
+    STATE.roles.raid6 = "NONE"
+
+    -- and with the lot hidden, nothing is reordered beyond the roles
+    STATE.classSecret = true
+    _G.UnitClass = function() return secret(), secret() end
+    local hidden = table.concat(FG.ByRole(raid), " ")
+    ok(hidden == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
+       "with every class hidden, nothing is reordered beyond the roles", hidden)
+    STATE.classSecret = false
+    _G.UnitClass = realClass
 
     -- IN COMBAT a role is a secret; the sort must survive it and not reorder on a guess
     STATE.roleSecret = true
@@ -1480,6 +1747,155 @@ do
     ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
     FG.Layout(FG.anchor)
+end
+
+-- A HALF-SIZE CELL GIVES UP ITS ROLE ICON SO THE NAME CAN SHOW. Arn, 30 Sep, with a 40 pixel
+-- pyramid cell reading "Ch...": "lets try and modify the half size ones ... so at least the name
+-- can show". The icon only appears on cells that live in the pyramid, where the shape already
+-- says the role - so it is repeating in 11 pixels what the position says for nothing.
+do
+    local cell = FG.frames[1]
+    STATE.roles = { party1 = "HEALER" }
+    cell.unit = "party1"
+
+    FG.FitCell(cell, 84)
+    FG.PaintRole(cell)
+    ok(cell.__narrow == false, "an ordinary cell is not narrow")
+    local wide = cell.name.points[#cell.name.points]
+    -- SetPoint("TOPRIGHT", x, y) with no relative frame: the offset is the SECOND value
+    ok(wide and wide[1] == "TOPRIGHT" and wide[2] == -14,
+       "and its name stops short of the role icon", wide and tostring(wide[2]))
+    ok(cell.role:IsShown(), "which is shown")
+
+    FG.FitCell(cell, 40)
+    FG.PaintRole(cell)
+    ok(cell.__narrow == true, "a half-size one is")
+    local thin = cell.name.points[#cell.name.points]
+    ok(thin and thin[1] == "TOPRIGHT" and thin[2] == -3,
+       "its name takes the whole width", thin and tostring(thin[2]))
+    ok(not cell.role:IsShown(), "and the role icon is gone - the pyramid's shape already says it")
+
+    -- AND THE NAME IS CUT TO WHAT THE CELL HOLDS, not to a fixed twelve characters
+    _G.UnitName = function() return "Chevgchelio" end
+    ok(#FG.CellName(cell, "party1") <= 7,
+       "the name is cut to what 40 pixels can hold", FG.CellName(cell, "party1"))
+    FG.FitCell(cell, 84)
+    ok(#FG.CellName(cell, "party1") > 7,
+       "and a full-width cell still gets the whole of it", FG.CellName(cell, "party1"))
+
+    -- a name the client hides cannot be cut at all - it goes over whole and the client clips it
+    _G.UnitName = function() return secret() end
+    FG.FitCell(cell, 40)
+    ok(pcall(FG.CellName, cell, "party1"), "a hidden name does not throw on the way through")
+    _G.UnitName = function(u) return "Name-" .. tostring(u) end
+
+    -- AND THE LAYOUT IS WHAT APPLIES IT. Calling FitCell by hand proves the function; it does not
+    -- prove that a cell ever meets it. The pyramid is where narrow cells come from, so lay one out
+    -- and look at the cell the shape made small.
+    _G.UnitName = function(u) return "Name-" .. tostring(u) end
+    local d = NS.DB()
+    local wasLayout = d.layout
+    d.layout = "pyramid"
+    for i = 1, 30 do STATE.units["raid" .. i] = true end
+    local realRaid = _G.IsInRaid
+    _G.IsInRaid = function() return true end
+    FG.Layout(FG.anchor)
+    local small, big = nil, nil
+    for _, g in ipairs(FG.frames) do
+        if g:IsShown() and g.__narrow == true then small = small or g end
+        if g:IsShown() and g.__narrow == false then big = big or g end
+    end
+    ok(small ~= nil, "a pyramid in a 30-man actually produces narrow cells")
+    ok(big ~= nil, "and wide ones above them")
+    ok(small and not small.role:IsShown(), "the narrow ones have no role icon after a real layout")
+
+    _G.IsInRaid = realRaid
+    for i = 1, 30 do STATE.units["raid" .. i] = nil end
+    d.layout = wasLayout
+    FG.Layout(FG.anchor)
+    STATE.roles = nil
+end
+
+-- A FRAME ROUND THE PEOPLE WHO MATTER. Arn, 30 Sep: "yellow frame around the healers and a gold
+-- frame around self". The bar is inset by a pixel, so the cell's background shows as a ring - and
+-- colouring that background is the whole implementation.
+do
+    local cell = FG.frames[1]
+    local realIsUnit = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
+    STATE.roles = { player = "HEALER", party1 = "HEALER", party2 = "DAMAGER" }
+
+    -- FOUR LINES ABOVE THE BAR, NOT THE BACKDROP. The backdrop was the first attempt and lasted
+    -- an hour: a StatusBar only paints up to its value, so the backdrop shows through wherever the
+    -- health is MISSING and the gold filled the empty half of the cell (Arn: "only the outline not
+    -- the whole cell"). The lines are their own textures, over the bar.
+    local function ringColour(c)
+        local t = c.edge and c.edge.top
+        return t and t.__shown and t.__color or nil
+    end
+    cell.unit = "party1"
+    FG.PaintEdge(cell, "party1")
+    local ring = ringColour(cell)
+    ok(ring and math.abs(ring[1] - FG.EDGE.healer[1]) < 0.01
+       and math.abs(ring[3] - FG.EDGE.healer[3]) < 0.01,
+       "another healer gets the yellow ring", ring and table.concat(ring, ","))
+    ok(cell.bg.__color and cell.bg.__color[1] < 0.2,
+       "and the cell's own backdrop stays dark, so missing health is not gold",
+       cell.bg.__color and cell.bg.__color[1])
+    -- all four sides, not just the one a test happened to read: three of them were deletable
+    local lit = 0
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = cell.edge[side]
+        if t.__shown and t.__color and math.abs(t.__color[1] - FG.EDGE.healer[1]) < 0.01 then
+            lit = lit + 1
+        end
+    end
+    ok(lit == 4, "and it is a ring - all four sides lit, not one", lit)
+
+    FG.PaintEdge(cell, "player")
+    ring = ringColour(cell)
+    ok(ring and math.abs(ring[1] - FG.EDGE.me[1]) < 0.01
+       and math.abs(ring[3] - FG.EDGE.me[3]) < 0.01,
+       "you get the gold one", ring and table.concat(ring, ","))
+    ok(FG.EDGE.me[3] ~= FG.EDGE.healer[3], "and the two are not the same colour")
+
+    FG.PaintEdge(cell, "party2")
+    ok(not (cell.edge.top.__shown and cell.edge.left.__shown),
+       "everyone else has no ring at all")
+    ok(cell.edge.top.__shown == false and cell.edge.bottom.__shown == false
+       and cell.edge.left.__shown == false and cell.edge.right.__shown == false,
+       "all four sides of it, not just the one a test looked at")
+
+    -- THROUGH FG.Paint, not just by hand: a cell is painted by the loop, and a test that only
+    -- ever calls the painter directly lets the CALL be deleted without noticing.
+    cell.unit = "party1"
+    cell.edge.top.__color = nil
+    FG.Paint(cell)
+    ok(ringColour(cell) and math.abs(ringColour(cell)[1] - FG.EDGE.healer[1]) < 0.01,
+       "and the ordinary paint puts the ring on", ringColour(cell) and ringColour(cell)[1])
+
+    -- WITHOUT UnitIsUnit AT ALL, your own cell is still yours. That call can be missing or secret;
+    -- the unit token "player" is neither.
+    _G.UnitIsUnit = nil
+    FG.PaintEdge(cell, "player")
+    ok(math.abs(ringColour(cell)[1] - FG.EDGE.me[1]) < 0.01,
+       "with no UnitIsUnit on the client, the player token is enough",
+       table.concat(ringColour(cell), ","))
+    _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
+
+    -- A ROLE THE CLIENT HIDES KEEPS THE LAST RING. Who someone IS does not change mid-pull, and a
+    -- cell that flickers between gold and nothing every time the client goes quiet is worse than
+    -- one that holds still.
+    FG.PaintEdge(cell, "party1")
+    STATE.roleSecret = true
+    ok(FG.PaintEdge(cell, "party1") == "healer",
+       "a hidden role keeps the ring it had", tostring(FG.PaintEdge(cell, "party1")))
+    ok(math.abs(ringColour(cell)[1] - FG.EDGE.healer[1]) < 0.01, "and the colour with it")
+    STATE.roleSecret = false
+
+    STATE.roles = nil
+    _G.UnitIsUnit = realIsUnit
+    cell.unit = "party1"
 end
 
 -- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells
@@ -3351,7 +3767,17 @@ _G.GetTotemInfo = function(slot)
     return TOTEMS[slot] and true or false, "Totem"
 end
 local SAID = {}
-NS.Print = function(msg) SAID[#SAID + 1] = msg end
+-- FORMATS LIKE THE REAL ONE. The stub used to take one argument and drop the rest - the same lie
+-- NS.Print itself was telling - so `Print("asking: %s", call)` looked fine here and printed a
+-- literal "%s" in Arn's chat frame for two days (30 Sep).
+NS.Print = function(msg, ...)
+    local text = tostring(msg)
+    if select("#", ...) > 0 then
+        local ok, made = pcall(string.format, text, ...)
+        if ok then text = made end
+    end
+    SAID[#SAID + 1] = text
+end
 
 STATE.inCombat = true
 local blindScan, why = FB.Scan()

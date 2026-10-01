@@ -40,11 +40,26 @@ NS.VERSION = metadata("Version") or "0.0.0"
 
 local PREFIX = "|cffb980ffBiS Healing|r: "
 
-function NS.Print(msg)
+--- One line in the chat frame, with the addon's name on it.
+---
+--- IT FORMATS WHEN IT IS GIVEN SOMETHING TO FORMAT. It used to take one argument and silently drop
+--- the rest, so `Print("asking: %s", call)` put the literal "%s" on screen - which is exactly what
+--- /bish range did for the two days it existed, in front of Arn, while he was trying to find out
+--- why nothing was dimming (30 Sep). Seven call sites were printing their own punctuation.
+---
+--- With no extra arguments the message is passed through untouched, so a line that happens to
+--- contain a percent sign is safe. A format that does not match its arguments falls back to the
+--- raw message rather than throwing in the chat frame.
+function NS.Print(msg, ...)
+    local text = tostring(msg)
+    if select("#", ...) > 0 then
+        local ok, made = pcall(string.format, text, ...)
+        if ok then text = made end
+    end
     if DEFAULT_CHAT_FRAME then
-        DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. tostring(msg))
+        DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. text)
     else
-        print(PREFIX .. tostring(msg))
+        print(PREFIX .. text)
     end
 end
 local Print = NS.Print
@@ -383,8 +398,8 @@ end
 function NS.DO.range()
     local FG = NS.FG
     local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
-    Print("range is measured with |cffb980ff%s|r, whatever is on your left button",
-        tostring(spell or "nothing - bind a spell to left click"))
+    Print("range is measured with |cffb980ff%s|r - whatever you have bound, left click first",
+        tostring(spell or "nothing - nothing is bound at all"))
     local call = (C_Spell and C_Spell.IsSpellInRange and "C_Spell.IsSpellInRange")
         or (IsSpellInRange and "IsSpellInRange") or "no call on this client"
     Print("  asking: |cffb980ff%s|r", call)

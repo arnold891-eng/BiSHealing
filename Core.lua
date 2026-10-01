@@ -61,15 +61,40 @@ local DEFAULTS = {
     -- then thought about it: "pyramid is a hard pill to swallow we keep it a toggle regular grid
     -- by group or pyramid". A layout nobody asked for is not a default.
     layout  = "columns", -- "columns" (one per raid group) or "pyramid" (tanks on top)
-    pets    = false,     -- hunter and warlock pets as cells of their own (Arn: "toggel to see pets")
+    -- "grid" (a column inside the main grid), "own" (a block of their own), or "off". A boolean
+    -- from before 26 Sep still reads: true is "grid", false is "off". Off by default still, since
+    -- most healers heal a pet by exception - the three settings are about WHERE, not whether.
+    pets    = "off",
+    petAt   = "under",   -- where the pet block sits when it has one: under the grid by default
+    petPos  = nil,       -- where it was dragged to, from the middle of the screen
     hots    = true,      -- your own heals over time on the cells, with the client's countdown
+    between = false,     -- the between-pulls reminders in chat; off since 23 Sep ("put it away")
     clique  = false,     -- hand every click on the cells to Clique instead of our mouse binds
+    target  = false,     -- a cell of its own for whoever you have targeted
+    tot     = false,     -- and one under it for whoever THEY have targeted
+    mana    = false,     -- the other healers' mana, in a block of its own
+    manaAt  = "right",   -- where that block sits; "free" once dragged
+    manaPos = nil,
+    me      = false,     -- a cell for yourself, out of the group, in the same place always
+    meAt    = "left",    -- where it sits: left / right / top / under, or "free" once dragged
+    mePos   = nil,       -- where it was dragged to, from the middle of the screen
+    targetAt = "top",    -- where it sits: top / left / right / under, or "free" once dragged
+    targetPos = nil,     -- where it was dragged to, from the middle of the screen
+    markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
     color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
+    buffQuiet = false,   -- no noise when a watched buff drops; it keeps the chosen id for later
 }
+
+-- Keys with no useful default, which a migration must still carry: `selfBuffs` is a table (a
+-- default table here would be SHARED with the database and mutated by the first /bish buff), and
+-- `buffSound` is a file id where nil means ours. Without this list the migration below would set
+-- them aside in the attic as if they belonged to another addon - a setting that quietly moves
+-- house looks exactly like one that was never saved.
+local CARRY = { "selfBuffs", "buffSound" }
 
 NS.DBVER = 1
 
@@ -93,6 +118,8 @@ function NS.DB()
         -- came back - the addon overruling a deliberate act. Mouse.lua refuses to re-seed a mouse
         -- with anything on it now, but throwing the flag away was the cause and it is carried.
         local seeded = db.bindsSeeded or (type(db.forever) == "table" and db.forever.seeded)
+        local carried = {}
+        for _, k in ipairs(CARRY) do carried[k] = db[k] end
 
         -- WHAT WE DO NOT RECOGNISE IS MOVED, NEVER DELETED. This line used to be
         --
@@ -111,7 +138,8 @@ function NS.DB()
         local attic = {}
         for k, v in pairs(db) do
             if k ~= "binds" and k ~= "minimap" and k ~= "shown" and k ~= "bindsSeeded"
-               and k ~= "dbver" and k ~= "forever" and k ~= "attic" and DEFAULTS[k] == nil then
+               and k ~= "dbver" and k ~= "forever" and k ~= "attic" and DEFAULTS[k] == nil
+               and carried[k] == nil then
                 attic[k] = v
             end
         end
@@ -126,6 +154,7 @@ function NS.DB()
         db.minimap     = type(minimap) == "table" and minimap or nil
         db.shown       = shown ~= false
         db.bindsSeeded = seeded and true or nil
+        for k, v in pairs(carried) do db[k] = v end
         db.dbver       = NS.DBVER
     end
     -- the old on/off switch for the number, carried into the three-way one and then let go
@@ -242,6 +271,139 @@ function NS.DO.hots(on)
     return d.hots
 end
 
+--- WHAT THIS CLIENT SAYS ABOUT YOUR MANA. The header showed "regen ?" for Arn mid-fight, which is
+--- the honest answer when no call will say what you regenerate while casting. This prints what
+--- each one answered, so the next question is about a number rather than a guess.
+function NS.DO.regen()
+    local FR = NS.FR
+    if not FR then Print("the five second rule is not loaded") return end
+    Print(("the five second rule: %s"):format(
+        FR.Left() > 0 and ("%.1fs left"):format(FR.Left()) or "not running"))
+    for _, src in ipairs(FR.SOURCES or {}) do
+        local ok, base, casting = pcall(src.get)
+        local pb, pc = NS.Plain(base), NS.Plain(casting)
+        Print(("  %-26s %s"):format(src.name,
+            not ok and "|cfff08cb0refused|r"
+            or (pb == nil and base ~= nil and "|cfff08cb0secret|r")
+            or (pb == nil and "nothing")
+            or ("%s standing, %s casting"):format(tostring(pb), tostring(pc))))
+    end
+    local base, casting, from, remembered = FR.Rates()
+    if not base then
+        Print("  -> none of them will say, and nothing was read earlier: the header shows regen ?")
+        return
+    end
+    local k = FR.known
+    local age = (k and GetTime) and (GetTime() - (k.at or 0)) or nil
+    Print(("  -> %s: %s%s"):format(from, FR.Text() or "?",
+        remembered and (" (remembered%s - your own regen is a secret in a fight)")
+            :format(age and (", %ds ago"):format(math.floor(age)) or "") or " (live)"))
+end
+
+--- The between-pulls reminders in chat, on or off. Off since 23 Sep: they were written for a TBC
+--- shaman and say less than they used to on this client. /bish scan still asks outright.
+function NS.DO.between(on)
+    local d = DB()
+    if on == nil then on = not d.between end
+    d.between = on and true or false
+    Print(d.between and "between-pulls reminders on - what is missing after each fight"
+        or "between-pulls reminders off - /bish scan still asks")
+    return d.between
+end
+
+--- The buffs the header reminds you about. No argument lists them; a name adds it, the same name
+--- again takes it off, and "reset" goes back to your class's one.
+function NS.DO.buff(name)
+    local FS = NS.FS
+    if not FS then return end
+    if name == "reset" or name == "default" then
+        FS.Reset()
+        Print("watching your class's usual: " .. (table.concat(FS.List(), ", ") ~= "" and table.concat(FS.List(), ", ") or "nothing"))
+        return FS.List()
+    end
+    if name and name ~= "" then
+        local added, removed = FS.Add(name)
+        Print(added and ("watching |cffb980ff%s|r"):format(added)
+            or ("no longer watching |cffb980ff%s|r"):format(tostring(removed or name)))
+    end
+    local list = FS.List()
+    Print(#list == 0 and "no self buffs watched - /bish buff Water Shield"
+        or ("watching: " .. table.concat(list, ", ")))
+    local sounds, why = FS.Sounds()
+    Print(sounds and sounds > 0 and ("  a sound when one drops: %d registered"):format(sounds)
+        or ("  no sound when one drops (%s)"):format(tostring(why or "nothing to register")))
+    local missing = FS.Check()
+    if type(missing) == "table" and #missing > 0 then
+        Print("  missing now: " .. table.concat(missing, ", "))
+    elseif missing then
+        Print("  all up")
+    else
+        Print("  the client will not say while you are in a fight")
+    end
+    return list
+end
+
+--- The sound the client plays when a watched buff leaves you. A number is a file id, "off" is
+--- silence, and "on" brings it back - WITH the number the player chose, which is why the switch
+--- and the id are two fields rather than one. "default" goes back to the client's own alarm, and
+--- "test" plays whatever is set, so a number can be heard before it is kept.
+function NS.DO.buffsound(arg)
+    local d, FS = DB(), NS.FS
+    if not FS then return end
+    if arg == "off" or arg == "none" then
+        d.buffQuiet = true
+    elseif arg == "on" then
+        d.buffQuiet = false
+    elseif arg == "default" or arg == "reset" then
+        d.buffSound, d.buffQuiet = nil, false
+    elseif arg == "test" or arg == "hear" then
+        local played, why = FS.Play()
+        Print(played and ("playing %s"):format(tostring(FS.File()))
+            or ("no sound: %s"):format(tostring(why or "nothing to play")))
+        return d.buffSound
+    elseif arg ~= nil and arg ~= "" then
+        d.buffSound = tonumber(arg) or arg
+        d.buffQuiet = false
+    end
+    local n, why = FS.Sounds()
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end      -- it outlives a restart
+    if FS.Quiet() then
+        Print("no sound when a watched buff drops -- /bish buffsound on")
+    else
+        Print(n and n > 0 and ("a sound when a watched buff drops: %d spell(s) registered with %s")
+            :format(n, tostring(FS.File()))
+            or ("could not register a sound: %s"):format(tostring(why or "nothing to register")))
+    end
+    return d.buffSound
+end
+
+--- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
+--- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
+--- from the screen they all look identical.
+function NS.DO.range()
+    local FG = NS.FG
+    local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
+    Print("range is measured with |cffb980ff%s|r, whatever is on your left button",
+        tostring(spell or "nothing - bind a spell to left click"))
+    local call = (C_Spell and C_Spell.IsSpellInRange and "C_Spell.IsSpellInRange")
+        or (IsSpellInRange and "IsSpellInRange") or "no call on this client"
+    Print("  asking: |cffb980ff%s|r", call)
+    local unit = (UnitExists and UnitExists("target") and "target") or "player"
+    local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
+    if range and spell then
+        local ok, answer = pcall(range, spell, unit)
+        Print("  about %s: %s", unit, not ok and "|cfff08cb0refused|r"
+            or (NS.Secret and NS.Secret(answer) and "|cffe5c04aa secret|r - which is the interesting case"
+                or ("|cff4fd0cf" .. tostring(answer) .. "|r")))
+    end
+    local curve = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+    Print("  the client's boolean-to-value call: %s",
+        curve and "|cff4fd0cfthere|r" or "|cfff08cb0missing|r")
+    Print("  last paint: |cffb980ff%s|r", tostring(FG and FG.rangeSeen or "nothing painted yet"))
+    Print("  %s", "|cff968eadplain = read normally · secret = the client chose the dimming for us"
+        .. " · alpha refused = it would not take it|r")
+end
+
 function NS.DO.minimap()
     if not NS.MM then return end
     local hidden = NS.MM.Hidden()
@@ -326,23 +488,31 @@ function NS.DO.keep()
 end
 
 --- Switch layout. No argument flips between the two, which is what a toggle button wants.
+-- THREE LAYOUTS SINCE 23 SEP. A player asked for cells "vertically and horizontally"
+-- (paszczyszyn, CurseForge): a group can be a column of names, or a row of them. The pyramid is
+-- the third. No argument still walks through them, so the old `/bish layout` keeps working.
+local LAYOUTS = { columns = "grid: one column per raid group",
+                  rows    = "grid: one row per raid group, names across",
+                  pyramid = "pyramid: tanks on top, then damage, healers at the bottom" }
+local NEXT_LAYOUT = { columns = "rows", rows = "pyramid", pyramid = "columns" }
+
 function NS.DO.layout(mode)
     local d = DB()
-    if mode ~= "pyramid" and mode ~= "columns" then
-        mode = (d.layout == "pyramid") and "columns" or "pyramid"
-    end
+    if mode == "grid" or mode == "cols" then mode = "columns" end
+    if mode == "across" or mode == "horizontal" then mode = "rows" end
+    if not LAYOUTS[mode or ""] then mode = NEXT_LAYOUT[d.layout or "columns"] or "columns" end
     d.layout = mode
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end     -- it outlives a restart
     if InCombatLockdown and InCombatLockdown() then
         Print(("%s after this fight -- the cells are secure frames and will not move mid-pull")
-              :format(mode == "pyramid" and "pyramid" or "grid by group"))
+              :format(LAYOUTS[mode]))
         -- nothing to queue: the grid relayouts on PLAYER_REGEN_ENABLED anyway, and reads
         -- d.layout fresh when it does. (A `NS.FG.pending = true` here once looked like the
         -- mechanism and did nothing at all - the grid's pending flag is a local of its own.)
         return mode
     end
     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
-    Print(mode == "pyramid" and "pyramid: tanks on top, then healers, then damage"
-          or "grid: one column per raid group")
+    Print(LAYOUTS[mode])
     return mode
 end
 
@@ -438,14 +608,209 @@ function NS.DO.text(unit)
     p:Show()
 end
 
---- Pets on or off. No argument flips it, which is what a toggle wants.
-function NS.DO.pets(on)
+--- PETS, THREE WAYS. Arn, 26 Sep: "pets should have 3 setting default is they show up on the main
+--- cells, solo cell only pets and off on all cells" - which is paszczyszyn's "separete pet group"
+--- request in the shape Arn wants it.
+---
+---   grid  a column of their own inside the main grid (what "pets on" always meant)
+---   own   a block of their own, dragged where you like, nothing but pets in it
+---   off   nowhere
+---
+--- No argument walks the three, so the button in the options window and a bare /bish pets both
+--- keep working. `true` and `false` are still understood: any macro written before today has a
+--- boolean in it, and a player who types "on" means the grid.
+local PET_WORDS = { grid = "grid", main = "grid", on = "grid", [true] = "grid",
+                    own = "own", solo = "own", block = "own",
+                    off = "off", none = "off", [false] = "off" }
+local PET_NEXT = { grid = "own", own = "off", off = "grid" }
+local PET_SAID = { grid = "pets in the main cells, in a column of their own",
+                   own = "pets in a block of their own - drag its bar to move it",
+                   off = "no pets anywhere" }
+
+function NS.DO.pets(how)
     local d = DB()
-    if on == nil then on = not d.pets end
-    d.pets = on and true or false
-    if not (InCombatLockdown and InCombatLockdown()) and NS.FG and NS.FG.Layout then NS.FG.Layout() end
-    Print(d.pets and "pets shown - in a column of their own" or "pets hidden")
-    return d.pets
+    local FG = NS.FG
+    local was = FG and FG.PetsMode and FG.PetsMode() or "off"
+    local want
+    if how == nil then
+        want = PET_NEXT[was] or "grid"
+    else
+        want = PET_WORDS[type(how) == "string" and how:lower() or how]
+        if not want then
+            Print("pets: %s, %s or %s", "|cffb980ffgrid|r", "|cffb980ffown|r", "|cffb980ffoff|r")
+            return was
+        end
+    end
+    d.pets = want
+    -- the block may need a side of its own, and the grid rebuilds either way: pets leaving the
+    -- roster changes every column in it
+    if want == "own" and FG and FG.FreeSpot then
+        d.petAt = FG.FreeSpot(FG.PetSpot(), FG.PET_KEYS)
+    end
+    local done = true
+    if not (InCombatLockdown and InCombatLockdown()) and FG and FG.Layout then
+        done = FG.Layout() and true or false
+    else
+        done = false
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print((PET_SAID[want] or want) .. (done and "" or " - after this fight"))
+    return want
+end
+
+--- A cell for whoever you have targeted, under the grid. A player's request (paszczyszyn, 22 Sep).
+--- No argument flips it.
+function NS.DO.target(on)
+    local d = DB()
+    -- "under", "left", "right" or "top" both places it and turns it on; a drag on its own little
+    -- header sets "free" and remembers where (FG.TargetHandle)
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.targetAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.TARGET_KEYS) or where
+            if where ~= "free" then d.targetPos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
+    if on == nil then on = not d.target end
+    d.target = on and true or false
+    if d.target and NS.FG and NS.FG.FreeSpot then
+        d.targetAt = NS.FG.FreeSpot(NS.FG.TargetSpot(), NS.FG.TARGET_KEYS)
+    end
+    local done = true
+    if NS.FG and NS.FG.LayoutTarget then done = NS.FG.LayoutTarget() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    local where = (NS.FG and NS.FG.TargetSpot and NS.FG.TargetSpot()) or "under"
+    local said = { under = "under the grid", right = "to the right of the grid",
+                   left = "to the left of the grid", top = "above the grid",
+                   free = "where you dragged it" }
+    Print((d.target and ("a cell for your target, " .. (said[where] or "under the grid"))
+        or "no target cell") .. (done and "" or " - after this fight"))
+    return d.target
+end
+
+--- AND WHOEVER THEY ARE TARGETING, under that one. Arn, 23 Sep: "another option that frame will
+--- also have target of target with its on header on top BiS>tot the frames are attached to each
+--- other". It hangs off the target cell, so asking for it turns that one on as well - a target of
+--- no target is nothing, and a switch that silently does nothing is worse than one that says so.
+function NS.DO.tot(on)
+    local d = DB()
+    if on == nil then on = not d.tot end
+    d.tot = on and true or false
+    local grew = false
+    if d.tot and not d.target then
+        d.target = true
+        grew = true
+    end
+    local done = true
+    if NS.FG and NS.FG.LayoutTarget then done = NS.FG.LayoutTarget() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print((d.tot and ("a cell for your target's target, under the target's"
+            .. (grew and " - which is on now too" or ""))
+        or "no target-of-target cell") .. (done and "" or " - after this fight"))
+    return d.tot
+end
+
+--- THE OTHER HEALERS' MANA. Arn, 28 Sep, with a screenshot of EllesmereUI's party frames: "the
+--- top thing is the healer mana". This addon had written that off as impossible - and it was
+--- right about reading the number and wrong about showing it, which is the mistake the whole
+--- thing was built to avoid. The client works out the percentage; nothing here ever learns it.
+function NS.DO.mana(on)
+    local d = DB()
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.manaAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.MANA_KEYS) or where
+            if where ~= "free" then d.manaPos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
+    if on == nil then on = not d.mana end
+    d.mana = on and true or false
+    if d.mana and NS.FG and NS.FG.FreeSpot then
+        d.manaAt = NS.FG.FreeSpot(NS.FG.ManaSpot(), NS.FG.MANA_KEYS)
+    end
+    local done = true
+    if NS.FG and NS.FG.LayoutMana then done = NS.FG.LayoutMana() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    local n = (NS.FG and NS.FG.Healers and #NS.FG.Healers()) or 0
+    Print((d.mana and ("the healers' mana, %d in the group right now"):format(n)
+        or "no mana block") .. (done and "" or " - after this fight"))
+    return d.mana
+end
+
+--- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn, 25 Sep 2026): "lock
+--- yourself in one spot outside groups just to get use to it and have it in same spot for solo/or
+--- raid groups". Switching it on takes you out of the grid, which is the whole point: a spot that
+--- moves when the group changes is not a spot you can learn.
+function NS.DO.me(on)
+    local d = DB()
+    if type(on) == "string" then
+        local where = on:lower()
+        if where == "bottom" or where == "below" then where = "under" end
+        if where == "above" then where = "top" end
+        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
+            d.meAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.SELF_KEYS) or where
+            if where ~= "free" then d.mePos = nil end
+            on = true
+        else
+            on = nil
+        end
+    end
+    if on == nil then on = not d.me end
+    d.me = on and true or false
+    -- ARRIVING ON AN OCCUPIED SIDE MOVES YOU ALONG. Arn, 26 Sep, with both bars printed across
+    -- each other - "BiS> meget": "if target is already taking up the top and i also turn on me
+    -- dont overlap them send them to the next available slot". The block that has just been
+    -- switched on is the one that moves; whatever was already there keeps its place.
+    if d.me and NS.FG and NS.FG.FreeSpot then
+        d.meAt = NS.FG.FreeSpot(NS.FG.SelfSpot(), NS.FG.SELF_KEYS)
+    end
+    -- the whole grid is rebuilt, not just the cell: you leaving the roster changes every column
+    local done = true
+    if NS.FG and NS.FG.Layout then done = NS.FG.Layout() and true or false end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    local where = (NS.FG and NS.FG.SelfSpot and NS.FG.SelfSpot()) or "left"
+    local said = { under = "under the grid", right = "to the right of the grid",
+                   left = "to the left of the grid", top = "above the grid",
+                   free = "where you dragged it" }
+    Print((d.me and ("a cell of your own, " .. (said[where] or "beside the grid")
+            .. " - and you are out of the group grid")
+        or "no cell of your own - you are back in the group grid")
+        .. (done and "" or " - after this fight"))
+    return d.me
+end
+
+--- How big the dispel marker and the heal-over-time icons are. A player's request (paszczyszyn):
+--- "Is there a possibility of an option to adjust the size of buffs and debuffs?".
+function NS.DO.markers(px)
+    local d = DB()
+    local n = tonumber(px)
+    if not n then
+        Print(("markers are %d pixels - /bish markers 14 (6 to 20)"):format(d.markers or 10))
+        return d.markers or 10
+    end
+    n = math.floor(n + 0.5)
+    if n < 6 then n = 6 elseif n > 20 then n = 20 end
+    d.markers = n
+    if NS.FA then NS.FA.sig = nil end                   -- the containers are rebuilt at the size
+    local done = true
+    if not (InCombatLockdown and InCombatLockdown()) and NS.FG and NS.FG.Layout then
+        NS.FG.Layout()
+    else
+        done = false
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print(("markers %d pixels%s"):format(n, done and "" or " - after this fight"))
+    return n
 end
 
 --- Repaint every cell now, rather than waiting for somebody's health to change.
@@ -529,6 +894,16 @@ function NS.DO.help()
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
+    Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
+        .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
+    Print("  |cffb980fftot|r  and one for your target's target, beside it")
+    Print("  |cffb980ffmana|r  the other healers' mana, in a block of its own")
+    Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
+        .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
+    Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
+    Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
+    Print("  |cffb980ffbuffsound|r  the noise when one drops - a sound id, |cffb980ffoff|r,"
+        .. " |cffb980ffon|r, |cffb980ffdefault|r, |cffb980fftest|r")
 end
 
 --------------------------------------------------------------------- slash --
@@ -581,6 +956,37 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.colour()
     elseif msg == "pets" or msg == "pet" then
         NS.DO.pets()
+    elseif msg:match("^pets?%s+%a+$") then
+        NS.DO.pets(msg:match("^pets?%s+(%a+)$"))
+    elseif msg == "target" or msg == "targetcell" then
+        NS.DO.target()
+    elseif msg:match("^target%s+%a+$") then
+        NS.DO.target(msg:match("^target%s+(%a+)$"))
+    elseif msg == "tot" or msg == "targetoftarget" or msg == "totcell" then
+        NS.DO.tot()
+    elseif msg == "me" or msg == "self" then
+        NS.DO.me()
+    elseif msg == "mana" then
+        NS.DO.mana()
+    elseif msg:match("^mana%s+%a+$") then
+        NS.DO.mana(msg:match("^mana%s+(%a+)$"))
+    elseif msg:match("^me%s+%a+$") or msg:match("^self%s+%a+$") then
+        NS.DO.me(msg:match("^%a+%s+(%a+)$"))
+    elseif msg == "regen" or msg == "fsr" then
+        NS.DO.regen()
+    elseif msg == "range" then
+        NS.DO.range()
+    elseif msg == "between" or msg == "reminders" then
+        NS.DO.between()
+    elseif msg == "buffsound" or msg:match("^buffsound%s") then
+        NS.DO.buffsound(msg:match("^buffsound%s+(%S+)"))
+    elseif msg == "buff" or msg == "buffs" then
+        NS.DO.buff()
+    elseif msg:match("^buffs?%s") then
+        -- the name as the player typed it, capitals and all: "water shield" is not a spell name
+        NS.DO.buff((input or ""):match("^%s*[Bb][Uu][Ff][Ff][Ss]?%s+(.-)%s*$"))
+    elseif msg == "markers" or msg:match("^markers%s") then
+        NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
     elseif msg == "clique" then
@@ -588,9 +994,9 @@ SlashCmdList.BISHEALING = function(input)
     elseif msg == "text" or msg:match("^text%s") then
         NS.DO.text(msg:match("^text%s+(%S+)"))
     elseif msg == "layout" or msg == "pyramid" or msg == "grid" or msg == "columns"
-        or msg:match("^layout%s") then
+        or msg == "rows" or msg == "across" or msg:match("^layout%s") then
         local want = msg:match("^layout%s+(%a+)")
-        if msg == "pyramid" then want = "pyramid" elseif msg == "grid" or msg == "columns" then want = "columns" end
+        if msg ~= "layout" and msg ~= "" and not msg:match("^layout%s") then want = msg end
         NS.DO.layout(want)
     else
         NS.DO.help()

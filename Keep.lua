@@ -84,6 +84,10 @@ end
 --- 21 Sep, the same way: the number on the cells (T) and the bar colour (C). Only written when
 --- they differ from the default, so a mouse nobody has styled pays nothing for them. Uppercase
 --- again, for the same reason as S.
+local SPOTCODE = { under = 1, right = 2, left = 3, top = 4, free = 5 }
+local CODESPOT = { [1] = "under", [2] = "right", [3] = "left", [4] = "top", [5] = "free" }
+local LAYOUTCODE = { rows = 1, pyramid = 2 }          -- columns is 0, the default, never written
+local CODELAYOUT = { [0] = "columns", [1] = "rows", [2] = "pyramid" }
 local TEXTCODE = { off = 0, percent = 2 }             -- 1, "missing", is the default and not written
 local CODETEXT = { [0] = "off", [1] = "missing", [2] = "percent" }
 
@@ -111,6 +115,80 @@ local function settingRows(settings)
     if settings.hots == false then out[#out + 1] = "O=0" end
     -- clicks handed to Clique (K for clicK); off is the default and is not written
     if settings.clique == true then out[#out + 1] = "K=1" end
+    -- 23 Sep, a player's three requests: the layout (L), a cell for your target (G, for tarGet),
+    -- and how big the markers are (M). Defaults - columns, no target cell, 10 pixels - write nothing.
+    if LAYOUTCODE[settings.layout or ""] then out[#out + 1] = "L=" .. LAYOUTCODE[settings.layout] end
+    -- the target cell: G says WHERE as well as whether, and a dragged one writes its place in Q
+    -- (the same two-numbers-from-the-middle trick as the grid's P)
+    if settings.target == true then
+        -- the tot cell rides in the SAME row, after the colon: it only exists hanging off the
+        -- target cell, so a row of its own would be a row that can contradict this one
+        out[#out + 1] = "G=" .. (SPOTCODE[settings.targetAt or ""] or 1) .. (settings.tot and ":1" or "")
+        local q = settings.targetPos
+        if (settings.targetAt == "free") and type(q) == "table" and tonumber(q.x) and tonumber(q.y) then
+            local x = math.floor(tonumber(q.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(q.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("Q=%d:%d"):format(x, y)
+            end
+        end
+    end
+    -- YOUR OWN CELL (Y for You), and where it was dragged (Z, the same two-numbers-from-the-middle
+    -- trick as the grid's P and the target's Q). A spot that has to be set again at every login is
+    -- not the "same spot for solo or raid" this was asked for.
+    if settings.me == true then
+        out[#out + 1] = "Y=" .. (SPOTCODE[settings.meAt or ""] or 3)
+        local z = settings.mePos
+        if (settings.meAt == "free") and type(z) == "table" and tonumber(z.x) and tonumber(z.y) then
+            local x = math.floor(tonumber(z.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(z.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("Z=%d:%d"):format(x, y)
+            end
+        end
+    end
+    -- THE MANA BLOCK (A for... the alphabet is nearly gone; think "mAna"). Where it sits, and
+    -- where it was dragged to in B, the same two-numbers-from-the-middle shape as everything else.
+    if settings.mana == true then
+        out[#out + 1] = "A=" .. (SPOTCODE[settings.manaAt or ""] or 2)
+        local m = settings.manaPos
+        if (settings.manaAt == "free") and type(m) == "table" and tonumber(m.x) and tonumber(m.y) then
+            local x = math.floor(tonumber(m.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(m.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("B=%d:%d"):format(x, y)
+            end
+        end
+    end
+    -- THE PETS (V for... the letters are running out; think "Vet"). Three answers now, and the
+    -- setting has never ridden in the macro at all - so "pets on" was forgotten at every login,
+    -- quietly, for as long as the option has existed. A dragged block writes its place after the
+    -- colon, the same shape as everything else here.
+    local PETCODE = { grid = 1, own = 2 }        -- "off" is the default and writes nothing
+    if PETCODE[settings.pets or ""] then
+        out[#out + 1] = "V=" .. PETCODE[settings.pets]
+            .. ((settings.pets == "own" and SPOTCODE[settings.petAt or ""]) and (":" .. SPOTCODE[settings.petAt]) or "")
+        local v = settings.petPos
+        if settings.pets == "own" and settings.petAt == "free"
+           and type(v) == "table" and tonumber(v.x) and tonumber(v.y) then
+            local x = math.floor(tonumber(v.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(v.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("W=%d:%d"):format(x, y)
+            end
+        end
+    end
+    local px = tonumber(settings.markers)
+    if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
+    -- THE BUFF-DROP SOUND (N for Noise), both halves in one row: the file id, and a 1 after a
+    -- colon when it is switched off. Two numbers rather than two rows because switching the sound
+    -- off must not throw away the id the player typed - "N=0:1" is silence with our own sound
+    -- behind it, "N=567458:1" is silence with theirs. A file PATH cannot ride here (a row carries
+    -- digits only), and a path makes no sound on this client anyway.
+    local snd = tonumber(settings.sound)
+    if settings.quiet or snd then
+        out[#out + 1] = "N=" .. math.floor((snd or 0) + 0.5) .. (settings.quiet and ":1" or "")
+    end
     return out
 end
 
@@ -189,6 +267,37 @@ function FK.Decode(body)
             settings.hidden = tonumber(idx) == 1
         elseif code == "K" then
             settings.clique = tonumber(idx) == 1
+        elseif code == "L" then
+            settings.layout = CODELAYOUT[tonumber(idx)]
+        elseif code == "G" then
+            settings.target = (tonumber(idx) or 0) > 0
+            settings.targetAt = CODESPOT[tonumber(idx)]
+            settings.tot = tonumber(rank) == 1
+        elseif code == "Q" and tonumber(idx) and tonumber(rank) then
+            settings.targetPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "M" then
+            settings.markers = tonumber(idx)
+        elseif code == "A" then
+            settings.mana = (tonumber(idx) or 0) > 0
+            settings.manaAt = CODESPOT[tonumber(idx)]
+        elseif code == "B" and tonumber(idx) and tonumber(rank) then
+            settings.manaPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "V" then
+            settings.pets = tonumber(idx) == 2 and "own" or (tonumber(idx) == 1 and "grid" or nil)
+            if settings.pets == "own" then settings.petAt = CODESPOT[tonumber(rank)] end
+        elseif code == "W" and tonumber(idx) and tonumber(rank) then
+            settings.petPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "Y" then
+            settings.me = (tonumber(idx) or 0) > 0
+            settings.meAt = CODESPOT[tonumber(idx)]
+        elseif code == "Z" and tonumber(idx) and tonumber(rank) then
+            settings.mePos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "N" then
+            -- `quiet` is always set when the row is here, and never when it is not: that is what
+            -- tells the restore "this macro has an opinion about the sound" apart from "it has
+            -- none". An id of 0 means ours.
+            settings.sound = (tonumber(idx) or 0) > 0 and tonumber(idx) or nil
+            settings.quiet = tonumber(rank) == 1
         elseif code == "O" then
             settings.hots = tonumber(idx) ~= 0
         elseif code then
@@ -307,7 +416,14 @@ function FK.Save(binds)
     end
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
-                                             clique = t.clique })
+                                             clique = t.clique, layout = t.layout,
+                                             target = t.target, markers = t.markers, tot = t.tot,
+                                             me = t.me, meAt = t.meAt, mePos = t.mePos,
+                                             mana = t.mana, manaAt = t.manaAt, manaPos = t.manaPos,
+                                             pets = (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or nil,
+                                             petAt = t.petAt, petPos = t.petPos,
+                                             targetAt = t.targetAt, targetPos = t.targetPos,
+                                             sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

@@ -176,10 +176,52 @@ local function db()
                     if NS.FA then NS.FA.sig = nil end
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
                 end
+                -- the three a player asked for on 23 Sep, all of them the layout's business
+                if settings.layout then d.layout = settings.layout end
+                if settings.target == true then
+                    d.target = true
+                    if settings.targetAt then d.targetAt = settings.targetAt end
+                    if settings.targetPos then d.targetPos = settings.targetPos end
+                    d.tot = settings.tot == true      -- the cell beside it, from the same row
+                end
+                -- and your own cell, which is a row of its own: it has nothing to do with the
+                -- target block and a player may want one without the other
+                -- the pets, which never used to come back at all
+                if settings.pets then
+                    d.pets = settings.pets
+                    if settings.petAt then d.petAt = settings.petAt end
+                    if settings.petPos then d.petPos = settings.petPos end
+                end
+                if settings.mana == true then
+                    d.mana = true
+                    if settings.manaAt then d.manaAt = settings.manaAt end
+                    if settings.manaPos then d.manaPos = settings.manaPos end
+                end
+                if settings.me == true then
+                    d.me = true
+                    if settings.meAt then d.meAt = settings.meAt end
+                    if settings.mePos then d.mePos = settings.mePos end
+                end
+                if settings.markers then
+                    d.markers = settings.markers
+                    if NS.FA then NS.FA.sig = nil end
+                end
+                if settings.layout or settings.target or settings.markers then
+                    if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+                end
                 -- clicks handed to Clique: the relayout clears ours and registers every cell
                 if settings.clique == true then
                     d.clique = true
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+                end
+                -- THE BUFF-DROP SOUND, both halves. `quiet` is only set when the macro carries an
+                -- N row at all, so a player who never touched it is left alone - and the sounds
+                -- are registered again right here rather than waited for, because one that only
+                -- arms itself at the next SPELLS_CHANGED is one that misses the first pull.
+                if settings.quiet ~= nil then
+                    d.buffQuiet = settings.quiet and true or false
+                    d.buffSound = settings.sound
+                    if NS.FS and NS.FS.Sounds then NS.FS.Sounds() end
                 end
                 if settings.hidden then
                     d.shown = false
@@ -483,6 +525,7 @@ function FM.ApplyTo(cell)
                     local prefix = m.key == "" and "*" or m.key
                     cell:SetAttribute(prefix .. "type" .. slot.attr, nil)
                     cell:SetAttribute(prefix .. "spell" .. slot.attr, nil)
+                    cell:SetAttribute(prefix .. "macrotext" .. slot.attr, nil)
                 end
             end
         end
@@ -496,8 +539,18 @@ function FM.ApplyTo(cell)
             for _, m in ipairs(FM.MODS) do
                 local spell = FM.Get(m.key, slot.key)
                 local prefix = m.key == "" and "*" or m.key
-                cell:SetAttribute(prefix .. "type" .. slot.attr, spell and "spell" or "target")
+                -- EMPTY 3-5 TARGET BY MACRO. Measured on the beta (22 Sep): the thumbs and the
+                -- wheel click reach the cell - a bound spell casts - but an empty one set to type
+                -- "target" does nothing; the SecureUnitButton path honours "target" for buttons 1
+                -- and 2 only. So 1-2 keep the built-in action, and 3-5 get a secure macro that does
+                -- the same thing through the one unit the cursor is on.
+                local kind, text
+                if spell then kind = "spell"
+                elseif slot.attr <= 2 then kind = "target"
+                else kind, text = "macro", "/target [@mouseover]" end
+                cell:SetAttribute(prefix .. "type" .. slot.attr, kind)
                 cell:SetAttribute(prefix .. "spell" .. slot.attr, spell or nil)
+                cell:SetAttribute(prefix .. "macrotext" .. slot.attr, text)
                 if spell then n = n + 1 end
             end
         end

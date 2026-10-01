@@ -89,6 +89,30 @@ function NS.Blind()
     return false
 end
 
+--- AND THE ANSWER THE CLIENT GIVES BY THROWING (28 Sep 2026, read off EllesmereUI 9.3's AuraKit).
+---
+--- `ShouldAurasBeSecret` is a question. Walking the aura list is the thing that actually happens,
+--- and EllesmereUI's own note says the two do not always agree: "12.1: index scan hard-errors
+--- under restrictions (M+/raid) even OOC; whitelisted lookups still work". So the honest test is
+--- to TRY one slot and see whether the client refuses.
+---
+--- CACHED ON ONE SIDE ONLY, which is their trick and worth keeping: a "restricted" answer is
+--- cached for the rest of the frame because building the error is what costs, while a "clear"
+--- answer is re-probed every time - a stale `false` sends the caller into a scan that throws,
+--- and a stale `true` costs one frame of a display nobody was watching.
+local restrictedAt = -1
+
+function NS.Restricted()
+    if NS.Blind() then return true end
+    local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not get then return true end
+    local now = (GetTime and GetTime()) or 0
+    if now == restrictedAt then return true end
+    if pcall(get, "player", 1, "HELPFUL") then return false end
+    restrictedAt = now
+    return true
+end
+
 --- IS THIS PARTICULAR VALUE SECRET? (19 Sep 2026)
 ---
 --- The client has `issecretvalue`, and this addon spent three days not knowing it: everything so

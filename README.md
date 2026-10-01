@@ -60,9 +60,67 @@ health, and that is exactly what this client will not allow.
   health colours on, the names wear the class colour instead.
 - A green pip when there is something on them **you** can take off, a dimmed
   cell when they are out of range of whatever is on your left button, and a role
-  icon (the raid's Main Tank counts as a tank).
-- Optional: a pyramid (`/bish pyramid`, tanks on top), pets in a column of their
-  own (`/bish pets`), and a size from 60% to 160% (`/bish scale 90`).
+  icon (the raid's Main Tank counts as a tank). In combat the client keeps the
+  range answer secret, so it is handed back to the client to choose the
+  brightness from — the addon never learns who is reachable. `/bish range` says
+  what happened.
+- Optional: a pyramid (`/bish pyramid`, tanks on top) and a size from 60% to
+  160% (`/bish scale 90`).
+- **Pets, three ways** (`/bish pets grid | own | off`): a column inside the main
+  cells, a block of their own with a `BiS> pets` bar you can drag anywhere, or
+  nowhere at all. Off to begin with.
+
+The target cell and its tot work on **enemies** too — they are ordinary unit buttons, so whatever
+is on your mouse casts at whatever is in them. Those two go **red** for anything you can attack,
+so a mob never looks like a groupmate.
+
+### The other healers' mana
+
+**`/bish mana`**, or **mana** in the options window's cells row. A small block with one row per
+healer in the group — name and percent, you included — under a `BiS> mana` bar you can drag
+anywhere.
+
+The game keeps another player's mana secret from addons, even out of combat, so this addon never
+learns the number: it asks the game for the percentage and hands it straight to the screen. What
+you see, nothing here has read.
+
+### A cell for yourself
+
+**`/bish me`**, or **me** in the cells row of the options window. You get one cell of your own
+under a `BiS> me` bar — drag it anywhere, or shift-click the bar to send it round the grid — and
+**you come out of the group grid**, so that spot is the same whether you are solo, in a party or
+in a 40-man. `/bish me left` (or `right`, `top`, `under`) places it from the chat box, and where
+you put it is remembered.
+
+### The target block
+
+**A cell for your target** (`/bish target`) gets a small header of its own —
+`BiS> target` — which you drag to move it, or shift-click to send it round the
+grid (top, right, under, left). **And their target** (`/bish tot`) adds a second
+cell to the right of it under a `BiS> tot` bar. The two are attached: drag
+either header and the pair moves together, and with no target at all both
+disappear.
+
+## The header
+
+The bar above the cells is the handle you drag them by, and it says one thing at
+a time.
+
+- **Out of combat** it says what you have forgotten: `no Water Shield`. One buff
+  per healing class to begin with — Water Shield, Inner Fire, Omen of Clarity,
+  Blessing of Wisdom — and only if you have actually trained it. `/bish buff
+  <name>` watches another, the same name again stops, `/bish buff reset` goes
+  back to your class's own.
+- **In a fight** it says how much mana you are getting: `regen 100%` between
+  casts, and your while-casting share for the five seconds after you spend any,
+  with a bar draining across the header as those seconds run out. The numbers
+  come from the character sheet's own, so your talents and gear are already in
+  them. This client hides your regeneration once the fight starts, so what you
+  see is the last thing it would tell us; `regen ?` means it never has.
+- **A sound when the buff drops**, played by the client itself — the only half
+  of the reminder that works mid-fight, where your own buffs are secret. Switch
+  it off in the options window, or put a different **sound id** in the drawer
+  under it. `/bish buffsound off`, `on`, `default`, `test`, or a number.
 
 ## Everything else
 

@@ -61,12 +61,27 @@ local function autoMethods(t)
     end })
 end
 
-local function newFrame(kind, name)
+local function newFrame(kind, name, parent)
     -- SHOWN, like the client's. A frame you create is visible until you hide it, and a mock that
     -- starts everything hidden turns "I never hid this" into a passing test - which is exactly
     -- how the mouse window shipped needing two clicks to open.
     local f = { __kind = kind, __name = name, __attrs = {}, __scripts = {}, __shown = true,
-                __alpha = 1, points = {} }
+                __alpha = 1, points = {}, __parent = parent }
+    -- SCALE IS INHERITED, as in the client: a child of a frame at 1.4 is itself at 1.4, so an
+    -- offset written in its own units covers 1.4 times the screen it used to. The mock had no
+    -- parents and no effective scale at all, which is how the target cell's free position could
+    -- be stored in the wrong units and no test noticed (Arn, 23 Sep: "when i increased the scale
+    -- size ... the target frames moved up and to the right").
+    function f:GetParent() return self.__parent end
+    function f:GetEffectiveScale()
+        local s = self.__scale or 1
+        local p = self.__parent
+        while p do
+            s = s * (p.__scale or 1)
+            p = p.__parent
+        end
+        return s
+    end
     if name then _G[name] = f end          -- the client puts a named frame in _G; so does this
     -- WHERE IT IS ANCHORED, recorded and readable. The client answers GetPoint; this used to
     -- answer nothing at all, which made "put the window back where it was" untestable - and a
@@ -89,13 +104,26 @@ local function newFrame(kind, name)
     function f:Show() self.__shown = true end
     function f:Hide() self.__shown = false end
     function f:IsShown() return self.__shown end
-    function f:SetAlpha(a) self.__alpha = a end
+    function f:SetAlpha(a)
+        -- A WIDGET MAY REFUSE A SECRET. Which ones accept them is not in any census, so the mock
+        -- can be told to say no - and the addon has to leave the cell readable when it does,
+        -- rather than throwing in the middle of a pull.
+        if STATE.alphaRefusesSecret and getmetatable(a) == secretMeta then
+            error("SetAlpha: a secret alpha is refused by this client", 2)
+        end
+        self.__alpha = a
+    end
     function f:GetAlpha() return self.__alpha end
     function f:SetFrameStrata(v) self.__strata = v end
     function f:SetScale(v) self.__scale = v end
     function f:GetScale() return self.__scale or 1 end
     function f:SetSize(w, h) self.__w, self.__h = w, h end
+    -- a width on its own is a size too. It was an auto no-op, so "how wide did it draw that" had
+    -- no answer at all - which is how a bar could be drawn at any width and pass (23 Sep).
+    function f:SetWidth(w) self.__w = w end
+    function f:SetHeight(h) self.__h = h end
     function f:GetWidth() return self.__w end
+    function f:GetHeight() return self.__h end
     function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
@@ -114,6 +142,10 @@ local function newFrame(kind, name)
     function f:CreateTexture()
         return autoMethods({
             SetColorTexture = function() end,
+            SetWidth  = function(t, w) t.__w = w end,
+            SetHeight = function(t, h) t.__h = h end,
+            SetSize   = function(t, w, h) t.__w, t.__h = w, h end,
+            GetWidth  = function(t) return t.__w end,
             __shown  = true,
             Show     = function(t) t.__shown = true end,
             Hide     = function(t) t.__shown = false end,
@@ -131,8 +163,32 @@ local function newFrame(kind, name)
         -- question if a label remembers what it was pinned to
         local fs = autoMethods({
             SetText = function(self2, t) self2.__text = t end,
+            -- THE FORMAT SETTER, which is how a secret number reaches the screen without anybody
+            -- reading it: the client does the formatting. EllesmereUI's healer mana is one line of
+            -- exactly this, and it is the whole reason "nobody can show another player's mana"
+            -- turned out to be wrong. It records what it was GIVEN, including a secret, so a test
+            -- can tell "drew the value" from "drew nothing".
+            SetFormattedText = function(self2, fmt, v)
+                if STATE.formatRefusesSecret and getmetatable(v) == secretMeta then
+                    error("SetFormattedText: this client refuses a secret here", 2)
+                end
+                self2.__formatted = { fmt, v }
+                self2.__text = getmetatable(v) == secretMeta and "(secret)" or tostring(v)
+            end,
             GetText = function(self2) return self2.__text end,
-            SetTextColor = function(self2, r, g, b) self2.__color = { r, g, b } end,
+            -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
+            -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
+            -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
+            -- return value - painted r with g and b nil, passed the suite, and threw five times
+            -- on one click of the minimap button (26 Sep). A widget that takes anything cannot
+            -- tell you that you gave it nothing.
+            SetTextColor = function(self2, r, g, b, a)
+                if type(r) == "table" then self2.__color = r return end      -- the color-object form
+                if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+                    error("bad argument #1 to 'SetTextColor' (Usage: self:SetTextColor(color [, a]))", 2)
+                end
+                self2.__color = { r, g, b, a }
+            end,
             -- a width, as the client always gives one: ~5px a character at the small font
             GetStringWidth = function(self2)
                 return type(self2.__text) == "string" and #self2.__text * 5 or 0
@@ -144,13 +200,58 @@ local function newFrame(kind, name)
         self.__fontstrings[#self.__fontstrings + 1] = fs
         return fs
     end
+    -- AN EDIT BOX HOLDS WHAT WAS TYPED IN IT. Every method not written down here answers nil,
+    -- which for a text field is the kindest lie there is: GetText() would come back nil, the addon
+    -- would read it as "nothing typed", and the suite would call that a pass while the player's
+    -- 567458 sat in the box in front of them. The client's own box answers "" when it is empty,
+    -- never nil, and takes digits only once SetNumeric is on - so this one does the same.
+    if kind == "EditBox" then
+        f.__text = ""
+        function f:SetText(t)
+            t = tostring(t or "")
+            if self.__numeric then t = t:gsub("%D", "") end
+            self.__text = t
+        end
+        function f:GetText() return self.__text or "" end
+        function f:GetNumber() return tonumber(self.__text) or 0 end
+        function f:SetNumeric(on) self.__numeric = on and true or false end
+        function f:SetAutoFocus(on) self.__autofocus = on and true or false end
+        function f:SetMaxLetters(n) self.__max = n end
+        function f:SetFocus() self.__focus = true end
+        function f:ClearFocus() self.__focus = false end
+        -- what a player actually does: type, then press Enter. The client fires the script itself.
+        function f:__type(t)
+            self:SetText(t)
+            local fn = self.__scripts.OnEnterPressed
+            if fn then fn(self) end
+        end
+    end
     frames[#frames + 1] = f
     return autoMethods(f)
 end
 
-_G.CreateFrame = function(kind, name) return newFrame(kind, name) end
+_G.CreateFrame = function(kind, name, parent) return newFrame(kind, name, parent) end
 _G.UIParent = newFrame("Frame")
 _G.InCombatLockdown = function() return STATE.inCombat end
+-- the shift key, held or not, as the client answers it
+_G.IsShiftKeyDown = function() return STATE.shift and true or false end
+-- A SOUND THAT DOES NOT EXIST DOES NOT PLAY. The client answers PlaySoundFile with false for a
+-- file id it has not got, and a mock that says "played it" for every number turns "did that id
+-- work?" into a question nobody can ask - which is the whole reason the drawer has a `hear`
+-- button. STATE.sounds is the client's sound folder; STATE.played is what came out of it.
+STATE.sounds = { [567458] = true, [567474] = true }      -- the two Arn listened to, 23 Sep
+STATE.played = {}
+_G.PlaySoundFile = function(file, channel)
+    if type(file) ~= "number" or not STATE.sounds[file] then return false end
+    STATE.played[#STATE.played + 1] = { file = file, channel = channel }
+    return true, #STATE.played
+end
+-- A CLOCK THAT MOVES, like the client's. There was none at all, so GetTime was nil everywhere and
+-- anything cached "for this frame" was cached for the whole suite - kinder than the client, where
+-- the number changes sixty times a second. TICK() is a frame going by.
+local CLOCK = 1000
+_G.GetTime = function() return CLOCK end
+local function TICK(seconds) CLOCK = CLOCK + (seconds or 0.1) return CLOCK end
 _G.UnitExists = function(u) return STATE.units[u] and true or false end
 _G.IsInRaid = function() return false end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
@@ -158,13 +259,38 @@ _G.UnitClass = function()
     if STATE.classSecret then return secret(), secret() end
     return "Shaman", "SHAMAN"
 end
+-- CAN I ATTACK THIS? The target cell holds whatever you clicked, which on a hunter is usually a
+-- mob - and in combat the answer is a secret like everything else about somebody else.
+STATE.hostile = {}
+STATE.hostileSecret = false
+_G.UnitCanAttack = function(_, u)
+    if STATE.hostileSecret then return secret() end
+    return STATE.hostile[u] and true or false
+end
 _G.UnitIsDeadOrGhost = function(u)
     if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
     return STATE.dead[u] and true or false
 end
 _G.UnitHealth = function() return secret() end
 _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
-_G.IsSpellInRange = function(_, u) return STATE.range[u] == 0 and 0 or 1 end
+-- IN COMBAT THE ANSWER IS A SECRET, like everything else about somebody else. It used to answer
+-- plainly always, so "the dimming works" was only ever proved for the half of the time it is not
+-- needed - and the pcall round it swallowed the refusal in the other half without a word.
+_G.IsSpellInRange = function(_, u)
+    if STATE.rangeSecret then return secret() end
+    return STATE.range[u] == 0 and 0 or 1
+end
+-- the client's ternary: it picks one of two values from a boolean nobody else may test
+_G.C_CurveUtil = _G.C_CurveUtil or {}
+_G.C_CurveUtil.EvaluateColorValueFromBoolean = function(b, whenTrue, whenFalse)
+    if getmetatable(b) == secretMeta then
+        -- a secret in, a secret out: the client knows which one it picked and we do not
+        if STATE.curveRefuses then error("the curve refuses this value", 2) end
+        return secret()
+    end
+    if type(b) ~= "boolean" then error("EvaluateColorValueFromBoolean needs a boolean", 2) end
+    return b and whenTrue or whenFalse
+end
 -- THE UNIT WATCH SHOWS FRAMES BY ITSELF. It was a no-op here, which is kinder than the client:
 -- the real one shows a watched frame whenever its unit exists, whatever the addon last said - so
 -- "show the cells" off did nothing in game for a week while this suite passed (Arn, 21 Sep).
@@ -213,7 +339,7 @@ end }
 local realCreateFrame = _G.CreateFrame
 _G.CreateFrame = function(kind, name, parent, template)
     if kind == "AuraContainer" then
-        local c = newFrame(kind)
+        local c = newFrame(kind, nil, parent)
         c.slots, c.unit, c.enabled = {}, nil, false
         function c:SetUnit(u) self.unit = u end
         function c:SetEnabled(v) self.enabled = v and true or false end
@@ -259,6 +385,19 @@ _G.UnitGroupRolesAssigned = function(unit)
     if STATE.roleSecret then return secret() end
     return STATE.roles and STATE.roles[unit] or "NONE"
 end
+
+-- ANOTHER PLAYER'S MANA, AS A PERCENTAGE THE CLIENT WORKS OUT. UnitPowerPercent is what
+-- EllesmereUI's healer mana is built on, with their own note beside it: "which can be secret in
+-- combat: it only ever reaches a format setter". So this answers a secret in combat, and a plain
+-- number out of it - and either way nothing may read it.
+STATE.powerSecret = false
+_G.CurveConstants = { ScaleTo100 = "scale100" }
+_G.UnitPowerPercent = function(unit, powerType, _, scale)
+    if STATE.powerNoCall then error("no such call on this client", 2) end
+    if STATE.powerSecret then return secret() end
+    return (STATE.power and STATE.power[unit]) or 100
+end
+STATE.power = {}
 
 -- MACROS, WHICH ARE THE ONE THING THIS CLIENT GIVES BACK. They live on the server, so they
 -- survive the restart that empties every SavedVariables file. This is the store, and it behaves
@@ -521,13 +660,67 @@ FG.Paint(f)
 ok(f.bar.__color[1] > f.bar.__color[3], "a dead unit paints red, not class colour")
 STATE.dead.party1 = nil
 
--- range: IsSpellInRange answers plainly; UnitInRange would be a secret boolean and unusable
+-- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
 STATE.range.party1 = 0
 FG.Paint(f)
 ok(f:GetAlpha() == 0.45, "out of range dims the cell")
+ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls", FG.rangeSeen)
 STATE.range.party1 = nil
 FG.Paint(f)
 ok(f:GetAlpha() == 1, "back in range, full alpha")
+
+-- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. This is the half that has never worked: "are
+-- they in range" goes secret with everything else, the pcall round it swallowed the refusal, and
+-- the cell stayed bright - so the dimming only ever ran when it was least needed. The client's
+-- own ternary picks the alpha from a boolean we may not test (ForeverAuras 0.8.6, 28 Sep).
+do
+    STATE.rangeSecret = true
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f), "a secret range answer does not throw")
+    ok(FG.rangeSeen == "secret", "the client is asked to choose the dimming for us", FG.rangeSeen)
+    ok(getmetatable(f.__alpha) == getmetatable(secret()),
+       "and what it chose goes to the widget unread, like every other secret")
+
+    -- A WIDGET THAT WILL NOT TAKE IT leaves the cell readable, rather than throwing mid-pull.
+    -- Which widgets accept a secret is in no census, so this is a real possibility and not a
+    -- hypothetical - the grid has met a refusal before, on SetMinMaxValues.
+    STATE.alphaRefusesSecret = true
+    -- LEFT DIM ON PURPOSE before the paint: a cell that is already bright cannot show whether the
+    -- addon put it back, and "the recovery works" was passing on a cell that never moved.
+    f:SetAlpha(FG.DIM)
+    ok(pcall(FG.Paint, f), "a widget refusing the secret does not throw either")
+    ok(f:GetAlpha() == 1, "and the cell is put back to bright rather than left half faded")
+    ok(FG.rangeSeen == "alpha refused", "and the reason is recorded for /bish range",
+       FG.rangeSeen)
+    STATE.alphaRefusesSecret = false
+
+    -- a client with no such call at all: the same, said differently
+    local realCurve = _G.C_CurveUtil.EvaluateColorValueFromBoolean
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = nil
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f) and f:GetAlpha() == 1, "and a client without the call leaves it bright")
+    ok(FG.rangeSeen == "secret, no curve", "saying which of the two it was", FG.rangeSeen)
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = realCurve
+
+    -- AND A CALL THAT THROWS OUTRIGHT is not "everybody is out of range". The same mistake as the
+    -- aura walk on the 28th: a refusal is not an answer, and dimming the whole raid on one is
+    -- worse than dimming nobody.
+    local realRange = _G.C_Spell and _G.C_Spell.IsSpellInRange
+    if _G.C_Spell then _G.C_Spell.IsSpellInRange = function() error("no", 2) end end
+    local realBare = _G.IsSpellInRange
+    _G.IsSpellInRange = function() error("no", 2) end
+    f:SetAlpha(FG.DIM)
+    ok(pcall(FG.Paint, f), "a range call that throws does not take the paint with it")
+    ok(f:GetAlpha() == 1 and FG.rangeSeen == "refused",
+       "and nobody is dimmed on a refusal", tostring(FG.rangeSeen) .. " / " .. tostring(f:GetAlpha()))
+    if _G.C_Spell then _G.C_Spell.IsSpellInRange = realRange end
+    _G.IsSpellInRange = realBare
+
+    STATE.rangeSecret = false
+    FG.Paint(f)
+    ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
+end
+ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
 
 -- a client that refuses a secret max must not take the addon down with it; whether Forever does
 -- is not yet measured, so the grid asks once and remembers the answer
@@ -1010,13 +1203,15 @@ do
     ok(p[1].wide and p[2].wide and p[3].wide and not p[4].wide,
        "the apex and the pair are full width, the rows under them are not")
 
-    -- THE ORDER: tanks first, then healers, then damage, and raid order kept inside each
+    -- THE ORDER: tanks first, then damage, then the healers, and raid order kept inside each.
+    -- Arn, 23 Sep: "tanks dps and healers at the bottom" - in a fight you watch the tank and
+    -- whoever is in the fire; the other healers are the glance you take last.
     local raid = { "raid1", "raid2", "raid3", "raid4", "raid5", "raid6", "raid7" }
     STATE.roles = { raid1 = "DAMAGER", raid2 = "HEALER", raid3 = "TANK", raid4 = "DAMAGER",
                     raid5 = "TANK", raid6 = "NONE", raid7 = "HEALER" }
     local by = table.concat(FG.ByRole(raid), " ")
-    ok(by == "raid3 raid5 raid2 raid7 raid1 raid4 raid6",
-       "tanks, then healers, then damage, then nobody - and nobody reshuffled within a role", by)
+    ok(by == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
+       "tanks, then damage, then healers, then nobody - and nobody reshuffled within a role", by)
 
     -- IN COMBAT a role is a secret; the sort must survive it and not reorder on a guess
     STATE.roleSecret = true
@@ -1051,6 +1246,33 @@ do
     FG.Layout(FG.anchor)
     ok(FG.frames[1].unit == "player" and FG.frames[1].__w == 84,
        "/bish layout columns puts it back: raid order, every cell the same")
+
+    -- AND ACROSS. A player's request (paszczyszyn, 22 Sep): cells "vertically and horizontally".
+    -- The same group, turned: what was a column of names is a row of them. Measured from where
+    -- the cells are actually put, not from the setting.
+    local function xy(f)
+        local p = f.points and f.points[#f.points]
+        return p and p[4] or 0, p and p[5] or 0
+    end
+    d.layout = "columns"
+    FG.Layout(FG.anchor)
+    local downX, downY = xy(FG.frames[2])
+    ok(downX == 0 and downY < 0, "down the screen, the second cell is BELOW the first",
+       ("%s,%s"):format(downX, downY))
+    local tallW, tallH = FG.anchor.__w, FG.anchor.__h
+
+    d.layout = "rows"
+    FG.Layout(FG.anchor)
+    local acrossX, acrossY = xy(FG.frames[2])
+    ok(acrossY == 0 and acrossX > 0, "across the screen, it is BESIDE it",
+       ("%s,%s"):format(acrossX, acrossY))
+    ok(FG.frames[1].unit == "player", "with the same order and the same groups")
+    -- the grid's own size follows, so the header spans the cells rather than one of them. Not a
+    -- swap of width and height: a cell is 84 x 34, so three across is wider than three down is tall.
+    ok(FG.anchor.__w == 3 * (84 + 3) - 3 and FG.anchor.__h == 34,
+       "and the grid is as wide as the group is long, one row deep",
+       ("%sx%s (was %sx%s)"):format(FG.anchor.__w, FG.anchor.__h, tallW, tallH))
+
     d.layout = "columns"          -- the DEFAULT, so nothing after this runs in the pyramid by accident
     STATE.roles = nil
     FG.Layout(FG.anchor)
@@ -1085,17 +1307,25 @@ end
 do
     local d = NS.DB()
     d.layout = "columns"
-    ok(NS.DO.layout() == "pyramid" and d.layout == "pyramid", "/bish layout with nothing flips to the pyramid")
-    ok(NS.DO.layout() == "columns" and d.layout == "columns", "and again flips back")
+    -- THREE LAYOUTS since 23 Sep (a player asked for cells "vertically and horizontally"), so the
+    -- no-argument command walks: columns -> rows -> pyramid -> columns.
+    ok(NS.DO.layout() == "rows" and d.layout == "rows", "/bish layout with nothing goes to rows")
+    ok(NS.DO.layout() == "pyramid", "then the pyramid")
+    ok(NS.DO.layout() == "columns", "then back to columns")
     ok(NS.DO.layout("pyramid") == "pyramid", "or it can be told which")
+    ok(NS.DO.layout("across") == "rows", "and 'across' is another word for rows")
     NS.DO.layout("columns")
 
     local found
     for _, sec in ipairs(NS.CFG.Sections()) do
-        for _, o in ipairs(sec.options) do if o.key == "pyramid" then found = o end end
+        for _, o in ipairs(sec.options) do if o.key == "layout" then found = o end end
     end
-    ok(found and found.kind == "toggle", "the options window has a pyramid switch")
-    ok(found and found.get(d) == false, "and it reads off while the grid is showing")
+    ok(found and found.kind == "seg" and #found.values == 3,
+       "the options window offers all three layouts in one row")
+    ok(found and found.get(d) == "down", "and it reads 'down' while the grid is in columns")
+    found.set(d, "across")
+    ok(d.layout == "rows", "picking 'across' turns the grid")
+    found.set(d, "down")
 end
 
 -- ON TBC THIS FOLDER LOADS NOTHING THAT CAN TOUCH YOUR DATA. 20 Sep 2026: the base TOC claims TBC
@@ -1209,11 +1439,13 @@ do
     local d = NS.DB()
     STATE.units.pet, STATE.units.partypet1 = true, true
 
-    ok(d.pets == false, "pets are off on a fresh install")
+    -- THREE SETTINGS SINCE 26 SEP, not two: in the main cells, in a block of their own, or
+    -- nowhere. Off is still what a fresh install gets - the three are about WHERE, not whether.
+    ok(FG.PetsMode() == "off", "pets are off on a fresh install", FG.PetsMode())
     local off = table.concat(FG.Roster(), " ")
     ok(not off:find("pet", 1, true), "and while off, no pet is in the roster even when one exists", off)
 
-    ok(NS.DO.pets() == true and d.pets == true, "/bish pets turns them on")
+    ok(NS.DO.pets("grid") == "grid" and FG.PetsInGrid(), "/bish pets grid puts them in the cells")
     local on = table.concat(FG.Roster(), " ")
     ok(on:find("partypet1", 1, true) and on:find(" pet", 1, true), "and then the pets are in it", on)
 
@@ -1236,8 +1468,410 @@ do
 
     ok(fire(FG.events, "UNIT_PET"), "a pet summoned mid-session is noticed - UNIT_PET is registered")
 
-    ok(NS.DO.pets() == false, "and /bish pets turns them off again")
+    -- a bare /bish pets walks the three, so the options button and the old habit both work
+    ok(NS.DO.pets() == "own", "a bare /bish pets walks on to the block")
+    ok(NS.DO.pets() == "off", "and then to off")
+    ok(NS.DO.pets() == "grid", "and round again")
+    -- A MACRO WRITTEN BEFORE TODAY HOLDS A BOOLEAN, and it still means what it meant
+    d.pets = true
+    ok(FG.PetsMode() == "grid", "an old `true` reads as the main cells", FG.PetsMode())
+    d.pets = false
+    ok(FG.PetsMode() == "off", "and an old `false` as off", FG.PetsMode())
+    ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
+    FG.Layout(FG.anchor)
+end
+
+-- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells
+-- cast on hostile units perfectly well - which nobody designed and everybody likes - but "enemies
+-- look like friendlies". The bar goes red for anything you could attack.
+do
+    local d = NS.DB()
+    d.target = false
+    NS.DO.target(true)
+    local t = FG.target
+    ok(t.mayBeHostile == true, "the target cell asks whether its unit can be attacked")
+    ok(FG.frames[1].mayBeHostile ~= true, "and a group cell does not - your party is not hostile")
+
+    STATE.units.target = true
+    STATE.hostile.target = true
+    t.unit = "target"
+    FG.Paint(t)
+    ok(t.bar.__color and math.abs(t.bar.__color[1] - FG.HOSTILE[1]) < 0.01,
+       "a unit you can attack paints hostile", t.bar.__color and t.bar.__color[1])
+    ok(FG.hostileSeen == "plain", "read plainly out of combat", tostring(FG.hostileSeen))
+
+    STATE.hostile.target = false
+    FG.Paint(t)
+    ok(math.abs(t.bar.__color[1] - FG.HOSTILE[1]) > 0.01,
+       "and a friendly one does not", t.bar.__color[1])
+
+    -- IN COMBAT THE ANSWER IS SECRET, which is exactly when you are looking at the thing you are
+    -- fighting. The client's own ternary picks each channel; nothing here tests the boolean.
+    STATE.hostileSecret = true
+    ok(pcall(FG.Paint, t), "a secret answer does not throw")
+    ok(FG.hostileSeen == "secret", "the client chooses the colour for us", tostring(FG.hostileSeen))
+    -- ALL THREE CHANNELS, not just the red one: each is its own call, and a test that checks one
+    -- leaves the other two free to be deleted. (The green and blue were, by a mutation.)
+    local chans = 0
+    for i = 1, 3 do
+        if getmetatable(t.bar.__color[i]) == getmetatable(secret()) then chans = chans + 1 end
+    end
+    ok(chans == 3, "and every channel reaches the bar unread, not just the first", chans)
+
+    -- a client that will not take it leaves the cell in its friendly colour rather than throwing
+    local realCurve = _G.C_CurveUtil.EvaluateColorValueFromBoolean
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = nil
+    ok(pcall(FG.Paint, t), "and a client without the ternary does not throw")
+    ok(FG.hostileSeen == "secret, no curve", "saying so", tostring(FG.hostileSeen))
+    ok(type(t.bar.__color[1]) == "number", "the bar keeps a colour it can draw")
+    _G.C_CurveUtil.EvaluateColorValueFromBoolean = realCurve
+
+    STATE.hostileSecret = false
+    STATE.hostile.target, STATE.units.target = nil, nil
+    NS.DO.target(false)
+    FG.Layout(FG.anchor)
+end
+
+-- THE OTHER HEALERS' MANA. Arn, 28 Sep, with a screenshot of EllesmereUI's party frames: "the top
+-- thing is the healer mana" - on a client where this addon's own Between.lua had written, since
+-- the 17th, that "who is low on mana" could not be answered "by this addon, not by any addon".
+--
+-- It was right about READING the number and wrong about SHOWING it, which is the one mistake this
+-- addon exists to avoid. UnitPowerPercent's answer goes straight into SetFormattedText and the
+-- client does the rest.
+do
+    local d = NS.DB()
+    d.mana = false
+    STATE.roles = { player = "HEALER", party1 = "HEALER", party2 = "DAMAGER" }
+    FG.Layout(FG.anchor)
+    ok(FG.manaAnchor == nil or not FG.manaAnchor:IsShown(), "off by default: no mana block")
+
+    ok(NS.DO.mana(true) == true, "/bish mana turns it on")
+    ok(FG.manaAnchor and FG.manaAnchor:IsShown(), "the block is there")
+    local who = {}
+    for _, row in ipairs(FG.manaRows or {}) do if row:IsShown() then who[#who + 1] = row.unit end end
+    ok(#who == 2, "one row per healer, and nobody else", table.concat(who, ","))
+    ok(who[1] == "player" and who[2] == "party1", "you included - your own bar is the one you check most",
+       table.concat(who, ","))
+
+    -- THE NUMBER IS NEVER READ. It goes to the format setter, which is the client's own drawing.
+    local row = FG.manaRows[1]
+    ok(row.pct.__formatted and row.pct.__formatted[1]:find("%%d"),
+       "the percentage is handed to the client to format")
+    STATE.power.player = 42
+    FG.PaintMana(row, "player")
+    ok(row.pct.__formatted[2] == 42, "out of combat that is a plain number", row.pct.__formatted[2])
+
+    -- IN COMBAT IT IS A SECRET, and that changes nothing: there is no branch to break.
+    STATE.powerSecret = true
+    ok(pcall(FG.PaintMana, row, "player"), "a secret percentage does not throw")
+    ok(getmetatable(row.pct.__formatted[2]) == getmetatable(secret()),
+       "it reaches the setter unread, like every other secret")
+    ok(FG.manaSeen == "drawn", "and is drawn", tostring(FG.manaSeen))
+
+    -- A CLIENT THAT REFUSES IT says nothing rather than a number it made up.
+    STATE.formatRefusesSecret = true
+    row.pct:SetText("stale")
+    ok(pcall(FG.PaintMana, row, "player"), "a client refusing the secret does not throw either")
+    ok(row.pct.__text == "", "and the row is blanked rather than left with an old number",
+       tostring(row.pct.__text))
+    ok(FG.manaSeen == "refused", "with the reason recorded", tostring(FG.manaSeen))
+    STATE.formatRefusesSecret = false
+    STATE.powerSecret = false
+
+    -- a client without the call at all
+    STATE.powerNoCall = true
+    ok(pcall(FG.PaintMana, row, "player"), "and a client without the call is quiet, not broken")
+    STATE.powerNoCall = false
+
+    -- A ROLE THE CLIENT HIDES IS NOT A HEALER. Yours is read separately when you have a cell of
+    -- your own (you are out of the roster then), and that read has its own guard to keep.
+    d.me = true
+    STATE.roleSecret = true
+    local hidden = FG.Healers()
+    local sawPlayer = false
+    for _, u in ipairs(hidden) do if u == "player" then sawPlayer = true end end
+    ok(not sawPlayer, "a role the client will not say is not a healer", table.concat(hidden, ","))
+    STATE.roleSecret = false
+    d.me = false
+
+    -- IT IS A BLOCK, so it takes a side of its own like the others
+    NS.DO.target("top")
+    NS.DO.mana("top")
+    ok(d.manaAt ~= "top", "it does not land on a side another block is using", tostring(d.manaAt))
+    -- and switched on with a plain yes, which is what the options window sends: the remembered
+    -- side may belong to somebody else by now, and that path names no spot at all
+    NS.DO.mana(false)
+    d.manaAt = "top"
+    NS.DO.mana(true)
+    ok(d.manaAt ~= "top", "switching it on with no side named dodges too", tostring(d.manaAt))
+
+    -- AND IT SURVIVES A RESTART
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.mana("under")
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("A=1", 1, true), "where it sits goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.mana, d.manaAt = {}, nil, false, false, "right"
+    NS.FM.Get("", "wheelup")
+    ok(d.mana == true and d.manaAt == "under", "and comes back after a restart",
+       tostring(d.mana) .. "/" .. tostring(d.manaAt))
+    d.binds = keptBinds
+    MACROS = {}
+
+    -- a group with no other healer in it shows nothing at all, rather than an empty box
+    STATE.roles = { player = "DAMAGER", party1 = "DAMAGER" }
+    NS.DO.mana(true)
+    ok(not FG.manaAnchor:IsShown(), "no healers, no block")
+    STATE.roles = nil
+    d.mana = false
+    FG.Layout(FG.anchor)
+end
+
+-- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn on CurseForge, 25 Sep
+-- 2026): "optional (like target) self target? It may be nice option to lock yourself in one spot
+-- outside groups just to get use to it and have it in same spot for solo/or raid groups?".
+--
+-- The spot never moving IS the feature, which is why switching it on takes you out of the grid.
+do
+    local d = NS.DB()
+    d.me = false
+    FG.Layout(FG.anchor)
+    ok(FG.me == nil or not FG.me:IsShown(), "off by default: no cell of your own")
+    ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are in the group grid")
+
+    ok(NS.DO.me(true) == true, "/bish me turns it on")
+    local mine = FG.me
+    ok(mine ~= nil and mine:IsShown(), "the cell is there")
+    ok(mine:GetAttribute("unit") == "player", "and it is you", tostring(mine:GetAttribute("unit")))
+    ok(mine.__attrs["*type1"] ~= nil, "with the mouse binds on it, like any other cell")
+    ok(mine.handle and mine.handle.__fontstrings
+       and mine.handle.__fontstrings[1].__text == "BiS> me", "under a bar that says which cell it is",
+       mine.handle and mine.handle.__fontstrings and tostring(mine.handle.__fontstrings[1].__text))
+
+    -- THE POINT OF THE WHOLE THING: out of the roster, so the grid cannot reshape around you
+    local roster = table.concat(FG.Roster(), " ")
+    ok(not roster:find("player", 1, true), "and you are OUT of the group grid", roster)
+    ok(roster:find("party1", 1, true), "while everyone else is still in it", roster)
+
+    -- in a raid it is the same, and "which one is me" is the client's own answer
+    local realRaid, realIsUnit = _G.IsInRaid, _G.UnitIsUnit
+    _G.IsInRaid = function() return true end
+    STATE.units.raid1, STATE.units.raid2 = true, true
+    _G.UnitIsUnit = function(a, b) return a == "raid2" and b == "player" end
+    local raid = table.concat(FG.Roster(), " ")
+    ok(raid:find("raid1", 1, true) and not raid:find("raid2", 1, true),
+       "in a raid, the slot that IS you is the one left out", raid)
+    -- and an identity the client hides leaves the cell where it is, rather than dropping a raider
+    _G.UnitIsUnit = function() return secret() end
+    local hidden = table.concat(FG.Roster(), " ")
+    ok(hidden:find("raid1", 1, true) and hidden:find("raid2", 1, true),
+       "an identity it will not confirm leaves everybody in the raid", hidden)
+    _G.IsInRaid, _G.UnitIsUnit = realRaid, realIsUnit
+    STATE.units.raid1, STATE.units.raid2 = nil, nil
+
+    -- it has its own spot, so moving it does not move the target block
+    NS.DO.target("top")
+    local function spotOf(f)
+        local p = f and f.points and f.points[#f.points]
+        return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
+    end
+    ok(FG.SelfSpot() == "left", "it starts on the grid's left, away from the target block")
+    ok(spotOf(mine) == "TOPRIGHT->TOPLEFT", "which is where it is drawn", spotOf(mine))
+    NS.DO.me("right")
+    ok(FG.SelfSpot() == "right" and d.targetAt == "top",
+       "moving it leaves the target cell where it was", tostring(d.targetAt))
+
+    -- a drag on its bar writes ITS place, not the target's
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    mine.GetCenter = function() return 860, 590 end            -- 100 left, 50 up
+    local h = mine.handle
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    ok(d.meAt == "free" and d.mePos and d.mePos.x == -100 and d.mePos.y == 50,
+       "dragging it sets it free and remembers where",
+       d.mePos and ("%s,%s"):format(d.mePos.x, d.mePos.y))
+    ok(d.targetAt == "top" and d.targetPos == nil,
+       "and the target block is untouched by it", tostring(d.targetAt))
+    UIParent.GetCenter, mine.GetCenter = realUC, nil
+
+    -- AND IT SURVIVES A RESTART, which on this client means the macro
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.me("under")
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("Y=1", 1, true), "where it sits goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.me, d.meAt = {}, nil, false, false, "left"
+    NS.FM.Get("", "wheelup")
+    ok(d.me == true and d.meAt == "under", "and after a restart it is back, in the same place",
+       tostring(d.me) .. "/" .. tostring(d.meAt))
+    d.binds = keptBinds
+    MACROS = {}
+
+    ok(NS.DO.me(false) == false, "/bish me turns it off")
+    ok(not FG.me:IsShown() and FG.me.unit == nil, "the cell goes")
+    WATCH_TICK()
+    ok(not FG.me:IsShown(), "and the client's watch does not bring it back")
+    ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are back in the group grid")
+    d.me = false
+    FG.Layout(FG.anchor)
+end
+
+-- TWO BLOCKS NEVER SHARE A SIDE. Arn, 26 Sep, with one bar reading "BiS> meget" - the target's
+-- word and yours printed through each other: "if target is already taking up the top and i also
+-- turn on me dont overlap them send them to the next available slot".
+do
+    local d = NS.DB()
+    d.target, d.me, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.meAt, d.petAt = "top", "left", "under"
+    FG.Layout(FG.anchor)
+
+    NS.DO.target("top")
+    NS.DO.me("top")                                  -- asking for a side that is already taken
+    ok(d.targetAt == "top", "the block that was there first keeps its place", tostring(d.targetAt))
+    ok(d.meAt ~= "top", "and the one arriving does not land on it", tostring(d.meAt))
+    ok(FG.TARGET_SPOTS[d.meAt], "it lands on a real side", tostring(d.meAt))
+    ok(d.meAt == "right", "the next one round the ring", tostring(d.meAt))
+
+    -- AND THE OTHER WAY ROUND: yours there first, the target arriving. Tested both ways because
+    -- each block is a separate line in the "is anyone here?" question, and a test that only ever
+    -- collides one pair one way leaves the other line free to be deleted.
+    NS.DO.target(false)
+    NS.DO.me("top")
+    NS.DO.target("top")
+    ok(d.meAt == "top" and d.targetAt ~= "top",
+       "yours first, and the target cell is the one that moves",
+       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+
+    -- TWO SIDES TAKEN, so the walk has to step more than once. With only one in use, a ring walk
+    -- that gives up immediately lands on the same answer as one that looks properly.
+    NS.DO.me("top")
+    NS.DO.target("right")
+    NS.DO.pets("own")
+    d.petAt = "top"                                  -- and now ask it to sit on an occupied side
+    NS.DO.pets("own")
+    ok(d.petAt == "under",
+       "with top and right in use, the third block walks past both",
+       ("pets %s, me %s, target %s"):format(tostring(d.petAt), tostring(d.meAt), tostring(d.targetAt)))
+    ok(d.petAt ~= d.targetAt and d.petAt ~= d.meAt,
+       "and lands on a side neither of the others is on")
+
+    -- SWITCHED ON WITH A PLAIN yes, which is what the options window sends: the remembered side
+    -- may be somebody else's by now, and nothing in that path passes through a spot word.
+    NS.DO.me(false)
+    d.meAt = "right"                                 -- where the target block is sitting
+    NS.DO.me(true)
+    ok(d.meAt ~= "right", "switching it on with no side named still avoids the others",
+       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+    -- and the target cell, switched on the same way, onto a side yours is already using
+    NS.DO.target(false)
+    d.targetAt = d.meAt
+    NS.DO.target(true)
+    ok(d.targetAt ~= d.meAt, "and so does the target cell, switched on the same way",
+       ("target %s, me %s"):format(tostring(d.targetAt), tostring(d.meAt)))
+    -- AND THE PET BLOCK IS SOMETHING TO AVOID, not just something that avoids. It is the only
+    -- block that is not a single cell, and it was the last line of the question to be written.
+    NS.DO.pets("own")
+    NS.DO.me(false)
+    d.meAt = d.petAt
+    NS.DO.me(true)
+    ok(d.meAt ~= d.petAt, "a block is in the way of others, as well as avoiding them",
+       ("me %s, pets %s"):format(tostring(d.meAt), tostring(d.petAt)))
+    NS.DO.pets("off")
+
+    -- a shift-click walks past an occupied side too, rather than stopping on it
+    local h = FG.me.handle
+    STATE.shift = true
+    h.dragged = nil
+    h.__scripts.OnMouseUp(h, "LeftButton")
+    STATE.shift = false
+    ok(d.meAt ~= d.targetAt and d.meAt ~= d.petAt,
+       "shift-clicking round the ring skips the sides in use",
+       ("me %s, target %s, pets %s"):format(tostring(d.meAt), tostring(d.targetAt), tostring(d.petAt)))
+
+    -- "FREE" IS NOT A SIDE, it is wherever a drag put it - so any number of blocks can be free at
+    -- once and none of them is ever in another's way.
+    NS.DO.me(false)
+    NS.DO.pets("off")
+    NS.DO.target("top")                              -- one block in play, so the answer is its own
+    ok(FG.SpotTaken("top", FG.PET_KEYS) == true, "a block ON a side is in the way")
+    ok(FG.SpotTaken("free", FG.PET_KEYS) == false, "but nothing is ever in the way of a drag")
+    d.targetAt, d.targetPos = "free", { x = 10, y = 10 }
+    ok(FG.SpotTaken("top", FG.PET_KEYS) == false, "and one that was dragged away leaves its side")
+    ok(FG.SpotTaken("free", FG.PET_KEYS) == false, "even to another block being dragged")
+
+    d.target, d.me, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.meAt, d.petAt, d.mePos, d.targetPos = "top", "left", "under", nil, nil
+    FG.Layout(FG.anchor)
+end
+
+-- PETS IN A BLOCK OF THEIR OWN. paszczyszyn, 25 Sep: "separete pet group (being able to have
+-- different setup's for it and move it alone, just to make it smaller and in different possition,
+-- as pets are not that important as players but still being able to cast on them)".
+do
+    local d = NS.DB()
+    STATE.units.pet, STATE.units.partypet1 = true, true
+
+    NS.DO.pets("own")
+    ok(FG.PetsOwnBlock(), "/bish pets own gives them a block")
+    local roster = table.concat(FG.Roster(), " ")
+    ok(not roster:find("pet", 1, true), "and they come OUT of the main grid", roster)
+    ok(FG.petAnchor and FG.petAnchor:IsShown(), "the block is there")
+    ok(FG.petFrames and FG.petFrames[1] and FG.petFrames[1]:IsShown(), "with a cell in it")
+    ok(FG.petFrames[1]:GetAttribute("unit") == "pet"
+       and FG.petFrames[2]:GetAttribute("unit") == "partypet1",
+       "one per pet, in the group's order",
+       tostring(FG.petFrames[1]:GetAttribute("unit")))
+    ok(FG.petFrames[1].__attrs["*type1"] ~= nil,
+       "and the mouse binds on them, because a pet is still something you heal")
+    ok(FG.petAnchor.handle and FG.petAnchor.handle.__fontstrings
+       and FG.petAnchor.handle.__fontstrings[1].__text == "BiS> pets",
+       "under a bar of its own",
+       FG.petAnchor.handle and FG.petAnchor.handle.__fontstrings
+       and tostring(FG.petAnchor.handle.__fontstrings[1].__text))
+
+    -- MOVED AS ONE THING. The cells hang off the block, so the bar drags all of them at once -
+    -- which is the whole difference between a block and a handful of loose cells.
+    ok(FG.petFrames[1]:GetParent() == FG.petAnchor, "the cells hang off the block")
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    FG.petAnchor.GetCenter = function() return 760, 440 end          -- 200 left, 100 down
+    local h = FG.petAnchor.handle
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    ok(d.petAt == "free" and d.petPos and d.petPos.x == -200 and d.petPos.y == -100,
+       "and dragging the bar moves the block, and remembers where",
+       d.petPos and ("%s,%s"):format(d.petPos.x, d.petPos.y))
+    UIParent.GetCenter, FG.petAnchor.GetCenter = realUC, nil
+
+    -- IT RIDES IN THE MACRO, which pets never did before today: "pets on" was forgotten at every
+    -- single login, quietly, for as long as the option has existed.
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.pets("own")
+    NS.DO.me("left")                                  -- something else to share the row with
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("V=2", 1, true), "the pet setting goes into the macro", body)
+    d.binds, d.bindsSeeded, NS.FM.asked, d.pets = {}, nil, false, "off"
+    NS.FM.Get("", "wheelup")
+    ok(FG.PetsMode() == "own", "and after a restart the pets are still in their block",
+       FG.PetsMode())
+    d.binds = keptBinds
+    MACROS = {}
+
+    NS.DO.pets("off")
+    ok(not FG.petAnchor:IsShown(), "switched off, the block goes")
+    ok(FG.petFrames[1].unit == nil, "and its cells stop being watched")
+    WATCH_TICK()
+    ok(not FG.petFrames[1]:IsShown(), "so the client does not bring them back")
+
+    STATE.units.pet, STATE.units.partypet1 = nil, nil
+    d.me, d.pets = false, "off"
     FG.Layout(FG.anchor)
 end
 
@@ -1647,6 +2281,379 @@ do
     FM.Get("", "left")
 end
 
+-- A CELL FOR YOUR TARGET, and how big the markers are. Both asked for by a player on CurseForge
+-- (paszczyszyn, 22 Sep), with the layout above: "Any chance to a separate cell appear for your
+-- current target?" and "an option to adjust the size of buffs and debuffs?".
+do
+    local FM = NS.FM
+    local d = NS.DB()
+    d.target = false
+    FG.Layout(FG.anchor)
+    ok(FG.target == nil or not FG.target:IsShown(), "off by default: no target cell")
+
+    ok(NS.DO.target(true) == true, "/bish target turns it on")
+    local t = FG.target
+    ok(t ~= nil and t:IsShown(), "the cell is there")
+    ok(t and t:GetAttribute("unit") == "target",
+       "and it is the CLIENT's target token, so it follows your target in a fight",
+       t and tostring(t:GetAttribute("unit")))
+    local function spot()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
+    end
+    -- TOP BY DEFAULT. Arn, 23 Sep: under the grid, the handle is in the gap between the two and
+    -- the grid covers it - "you cant see the header to move it".
+    ok(spot() == "BOTTOMLEFT->TOPLEFT", "above the grid to begin with", spot())
+    -- said in two places, and both have to agree: the fresh-install default (Core) and the answer
+    -- for a table that has no such key at all (Grid)
+    local realDB = NS.DB
+    NS.DB = function() return { target = true } end          -- a table with no spot in it at all
+    ok(FG.TargetSpot() == "top", "and with nothing saved at all, still the top", FG.TargetSpot())
+    NS.DB = function() return { target = true, targetAt = "sideways" } end   -- or nonsense in it
+    ok(FG.TargetSpot() == "top", "and a spot it does not know is the top too", FG.TargetSpot())
+    NS.DB = realDB
+    ok(t.__attrs["*type1"] ~= nil, "with the mouse binds on it like any other cell")
+
+    -- FOUR PLACES, and its own handle for anywhere else. Arn, 23 Sep: "lets do a toggle under grid
+    -- to the right left or top. and we can give it its own little header where they can drag it
+    -- where ever they want on screen".
+    -- AND ALWAYS THE GRID'S OWN GAP AWAY FROM IT: three pixels, the same as between two columns.
+    -- Anything else reads as "nearly lined up" (Arn, 23 Sep: "make sure all the windows line up").
+    local function offs()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return (p and p[4]) or 0, (p and p[5]) or 0
+    end
+    NS.DO.target("right")
+    ok(spot() == "TOPLEFT->TOPRIGHT" and d.targetAt == "right", "/bish target right puts it beside the grid", spot())
+    ok(offs() == 3, "one column's gap from the grid, not two", offs())
+    NS.DO.target("left")
+    ok(spot() == "TOPRIGHT->TOPLEFT" and d.targetAt == "left", "left is the other side", spot())
+    ok(offs() == -3, "and the same gap on that side", offs())
+    NS.DO.target("top")
+    ok(spot() == "BOTTOMLEFT->TOPLEFT" and d.targetAt == "top", "top is above it", spot())
+    -- 2 (the grid's bar floats) + 16 (that bar) + 3 (the gap). Its own bar is above it and needs
+    -- nothing underneath, which is what the old 34 was paying for.
+    ok(select(2, offs()) == 21, "clear of the grid's own bar by that same gap", select(2, offs()))
+    NS.DO.target("under")
+    ok(spot() == "TOPLEFT->BOTTOMLEFT", "and under hangs it below the grid")
+    -- THE HEADER STAYS ON TOP OF ITS OWN CELL, everywhere. It used to swap to the underside here,
+    -- because a bare 8 px handle in the gap was covered by the grid ("you cant see the header to
+    -- move it"). It carries a NAME now - and a named bar under the thing it names is the label of
+    -- whatever sits beneath it, which under the grid is the tot cell. So the block drops clear
+    -- instead: far enough that the header has its own room between the two.
+    local function handleAt()
+        local hp = t.handle and t.handle.points and t.handle.points[#t.handle.points]
+        return hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])) or "nowhere"
+    end
+    local function dropOf()
+        local p = FG.target and FG.target.points and FG.target.points[#FG.target.points]
+        return p and p[5] or 0
+    end
+    ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "its header is above it, under the grid", handleAt())
+    -- EXACTLY THE ROOM ITS BAR NEEDS, AND THE GRID'S OWN GAP. Arn, 23 Sep: "make sure all the
+    -- windows line up". A block a different distance from the grid than the grid's own columns
+    -- are from each other reads as "nearly lined up", which is worse than plainly apart.
+    -- 3 (the cells' own gap) + 1 (a bar floats a pixel above its cell) + 14 (the bar).
+    ok(dropOf() == -18, "and it drops by exactly its bar plus the grid's own gap", dropOf())
+    NS.DO.target("top")
+    ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
+    ok(t.handle and t.handle.__fontstrings and #t.handle.__fontstrings == 1
+       and t.handle.__fontstrings[1].__text == "BiS> target",
+       "and it says which cell it is - one label in the bar, per the header law",
+       t.handle and t.handle.__fontstrings and t.handle.__fontstrings[1]
+       and tostring(t.handle.__fontstrings[1].__text))
+    ok(NS.DO.target("sideways") ~= nil and d.targetAt == "top",
+       "a word it does not know moves nothing")
+
+    -- SHIFT-CLICK WALKS IT ROUND THE GRID. Arn, 23 Sep: "if we shift click the header it toggles
+    -- between top left right bottom and left click still drags".
+    NS.DO.target("top")
+    local hclick = t.handle and t.handle.__scripts and t.handle.__scripts.OnMouseUp
+    ok(hclick ~= nil, "the handle takes a click as well as a drag")
+    STATE.shift = true
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "right", "top goes to right", tostring(d.targetAt))
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "under", "right goes to under", tostring(d.targetAt))
+    hclick(t.handle, "LeftButton")
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "left, and round to the top again", tostring(d.targetAt))
+    STATE.shift = false
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "without shift, a click moves nothing - that is the drag's business")
+    STATE.shift = true
+    STATE.inCombat = true
+    hclick(t.handle, "LeftButton")
+    ok(d.targetAt == "top", "and not in combat either: the cell is a secure frame")
+    STATE.inCombat = false
+    STATE.shift = false
+
+    -- the handle: a drag sets it free, and where it landed is remembered
+    local h = t.handle
+    ok(h ~= nil and h.__scripts and h.__scripts.OnDragStart, "the cell has a handle to drag")
+    local realUC = UIParent.GetCenter
+    UIParent.GetCenter = function() return 960, 540 end
+    t.GetCenter = function() return 660, 440 end            -- 300 left, 100 down
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    -- the mouse-up that ends a drag is not a shift-click, even with shift held
+    STATE.shift = true
+    h.__scripts.OnMouseUp(h, "LeftButton")
+    STATE.shift = false
+    ok(d.targetAt == "free" and d.targetPos and d.targetPos.x == -300 and d.targetPos.y == -100,
+       "dragging it sets it free, and remembers where",
+       d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+    local fp = t.points and t.points[#t.points]
+    ok(fp and fp[1] == "CENTER" and math.abs((fp[4] or 0) - -300) < 1,
+       "and it is pinned to the screen, not the grid", fp and tostring(fp[1]))
+    -- AND IT STAYS PUT WHEN THE GRID IS RESIZED. Arn, 23 Sep: "when i increased the scale size the
+    -- main window moved down and the target frames moved up and to the right". The cell is a child
+    -- of the grid, so it wears the grid's scale: an offset written in its own units covers more
+    -- screen at 1.4 than at 1.0, and the cell slides away from the middle. What is stored is the
+    -- offset ON SCREEN, and the point is worked back from it at whatever scale is in force.
+    local function screenXY()
+        local p = t.points and t.points[#t.points]
+        local k = (t.GetEffectiveScale and t:GetEffectiveScale()) or 1
+        return p and (p[4] or 0) * k, p and (p[5] or 0) * k
+    end
+    -- and a drag made while the grid is BIGGER than life size writes the same kind of number: at
+    -- 1.0 the cell's own units and the screen's agree, so only a drag at another scale can tell
+    -- which of the two was written down
+    FG.SetScale(1.4)
+    h.__scripts.OnDragStart(h)
+    h.__scripts.OnDragStop(h)
+    local atBig = d.targetPos and d.targetPos.x
+    local onScreenBig = select(2, FG.ScreenOffsetOf(t))
+    ok(atBig == onScreenBig, "a drag at another scale writes where it is on screen",
+       ("%s vs %s"):format(tostring(atBig), tostring(onScreenBig)))
+    FG.SetScale(1)
+    ok(d.targetPos.x == atBig, "and that number does not change when the grid is resized back")
+
+    local wasX, wasY = screenXY()
+    FG.SetScale(1.4)
+    local nowX, nowY = screenXY()
+    ok(math.abs(nowX - wasX) < 1 and math.abs(nowY - wasY) < 1,
+       "a dragged target cell does not move on screen when the grid is resized",
+       ("%s,%s -> %s,%s"):format(wasX, wasY, nowX, nowY))
+    FG.SetScale(1)
+
+    -- AND THE GRID ITSELF stays where it is: the anchor is pinned by its centre, so resizing grows
+    -- it about that centre rather than walking it across the screen.
+    local function anchorScreenXY()
+        local p = FG.anchor.points and FG.anchor.points[#FG.anchor.points]
+        local k = (FG.anchor.GetEffectiveScale and FG.anchor:GetEffectiveScale()) or 1
+        return p and (p[4] or 0) * k, p and (p[5] or 0) * k
+    end
+    FG.anchor:ClearAllPoints()
+    FG.anchor:SetPoint("CENTER", UIParent, "CENTER", 120, -80)
+    FG.SavePos()
+    local gx, gy = anchorScreenXY()
+    FG.SetScale(1.4)
+    local gx2, gy2 = anchorScreenXY()
+    ok(math.abs(gx2 - gx) < 1 and math.abs(gy2 - gy) < 1,
+       "and the grid stays where it was put when it is resized",
+       ("%s,%s -> %s,%s"):format(gx, gy, gx2, gy2))
+    FG.SetScale(1)
+
+    UIParent.GetCenter, t.GetCenter = realUC, nil
+
+    -- AND WHOEVER THEY ARE TARGETING, under it. Arn, 23 Sep: "another option that frame will also
+    -- have target of target with its on header on top BiS>tot the frames are attached to each
+    -- other".
+    do
+        NS.DO.target("top")
+        ok(FG.tot == nil or not FG.tot:IsShown(), "off by default: no target-of-target cell")
+        ok(NS.DO.tot(true) == true, "/bish tot turns it on")
+        local tt = FG.tot
+        ok(tt ~= nil and tt:IsShown(), "the second cell is there")
+        ok(tt:GetAttribute("unit") == "targettarget",
+           "and it is the client's own target-of-target token", tostring(tt:GetAttribute("unit")))
+
+        -- ATTACHED, which means a CHILD of the target cell: a drag moves one frame and the other
+        -- goes with it, and when you have no target at all the client hides the parent and this
+        -- with it. Two frames merely placed beside each other would come apart at the first drag.
+        ok(tt:GetParent() == t, "it hangs off the target cell, so the two cannot come apart")
+        -- BESIDE IT, NOT UNDER IT. It was stacked underneath to begin with, and a column four
+        -- frames deep hung across the grid as soon as the block was dragged near it. Arn: "i want
+        -- tot to the right of the target window".
+        local tp = tt.points and tt.points[#tt.points]
+        ok(tp and tp[1] == "TOPLEFT" and tp[3] == "TOPRIGHT",
+           "and it sits to the RIGHT of the target cell",
+           tp and (tostring(tp[1]) .. "->" .. tostring(tp[3])))
+        local hp = tt.handle and tt.handle.points and tt.handle.points[#tt.handle.points]
+        ok(hp and hp[1] == "BOTTOMRIGHT" and hp[3] == "TOPRIGHT",
+           "with its own bar on top of its own cell, level with the target's",
+           hp and (tostring(hp[1]) .. "->" .. tostring(hp[3])))
+        -- LINED UP WITH THE GRID. The gap between the two cells is the gap between two grid
+        -- columns, so the pair is exactly as wide as two columns - which on the pyramid is one
+        -- wide cell, and the edges agree. It was twice that, and the block overhung by 3 pixels.
+        ok(tp and tp[4] == 3, "the gap between them is the grid's own, so the edges agree", tp and tp[4])
+
+        -- AND IT GROWS AWAY FROM THE GRID. Parked on the grid's left, a tot on the right-hand
+        -- side sits straight on top of the raid - Arn moved it over and saw it: "when i move it
+        -- to the left now it should not overlap the tot".
+        NS.DO.target("left")
+        local lp = tt.points and tt.points[#tt.points]
+        ok(lp and lp[1] == "TOPRIGHT" and lp[3] == "TOPLEFT" and lp[4] == -3,
+           "on the grid's left the pair mirrors, so the tot is on the outside",
+           lp and (tostring(lp[1]) .. "->" .. tostring(lp[3]) .. " " .. tostring(lp[4])))
+        NS.DO.target("right")
+        local rp = tt.points and tt.points[#tt.points]
+        ok(rp and rp[1] == "TOPLEFT" and rp[3] == "TOPRIGHT",
+           "and on the right it is back on the right", rp and tostring(rp[1]))
+        -- and by the OTHER door: a shift-click on a bar walks the block round the grid without
+        -- going near the layout, so the side has to be decided where the spot is set
+        NS.DO.target("under")
+        STATE.shift = true
+        -- the mouse-up that ended the drag further up is still owed: a drag is not a click, and
+        -- the bar swallows exactly one. The second is a player pressing the button on purpose.
+        t.handle.__scripts.OnMouseUp(t.handle, "LeftButton")
+        t.handle.__scripts.OnMouseUp(t.handle, "LeftButton")      -- under -> left
+        STATE.shift = false
+        local sp = tt.points and tt.points[#tt.points]
+        ok(d.targetAt == "left" and sp and sp[1] == "TOPRIGHT",
+           "a shift-click onto the grid's left mirrors it too",
+           tostring(d.targetAt) .. " " .. (sp and tostring(sp[1]) or "nowhere"))
+        NS.DO.target("top")
+        ok(tt.handle and tt.handle.__fontstrings and tt.handle.__fontstrings[1].__text == "BiS> tot",
+           "with its own header on top of it",
+           tt.handle and tt.handle.__fontstrings and tostring(tt.handle.__fontstrings[1].__text))
+
+        -- A DRAG ON THE TOT'S BAR MOVES THE TARGET CELL, and writes down where the TARGET cell
+        -- landed. Asking the tot where it is would write a spot a cell's height too low, and the
+        -- block would walk down the screen a little at every login.
+        local realUC2, moved = UIParent.GetCenter, nil
+        UIParent.GetCenter = function() return 960, 540 end
+        t.GetCenter = function() return 760, 640 end            -- 200 left, 100 up
+        t.StartMoving = function() moved = "target" end
+        tt.StartMoving = function() moved = "tot" end
+        tt.handle.__scripts.OnDragStart(tt.handle)
+        tt.handle.__scripts.OnDragStop(tt.handle)
+        ok(moved == "target", "dragging the tot's bar picks up the whole block", tostring(moved))
+        ok(d.targetPos and d.targetPos.x == -200 and d.targetPos.y == 100,
+           "and remembers where the TARGET cell landed, not where the tot did",
+           d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+        UIParent.GetCenter, t.GetCenter = realUC2, nil
+        t.StartMoving, tt.StartMoving = nil, nil
+        NS.DO.target("top")
+
+        -- IT RIDES IN THE TARGET'S OWN MACRO ROW. One row for one block: a row of its own could
+        -- say "tot on" while the target row says "target off", and then the setting means nothing.
+        MACROS = {}
+        local keep = d.binds
+        d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+        NS.DO.tot(true)
+        local stored = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+        ok(stored and stored:find("G=4:1", 1, true), "the target row carries it after the colon", stored)
+        local _, back = NS.FK.Decode(stored or "")
+        ok(back.target == true and back.tot == true and back.targetAt == "top", "and both come back")
+        -- the cold start: a login with no clicks has the second cell up
+        d.binds, d.bindsSeeded, FM.asked, d.target, d.tot = {}, nil, false, false, false
+        FM.Get("", "wheelup")
+        ok(d.target == true and d.tot == true, "after a restart both cells are back",
+           tostring(d.target) .. "/" .. tostring(d.tot))
+        d.binds = keep
+        MACROS = {}
+
+        -- SWITCHED ON FROM COLD it turns the target cell on with it, rather than doing nothing
+        -- visible: it has nothing to hang off otherwise.
+        NS.DO.target(false)
+        NS.DO.tot(false)
+        NS.DO.tot(true)
+        ok(d.target == true and FG.tot and FG.tot:IsShown(),
+           "asking for it with the target cell off switches that one on too")
+
+        -- and switching the TARGET cell off takes it with it: the parent is gone
+        STATE.units.target, STATE.units.targettarget = true, true
+        NS.DO.target(false)
+        ok(not FG.tot:IsShown() and FG.tot.unit == nil, "switching the target cell off takes it too")
+        WATCH_TICK()
+        ok(not FG.tot:IsShown(), "and the client's watch does not bring it back on its own")
+        STATE.units.target, STATE.units.targettarget = nil, nil
+        d.tot = false
+    end
+
+    -- it goes away again, and takes the client's watch with it. STATE.units.target says you HAVE
+    -- a target, which is exactly when a still-watched cell would be shown again by the client.
+    STATE.units.target = true
+    NS.DO.target(false)
+    ok(not FG.target:IsShown() and FG.target.unit == nil, "switched off, the cell goes")
+    WATCH_TICK()
+    ok(not FG.target:IsShown(), "and the unit watch does not bring it back, even with a target up")
+    STATE.units.target = nil
+
+    -- MARKER SIZE. One number for the dispel marker and the heal-over-time icons.
+    local FA = NS.FA
+    ok(FA.MarkerSize() == 10, "ten pixels to begin with")
+    ok(NS.DO.markers(16) == 16 and FA.MarkerSize() == 16, "/bish markers 16 makes them bigger")
+    ok(NS.DO.markers(2) == 6 and NS.DO.markers(99) == 20, "and it is held between 6 and 20")
+    NS.DO.markers(14)
+    FA.sig = nil
+    local cell = FG.frames[1]
+    cell.auras = nil
+    FA.Attach(cell, "party1")
+    local dispel = cell.auras.slots["BiSHealDispel"]
+    ok(dispel and dispel.__w == 14, "and the dispel marker is built at that size",
+       dispel and tostring(dispel.__w))
+    -- and the size is part of the containers' fingerprint, so a cell built at one size is rebuilt
+    -- at another even when nothing cleared it by hand (the macro restoring a size does exactly that)
+    d.markers = 10
+    TICK()                      -- a frame goes by, so the per-frame fingerprint is asked again
+    FA.Attach(cell, "party1")
+    ok(cell.auras.slots["BiSHealDispel"].__w == 10,
+       "a size changed underneath them rebuilds the markers on their own",
+       cell.auras.slots["BiSHealDispel"].__w)
+
+    -- ALL THREE RIDE IN THE MACRO, like the size and the binds before them
+    MACROS = {}
+    local keptBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+    NS.DO.layout("rows"); NS.DO.target("left"); NS.DO.markers(14)
+    local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(body and body:find("L=1", 1, true) and body:find("G=3", 1, true) and body:find("M=14", 1, true),
+       "the layout, the target cell (with its place) and the marker size are all written", body)
+    local _, st = NS.FK.Decode(body or "")
+    ok(st and st.layout == "rows" and st.target == true and st.targetAt == "left" and st.markers == 14,
+       "and all of it reads back")
+
+    d.layout, d.target, d.markers, d.targetAt = "columns", false, 10, "under"
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    FM.Get("", "wheelup")                                    -- the first read after a restart
+    ok(d.layout == "rows" and d.target == true and d.targetAt == "left" and d.markers == 14,
+       "after a restart all of it is back, the target cell on the side it was put",
+       ("%s / %s %s / %s"):format(tostring(d.layout), tostring(d.target), tostring(d.targetAt),
+                                  tostring(d.markers)))
+
+    -- and a DRAGGED one comes back where it was dragged, not against the grid
+    d.targetAt, d.targetPos = "free", { x = -300, y = -100 }
+    NS.FK.Save(d.binds)
+    local dragged = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+    ok(dragged and dragged:find("G=5", 1, true) and dragged:find("Q=4700:4900", 1, true),
+       "a dragged target cell writes where it is", dragged)
+    d.targetAt, d.targetPos = "under", nil
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false
+    FM.Get("", "wheelup")
+    ok(d.targetAt == "free" and d.targetPos and d.targetPos.x == -300,
+       "and comes back there after a restart",
+       d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+    d.targetAt, d.targetPos = "under", nil
+
+    -- an older install skips all three. Trimmed first, because the client adds a newline to every
+    -- macro body and an anchored row pattern chokes on it - a different bug, fixed on 19 Sep.
+    local reads = 0
+    local trimmed = (body or ""):match("^%s*(.-)%s*$")
+    for row in (trimmed:match("#(.*)$") or ""):gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and ({ l = 1, r = 1, u = 1, d = 1, m = 1, ["4"] = 1, ["5"] = 1 })[code:sub(-1)] then reads = reads + 1 end
+    end
+    ok(reads == 1, "an older install reads the one bind and skips L, G and M", reads)
+
+    NS.DO.layout("columns"); NS.DO.target(false); NS.DO.markers(10)
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = keptBinds, nil, false, nil
+    FG.Layout(FG.anchor)
+end
+
 -- HIDDEN STAYS HIDDEN, and the grid stays where it was put. Arn, 21 Sep: "show the cells does
 -- nothing, it just keep showing up and when i log on it puts the frames back in the cetner".
 do
@@ -1748,6 +2755,515 @@ do
     FM.Get("", "left")
 end
 
+-- THE FIVE SECOND RULE. Arn, 23 Sep: "can we add a the 5 second mana regen rule ... itll be like
+-- a bar thats filling backwards in the header". Spend mana and your standing-still regeneration
+-- stops for five seconds; what you get in the meantime is the character sheet's "while casting"
+-- share, which already carries the talents. Your own mana is yours to read - none of this asks
+-- about anybody else.
+do
+    local FR = NS.FR
+    local realRegen, realCost = _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost
+    local realPower, realForType = _G.GetPowerRegen, _G.GetPowerRegenForPowerType
+    _G.GetManaRegen = function() return 100, 30 end          -- 30% while casting, as a talent gives
+    _G.C_Spell.GetSpellPowerCost = function(id)
+        if id == 999 then return { { type = 0, cost = 0 } } end       -- a free spell
+        return { { type = 0, cost = 250 } }
+    end
+    FR.spentAt = nil
+
+    ok(FR.Left() == 0 and FR.Fraction() == 1, "standing still, you regenerate everything")
+    ok(FR.Text() == "regen 100%", "and it says so", tostring(FR.Text()))
+
+    ok(FR.OnCast("player", 331) == true, "a spell that costs mana starts the five seconds")
+    ok(math.abs(FR.Left() - 5) < 0.01, "five of them", FR.Left())
+    ok(FR.Fraction() == 0.3 and FR.Text() == "regen 30%",
+       "and while they run you get the character sheet's share", tostring(FR.Text()))
+
+    TICK(2)
+    ok(math.abs(FR.Left() - 3) < 0.01, "two seconds later, three are left", FR.Left())
+    TICK(3.5)
+    ok(FR.Left() == 0 and FR.Fraction() == 1, "and after five you are regenerating again")
+
+    -- a free spell does not stop your regeneration
+    FR.spentAt = nil
+    ok(FR.OnCast("player", 999) == false and FR.Left() == 0, "a spell that costs no mana starts nothing")
+    ok(FR.OnCast("party1", 331) == false, "and somebody else casting is none of our business")
+
+    -- THE BAR, draining across the header
+    local h = FG.header
+    FR.spentAt = nil
+    FG.PaintRegen(h)
+    ok(h.fsr and h.fsr.__shown == false, "with the rule not running, no bar")
+    -- ONE WORD AFTER "BiS>". Arn, 23 Sep: "BiS> always stays . we then cycle when nothing is
+    -- happening keep healing , when combat starts switch to regen mode and the % and the glow".
+    ok(FG.HeaderWord() == "Healing", "out of combat the prompt says the addon's name",
+       FG.HeaderWord())
+
+    h:SetWidth(200)
+    FR.OnCast("player", 331)
+    FG.PaintRegen(h)
+    ok(h.fsr.__shown ~= false and math.abs((h.fsr.__w or 0) - 200) < 1,
+       "the moment you spend mana it fills the header", tostring(h.fsr.__w))
+    STATE.inCombat = true
+    ok(FG.HeaderWord() == "regen 30%", "and in a fight the word becomes what your mana is doing",
+       FG.HeaderWord())
+    FG.PaintRegen(h)
+    ok(h.title and h.title.__text == "BiS> regen 30%", "written where the prompt goes",
+       h.title and tostring(h.title.__text))
+    -- AND IT FITS THE BAR IT IS IN. Arn, 23 Sep, on a party grid: "in the regular down toggel the
+    -- regen gets cut off". The header is as wide as the grid, and one group down is one cell -
+    -- 84 pixels, where "BiS> regen 30%" came out of the client as "BiS> regen ...". It trims from
+    -- the right, so the part it threw away was the number: the only part worth reading.
+    h:SetWidth(84)
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> 30%", "on a one-cell bar the number stands alone, and fits",
+       tostring(h.title.__text))
+    h:SetWidth(200)
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> regen 30%", "and the moment there is room, the word is back",
+       tostring(h.title.__text))
+    STATE.inCombat = false
+    FG.PaintRegen(h)
+    ok(h.title.__text == "BiS> Healing", "and back to the name when the fight ends",
+       tostring(h.title.__text))
+    TICK(2.5)
+    FG.PaintRegen(h)
+    ok(math.abs((h.fsr.__w or 0) - 100) < 2, "halfway through, it is half the header",
+       tostring(h.fsr.__w))
+    TICK(3)
+    FG.PaintRegen(h)
+    ok(h.fsr.__shown == false, "and when the five seconds are up it is gone")
+
+    -- WHICHEVER CALL THIS CLIENT ANSWERS. Arn, 23 Sep, mid-fight: the header said "Healing" while
+    -- he was casting, which means GetManaRegen answered nothing on that character. There are four
+    -- ways to ask on this client; the first that gives two real numbers wins.
+    FR.OnCast("player", 331)
+    _G.GetManaRegen = function() return nil end
+    _G.GetPowerRegen = function() return 200, 50 end
+    ok(select(3, FR.Rates()) == "GetPowerRegen" and FR.Text() == "regen 25%",
+       "with the first call silent, the next one answers", tostring(FR.Text()))
+    _G.GetPowerRegen = nil
+    _G.GetPowerRegenForPowerType = function() return 100, 45 end
+    ok(FR.Text() == "regen 45%", "and the one after that", tostring(FR.Text()))
+
+    -- IN A FIGHT IT IS A SECRET, so what was read out of combat is what the header shows.
+    -- Measured in game 23 Sep: out of combat all three answer; the moment the pull starts all
+    -- three come back secret. "/bish regen" printed exactly that, twice.
+    _G.GetManaRegen = function() return 16.88, 10.44 end     -- 62%, read while standing about
+    _G.GetPowerRegenForPowerType, _G.GetPowerRegen = nil, nil
+    FR.known = nil
+    ok(FR.Text() == "regen 62%", "read live while it can be", tostring(FR.Text()))  -- no Remember()
+    _G.GetManaRegen = function() return secret(), secret() end        -- and now the pull starts
+    ok(FR.Live() == nil, "in the fight the client says nothing")
+    local f, remembered = FR.Fraction()
+    ok(f and math.abs(f - 0.62) < 0.01 and remembered == true,
+       "so the share is the one it last told us", tostring(f))
+    ok(FR.Text() == "regen 62%", "and the header says it plainly", tostring(FR.Text()))
+    ok(pcall(FG.PaintRegen, h), "and the header survives it")
+
+    -- with nothing ever read, it still says which mode it is in rather than inventing a number
+    FR.known = nil
+    ok(FR.Fraction() == nil and FR.Text() == "regen ?",
+       "with nothing ever read, no number is invented", tostring(FR.Text()))
+    _G.GetManaRegen = nil
+    ok(FR.Fraction() == nil, "nor does a client with none of the calls at all")
+
+    _G.GetManaRegen, _G.C_Spell.GetSpellPowerCost = realRegen, realCost
+    _G.GetPowerRegen, _G.GetPowerRegenForPowerType = realPower, realForType
+    FR.spentAt = nil
+    FG.PaintRegen(h)
+end
+
+-- THE BUFF YOU KEEP FORGETTING. Arn, 23 Sep: "for our healers can we add to the header their main
+-- healing buffs on themselves. like i am always forgetting about watershield ... can the header say
+-- in and out of combat. missing water shield". Your own buffs read out of combat and are secret in
+-- a fight, so what the client last said is what the header shows.
+do
+    local FS, FA_AURAS = NS.FS, nil
+    local d = NS.DB()
+    d.selfBuffs = nil
+    BOOK[21] = { name = "Water Shield", rank = "Rank 1" }        -- this shaman has trained it
+    local realClass = _G.UnitClass
+    _G.UnitClass = function() return "Shaman", "SHAMAN" end
+    local mine = {}                                              -- the buffs on the player
+    local realAuras = _G.C_UnitAuras
+    _G.C_UnitAuras = { GetAuraDataByIndex = function(unit, i, filter)
+        if STATE.inCombat then error("Auras cannot be accessed when secret while tainted", 2) end
+        if unit ~= "player" or filter ~= "HELPFUL" then return nil end
+        return mine[i]
+    end }
+
+    ok(table.concat(FS.List(), ",") == "Water Shield", "a shaman watches Water Shield",
+       table.concat(FS.List(), ","))
+    local missing, readable = FS.Missing()
+    ok(readable and missing and missing[1] == "Water Shield",
+       "with nothing on you, it is missing", missing and missing[1])
+    FS.Check()
+    ok(FS.Word() == "no Water Shield", "and the header says so", tostring(FS.Word()))
+    ok(FG.HeaderWord() == "no Water Shield", "instead of the addon's name", FG.HeaderWord())
+    -- and on a bar one cell wide, where the whole name would be trimmed to "no Water Shi..."
+    ok(FS.Initials("Water Shield") == "WS" and FS.Initials("Omen of Clarity") == "OoC",
+       "a long name comes down to its initials", FS.Initials("Omen of Clarity"))
+    ok(FG.HeaderWord(84) == "no WS", "so a party grid says 'no WS' rather than half a name",
+       FG.HeaderWord(84))
+    ok(FG.HeaderWord(200) == "no Water Shield", "and a raid-wide bar says all of it",
+       FG.HeaderWord(200))
+
+    mine[1] = { name = "Water Shield" }
+    FS.Check()
+    ok(FS.Word() == nil and FG.HeaderWord() == "Healing", "up, and the header goes back to normal")
+
+    -- IN A FIGHT the client says nothing, so what it last said stands - and a check made during
+    -- the fight must not overwrite it with "nothing missing"
+    mine[1] = nil
+    FS.Check()                                                   -- read while standing about
+    STATE.inCombat = true
+    local _, readableNow = FS.Missing()
+    ok(readableNow == false, "in the fight the client will not say")
+    mine[1] = { name = "Water Shield" }                           -- and it cannot see this either
+    FS.Check()
+    ok(FS.Word() == "no Water Shield",
+       "a check made in the fight changes nothing: what it last knew is what is shown",
+       tostring(FS.Word()))
+    STATE.inCombat = false
+    FS.Check()
+    ok(FS.Word() == nil, "and the moment the fight ends it reads again")
+    mine[1] = nil
+    FS.Check()
+
+    -- an aura it cannot read is not proof that nothing is missing: a secret NAME in the list
+    -- means the whole read is unreliable, so the last known answer stands
+    mine[1] = { name = "Water Shield" }
+    FS.Check()
+    ok(FS.Word() == nil, "with the shield up, nothing is missing")
+    mine[1] = { name = secret() }
+    local m2, readable2 = FS.Missing()
+    -- THE CONTRACT CHANGED ON 25 SEP, and this is the change: it used to answer `nil, false` - no
+    -- news at all - the moment one buff came back unreadable, which threw away the answers about
+    -- every other. Now it answers with what it DID learn and a flag saying the list is not whole.
+    -- What must never change: a buff the client would not talk about is never called missing.
+    ok(type(m2) == "table" and #m2 == 0 and readable2 == false,
+       "a name the client hides is not 'missing' - and the list says it is not whole",
+       tostring(m2) .. " / " .. tostring(readable2))
+    FS.Check()
+    ok(FS.Word() == nil, "so the last answer stands, rather than a guess at what is missing")
+    mine[1] = nil
+    FS.Check()
+    ok(FS.Word() == "no Water Shield", "and a real read says what is missing again",
+       tostring(FS.Word()))
+
+    -- a spell this character has not trained is never mentioned. The Earth Shield mistake, 19 Sep:
+    -- a level 15 shaman told six times in ninety seconds about a spell learned at 50.
+    BOOK[21] = nil
+    FS.Check()
+    ok(FS.Word() == nil, "a buff you have not trained is not a buff you forgot", tostring(FS.Word()))
+    BOOK[21] = { name = "Water Shield", rank = "Rank 1" }
+
+    -- ASKED ABOUT ONE AURA, BY ID (read off Overlord 1.0.16, 24 Sep 2026). The walk above compares
+    -- NAMES, and a name is the first thing this client hides; these two calls need none.
+    --
+    -- The mock is as unkind as the client: the lookup THROWS when the aura is secret and is not
+    -- asked about first, the aura table it hands back can be one that may not be read, and
+    -- ShouldSpellAuraBeSecret can answer with a secret of its own.
+    do
+        local hidden, up = {}, {}                    -- spellID -> is it secret / is it on you
+        local auras = _G.C_UnitAuras
+        local realSecrets, asked = _G.C_Secrets, {}
+        _G.C_Secrets = setmetatable({
+            ShouldSpellAuraBeSecret = function(id)
+                asked[id] = (asked[id] or 0) + 1
+                return hidden[id] and true or false
+            end,
+        }, { __index = realSecrets })
+        auras.GetPlayerAuraBySpellID = function(id)
+            -- the client does not hand a secret aura to somebody who did not ask first
+            if hidden[id] then error("aura is secret", 2) end
+            return up[id] or nil
+        end
+        local realInfo = _G.C_SpellBook.GetSpellBookItemInfo
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return n == 21 and { spellID = 24398 } or nil
+        end
+
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(asked[24398] and asked[24398] > 0, "the client is asked about that one aura first")
+        ok(FS.Word() == "no Water Shield", "and with it off, the header says so", tostring(FS.Word()))
+
+        up[24398] = { name = "Water Shield", spellId = 24398 }
+        FS.Check()
+        ok(FS.Word() == nil, "with it on, nothing is missing")
+
+        -- IN A FIGHT. This is the whole point of asking per spell: the blanket question says no to
+        -- everything inside the lockdown, so the reminder has only ever worked between pulls. If
+        -- the client will still answer about THIS aura, the answer is current.
+        STATE.inCombat = true
+        up[24398] = nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield",
+           "a buff the client will still talk about mid-fight is answered mid-fight",
+           tostring(FS.Word()))
+
+        -- and when it will not talk about it, the last answer stands - never "missing"
+        up[24398] = { name = "Water Shield" }
+        FS.Check()
+        hidden[24398] = true
+        FS.Check()
+        ok(FS.Word() == nil, "a buff it has gone quiet about keeps what it last was",
+           tostring(FS.Word()))
+        local before = asked[24398]
+        FS.Check()
+        ok(pcall(FS.Check), "and the lookup is never made on a secret aura, so nothing throws")
+        ok(asked[24398] > before, "because the question is asked every time, not cached")
+        hidden[24398] = false
+        STATE.inCombat = false
+
+        -- AN AURA TABLE THAT MAY NOT BE READ is not an aura that is missing. canaccessvalue is
+        -- what Overlord asks of the table itself - issecretvalue is not for tables.
+        local realAccess = _G.canaccessvalue
+        up[24398] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "it is missing, plainly")
+        up[24398] = { name = "Water Shield" }
+        _G.canaccessvalue = function() return false end
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        -- ASKED OF FS.Present, NOT OF THE HEADER. "Unknown" and "it is on you" both leave the
+        -- header saying nothing, so the header cannot tell them apart - and a test that cannot
+        -- tell them apart passes with the guard deleted. This one names the state.
+        ok(FS.Present("Water Shield") == nil,
+           "a table the client will not let us read is UNKNOWN, not 'on you'",
+           tostring(FS.Present("Water Shield")))
+        ok(FS.Word() == nil, "so the header says nothing rather than something made up")
+        _G.canaccessvalue = realAccess
+        ok(FS.Present("Water Shield") == true, "and with the guard answering yes, it is on you")
+
+        -- A BOOK WITH NO IDS STILL HAS TO ANSWER. The by-id call exists on this client, but the
+        -- spellbook can name a spell and refuse its id - which is the ordinary state at login,
+        -- before the book has filled in. The old walk is the answer then, not "cannot say".
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return nil                                    -- named, but no id
+        end
+        -- ON you, so the two answers differ: the walk says "up", and skipping the walk entirely
+        -- says "missing" - which is the lie this is here to catch. A test with the buff OFF gets
+        -- the same word out of both and proves nothing.
+        mine[1] = { name = "Water Shield" }
+        FS.state, FS.known = {}, nil
+        ok(FS.Present("Water Shield") == true,
+           "with no spell id to ask about, the old walk still answers",
+           tostring(FS.Present("Water Shield")))
+        mine[1] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "and still says what is missing that way",
+           tostring(FS.Word()))
+        _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+            if type(bank) ~= "number" then error("bad argument", 2) end
+            return n == 21 and { spellID = 24398 } or nil
+        end
+
+        -- a secret ANSWER to "is it secret?" is itself an unknown, not a no
+        _G.C_Secrets.ShouldSpellAuraBeSecret = function() return secret() end
+        ok(FS.Present("Water Shield") == nil,
+           "a secret answer about secrecy is unknown, not permission")
+        _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("no such call", 2) end
+        ok(FS.Present("Water Shield") == nil, "and so is an error")
+
+        _G.C_Secrets = realSecrets
+        _G.C_SpellBook.GetSpellBookItemInfo = realInfo
+        auras.GetPlayerAuraBySpellID = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+    end
+
+    -- TAKING A BUFF OFF THE LIST FORGETS WHAT IT WAS. The memory is per name and outlives the
+    -- answer that filled it, so a name that comes back after being taken off would arrive with
+    -- its old verdict already in place - "no Water Shield" from ten minutes ago, before the
+    -- client has been asked once about it.
+    do
+        local auras = _G.C_UnitAuras
+        local realWalk = auras.GetAuraDataByIndex
+        mine[1] = nil
+        FS.state, FS.known = {}, nil
+        FS.Check()
+        ok(FS.Word() == "no Water Shield", "it is missing, and remembered as missing")
+        -- ONE call: the class default becomes an explicit list holding the same name. Two calls
+        -- would take it off again and leave NOTHING watched, where every answer is nil and the
+        -- test proves nothing - which is exactly what the first draft of this did.
+        -- FS.Add, not the slash command: /bish buff prints a report, and the report asks the
+        -- client again on its way past - so the verdict is back before the silence begins and
+        -- the forgetting is invisible. (The sound tests learned this the same way.)
+        FS.Add("Water Shield")
+        auras.GetAuraDataByIndex = function() error("the client is not answering", 2) end
+        FS.Check()
+        ok(FS.Word() == nil,
+           "a change to the list forgets the verdict, and a silent client does not refill it",
+           tostring(FS.Word()))
+        -- AND THE SILENCE ITSELF IS NOT AN ANSWER. A client that throws on the first aura slot
+        -- used to walk out of the loop and report an empty aura bar, which reads as every watched
+        -- buff missing.
+        ok(FS.Present("Water Shield") == nil,
+           "a client that refuses the walk is unknown, not an empty aura bar",
+           tostring(FS.Present("Water Shield")))
+        auras.GetAuraDataByIndex = realWalk
+        NS.DO.buff("reset")
+        FS.state, FS.known = {}, nil
+        FS.Check()
+    end
+
+    -- the player's own list: add, take away, reset
+    NS.DO.buff("Lightning Shield")
+    ok(table.concat(FS.List(), ",") == "Lightning Shield", "/bish buff <name> watches it instead",
+       table.concat(FS.List(), ","))
+    NS.DO.buff("Lightning Shield")
+    ok(#FS.List() == 0, "the same name again stops watching it", #FS.List())
+    NS.DO.buff("reset")
+    ok(table.concat(FS.List(), ",") == "Water Shield", "and reset goes back to the class's one")
+
+    -- A SOUND WHEN IT DROPS, played by the client. The header cannot say it mid-fight - your own
+    -- buffs are secret there - but C_UnitAuras.AddAuraSound makes a noise without anything being
+    -- read. Registered per spell id, so every rank is covered, and taken down when the list changes.
+    local registered, removed, nextID = {}, {}, 0
+    local auras = _G.C_UnitAuras
+    auras.AddAuraSound = function(trigger, opts)
+        if type(opts) ~= "table" or not opts.spellID then return nil end
+        nextID = nextID + 1
+        registered[nextID] = { trigger = trigger, spellID = opts.spellID, unit = opts.unitToken,
+                               file = opts.soundFileID or opts.soundFileName }
+        return nextID
+    end
+    auras.RemoveAuraSound = function(id) removed[id] = true; registered[id] = nil end
+    local realEnum = _G.Enum
+    _G.Enum = setmetatable({ UnitAuraSoundTrigger = { Added = 1, Removed = 2 } },
+                           { __index = realEnum })
+    BOOK[22] = { name = "Water Shield", rank = "Rank 2" }      -- two ranks trained
+    local realInfo2 = _G.C_SpellBook.GetSpellBookItemInfo
+    _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+        if type(bank) ~= "number" then error("bad argument", 2) end
+        if n == 21 then return { spellID = 24398 } end
+        if n == 22 then return { spellID = 24399 } end
+        return nil
+    end
+
+    local howMany = FS.Sounds()
+    ok(howMany == 2, "both ranks of the buff are registered", tostring(howMany))
+    local trig, whose, ids = nil, nil, {}
+    for _, r in pairs(registered) do trig, whose = r.trigger, r.unit; ids[r.spellID] = true end
+    ok(trig == 2 and whose == "player", "for when it LEAVES you, on you", tostring(trig))
+    ok(ids[24398] and ids[24399], "one for each rank")
+
+    -- changing the list takes the old registrations down. FS.Add, not the slash command: that
+    -- prints a report which asks for the sounds anyway, and would hide a missing refresh here.
+    FS.Add("Lightning Shield")
+    local live = 0
+    for _ in pairs(registered) do live = live + 1 end
+    ok(next(removed) ~= nil and live == 0,
+       "watching something else removes the old sounds rather than leaving them playing", live)
+    FS.Reset()
+
+    -- switched off, and a client without the call: both quiet, neither an error
+    NS.DO.buffsound("off")
+    ok(FS.Sounds() == false, "off registers nothing")
+    NS.DO.buffsound("on")
+
+    -- THE SWITCH AND THE NUMBER ARE TWO QUESTIONS (Arn, 23 Sep: "toggle in options to turn sound
+    -- on or off and unrolled window to put in another sound id number"). They were one field to
+    -- begin with, where `false` meant silence - so switching the sound off and on again threw the
+    -- player's number away, silently, and left them with ours.
+    NS.DO.buffsound("31578")
+    ok(d.buffSound == 31578 and FS.File() == 31578, "a number sets which sound", tostring(d.buffSound))
+    NS.DO.buffsound("off")
+    NS.DO.buffsound("on")
+    ok(d.buffSound == 31578 and not FS.Quiet(),
+       "off and on again keeps the number the player typed", tostring(d.buffSound))
+    local withTheirs = nil
+    for _, r in pairs(registered) do withTheirs = r.file end
+    ok(withTheirs == 31578, "and the client is asked to play THEIR number, not ours",
+       tostring(withTheirs))
+    NS.DO.buffsound("default")
+    ok(d.buffSound == nil and FS.File() == FS.SOUND, "default goes back to ours", tostring(d.buffSound))
+
+    -- HEARD BEFORE IT IS KEPT. A file id is a number out of the game's own files and a player
+    -- typing one has no other way to know they got it right - and a wrong one must say so rather
+    -- than look like it worked.
+    local n0 = #STATE.played
+    ok(FS.Play(567458) == true and #STATE.played == n0 + 1, "hear plays the id")
+    -- the one we ship, played with no argument at all: a default nobody can hear is a default
+    -- nobody chose. This one Arn chose by ear (567474, 23 Sep) after listening to 567458.
+    ok(FS.Play() == true and STATE.played[#STATE.played].file == FS.SOUND,
+       "and with nothing typed it plays the one we ship", tostring(FS.SOUND))
+    ok(STATE.played[#STATE.played].channel == "Master", "on the master channel, so it is audible")
+    local played, whyNot = FS.Play(4242)
+    ok(played == false and tostring(whyNot):find("id"),
+       "an id this client has not got says so rather than reporting success", tostring(whyNot))
+    local pathOk, pathWhy = FS.Play("Interface\\Sounds\\Alarm.ogg")
+    ok(pathOk == false and tostring(pathWhy):find("sound id"),
+       "and a file PATH is called what it is on this client: silent", tostring(pathWhy))
+
+    auras.AddAuraSound = nil
+    local none, why = FS.Sounds()
+    ok(none == false and tostring(why):find("no aura sounds"),
+       "a client without the call says so rather than throwing", tostring(why))
+
+    _G.Enum = realEnum
+    BOOK[22] = nil
+    _G.C_SpellBook.GetSpellBookItemInfo = realInfo2
+    _G.C_UnitAuras, _G.UnitClass = realAuras, realClass
+    d.selfBuffs, d.buffSound, d.buffQuiet = nil, nil, false
+    FS.known, FS.soundIDs = nil, {}
+end
+
+-- AND IT SURVIVES A RESTART, which on this client means the macro. Saved variables never come
+-- back on Forever, so a sound switched off at midnight is on again at the next login unless it
+-- rides in the same 255 characters as everything else.
+do
+    local FK, d = NS.FK, NS.DB()
+    local body = FK.Encode({}, { sound = 31578, quiet = true })
+    ok(body:find("N=31578:1"), "the id AND the switch go into one row", body)
+    local _, back = FK.Decode(body)
+    ok(back.sound == 31578 and back.quiet == true, "and both come back",
+       tostring(back.sound) .. "/" .. tostring(back.quiet))
+
+    -- OFF WITH OUR OWN SOUND BEHIND IT. "N=0" is the id nobody chose; the 1 is what silence is.
+    local _, quietOnly = FK.Decode(FK.Encode({}, { quiet = true }))
+    ok(quietOnly.sound == nil and quietOnly.quiet == true, "silence with no number of its own")
+
+    -- A MACRO THAT SAYS NOTHING ABOUT THE SOUND LEAVES IT ALONE. `quiet` is nil, not false: the
+    -- difference between "the player wants it on" and "the player never touched it".
+    local _, silent = FK.Decode(FK.Encode({}, { scale = 1.2 }))
+    ok(silent.quiet == nil, "an untouched macro has no opinion about the sound", tostring(silent.quiet))
+
+    -- THE COLD START. Nobody clicks anything at login, so what the macro holds has to be LIVE
+    -- after the read: the setting back in the table AND the client asked to make the noise again.
+    -- A sound that only arms itself at the next SPELLS_CHANGED is a sound that misses the pull.
+    local FM = NS.FM
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    NS.DO.buffsound("31578")
+    NS.DO.buffsound("off")
+    local stored = GetMacroBody(GetMacroIndexByName(FK.MACRO))
+    ok(stored and stored:find("N=31578:1", 1, true), "changing it writes it into the macro", stored)
+
+    local asked, realSounds = 0, NS.FS.Sounds
+    NS.FS.Sounds = function() asked = asked + 1 return 0 end
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false                       -- the restart
+    d.buffSound, d.buffQuiet = nil, false
+    FM.Get("", "wheelup")
+    ok(d.buffSound == 31578 and d.buffQuiet == true,
+       "and after a restart the sound is what the macro said",
+       tostring(d.buffSound) .. " / " .. tostring(d.buffQuiet))
+    ok(asked > 0, "the client is asked to play it again at login, not at the next spell change", asked)
+    NS.FS.Sounds = realSounds
+
+    d.buffSound, d.buffQuiet = nil, false
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+end
+
 -- THE HANDLE. Arn, 19 Sep 2026: "lets add a our header to this so we can drag and move". The
 -- anchor had none: the cells were the only thing on screen, and a secure button cannot be dragged
 -- without taking its click away. So the header moves the ANCHOR and every cell follows.
@@ -1755,12 +3271,14 @@ do
     local h = FG.header
     ok(h ~= nil, "the grid has a header to grab")
 
-    -- ONE LABEL IN THE BAR. Twice in one day a second FontString printed straight through the
-    -- first: "BiS> Hrsalinge" on an 84 pixel header. A hint belongs in a tooltip, where it has a
-    -- whole box to itself and costs no pixels at all.
+    -- LABELS IN THE BAR MUST NOT SHARE A SIDE. Twice in one day a second FontString printed
+    -- straight through the first: "BiS> Hrsalinge" on an 84 pixel header. The rule was "one
+    -- label", which held until the five second rule earned a number of its own (23 Sep) - so the
+    -- rule is the one that actually mattered: the prompt is pinned LEFT, anything else RIGHT, and
+    -- a hint still belongs in a tooltip where it costs no pixels at all.
     ok(#(h.__fontstrings or {}) <= 1,
-       ("the header carries %d labels; one bar, one label - hints go in the tooltip")
-       :format(#(h.__fontstrings or {})))
+       ("the header carries %d labels; one bar, one label - a second one printed through the first"
+        .. " twice in one day, and again on 23 Sep"):format(#(h.__fontstrings or {})))
 
     -- ONE THING IN THE BAR. A "drag" caption on the right printed straight through the prompt's
     -- rotating word on a header the width of one cell: "BiS> Hrsalinge" (seen in game, 19 Sep).
@@ -1769,6 +3287,12 @@ do
     ok(h.con == nil or h.con.width <= FRAME_W_FOR_TEST,
        "the prompt is trimmed to the header's own width, not 120px")
     ok(h.__scripts.OnEnter and h.__scripts.OnLeave, "the hint lives in a tooltip instead")
+
+    -- ONE WORD, so nothing can print through anything: the prompt says "Healing" while nothing is
+    -- happening and the regen share in a fight (FG.HeaderWord). The two-label version lasted one
+    -- screenshot - "BiS>Healing" over "regen 62%" on a party grid, 23 Sep.
+    ok(#(h.__fontstrings or {}) <= 1, ("the header is back to %d label")
+       :format(#(h.__fontstrings or {})))
 
     -- dragging it out of combat moves the anchor and remembers where
     STATE.inCombat = false
@@ -1848,6 +3372,55 @@ for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
 ok(kinds.earthshield == 1, "a missing Earth Shield is reported")
 ok(kinds.totems == 1, "four empty totem slots are reported")
 
+-- CAN THE AURA LIST BE WALKED AT ALL? The client answers that by throwing, not by saying so:
+-- EllesmereUI 9.3's AuraKit probes one slot and catches the refusal, because the index walk
+-- hard-errors under instance restrictions even where ShouldAurasBeSecret answers no.
+do
+    local realGet = _G.C_UnitAuras.GetAuraDataByIndex
+    ok(NS.Restricted() == false, "with the client answering, the list can be walked")
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    ok(NS.Restricted() == true, "and when it throws, that is the answer")
+    -- THE CLEAR ANSWER IS NEVER CACHED. A stale "you may walk" sends the next caller into a scan
+    -- that throws; a stale "you may not" costs one frame of a display nobody was watching. So the
+    -- restriction is remembered for the frame and the permission is asked again every time.
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    ok(NS.Restricted() == true,
+       "the refusal is remembered for the rest of the frame - building that error is the cost")
+    TICK()
+    ok(NS.Restricted() == false,
+       "and the next frame asks again, rather than holding the refusal over")
+    -- AND PERMISSION IS NEVER CACHED, even for the frame it was given in: restriction engages
+    -- mid-frame at a zone edge, and a held-over "you may walk" is what sends the next caller into
+    -- a scan that throws.
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    ok(NS.Restricted() == true,
+       "restriction arriving inside the same frame is noticed at once")
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    TICK()
+end
+
+-- A CLIENT THAT REFUSES THE AURA LIST IS NOT A RAID WITH NO BUFFS ON IT. Read off EllesmereUI 9.3
+-- on 28 Sep: the index walk hard-errors under instance restrictions even out of combat, where
+-- ShouldAurasBeSecret still answers no. The walk broke out of its loop on the error and handed
+-- back an empty list, which is indistinguishable from "nobody has it" - and that one gets printed
+-- in chat. "Earth Shield is not up on anyone", to a raid where it was up the whole time.
+do
+    local realGet = _G.C_UnitAuras.GetAuraDataByIndex
+    _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
+    local refusedScan = FB.Scan()
+    local said = {}
+    for _, f in ipairs(refusedScan or {}) do said[f.kind] = true end
+    ok(not said.earthshield,
+       "a refused aura list is never reported as a missing Earth Shield")
+    ok(not said.dispel, "and never as somebody standing there with a debuff on them")
+    _G.C_UnitAuras.GetAuraDataByIndex = realGet
+    -- and with the client answering again, the report comes back rather than staying quiet
+    local backScan = FB.Scan()
+    local kinds2 = {}
+    for _, f in ipairs(backScan or {}) do kinds2[f.kind] = true end
+    ok(kinds2.earthshield, "and when the client answers again, so does the brain")
+end
+
 -- with Earth Shield up on the tank, it stops nagging
 AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
 TOTEMS[1] = true
@@ -1872,8 +3445,18 @@ for _, f in ipairs(found) do if f.kind == "dead" then dead = dead + 1 end end
 ok(dead == 1, "the dead are listed for the rez")
 STATE.dead.party2 = nil
 
+-- QUIET BY DEFAULT SINCE 23 SEP. Arn: "lets get rid of the reminders in the chat window that was
+-- from tbc version ... lets put it away for now". They were written for a TBC shaman; on this
+-- client they arrive between pulls knowing half of what they used to.
+SAID = {}
+ok(select(1, FB.Report()) == 0 and #SAID == 0,
+   "with the reminders off, a fight ending says nothing at all")
+ok(FB.Report(true) ~= 0 and #SAID > 0, "/bish scan still asks outright")
+ok(NS.DO.between(true) == true, "/bish between turns them back on")
+
 -- it speaks only when there is something to say
 SAID = {}
+FB.lastSig = nil
 local n = FB.Report()
 ok(n and n > 0 and #SAID == n, "Report says one line per finding")
 ok(not tostring(SAID[1]):find("BiS Healing", 1, true),
@@ -1939,6 +3522,9 @@ local quiet, reason = FB.Report()
 ok(quiet == 0 and reason == "alone" and #SAID == 0, "playing alone, it stays quiet")
 GROUPED = true
 FB.lastSig = nil
+NS.DO.between(false)                              -- back to the shipped default: quiet
+ok(NS.DB().between == false and select(1, FB.Report()) == 0, "and off again is the default")
+NS.DO.between(true)
 
 -- and a character who has not trained Earth Shield is never told it is missing
 BOOK[20] = nil
@@ -2317,8 +3903,28 @@ do
     -- does not stop it.
     ok(cell.__attrs["*type1"] == "target", "and the cleared button now targets the person",
        tostring(cell.__attrs["*type1"]))
-    ok(cell.__attrs["alt-type4"] == "target" and cell.__attrs["alt-spell4"] == nil,
-       "every empty click targets, modifiers and thumb buttons too")
+    ok(cell.__attrs["alt-type2"] == "target" and cell.__attrs["alt-spell2"] == nil,
+       "empty right click targets too, with a modifier")
+    -- BUTTONS 3-5 ARE DIFFERENT. Measured on the beta (22 Sep): an empty thumb or wheel click set to
+    -- type "target" did nothing - the SecureUnitButton path honours "target" for buttons 1-2 only -
+    -- while a spell bound to the same button cast. So 3-5 target through a secure macro instead.
+    for _, b in ipairs({ 3, 4, 5 }) do
+        for _, p in ipairs({ "*", "shift-", "ctrl-", "alt-" }) do
+            if not FM.Get(p == "*" and "" or p, ({ [3] = "middle", [4] = "button4", [5] = "button5" })[b]) then
+                ok(cell.__attrs[p .. "type" .. b] == "macro"
+                   and cell.__attrs[p .. "macrotext" .. b] == "/target [@mouseover]",
+                   ("empty %stype%d targets by macro, not the 'target' type the client ignores there"):format(p, b),
+                   tostring(cell.__attrs[p .. "type" .. b]))
+            end
+        end
+    end
+    ok(cell.__attrs["*macrotext1"] == nil and cell.__attrs["*macrotext2"] == nil,
+       "buttons 1-2 keep the built-in target, with no macro on them")
+    FM.Set("", "button4", "Healing Wave(Rank 1)")
+    FM.ApplyTo(cell)
+    ok(cell.__attrs["*type4"] == "spell" and cell.__attrs["*macrotext4"] == nil,
+       "a spell dropped on a thumb button replaces the target macro, and none is left behind")
+    FM.Clear("", "button4")
     FM.Set("", "left", "Healing Wave(Rank 1)")
     FM.ApplyTo(cell)
     ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Healing Wave(Rank 1)",
@@ -2340,7 +3946,7 @@ do
     FM.ApplyTo(cell)
     local ours = 0
     for k, v in pairs(cell.__attrs) do
-        if (k:find("type%d$") or k:find("spell%d$")) and v ~= nil then ours = ours + 1 end
+        if (k:find("type%d$") or k:find("spell%d$") or k:find("macrotext%d$")) and v ~= nil then ours = ours + 1 end
     end
     ok(ours == 0, "with Clique on, none of our click attributes are left on the cell", ours)
     ok(registered[cell] == true, "and the cell is registered with Clique")
@@ -2688,22 +4294,133 @@ do
         keys[opt.key] = opt
         if opt.kind == "button" then
             ok(pcall(opt.action), ("pressing %q threw"):format(opt.key))
+        elseif opt.kind == "cells" then
+            -- four switches in one row, each with its own get and set
+            for _, part in ipairs(opt.parts) do
+                ok(pcall(part.get, NS.DB()), ("reading %q threw"):format(part.key))
+            end
         else
             ok(pcall(opt.get, NS.DB()), ("reading %q threw"):format(opt.key))
         end
     end
-    for _, want in ipairs({ "shown", "minimap", "mouse", "scan", "clique" }) do
+    for _, want in ipairs({ "shown", "minimap", "mouse", "clique", "layout", "cells",
+                            "markers", "buffsound", "buffsoundid" }) do
         ok(keys[want], ("the window lost %q"):format(want))
     end
-    -- RAISED FROM 10 TO 12, ON PURPOSE (20 Sep 2026), and not to make a red line go away. The cap
-    -- was set when the window had six rows. Four real settings arrived in one evening, each asked
-    -- for by the player - pyramid, pets, missing health, size of the cells - and that is what the
-    -- window is for. Eleven rows today.
+    -- and every cell the window is supposed to offer is still in that one row
+    do
+        local parts = {}
+        for _, part in ipairs((keys.cells or {}).parts or {}) do parts[part.key] = part end
+        for _, want in ipairs({ "target", "tot", "me", "mana" }) do
+            ok(parts[want], ("the cells row lost %q"):format(want))
+        end
+        ok(keys.pets and keys.pets.kind == "seg",
+           "and pets is a row of its own, because it has three answers",
+           keys.pets and keys.pets.kind)
+        -- AND EACH SWITCH READS ITS OWN SETTING. Four buttons side by side in one row is four
+        -- chances to wire one to its neighbour's key, and the window would look perfectly
+        -- sensible: the wrong button simply lights up.
+        local db, was = NS.DB(), {}
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do was[k] = db[k] end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do
+            db[k] = true
+            local lit = {}
+            for name, part in pairs(parts) do
+                if part.get(db) == true then lit[#lit + 1] = name end
+            end
+            ok(#lit == 1 and lit[1] == k,
+               ("only the %q switch lights for the %q setting"):format(k, k),
+               table.concat(lit, ", "))
+            db[k] = false
+        end
+        for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = was[k] end
+
+        -- AND PRESSING ONE CHANGES ITS OWN SETTING. Reading is half the wiring; a `set` pointed at
+        -- the neighbour's command looks identical until somebody clicks it.
+        -- the window has to be BUILT for there to be a button to press, and the shared lib it is
+        -- built from is one the TOC loop above skips
+        if not (BiSTheme and BiSTheme.Options) then
+            local lib = assert(loadfile("Libs/BiSTheme/Options.lua"))
+            ok(pcall(lib), "the shared options lib loads headless")
+        end
+        NS.CFG.Build()
+        local row = NS.CFG and NS.CFG.cells
+        ok(row and row.ctl and #row.ctl == 4, "the row has its four buttons", row and #(row.ctl or {}))
+        if row and row.ctl then
+            for i, part in ipairs(keys.cells.parts) do
+                for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
+                local click = row.ctl[i].__scripts and row.ctl[i].__scripts.OnClick
+                if click then click(row.ctl[i], "LeftButton") end
+                ok(db[part.key] == true,
+                   ("pressing %q switches %q on"):format(part.label, part.key),
+                   tostring(db[part.key]))
+            end
+            for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = was[k] end
+            NS.DO.me(was.me == true)
+            FG.Layout(FG.anchor)
+        end
+    end
+    -- 10 -> 12 (20 Sep) -> 13 (23 Sep), each time on purpose and not to make a red line go away.
+    -- The last note said the next row was a decision: fold the two diagnostics rather than bump the
+    -- number. Both are folded now - "test the debuff marker" went on the 22nd, "what can I see?" on
+    -- the 23rd, and each is still one word away (/bish auras, /bish scan). Three of a player's
+    -- requests then arrived at once, and two of them are settings: a cell for your target, and the
+    -- size of the markers. The third shares the old pyramid row, since "groups: down / across /
+    -- tanks" is one question with three answers.
     --
-    -- THE NEXT ROW IS A DECISION, NOT A BUMP: "what can I see?" and "test the debuff marker" are
-    -- diagnostics sitting beside real settings. When this goes red again, fold those two behind
-    -- one "diagnostics" button rather than raising the number a second time.
-    ok(#NS.UI.Rows() <= 12, "the window stays short: " .. #NS.UI.Rows())
+    -- THIRTEEN IS THE LAST ONE. There is nothing left to fold: every row is a setting a player
+    -- asked for. The next one costs a real setting, or the window grows a second page.
+    --
+    -- And on 23 Sep it cost one, as promised. Two rows arrived - the buff-drop sound, and the id
+    -- behind it - and "look at the group again" paid for one of them: the grid rescans on every
+    -- roster event by itself, so that button was a fix for a bug, not a setting. Then a fifteenth
+    -- came the same afternoon and the window grew, which is the other half of the rule.
+    --
+    -- ON 26 SEP IT CAME BACK DOWN. A fourth cell was asked for (paszczyszyn: one for yourself),
+    -- which would have been sixteen rows - and three of the fifteen were the same question asked
+    -- three times. "Which extra cells do you want?" is one row of switches. Pets then grew a
+    -- third answer the same day and left that row for one of their own, which is what the lib's
+    -- `seg` is for. Fourteen, two fewer than the fifteen this window was at when the day started.
+    --
+    -- The rule was never about the number; it is about a window you can read in one look.
+    ok(#NS.UI.Rows() <= 14, "the window stays short: " .. #NS.UI.Rows())
+
+    -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
+    -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the
+    -- canon - so a number that only this addon wants goes in a panel of its own, underneath.
+    do
+        local d = NS.DB()
+        d.buffSound, d.buffQuiet = nil, false
+        -- the shared lib, which the TOC loop skips: the drawer is built out of ITS primitives, so
+        -- a suite that fakes them is a suite that proves nothing about the window a player opens
+        if not (BiSTheme and BiSTheme.Options) then
+            local lib = assert(loadfile("Libs/BiSTheme/Options.lua"))
+            local loaded, why = pcall(lib)
+            ok(loaded, "the shared options lib loads headless", tostring(why))
+        end
+        local drawer = NS.UI.Drawer(true)
+        ok(drawer ~= nil and drawer:IsShown(), "the sound id drawer unrolls")
+        ok(drawer.box ~= nil, "with a box to type a number in")
+        ok(drawer.box:GetText() == tostring(NS.FS.SOUND),
+           "showing the sound that is actually set", drawer.box:GetText())
+
+        -- typed, then Enter - which is what a player does, and is the client's own script
+        drawer.box:__type("31578")
+        ok(d.buffSound == 31578, "Enter keeps the number", tostring(d.buffSound))
+        ok(drawer.box.__numeric == true and drawer.box.__autofocus == false,
+           "digits only, and it does not steal the keyboard when the window opens")
+
+        -- and it closes with the window it hangs off, rather than floating over the game alone
+        local win = NS.CFG.frame
+        NS.UI.Drawer(true)
+        win:Hide()
+        local onHide = win.__scripts and win.__scripts.OnHide
+        if onHide then onHide(win) end
+        ok(not drawer:IsShown(), "closing the options window rolls the drawer up with it")
+
+        d.buffSound, d.buffQuiet = nil, false
+    end
 
     -- and the slash command reaches them. "/bish nonsense" prints the help rather than throwing.
     for _, cmd in ipairs({ "", "show", "hide", "mouse", "rescan", "scan", "auras", "nonsense" }) do

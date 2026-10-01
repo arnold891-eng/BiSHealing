@@ -1,5 +1,160 @@
 # BiS Healing
 
+## 0.7.0
+
+- **Enemies no longer look like friendlies.** The target cell and its tot go red for anything you
+  can attack — which matters because those two cells cast on hostile units perfectly well, whether
+  or not that was ever the plan. In combat the game keeps "can you attack this" secret, so the
+  colour is chosen by the game from an answer the addon never reads.
+
+- **The other healers' mana.** Switch on **mana** in the options window's cells row, or
+  `/bish mana`, and a small block appears with one row per healer in your group — name and
+  percent, you included. Drag its `BiS> mana` bar anywhere; it takes a side the other blocks are
+  not using, and it is remembered.
+- This was written off as impossible in this addon's own notes for eleven days: the game keeps
+  another player's mana secret, even out of combat. That is true about *reading* it. The game will
+  still *draw* it — so the number goes straight from the game to the screen and the addon never
+  learns it. Thanks to EllesmereUI, whose party frames do the same thing and proved it could be
+  done.
+
+## 0.6.2
+
+- **Out-of-range cells dim during a fight now** — which is when you need to know. The game keeps
+  "can you reach them" secret in combat, so the dimming has only ever worked between pulls. It now
+  asks the game to pick the brightness from the answer, without ever reading it. If the game
+  refuses, cells stay bright, exactly as before.
+- **`/bish range`** says what the game answered and what the grid did with it, for when the
+  dimming looks wrong.
+
+## 0.6.1
+
+- **Fixed: `/bish scan` could say "Earth Shield is not up on anyone" when the game had simply
+  refused to answer.** The aura list can be closed to addons inside instances — even out of
+  combat — and a refusal was being read as "there are no buffs on anybody". A question the game
+  will not answer is now reported as unknown, never as missing.
+
+## 0.6.0
+
+The last release on CurseForge was 0.5.2, so this one also carries everything in
+0.5.3, 0.5.4 and 0.5.5 below: a **cell for yourself** out of the group, the buff
+reminder learning to ask the game about **one buff at a time** (which may let it
+work during a fight), and a fix for the options window throwing errors.
+
+- **Two blocks never share a side.** Switch on a cell whose place is already taken by another and
+  it goes to the next free side instead of drawing over it. Shift-clicking a bar round the grid
+  skips the sides in use, too. Whatever was there first keeps its place.
+- **Pets have three settings**, in the options window and on `/bish pets`:
+  - **grid** — a column of their own inside the main cells, which is what "pets on" always meant.
+  - **own** — a block of their own, with a `BiS> pets` bar: drag it anywhere, and nothing but pets
+    in it. Asked for by paszczyszyn: "separate pet group ... able to move it alone".
+  - **off** — nowhere. Still what a new install gets.
+- **Fixed: the pet setting was forgotten at every login.** It has never been kept in your
+  `BiSHealing` macro, for as long as the option has existed. It is now, along with where the pet
+  block sits.
+
+## 0.5.5
+
+- **Fixed: opening the options window threw five errors** and the cells row came out uncoloured.
+  The colour was being read in a way that kept only its red and dropped the green and blue, and
+  the game refuses a colour with a hole in it. 0.5.4 only.
+
+## 0.5.4
+
+Asked for by paszczyszyn on CurseForge - thank you.
+
+- **A cell for yourself, out of the group.** "Lock yourself in one spot outside groups ... and have
+  it in same spot for solo or raid groups." Switch on **me** in the options window's cells row, or
+  `/bish me`. You get a cell with a `BiS> me` bar of its own: drag it anywhere, or shift-click the
+  bar to send it round the grid. **Turning it on takes you out of the group grid**, which is the
+  whole point - a spot that moves when the group changes is not a spot you can learn. Where you put
+  it is remembered, like everything else.
+- **The options window has one cells row now**, with four switches on it: target, tot, me and pets.
+  It replaces three separate rows, so the window is shorter than it was before any of this.
+
+## 0.5.3
+
+- **The buff reminder asks the game about one buff, by spell id.** It used to read every aura slot
+  on you and compare names - and a name is the first thing this client hides, so one hidden buff
+  anywhere in your list made the whole answer "cannot say". Now it asks about the buff it is
+  watching and nothing else.
+- **Which means it can work during a fight.** The old question was "are auras secret right now?",
+  and inside a fight the answer is always yes. The new one is asked per spell: where the game will
+  still answer about your shield mid-pull, the header is current rather than frozen at the last
+  thing it knew. Where it will not, nothing changes - and it never reports a buff as missing on a
+  silence.
+- **Each watched buff remembers its own last answer** instead of the whole list being kept or
+  thrown away together.
+- Fixed: a game that refused the aura list outright was read as "you have no buffs at all", which
+  would have reported every watched buff missing at once.
+
+## 0.5.2
+
+- **Fixed: the header's word was cut off on a party grid.** One group down is one
+  cell wide, and "BiS> regen 62%" came back from the client as "BiS> regen ..." -
+  it trims from the right, so the part it threw away was the number. On a bar
+  that narrow the header now says `BiS> 62%`, and `BiS> no WS` for a missing
+  buff; hovering it spells out the whole thing. A wider grid says it in full, as
+  before.
+
+## 0.5.1
+
+The header above the cells does the talking now, and the chat frame stops.
+
+- **The five second rule, on the header.** Spend mana and a bar drains across it
+  over the five seconds until your regeneration comes back, with the share you
+  are getting meanwhile: `regen 100%` between casts, `regen 62%` while they run.
+  The numbers are the character sheet's own, so talents, gear and buffs are
+  already in them. This client turns your own regeneration secret the moment a
+  fight starts, so the header shows the last thing it was willing to say - and
+  `regen ?` when it never has.
+- **The buff you keep forgetting.** Out of combat the header says `no Water
+  Shield` - one buff per healing class (Water Shield, Inner Fire, Omen of
+  Clarity, Blessing of Wisdom), and only if you have trained it. `/bish buff
+  <name>` watches another, the same name again stops watching it.
+- **And a sound when it drops**, played by the client itself, which is the only
+  half that works in a fight: your own buffs are secret there, so nothing can
+  look - but the game will still make a noise. **sound when it drops** in the
+  options window switches it off, and **sound id -> change** unrolls a drawer to
+  put a different one in, with a `hear` button to try it first. `/bish buffsound
+  off`, `on`, `default`, `test`, or a number. It rides in your `BiSHealing`
+  macro with the other settings, so it survives a restart.
+- **The target cell has a header now**, `BiS> target`, instead of a blank little
+  bar: drag it to move the cell, shift-click it to send it round the grid.
+- **And a cell for your target's target**, beside it, with a `BiS> tot` bar of
+  its own — **and their target** in the options window, right under the target
+  one, or `/bish tot`. The two are attached: drag either header and the pair
+  moves together, and with no target at all both go away.
+- **The between-pulls reminders in chat are off.** They were written for a TBC
+  shaman with four totems to keep up and say less than that here. `/bish scan`
+  still asks outright, and `/bish between` turns them back on.
+- The options window lost **look at the group again** to make room: the cells
+  rescan whenever the group changes anyway, and `/bish rescan` still presses it.
+
+## 0.5.0
+
+Three of these came from paszczyszyn on CurseForge - thank you.
+
+- **Groups across or down.** A raid group can be a column of names, as before, or a row of them.
+  In options: **groups: down / across / tanks**. Or `/bish across`, `/bish grid`, `/bish pyramid`.
+- **A cell for whoever you have targeted.** Off by default; switch it on in options or with
+  `/bish target`. It sits above the grid, and it has its own small handle: **drag it anywhere on
+  screen**, or **shift-click the handle** to send it round the grid - top, right, under, left.
+  `/bish target left` (or `right`, `top`, `under`) does the same from the chat box.
+- **The markers have a size.** The dispel marker and the heal-over-time icons, 6 to 20 pixels:
+  the **marker size** stepper in options, or `/bish markers 14`.
+- **The pyramid puts healers at the bottom**: tanks first, then damage, then the healers.
+- **Empty mouse buttons all target now.** Left and right click already did; the wheel click and
+  the two thumb buttons do as well, with or without a modifier.
+- Everything above is kept in your `BiSHealing` macro, so it survives a restart.
+- The options window lost its two diagnostic rows to make room. Both are still one word away:
+  `/bish scan` and `/bish auras`.
+
+## 0.4.4
+
+- **Wheel click and thumb buttons target when unbound.** Left and right click already selected the
+  person when nothing was on them; the wheel click and the two thumb buttons did nothing. Now every
+  empty mouse button targets, with or without a modifier.
+
 ## 0.4.3
 
 - **Fixed: mouse binds being wiped.** Two bugs, one symptom:

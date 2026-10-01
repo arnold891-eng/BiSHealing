@@ -81,12 +81,28 @@ local PER_COL = 5                       -- one column per party, the way a raid 
 -- Chain Heal bounce and damage done - all out of the combat log, which is a PROTECTED call on
 -- Forever. So the body ports and the brain does not. What stands in for it is the role: tank,
 -- then healer, then damage. A cruder sort, and the only one this client will allow.
-local SHAPE = { 1, 2, 6 }               -- cells in each row; rows past the last repeat TAIL
-local WIDE  = { true, true }            -- which rows are full width
-local TAIL  = 6
-local HALF_W = FRAME_W                  -- the ordinary cell
-local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them,
-                                        -- so the rows line up on one grid instead of drifting
+-- FOUR WIDTHS DOWN THE PYRAMID, all of them dividing ONE span, so no row drifts against another.
+-- Arn, 30 Sep, looking at a 40-man in tanks mode: "third row max 4 cells, 4th row max 4 cells,
+-- 5th row and below 8 cells half size of 3rd and 4th cell".
+--
+--   row 1      1 cell   at FULL_W    the apex, two ordinary cells wide
+--   row 2      2 cells  at FULL_W
+--   rows 3-4   4 cells  at MID_W     = an ordinary cell
+--   rows 5+    8 cells  at TAIL_W    = half of one, which is what he asked for
+--
+-- SPAN is the width of row 2 and every row fits inside it: 2 FULL_W and the gap between them.
+-- MID_W and TAIL_W are worked out FROM the span rather than guessed, so four mediums and eight
+-- smalls both come to exactly the same line as the two cells above them. Before this the shape
+-- was {1, 2, 6} and the sixes were ordinary cells, which made every row below the second wider
+-- than the pyramid it was supposed to sit in.
+local FULL_W = 2 * FRAME_W + PAD        -- exactly two ordinary cells and the gap between them
+local SPAN   = 2 * FULL_W + PAD         -- the widest row: what everything else divides
+local MID_W  = math.floor((SPAN - 3 * PAD) / 4)
+local TAIL_W = math.floor((SPAN - 7 * PAD) / 8)
+local SHAPE  = { 1, 2, 4, 4 }           -- cells in each row; rows past the last repeat TAIL
+local WIDTH  = { FULL_W, FULL_W, MID_W, MID_W }
+local TAIL   = 8
+local HALF_W = FRAME_W                  -- the ordinary cell, still what a non-pyramid grid uses
 -- TANKS, THEN DAMAGE, THEN THE HEALERS AT THE BOTTOM. Arn, 23 Sep: "when we arrange by tanks.
 -- lets do tanks dps and healers at the bottom". The healers were second when the pyramid was
 -- built; in a fight the people you watch hardest are the tank and whoever is standing in the
@@ -100,8 +116,11 @@ function FG.Pyramid(n)
     while i <= n do
         local cap = SHAPE[r] or TAIL
         local count = math.min(cap, n - i + 1)
+        local w = WIDTH[r] or TAIL_W
         for c = 1, count do
-            out[i] = { row = r, col = c, count = count, wide = WIDE[r] and true or false }
+            -- `w` is the width this cell is drawn at; `wide` is kept as the old yes/no for
+            -- anything still asking "is this one of the big top rows"
+            out[i] = { row = r, col = c, count = count, w = w, wide = w == FULL_W }
             i = i + 1
         end
         r = r + 1
@@ -1024,9 +1043,45 @@ function FG.TextMode()
     return "missing"
 end
 
+--- DEAD, OR NOT THERE AT ALL. Arn, 30 Sep, with a screenshot of EllesmereUI's raid frames: "it
+--- shows when they are dead and offline". Their own note beside the same pair is what made this
+--- safe to write: "UnitIsDeadOrGhost / UnitIsConnected return clean booleans for group units
+--- (only UnitIsAFK can be secret)" - so unlike health, these two can simply be asked.
+---
+--- Guarded anyway, because this addon asks before it reads and a measurement is not a promise: a
+--- word the client will not confirm is not shown, and the cell falls back to its number.
+--- "Offline" wins over "dead": a corpse that logged out is a person who is not coming back to it.
+function FG.StatusWord(unit)
+    if not unit then return nil end
+    if UnitIsConnected then
+        local ok, connected = pcall(UnitIsConnected, unit)
+        local plain = ok and NS.Plain(connected)
+        if plain == false then return "OFFLINE" end
+    end
+    if UnitIsDeadOrGhost then
+        local ok, dead = pcall(UnitIsDeadOrGhost, unit)
+        if ok and NS.Plain(dead) == true then return "DEAD" end
+    end
+    return nil
+end
+
 function FG.PaintText(f)
     local label, unit = f.htext, f.unit
     if not label then return false end
+    -- THE WORD INSTEAD OF THE NUMBER, which is what EllesmereUI does: how much health a corpse is
+    -- missing is not a question anybody has, and the two sharing one line would print through
+    -- each other on an 84 pixel cell.
+    local word = FG.StatusWord(unit)
+    if word then
+        label:SetText(word)
+        if label.SetTextColor then label:SetTextColor(0.78, 0.78, 0.82) end
+        f.__status = word
+        return true
+    end
+    if f.__status then
+        f.__status = nil
+        if label.SetTextColor then label:SetTextColor(1, 0.55, 0.55) end   -- back to the red number
+    end
     local mode = FG.TextMode()
     local done = false
     if unit and mode == "missing" and UnitHealthMissing and C_StringUtil and C_StringUtil.TruncateWhenZero then
@@ -1144,7 +1199,7 @@ function FG.Layout(anchor)
         place = FG.Pyramid(#roster)
         -- the widest row sets the width, and every other row is centred in it
         for _, p in ipairs(place) do
-            local w = p.wide and FULL_W or HALF_W
+            local w = p.w or (p.wide and FULL_W or HALF_W)
             local rowW = p.count * w + (p.count - 1) * PAD
             if rowW > span then span = rowW end
         end
@@ -1155,7 +1210,7 @@ function FG.Layout(anchor)
         local w = FRAME_W
         if pyramid then
             local p = place[i]
-            w = p.wide and FULL_W or HALF_W
+            w = p.w or (p.wide and FULL_W or HALF_W)
             local rowW = p.count * w + (p.count - 1) * PAD
             local x = (span - rowW) / 2 + (p.col - 1) * (w + PAD)
             f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, -(p.row - 1) * (FRAME_H + PAD))

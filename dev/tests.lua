@@ -267,6 +267,14 @@ _G.UnitCanAttack = function(_, u)
     if STATE.hostileSecret then return secret() end
     return STATE.hostile[u] and true or false
 end
+-- IS THIS PERSON EVEN HERE? EllesmereUI's raid frames say of this pair: "UnitIsDeadOrGhost /
+-- UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret)" - which is
+-- a measurement, so the mock answers plainly unless a test asks it not to.
+STATE.offline = {}
+_G.UnitIsConnected = function(u)
+    if STATE.connectedSecret then return secret() end
+    return not STATE.offline[u]
+end
 _G.UnitIsDeadOrGhost = function(u)
     if STATE.deadSecret then return secret() end       -- a secret BOOLEAN, in combat
     return STATE.dead[u] and true or false
@@ -658,6 +666,42 @@ end
 STATE.dead.party1 = true
 FG.Paint(f)
 ok(f.bar.__color[1] > f.bar.__color[3], "a dead unit paints red, not class colour")
+
+-- AND IT SAYS SO IN WORDS. Arn, 30 Sep, with EllesmereUI's raid frames on screen: "it shows when
+-- they are dead and offline". The word takes the number's place - how much health a corpse is
+-- missing is not a question anybody has, and both on one 84 pixel line print through each other.
+ok(f.htext.__text == "DEAD", "and the cell says DEAD where the number goes", tostring(f.htext.__text))
+STATE.dead.party1 = nil
+STATE.offline.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE", "someone logged out says OFFLINE", tostring(f.htext.__text))
+STATE.dead.party1 = true
+FG.Paint(f)
+ok(f.htext.__text == "OFFLINE",
+   "and offline wins over dead - a corpse that logged out is not coming back to it",
+   tostring(f.htext.__text))
+STATE.dead.party1, STATE.offline.party1 = nil, nil
+FG.Paint(f)
+ok(f.htext.__text ~= "DEAD" and f.htext.__text ~= "OFFLINE",
+   "and alive and present, the number is back", tostring(f.htext.__text))
+-- AND IN THE NUMBER'S COLOUR. The word is grey and the number is red; without putting the colour
+-- back, a living raider's missing health stayed grey from the moment they first died.
+ok(f.htext.__color and f.htext.__color[1] > 0.9 and f.htext.__color[2] < 0.7,
+   "in the number's own colour, not the grey the word was left in",
+   f.htext.__color and table.concat(f.htext.__color, ","))
+
+-- A WORD THE CLIENT WILL NOT CONFIRM IS NOT SHOWN. Their note says these two are clean for group
+-- units, which is a measurement and not a promise; a secret answer falls back to the number.
+STATE.connectedSecret = true
+STATE.dead.party1 = true
+ok(pcall(FG.Paint, f), "a secret connection answer does not throw")
+ok(f.htext.__text == "DEAD", "a secret 'is he here' does not hide a dead man", tostring(f.htext.__text))
+STATE.connectedSecret = false
+STATE.deadSecret = true
+FG.Paint(f)
+ok(f.htext.__text ~= "DEAD", "and a secret 'is he dead' says nothing rather than guessing",
+   tostring(f.htext.__text))
+STATE.deadSecret = false
 STATE.dead.party1 = nil
 
 -- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
@@ -1198,10 +1242,33 @@ do
     end
     ok(rows(1) == "1", "solo: the apex alone", rows(1))
     ok(rows(5) == "1,2,2", "a party: apex, pair, and two below", rows(5))
-    ok(rows(25) == "1,2,6,6,6,4", "a 25-man: the base repeats in sixes", rows(25))
+    -- THE SHAPE, as Arn set it on 30 Sep looking at a 40-man: "third row max 4 cells, 4th row max
+    -- 4 cells, 5th row and below 8 cells half size of 3rd and 4th cell". It was 1,2 then sixes.
+    ok(rows(25) == "1,2,4,4,8,6", "a 25-man: a pair, two rows of four, then eights", rows(25))
+    ok(rows(40) == "1,2,4,4,8,8,8,5", "and a 40-man fills the eights", rows(40))
     local p = FG.Pyramid(9)
+    -- p1 is the apex, p2 and p3 are the pair on row two, p4 begins row three
     ok(p[1].wide and p[2].wide and p[3].wide and not p[4].wide,
-       "the apex and the pair are full width, the rows under them are not")
+       "the apex and the pair are full width; the rows under them are not")
+
+    -- AND EVERY ROW DIVIDES ONE SPAN. Four of row three and eight of row five come to the same
+    -- line as the two cells of row two - otherwise the rows drift against each other and the
+    -- thing stops being a pyramid.
+    local wide = FG.Pyramid(40)
+    local function span(row)
+        local n, w = 0, 0
+        for _, q in ipairs(wide) do if q.row == row then n = n + 1; w = q.w end end
+        return n * w + (n - 1) * 3
+    end
+    ok(span(2) == span(3), "row three is as wide as row two", span(2) .. " vs " .. span(3))
+    ok(math.abs(span(5) - span(3)) <= 4, "and so is row five", span(5) .. " vs " .. span(3))
+    local mid, tail
+    for _, q in ipairs(wide) do
+        if q.row == 3 then mid = q.w elseif q.row == 5 then tail = q.w end
+    end
+    ok(tail * 2 <= mid + 4 and tail * 2 >= mid - 4,
+       "and a row-five cell is half a row-three cell, which is what was asked for",
+       tail .. " vs " .. mid)
 
     -- THE ORDER: tanks first, then damage, then the healers, and raid order kept inside each.
     -- Arn, 23 Sep: "tanks dps and healers at the bottom" - in a fight you watch the tank and

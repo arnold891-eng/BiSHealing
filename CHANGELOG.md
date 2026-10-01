@@ -1,5 +1,13 @@
 # BiS Healing
 
+## 0.7.1
+
+- **The pyramid has a proper shape.** Rows three and four hold four cells each, and every row below
+  them holds eight at half that width — so a 40-man reads as a pyramid instead of six-wide rows
+  that overhung the pair above them. Every row now divides exactly the same span.
+- **Cells say DEAD and OFFLINE**, where the health number goes. How much health a corpse is missing
+  is not a question anybody has.
+
 ## 0.7.0
 
 - **Enemies no longer look like friendlies.** The target cell and its tot go red for anything you

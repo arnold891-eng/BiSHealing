@@ -1,5 +1,17 @@
 # BiS Healing
 
+## 0.7.2
+
+- **Fixed: nobody was ever dimmed for being out of range.** The game was asked with the spell's
+  *name*, and for a spell it cannot range-check it answers "don't know" — which was being read as
+  "in range", so the whole raid stayed bright. It now asks with the spell's id, falls back to the
+  name, and then to asking about the unit instead of the spell. `/bish range` says which of those
+  answered.
+- **Melee up top, casters at the bottom.** Inside each role, so tanks still hold the apex and
+  healers still hold the base — it decides the order of everyone in between, where a raid's melee
+  and casters mix. Melee stand in whatever the boss is doing, so they belong where your eye is.
+- **A gold frame around you, a yellow one around the other healers.**
+
 ## 0.7.1
 
 - **The pyramid has a proper shape.** Rows three and four hold four cells each, and every row below

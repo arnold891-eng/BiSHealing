@@ -109,6 +109,24 @@ local HALF_W = FRAME_W                  -- the ordinary cell, still what a non-p
 -- fire, and your fellow healers are the ones you glance at last.
 local ROLE_RANK = { TANK = 1, DAMAGER = 2, HEALER = 3 }
 
+-- MELEE UP TOP, CASTERS AT THE BOTTOM. Arn, 30 Sep: "favor melee classes up top and caster at the
+-- bottom of pyramid". It sorts WITHIN a role, so the tanks keep the apex and the healers keep the
+-- base; it only decides the order of the damage between them, which is where a raid's melee and
+-- its casters actually mix.
+--
+-- WHY IT IS WORTH ANYTHING TO A HEALER: melee stand in whatever the boss is doing. The people who
+-- take avoidable damage are the people you want nearest the top of the shape, where your eye is.
+--
+-- CLASS, NOT SPEC, because a spec is not a thing this client will tell you about anybody else.
+-- A druid or a shaman in the DAMAGE band is feral or enhancement far more often than not - the
+-- caster ones are healing, and the role sort has already taken them to the bottom. A hunter is
+-- ranged. A class the client is hiding sorts in the middle: no guess either way.
+local MELEE_RANK = {
+    WARRIOR = 1, ROGUE = 1, PALADIN = 1, DEATHKNIGHT = 1, MONK = 1, DEMONHUNTER = 1,
+    DRUID = 1, SHAMAN = 1,
+    HUNTER = 3, MAGE = 3, WARLOCK = 3, PRIEST = 3, EVOKER = 3,
+}
+
 --- Where each of `n` cells goes: its row, its place in the row, how many share the row, and
 --- whether the row is full width. Pure - no frames - so it can be asked without a client.
 function FG.Pyramid(n)
@@ -192,10 +210,14 @@ function FG.ByRole(roster)
             local ok, mt = pcall(GetPartyAssignment, "MAINTANK", u)
             if ok and NS.Plain(mt) then rank = 1 end
         end
-        keyed[i] = { unit = u, rank = rank, at = i }
+        -- and melee before casters inside the role. The class can be secret in a fight; this runs
+        -- out of combat, and an answer we cannot read sorts in the middle rather than guessing.
+        local class = UnitClass and NS.Plain(select(2, UnitClass(u))) or nil
+        keyed[i] = { unit = u, rank = rank, reach = MELEE_RANK[class or ""] or 2, at = i }
     end
     table.sort(keyed, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
+        if a.reach ~= b.reach then return a.reach < b.reach end
         return a.at < b.at
     end)
     local out = {}
@@ -1448,7 +1470,46 @@ function FG.Paint(f)
     --
     -- The modern one answers true/false, the old one 1/0. Both are handled, because "which shape
     -- does this client answer in" is not a question worth a version check.
+    FG.PaintEdge(f, unit)
     FG.PaintRange(f, unit)
+end
+
+-- A FRAME ROUND THE PEOPLE WHO MATTER TO A HEALER. Arn, 30 Sep: "yellow frame around the healers
+-- and a gold frame around self".
+--
+-- IT COSTS NOTHING TO DRAW. The health bar is already inset by a pixel, so the cell's own
+-- background shows as a ring around it - colouring that background IS the frame. No extra
+-- textures, no second frame per cell, nothing to lay out: forty raid cells cost forty SetColor
+-- calls that were happening anyway.
+FG.EDGE = {
+    me     = { 1.00, 0.78, 0.20 },     -- gold: you
+    healer = { 0.93, 0.90, 0.35 },     -- yellow: whoever else is keeping people alive
+    none   = { 0.08, 0.08, 0.08 },     -- the ordinary dark hairline
+}
+
+--- Which ring this cell wears. Role and identity both go secret in a fight, so each cell keeps
+--- the last answer it got rather than flickering between gold and nothing every time the client
+--- stops talking - the ring is about who someone IS, and that does not change mid-pull.
+function FG.PaintEdge(f, unit)
+    if not (f and f.bg and unit) then return nil end
+    local kind
+    if UnitIsUnit then
+        local ok, mine = pcall(UnitIsUnit, unit, "player")
+        if ok and NS.Plain(mine) == true then kind = "me" end
+    end
+    if not kind and unit == "player" then kind = "me" end
+    if not kind and UnitGroupRolesAssigned then
+        local ok, role = pcall(UnitGroupRolesAssigned, unit)
+        local plain = ok and NS.Plain(role)
+        if plain == "HEALER" then kind = "healer"
+        elseif plain then kind = "none" end            -- a role we CAN read and it is not a healer
+    end
+    kind = kind or f.__edge                            -- unreadable: keep what it last was
+    if not kind then return nil end
+    f.__edge = kind
+    local c = FG.EDGE[kind] or FG.EDGE.none
+    f.bg:SetColorTexture(c[1], c[2], c[3], 0.9)
+    return kind
 end
 
 -- What a cell wears when the unit in it can be attacked. Not the dead grey and not a class
@@ -1510,14 +1571,30 @@ FG.DIM = 0.45
 FG.rangeSeen = nil        -- what the last read was: "plain", "secret", "refused" or "no spell"
 
 function FG.PaintRange(f, unit)
-    local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
+    local spell, spellID
+    if NS.FM and NS.FM.RangeSpell then spell, spellID = NS.FM.RangeSpell() end
     local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
     if not (range and spell) then
         FG.rangeSeen = "no spell"
         f:SetAlpha(1)
         return 1, "no spell"
     end
-    local asked, answer = pcall(range, spell, unit)
+    -- THE ID FIRST, THE NAME AFTER. EllesmereUI passes ids to this call, and a name it cannot
+    -- resolve answers nil - which this code used to read as "not a clear no, so leave them bright".
+    -- Arn, 30 Sep: a whole raid at full alpha.
+    local asked, answer = pcall(range, spellID or spell, unit)
+    if asked and answer == nil and spellID then
+        asked, answer = pcall(range, spell, unit)        -- the name, in case the id was wrong
+    end
+    -- AND IF IT STILL WILL NOT SAY, ASK A DIFFERENT QUESTION. "Is this spell in range" is nil for
+    -- a spell the client will not range-check at all (a smart heal, a ground target, anything
+    -- odd). UnitInRange answers for the unit rather than the spell - about 40 yards, near enough
+    -- for a healer - and on this client it is the SECRET boolean, which is what the ternary below
+    -- is for. Their frames fall back the same way.
+    if asked and answer == nil and UnitInRange then
+        asked, answer = pcall(UnitInRange, unit)
+        if asked then FG.rangeSeen = "unit" end
+    end
     if not asked then
         FG.rangeSeen = "refused"
         f:SetAlpha(1)
@@ -1546,9 +1623,10 @@ function FG.PaintRange(f, unit)
     -- the plain answer: the modern call says true/false, the old one 1/0, and anything that is
     -- not a clear "no" leaves the cell bright rather than dimming someone who is reachable
     local reach = (answer == 0 or answer == false) and FG.DIM or 1
-    FG.rangeSeen = "plain"
+    -- nil from everything that could answer: nobody is dimmed, and /bish range says which it was
+    if answer == nil then FG.rangeSeen = "no answer" else FG.rangeSeen = FG.rangeSeen == "unit" and "unit" or "plain" end
     f:SetAlpha(reach)
-    return reach, "plain"
+    return reach, FG.rangeSeen
 end
 
 --------------------------------------------------------------------- driving --

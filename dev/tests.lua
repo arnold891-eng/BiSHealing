@@ -141,7 +141,15 @@ local function newFrame(kind, name, parent)
     -- like the client's, and like the frames above.
     function f:CreateTexture()
         return autoMethods({
-            SetColorTexture = function() end,
+            -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
+            -- colour is that cell's ring" had no answer at all - the same shape of lie as the
+            -- font string that accepted a colour with no green in it (26 Sep).
+            SetColorTexture = function(t, r, g, b, a)
+                if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
+                    error("bad argument to SetColorTexture: needs r, g, b numbers", 2)
+                end
+                t.__color = { r, g, b, a }
+            end,
             SetWidth  = function(t, w) t.__w = w end,
             SetHeight = function(t, h) t.__h = h end,
             SetSize   = function(t, w, h) t.__w, t.__h = w, h end,
@@ -284,9 +292,24 @@ _G.UnitHealthMax = function(u) if u == "player" then return 297 end return secre
 -- IN COMBAT THE ANSWER IS A SECRET, like everything else about somebody else. It used to answer
 -- plainly always, so "the dimming works" was only ever proved for the half of the time it is not
 -- needed - and the pcall round it swallowed the refusal in the other half without a word.
-_G.IsSpellInRange = function(_, u)
+-- WHAT IT WAS ASKED WITH, recorded. EllesmereUI passes spell IDS to this call and their notes
+-- say a spell it cannot answer for leaves everyone at full alpha - so "did we ask with the id or
+-- the name" is the question, and a mock that ignores its first argument cannot be asked it.
+STATE.rangeAsked = {}
+STATE.rangeNil = false          -- the client declining to answer, which is a real shape
+_G.IsSpellInRange = function(ident, u)
+    STATE.rangeAsked[#STATE.rangeAsked + 1] = ident
     if STATE.rangeSecret then return secret() end
+    if STATE.rangeNil then return nil end
     return STATE.range[u] == 0 and 0 or 1
+end
+-- THE OTHER QUESTION: about the unit rather than the spell. On this client it is the secret
+-- boolean, which is the whole reason the grid can use it at all now.
+STATE.unitRange = {}
+_G.UnitInRange = function(u)
+    if STATE.unitRangeSecret then return secret() end
+    if STATE.unitRange[u] == nil then return nil end
+    return STATE.unitRange[u] and true or false
 end
 -- the client's ternary: it picks one of two values from a boolean nobody else may test
 _G.C_CurveUtil = _G.C_CurveUtil or {}
@@ -712,6 +735,47 @@ ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls",
 STATE.range.party1 = nil
 FG.Paint(f)
 ok(f:GetAlpha() == 1, "back in range, full alpha")
+
+-- ASKED WITH THE SPELL ID, NOT ITS NAME. Arn, 30 Sep: a whole raid at full alpha, nobody dimmed.
+-- EllesmereUI passes ids, and their note names the failure exactly - a spell the call cannot
+-- answer for "stranded Evoker frames at full alpha", because nil is not "no" and the cell stays
+-- bright. The name was all this ever passed.
+do
+    STATE.rangeAsked = {}
+    STATE.range.party1 = 0
+    FG.Paint(f)
+    local asked = STATE.rangeAsked[1]
+    ok(type(asked) == "number", "the range call is asked with a spell id, not a name", tostring(asked))
+
+    -- AND WHEN IT WILL NOT ANSWER, A DIFFERENT QUESTION. nil means "cannot say about this spell";
+    -- UnitInRange answers about the unit instead, and this client makes THAT one a secret - which
+    -- is what the client's own ternary is for.
+    STATE.rangeNil = true
+    STATE.unitRange.party1 = false
+    f:SetAlpha(1)
+    FG.Paint(f)
+    ok(f:GetAlpha() == FG.DIM, "a spell it will not range-check falls back to the unit", f:GetAlpha())
+    ok(FG.rangeSeen == "unit", "and says which question it ended up asking", tostring(FG.rangeSeen))
+
+    STATE.unitRangeSecret = true
+    f:SetAlpha(1)
+    ok(pcall(FG.Paint, f), "a secret answer from that one does not throw either")
+    ok(getmetatable(f.__alpha) == getmetatable(secret()),
+       "it goes through the client's ternary like the other secret did")
+    STATE.unitRangeSecret = false
+
+    -- nothing can answer: nobody is dimmed, and the state says so rather than guessing
+    STATE.unitRange.party1 = nil
+    f:SetAlpha(FG.DIM)
+    FG.Paint(f)
+    ok(f:GetAlpha() == 1 and FG.rangeSeen == "no answer",
+       "with nothing able to answer, nobody is dimmed and /bish range says so",
+       tostring(FG.rangeSeen))
+
+    STATE.rangeNil = false
+    STATE.range.party1 = nil
+    FG.Paint(f)
+end
 
 -- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. This is the half that has never worked: "are
 -- they in range" goes secret with everything else, the pcall round it swallowed the refusal, and
@@ -1280,6 +1344,54 @@ do
     ok(by == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
        "tanks, then damage, then healers, then nobody - and nobody reshuffled within a role", by)
 
+    -- AND MELEE ABOVE CASTERS INSIDE A ROLE. Arn, 30 Sep: "favor melee classes up top and caster
+    -- at the bottom of pyramid". Melee stand in whatever the boss is doing, so they belong where
+    -- the eye already is. The role sort still wins: a caster tank is above a melee dps.
+    local realClass = _G.UnitClass
+    local CLASS = { raid1 = "MAGE", raid4 = "ROGUE", raid3 = "WARRIOR", raid5 = "PRIEST",
+                    raid2 = "PRIEST", raid7 = "DRUID", raid6 = "HUNTER" }
+    _G.UnitClass = function(u)
+        if STATE.classSecret then return secret(), secret() end
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local mixed = table.concat(FG.ByRole(raid), " ")
+    ok(mixed == "raid3 raid5 raid4 raid1 raid7 raid2 raid6",
+       "melee first inside each role, and the roles themselves unchanged", mixed)
+    ok(mixed:find("raid3 raid5", 1, true) == 1,
+       "the tanks keep the top whatever they are", mixed)
+
+    -- A CLASS THE CLIENT HIDES SORTS IN THE MIDDLE, between the melee and the casters - not with
+    -- either. With EVERY class hidden they all land together and the order cannot change, so this
+    -- needs a mixed group: one rogue, one hidden, one mage, all three in the damage band.
+    STATE.roles.raid6 = "DAMAGER"
+    _G.UnitClass = function(u)
+        if u == "raid6" then return secret(), secret() end        -- this one only
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local middle = table.concat(FG.ByRole(raid), " ")
+    ok(middle:find("raid4 raid6 raid1", 1, true) ~= nil,
+       "a hidden class sorts between the melee and the casters, not with them", middle)
+    -- AND THE OTHER WAY ROUND, because one arrangement can only catch one mistake: with the
+    -- hidden one FIRST in raid order, treating it as melee would put it above the rogue.
+    _G.UnitClass = function(u)
+        if u == "raid1" then return secret(), secret() end
+        if u == "raid6" then return "Mage", "MAGE" end
+        return CLASS[u] or "Shaman", CLASS[u] or "SHAMAN"
+    end
+    local firstHidden = table.concat(FG.ByRole(raid), " ")
+    ok(firstHidden:find("raid4 raid1 raid6", 1, true) ~= nil,
+       "and is not promoted above the melee just because it came first", firstHidden)
+    STATE.roles.raid6 = "NONE"
+
+    -- and with the lot hidden, nothing is reordered beyond the roles
+    STATE.classSecret = true
+    _G.UnitClass = function() return secret(), secret() end
+    local hidden = table.concat(FG.ByRole(raid), " ")
+    ok(hidden == "raid3 raid5 raid1 raid4 raid2 raid7 raid6",
+       "with every class hidden, nothing is reordered beyond the roles", hidden)
+    STATE.classSecret = false
+    _G.UnitClass = realClass
+
     -- IN COMBAT a role is a secret; the sort must survive it and not reorder on a guess
     STATE.roleSecret = true
     local blind = table.concat(FG.ByRole(raid), " ")
@@ -1547,6 +1659,63 @@ do
     ok(NS.DO.pets("off") == "off", "and /bish pets off turns them off again")
     STATE.units.pet, STATE.units.partypet1 = nil, nil
     FG.Layout(FG.anchor)
+end
+
+-- A FRAME ROUND THE PEOPLE WHO MATTER. Arn, 30 Sep: "yellow frame around the healers and a gold
+-- frame around self". The bar is inset by a pixel, so the cell's background shows as a ring - and
+-- colouring that background is the whole implementation.
+do
+    local cell = FG.frames[1]
+    local realIsUnit = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
+    STATE.roles = { player = "HEALER", party1 = "HEALER", party2 = "DAMAGER" }
+
+    cell.unit = "party1"
+    FG.PaintEdge(cell, "party1")
+    ok(cell.bg.__color and math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01
+       and math.abs(cell.bg.__color[3] - FG.EDGE.healer[3]) < 0.01,
+       "another healer gets the yellow ring", cell.bg.__color and table.concat(cell.bg.__color, ","))
+
+    FG.PaintEdge(cell, "player")
+    ok(math.abs(cell.bg.__color[1] - FG.EDGE.me[1]) < 0.01
+       and math.abs(cell.bg.__color[3] - FG.EDGE.me[3]) < 0.01,
+       "you get the gold one", table.concat(cell.bg.__color, ","))
+    ok(FG.EDGE.me[3] ~= FG.EDGE.healer[3], "and the two are not the same colour")
+
+    FG.PaintEdge(cell, "party2")
+    ok(math.abs(cell.bg.__color[1] - FG.EDGE.none[1]) < 0.01,
+       "everyone else keeps the dark hairline", table.concat(cell.bg.__color, ","))
+
+    -- THROUGH FG.Paint, not just by hand: a cell is painted by the loop, and a test that only
+    -- ever calls the painter directly lets the CALL be deleted without noticing.
+    cell.unit = "party1"
+    cell.bg.__color = nil
+    FG.Paint(cell)
+    ok(cell.bg.__color and math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01,
+       "and the ordinary paint puts the ring on", cell.bg.__color and cell.bg.__color[1])
+
+    -- WITHOUT UnitIsUnit AT ALL, your own cell is still yours. That call can be missing or secret;
+    -- the unit token "player" is neither.
+    _G.UnitIsUnit = nil
+    FG.PaintEdge(cell, "player")
+    ok(math.abs(cell.bg.__color[1] - FG.EDGE.me[1]) < 0.01,
+       "with no UnitIsUnit on the client, the player token is enough",
+       table.concat(cell.bg.__color, ","))
+    _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
+
+    -- A ROLE THE CLIENT HIDES KEEPS THE LAST RING. Who someone IS does not change mid-pull, and a
+    -- cell that flickers between gold and nothing every time the client goes quiet is worse than
+    -- one that holds still.
+    FG.PaintEdge(cell, "party1")
+    STATE.roleSecret = true
+    ok(FG.PaintEdge(cell, "party1") == "healer",
+       "a hidden role keeps the ring it had", tostring(FG.PaintEdge(cell, "party1")))
+    ok(math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01, "and the colour with it")
+    STATE.roleSecret = false
+
+    STATE.roles = nil
+    _G.UnitIsUnit = realIsUnit
+    cell.unit = "party1"
 end
 
 -- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells

@@ -352,10 +352,23 @@ end
 --- This is why the grid holds no spell names at all now. The range that matters is the range of
 --- the thing your click would actually cast, which is a different spell for every class and a
 --- different spell again when you drag something new onto the mouse.
+--- AND ITS SPELL ID, because a NAME is not what this call wants. EllesmereUI passes ids
+--- (`C_Spell.IsSpellInRange(361469, unit)`) and their notes say why it matters: a spell the call
+--- cannot answer for "stranded Evoker frames at full alpha" - which is exactly what Arn reported
+--- on 30 Sep, a raid with nobody dimmed.
+---
+--- Second return: ANY id this character has for the spell. Not the bound rank's - every rank of a
+--- heal has the same range, so matching it was a branch with nothing behind it (a mutation that
+--- removed it changed no answer, which is the test telling you the code is pretending). nil when
+--- the book has not answered yet, and then the name is all there is to try.
 function FM.RangeSpell()
     local cast = FM.Get("", "left") or FM.Get("", "right")
     if not cast then return nil end
-    return (FM.Split(cast))
+    local name = FM.Split(cast)
+    for _, r in ipairs(FM.Ranks(name) or {}) do
+        if r.id then return name, r.id end
+    end
+    return name
 end
 
 --- EVERY RANK OF A SPELL THIS CHARACTER KNOWS, oldest first, by walking the spellbook.

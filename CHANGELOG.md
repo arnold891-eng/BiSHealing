@@ -2,10 +2,36 @@
 
 ## 0.7.6
 
-- **Cells say AFK too**, after DEAD and OFFLINE — it is the only one of the three you can still
-  heal through, so it never hides either of the others. Unlike those two the game can keep it
-  secret during a fight, and when it does the cell shows the health number instead of a word that
-  might be ten minutes old.
+Everything since 0.7.0, which is the last version that reached CurseForge. The six in between were
+built and tagged but never uploaded, so their fixes arrive here.
+
+- **Out-of-range cells dim again — and this time they really do.** Two separate things were wrong.
+  The game was asked with the spell's *name*, and for a spell it cannot range-check it answers
+  "don't know", which was being read as "in range", so the whole raid stayed bright. And the range
+  was only ever measured with whatever sits on left or right click — if your heals live on the wheel
+  or a thumb button, nothing was measured at all. It now asks with the spell's id, falls back to the
+  name and then to the unit, and measures with anything you have bound. `/bish range` says which of
+  those answered.
+- **The pyramid has a proper shape.** Rows three and four hold four cells each, and every row below
+  them holds eight at half that width — so a 40-man reads as a pyramid instead of six-wide rows
+  overhanging the pair above them. Every row divides exactly the same span.
+- **The half-size cells show a name again.** At 40 pixels wide the role icon was taking a third of
+  the line, leaving room for about four letters. Those cells drop the icon — in a pyramid the shape
+  already says the role, tanks at the apex and healers along the base — and the name takes the full
+  width, cut to what the cell can actually hold.
+- **Melee up top, casters at the bottom**, inside each role, so tanks still hold the apex and
+  healers still hold the base. It decides the order of everyone in between, where a raid's melee and
+  casters mix: melee stand in whatever the boss is doing, so they belong where your eye already is.
+- **A gold outline around you, and a yellow one around the other healers.** An outline, not a tint —
+  the cell's colours still mean what they always meant.
+- **Cells say DEAD, OFFLINE and AFK**, where the health number goes. How much health a corpse is
+  missing is not a question anybody has. AFK never hides the other two, because it is the only one
+  of the three you can still heal through; and unlike those two the game can keep it secret during a
+  fight, so when it does the cell shows the health number rather than a word that might be ten
+  minutes old.
+- **Fixed: chat lines printed `%s`** instead of the thing they were meant to say. Anything that
+  included a value said its own punctuation instead — `/bish range` worst of all, which is the one
+  you use to work out why nothing is dimming.
 
 ## 0.7.5
 

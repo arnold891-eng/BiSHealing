@@ -398,8 +398,8 @@ end
 function NS.DO.range()
     local FG = NS.FG
     local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
-    Print("range is measured with |cffb980ff%s|r, whatever is on your left button",
-        tostring(spell or "nothing - bind a spell to left click"))
+    Print("range is measured with |cffb980ff%s|r - whatever you have bound, left click first",
+        tostring(spell or "nothing - nothing is bound at all"))
     local call = (C_Spell and C_Spell.IsSpellInRange and "C_Spell.IsSpellInRange")
         or (IsSpellInRange and "IsSpellInRange") or "no call on this client"
     Print("  asking: |cffb980ff%s|r", call)

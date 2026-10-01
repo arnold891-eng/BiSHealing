@@ -362,7 +362,22 @@ end
 --- removed it changed no answer, which is the test telling you the code is pretending). nil when
 --- the book has not answered yet, and then the name is all there is to try.
 function FM.RangeSpell()
+    -- LEFT AND RIGHT FIRST, then ANYTHING BOUND. Arn, 30 Sep, with /bish range answering "range is
+    -- measured with nothing": his heals live on the wheel and the thumb buttons, and nothing at
+    -- all is on left or right click. This looked at those two and gave up - so the dimming has
+    -- never once run for him, on any character, since the day it was written.
+    --
+    -- Any heal he has bound answers the range question about as well as any other: they are all
+    -- 40 yards, and "can I reach them with what I cast" is the question either way. Left and right
+    -- stay first because that is what the hand reaches for.
     local cast = FM.Get("", "left") or FM.Get("", "right")
+    if not cast then
+        for _, slot in ipairs(FM.SLOTS) do
+            for _, m in ipairs(FM.MODS) do
+                cast = cast or FM.Get(m.key, slot.key)
+            end
+        end
+    end
     if not cast then return nil end
     local name = FM.Split(cast)
     for _, r in ipairs(FM.Ranks(name) or {}) do

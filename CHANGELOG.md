@@ -1,5 +1,15 @@
 # BiS Healing
 
+## 0.7.5
+
+- **Fixed: out-of-range cells still never dimmed.** The range was measured with whatever is on
+  left or right click — and if your heals live on the wheel or a thumb button, that is nothing at
+  all, so the check gave up before it began. It now measures with anything you have bound, left
+  click first.
+- **The gold and yellow rings are an outline again.** They were painted on the cell's backdrop,
+  which a health bar only covers as far as the health goes — so the colour filled whatever part of
+  the cell was missing health.
+
 ## 0.7.4
 
 - **Fixed: chat lines printed `%s` instead of the thing they were meant to say.** Anything the

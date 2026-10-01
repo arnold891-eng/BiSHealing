@@ -760,6 +760,42 @@ STATE.range.party1 = nil
 FG.Paint(f)
 ok(f:GetAlpha() == 1, "back in range, full alpha")
 
+-- THE RANGE SPELL IS WHATEVER IS BOUND, not only left or right click. Arn, 30 Sep, with /bish
+-- range finally able to answer him: "range is measured with nothing - bind a spell to left click".
+-- His heals are on the wheel and the thumbs; left and right are empty. The dimming had never run
+-- for him once, on any character, since the day it was written - and every test of it had put a
+-- spell on left click first, which is the one arrangement that hid the bug.
+do
+    local d = NS.DB()
+    local kept = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }          -- a wheel healer, like his
+    local name, id = NS.FM.RangeSpell()
+    ok(name == "Healing Wave",
+       "with nothing on left or right click, the wheel answers for range", tostring(name))
+
+    d.binds = { ["shift-button5"] = "Chain Heal(Rank 1)" }      -- and a thumb, under a modifier
+    ok(NS.FM.RangeSpell() == "Chain Heal", "so does a thumb button with a modifier",
+       tostring(NS.FM.RangeSpell()))
+
+    -- left click still wins when there IS one: it is what the hand reaches for
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 3)", ["wheelup"] = "Healing Wave(Rank 2)" }
+    ok(NS.FM.RangeSpell() == "Lesser Healing Wave", "left click comes first when it is bound",
+       tostring(NS.FM.RangeSpell()))
+
+    -- PLAIN RIGHT CLICK BEATS SHIFT-LEFT. The sweep below walks slot by slot and would take
+    -- shift-left first, because left comes first in the list - but a bare right click is the one
+    -- a hand actually reaches for, and that is what the two named checks are there to prefer.
+    d.binds = { ["shift-left"] = "Chain Heal(Rank 1)", ["right"] = "Healing Wave(Rank 2)" }
+    ok(NS.FM.RangeSpell() == "Healing Wave",
+       "a bare right click is preferred over a modifier on the left",
+       tostring(NS.FM.RangeSpell()))
+
+    -- and a mouse with nothing on it at all says so, rather than naming something
+    d.binds = {}
+    ok(NS.FM.RangeSpell() == nil, "an empty mouse measures nothing", tostring(NS.FM.RangeSpell()))
+    d.binds = kept
+end
+
 -- ASKED WITH THE SPELL ID, NOT ITS NAME. Arn, 30 Sep: a whole raid at full alpha, nobody dimmed.
 -- EllesmereUI passes ids, and their note names the failure exactly - a spell the call cannot
 -- answer for "stranded Evoker frames at full alpha", because nil is not "no" and the cell stays
@@ -1761,37 +1797,62 @@ do
     _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
     STATE.roles = { player = "HEALER", party1 = "HEALER", party2 = "DAMAGER" }
 
+    -- FOUR LINES ABOVE THE BAR, NOT THE BACKDROP. The backdrop was the first attempt and lasted
+    -- an hour: a StatusBar only paints up to its value, so the backdrop shows through wherever the
+    -- health is MISSING and the gold filled the empty half of the cell (Arn: "only the outline not
+    -- the whole cell"). The lines are their own textures, over the bar.
+    local function ringColour(c)
+        local t = c.edge and c.edge.top
+        return t and t.__shown and t.__color or nil
+    end
     cell.unit = "party1"
     FG.PaintEdge(cell, "party1")
-    ok(cell.bg.__color and math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01
-       and math.abs(cell.bg.__color[3] - FG.EDGE.healer[3]) < 0.01,
-       "another healer gets the yellow ring", cell.bg.__color and table.concat(cell.bg.__color, ","))
+    local ring = ringColour(cell)
+    ok(ring and math.abs(ring[1] - FG.EDGE.healer[1]) < 0.01
+       and math.abs(ring[3] - FG.EDGE.healer[3]) < 0.01,
+       "another healer gets the yellow ring", ring and table.concat(ring, ","))
+    ok(cell.bg.__color and cell.bg.__color[1] < 0.2,
+       "and the cell's own backdrop stays dark, so missing health is not gold",
+       cell.bg.__color and cell.bg.__color[1])
+    -- all four sides, not just the one a test happened to read: three of them were deletable
+    local lit = 0
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = cell.edge[side]
+        if t.__shown and t.__color and math.abs(t.__color[1] - FG.EDGE.healer[1]) < 0.01 then
+            lit = lit + 1
+        end
+    end
+    ok(lit == 4, "and it is a ring - all four sides lit, not one", lit)
 
     FG.PaintEdge(cell, "player")
-    ok(math.abs(cell.bg.__color[1] - FG.EDGE.me[1]) < 0.01
-       and math.abs(cell.bg.__color[3] - FG.EDGE.me[3]) < 0.01,
-       "you get the gold one", table.concat(cell.bg.__color, ","))
+    ring = ringColour(cell)
+    ok(ring and math.abs(ring[1] - FG.EDGE.me[1]) < 0.01
+       and math.abs(ring[3] - FG.EDGE.me[3]) < 0.01,
+       "you get the gold one", ring and table.concat(ring, ","))
     ok(FG.EDGE.me[3] ~= FG.EDGE.healer[3], "and the two are not the same colour")
 
     FG.PaintEdge(cell, "party2")
-    ok(math.abs(cell.bg.__color[1] - FG.EDGE.none[1]) < 0.01,
-       "everyone else keeps the dark hairline", table.concat(cell.bg.__color, ","))
+    ok(not (cell.edge.top.__shown and cell.edge.left.__shown),
+       "everyone else has no ring at all")
+    ok(cell.edge.top.__shown == false and cell.edge.bottom.__shown == false
+       and cell.edge.left.__shown == false and cell.edge.right.__shown == false,
+       "all four sides of it, not just the one a test looked at")
 
     -- THROUGH FG.Paint, not just by hand: a cell is painted by the loop, and a test that only
     -- ever calls the painter directly lets the CALL be deleted without noticing.
     cell.unit = "party1"
-    cell.bg.__color = nil
+    cell.edge.top.__color = nil
     FG.Paint(cell)
-    ok(cell.bg.__color and math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01,
-       "and the ordinary paint puts the ring on", cell.bg.__color and cell.bg.__color[1])
+    ok(ringColour(cell) and math.abs(ringColour(cell)[1] - FG.EDGE.healer[1]) < 0.01,
+       "and the ordinary paint puts the ring on", ringColour(cell) and ringColour(cell)[1])
 
     -- WITHOUT UnitIsUnit AT ALL, your own cell is still yours. That call can be missing or secret;
     -- the unit token "player" is neither.
     _G.UnitIsUnit = nil
     FG.PaintEdge(cell, "player")
-    ok(math.abs(cell.bg.__color[1] - FG.EDGE.me[1]) < 0.01,
+    ok(math.abs(ringColour(cell)[1] - FG.EDGE.me[1]) < 0.01,
        "with no UnitIsUnit on the client, the player token is enough",
-       table.concat(cell.bg.__color, ","))
+       table.concat(ringColour(cell), ","))
     _G.UnitIsUnit = function(a, b) return a == "player" and b == "player" end
 
     -- A ROLE THE CLIENT HIDES KEEPS THE LAST RING. Who someone IS does not change mid-pull, and a
@@ -1801,7 +1862,7 @@ do
     STATE.roleSecret = true
     ok(FG.PaintEdge(cell, "party1") == "healer",
        "a hidden role keeps the ring it had", tostring(FG.PaintEdge(cell, "party1")))
-    ok(math.abs(cell.bg.__color[1] - FG.EDGE.healer[1]) < 0.01, "and the colour with it")
+    ok(math.abs(ringColour(cell)[1] - FG.EDGE.healer[1]) < 0.01, "and the colour with it")
     STATE.roleSecret = false
 
     STATE.roles = nil

@@ -287,6 +287,26 @@ function FG.Make(i, parent)
     f.bg:SetAllPoints()
     f.bg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
 
+    -- THE RING IS FOUR LINES, NOT THE BACKDROP. It was the backdrop for about an hour: the bar is
+    -- inset by a pixel, so colouring the background showed as an outline - until somebody's health
+    -- dropped. A StatusBar only paints up to its value, so the backdrop shows through everywhere
+    -- the health ISN'T, and the gold filled the empty half of the cell. Arn, 30 Sep: "only the
+    -- outline not the whole cell".
+    --
+    -- OVERLAY, so the lines sit above the bar rather than behind it, and hidden until a cell is
+    -- told it is somebody worth ringing.
+    f.edge = {}
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = f:CreateTexture(nil, "OVERLAY")
+        t:SetColorTexture(1, 1, 1, 1)
+        t:Hide()
+        f.edge[side] = t
+    end
+    f.edge.top:SetPoint("TOPLEFT")      f.edge.top:SetPoint("TOPRIGHT")      f.edge.top:SetHeight(1)
+    f.edge.bottom:SetPoint("BOTTOMLEFT") f.edge.bottom:SetPoint("BOTTOMRIGHT") f.edge.bottom:SetHeight(1)
+    f.edge.left:SetPoint("TOPLEFT")     f.edge.left:SetPoint("BOTTOMLEFT")   f.edge.left:SetWidth(1)
+    f.edge.right:SetPoint("TOPRIGHT")   f.edge.right:SetPoint("BOTTOMRIGHT") f.edge.right:SetWidth(1)
+
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
     f.bar:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -1528,7 +1548,8 @@ end
 FG.EDGE = {
     me     = { 1.00, 0.78, 0.20 },     -- gold: you
     healer = { 0.93, 0.90, 0.35 },     -- yellow: whoever else is keeping people alive
-    none   = { 0.08, 0.08, 0.08 },     -- the ordinary dark hairline
+    -- and no entry for "none": everybody else has no ring, which is what the cell looked like
+    -- before any of this
 }
 
 --- Which ring this cell wears. Role and identity both go secret in a fight, so each cell keeps
@@ -1551,8 +1572,16 @@ function FG.PaintEdge(f, unit)
     kind = kind or f.__edge                            -- unreadable: keep what it last was
     if not kind then return nil end
     f.__edge = kind
-    local c = FG.EDGE[kind] or FG.EDGE.none
-    f.bg:SetColorTexture(c[1], c[2], c[3], 0.9)
+    if not f.edge then return kind end
+    local c = FG.EDGE[kind]
+    for _, t in pairs(f.edge) do
+        if c then
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+            t:Show()
+        else
+            t:Hide()                                   -- "none": no ring at all, not a dark one
+        end
+    end
     return kind
 end
 

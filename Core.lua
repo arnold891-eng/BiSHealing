@@ -524,6 +524,35 @@ function NS.DO.ping(which)
             .. " is worth trying - that is a macro, and a macro is not us|r")
     end
 
+    -- THE ART, so the mouse window can show an icon instead of a word (Arn, 1 Oct). The client has
+    -- GetTextureKitForType; what it hands back, and what atlas names are built from it, is not
+    -- something to guess at - PingTextureType says the art comes in three pieces (Center, Expand,
+    -- Rotation), so each is asked for and C_Texture.GetAtlasInfo says which of them actually exist.
+    local kitOf = P.GetTextureKitForType
+    local atlasInfo = C_Texture and C_Texture.GetAtlasInfo
+    if type(kitOf) == "function" and type(Enum) == "table" and type(Enum.PingSubjectType) == "table" then
+        local order = {}
+        for name, val in pairs(Enum.PingSubjectType) do order[#order + 1] = { name = name, val = val } end
+        table.sort(order, function(a, b) return (tonumber(a.val) or 0) < (tonumber(b.val) or 0) end)
+        for _, e in ipairs(order) do
+            local gotKit, kit = pcall(kitOf, e.val)
+            local line = ("  %s=%s kit: |cffb980ff%s|r"):format(e.name, tostring(e.val),
+                gotKit and tostring(kit) or "refused")
+            if gotKit and type(kit) == "string" and atlasInfo then
+                local hits = {}
+                for _, suffix in ipairs({ "", "-center", "-expand", "-rotation", "-icon" }) do
+                    local okA, info = pcall(atlasInfo, kit .. suffix)
+                    if okA and type(info) == "table" then
+                        hits[#hits + 1] = (suffix == "" and "(bare)" or suffix)
+                    end
+                end
+                line = line .. "  atlas: " .. (#hits > 0
+                    and ("|cff4fd0cf" .. table.concat(hits, " ") .. "|r") or "|cfff08cb0none resolve|r")
+            end
+            Print("%s", line)
+        end
+    end
+
     if type(P.SendMacroPing) ~= "function" then
         Print("  %s", "|cfff08cb0no SendMacroPing - nothing to try|r")
         return false

@@ -5058,11 +5058,10 @@ end
 do
     local FM, FG = NS.FM, NS.FG
 
-    -- THE CELL HAS TO CLAIM IT CAN BE PINGED. Measured 1 Oct: with the macro firing correctly, the
-    -- ping still landed on the ground, because the ping system aims at frames that opted in rather
-    -- than at whatever the cursor happens to be over.
-    ok(FG.frames[1].__attrs["ping-receiver"] == true,
-       "a cell says it can be the target of a ping",
+    -- NOT ping-receiver: setting it stopped the ping happening at all (1 Oct). A cell must NOT
+    -- claim to be one on this client, so the suite holds the line the other way round.
+    ok(FG.frames[1].__attrs["ping-receiver"] == nil,
+       "a cell does not claim to be a ping receiver - it swallows the click on this client",
        tostring(FG.frames[1].__attrs["ping-receiver"]))
 
     ok(FM.PingOf("!ping:assist") == "assist", "a ping bind is recognised")

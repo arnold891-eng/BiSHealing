@@ -70,6 +70,58 @@ local function field(a, k)
     return NS.Plain(v)
 end
 
+--- The spell ids for something this character has trained, every rank. The book is already read
+--- for the mouse binds, and each rank is its own id -- so "Earth Shield" is several questions.
+local function idsFor(name)
+    local out = {}
+    if not (NS.FM and NS.FM.Ranks) then return out end
+    for _, r in ipairs(NS.FM.Ranks(name)) do
+        if type(r.id) == "number" then out[#out + 1] = r.id end
+    end
+    return out
+end
+
+--- WHO HAS EARTH SHIELD -- asked by spell id now, and the walk only as a fallback (1 Oct 2026).
+---
+--- The walk is the thing that hard-errors under instance restrictions, which is the one place a
+--- shaman most wants this answered: a raid, out of combat, between pulls. There `ShouldAurasBeSecret`
+--- says auras are not secret, so `Blind()` lets the scan run, and then every single
+--- `GetAuraDataByIndex` throws -- forty refusals per unit, and the whole question comes back
+--- "unsure". Silence, in exactly the situation the reminder exists for.
+---
+--- By id the client answers. See `NS.AuraById`: it is the one aura question that survives.
+---
+--- Returns unit-or-nil, unsure. `unsure` is the load-bearing half -- see NS.AnyAuraById.
+function FB.EarthShield(roster)
+    local ids = idsFor(EARTH_SHIELD)
+    if #ids > 0 and C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
+        -- recorded BEFORE the loop: finding the shield returns early, and `/bish byid` saying
+        -- "walk" right after a by-id answer is the kind of wrong that costs an evening
+        FB.esBy = "id"
+        local unsure = false
+        for _, unit in ipairs(roster) do
+            local up = NS.AnyAuraById(unit, ids)
+            if up == true then return unit, false end
+            if up == nil then unsure = true end
+        end
+        return nil, unsure
+    end
+
+    -- no by-id lookup on this client (TBC, or a beta older than the call): the old walk, which is
+    -- better than nothing out in the world and no worse than before anywhere else
+    FB.esBy = "walk"
+    local esOn, unsure = nil, false
+    for _, unit in ipairs(roster) do
+        local list, refused = auras(unit, "HELPFUL")
+        if refused then unsure = true end
+        for _, a in ipairs(list) do
+            local name = field(a, "name")
+            if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
+        end
+    end
+    return esOn, unsure
+end
+
 --- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
 --- chat may not be built from one.
 local function nameOf(unit)
@@ -94,15 +146,7 @@ function FB.Scan()
     -- 21 Sep), and one unguarded `if` on it throws the whole scan. What cannot be read is treated
     -- as not known: never "missing", never "empty", never "dead".
     if FB.Knows(EARTH_SHIELD) then
-        local esOn, unsure = nil, false
-        for _, unit in ipairs(roster) do
-            local list, refused = auras(unit, "HELPFUL")
-            if refused then unsure = true end
-            for _, a in ipairs(list) do
-                local name = field(a, "name")
-                if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
-            end
-        end
+        local esOn, unsure = FB.EarthShield(roster)
         if not esOn and not unsure then
             found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
         end

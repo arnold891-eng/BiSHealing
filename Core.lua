@@ -395,6 +395,54 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- WHAT WILL THIS CLIENT TELL ME ABOUT SOMEONE ELSE'S AURAS? (1 Oct 2026.)
+---
+--- Built the same way `/bish range` was, and for the same reason: the dimming was broken for nine
+--- days because nobody could see which branch ran. By-id aura lookups have exactly that shape --
+--- several roads, each failing silently in its own way -- so the client is asked to say out loud
+--- which one answered, on the unit you have selected.
+---
+--- NOT called `auras`: that is already the debug switch that marks every debuff, and defining a
+--- second NS.DO.auras here quietly replaced it -- the whole point of NS.DO being one table is that
+--- this kind of collision is possible, so it is worth saying where it nearly happened.
+function NS.DO.byid()
+    local byID = C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID
+    Print("asking by spell id: |cffb980ff%s|r",
+        byID and "C_UnitAuras.GetUnitAuraBySpellID" or "missing on this client - the walk is all we have")
+    Print("  the index walk: %s", (NS.Restricted and NS.Restricted())
+        and "|cfff08cb0refused right now|r - this is the case by-id exists for"
+        or "|cff4fd0cfanswering|r")
+    Print("  auras secret right now: %s", (NS.Blind and NS.Blind())
+        and "|cffe5c04ayes|r" or "|cff4fd0cfno|r")
+
+    local unit = (UnitExists and UnitExists("target") and "target") or "player"
+    local es = NS.FM and NS.FM.Ranks and NS.FM.Ranks("Earth Shield") or {}
+    local ids = {}
+    for _, r in ipairs(es) do if type(r.id) == "number" then ids[#ids + 1] = r.id end end
+    if #ids == 0 then
+        local watched = (NS.FS and NS.FS.List and NS.FS.List()) or {}
+        local own = watched[1]
+        local alt = (own and NS.FS.SpellIds and NS.FS.SpellIds(own)) or {}
+        for _, id in ipairs(alt) do ids[#ids + 1] = id end
+        if #ids > 0 then Print("  no Earth Shield trained - asking about |cffb980ff%s|r instead", tostring(own)) end
+    end
+    if #ids == 0 then
+        Print("  %s", "|cff968eadno spell ids to ask with - train Earth Shield, or set /bish buff|r")
+    else
+        local a, why = NS.AuraById(unit, ids[1])
+        Print("  about %s, id %d: %s", unit, ids[1], a and "|cff4fd0cfread it|r"
+            or ("|cffe5c04a" .. tostring(why) .. "|r"))
+    end
+    Print("  last answer: |cffb980ff%s|r", tostring(NS.auraSeen or "nothing asked yet"))
+    Print("  Earth Shield asked by: |cffb980ff%s|r",
+        tostring((NS.FB and NS.FB.esBy) or "not yet - run /bish scan"))
+    Print("  may I compare unit tokens: %s", NS.CanCompareUnits and NS.CanCompareUnits()
+        and "|cff4fd0cfyes|r" or "|cffe5c04ano - UnitIsUnit only|r")
+    Print("  unit stats secret: |cffb980ff%s|r", tostring(NS.StatsSecret and NS.StatsSecret()))
+    Print("  %s", "|cff968eadread = the client handed it over · none = answered, not on them"
+        .. " · secret/refused = it would not say, and we never guess|r")
+end
+
 function NS.DO.range()
     local FG = NS.FG
     local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
@@ -903,6 +951,7 @@ function NS.DO.help()
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
     Print("  |cffb980ffmouse|r  drag spells onto a mouse    |cffb980ffrescan|r  look at the group again")
     Print("  |cffb980ffscan|r   what this client will tell me")
+    Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
@@ -991,6 +1040,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.regen()
     elseif msg == "range" then
         NS.DO.range()
+    elseif msg == "byid" then
+        NS.DO.byid()
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
     elseif msg == "buffsound" or msg:match("^buffsound%s") then

@@ -1568,11 +1568,11 @@ FG.EDGE = {
 function FG.PaintEdge(f, unit)
     if not (f and f.bg and unit) then return nil end
     local kind
-    if UnitIsUnit then
-        local ok, mine = pcall(UnitIsUnit, unit, "player")
-        if ok and NS.Plain(mine) == true then kind = "me" end
-    end
-    if not kind and unit == "player" then kind = "me" end
+    -- UnitIsUnit first, then the string compare, and the string compare only when the client says
+    -- unit tokens may be compared at all - NS.IsPlayer is those three steps in one place now
+    -- (1 Oct 2026). nil from it means "could not tell", which falls through to f.__edge below and
+    -- keeps whatever ring the cell last had, rather than taking one away on a shrug.
+    if NS.IsPlayer and NS.IsPlayer(unit) == true then kind = "me" end
     if not kind and UnitGroupRolesAssigned then
         local ok, role = pcall(UnitGroupRolesAssigned, unit)
         local plain = ok and NS.Plain(role)

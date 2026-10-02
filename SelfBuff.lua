@@ -352,7 +352,9 @@ function FS.Start()
         pcall(f.RegisterEvent, f, e)
     end
     f:SetScript("OnEvent", function(_, event, unit)
-        if unit ~= nil and unit ~= "player" then return end
+        -- nil unit = an event about nobody in particular (SPELLS_CHANGED), which we want. A unit
+        -- that is somebody, or that the client will not let us identify, is not our business.
+        if unit ~= nil and (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return end
         FS.Check()
         -- the book fills in late at login, and a rank learned later is a new spell id
         if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then FS.Sounds() end

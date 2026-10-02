@@ -4855,6 +4855,156 @@ do
     NS.DO.auras()          -- back off again: the debug marker must not be left on
 end
 
+--------------------------------------------- auras asked for by spell id (0.8.0) --
+--
+-- THE CLIENT THIS MOCKS is the one EllesmereUI and ForeverAuras both describe: in a raid or a
+-- dungeon the index walk hard-errors even out of combat, while a by-id lookup still answers. So
+-- GetAuraDataByIndex here THROWS and GetUnitAuraBySpellID answers, which is the combination the
+-- whole release exists for. A mock where both work would pass without testing anything.
+do
+    local FB, FG = NS.FB, NS.FG
+    local realAuras, realSecrets = _G.C_UnitAuras, _G.C_Secrets
+    local realIsUnit, realRanks, realRoster = _G.UnitIsUnit, NS.FM.Ranks, FG.Roster
+
+    local up, asked, mode = { player = {}, party1 = {} }, {}, "answer"
+    _G.C_UnitAuras = {
+        GetAuraDataByIndex = function()
+            error("Auras cannot be accessed when secret while tainted", 2)
+        end,
+        GetUnitAuraBySpellID = function(unit, id)
+            asked[#asked + 1] = tostring(unit) .. ":" .. tostring(id)
+            if mode == "refuse" then error("cannot be accessed", 2) end
+            if mode == "secret" then return secret() end
+            return up[unit] and up[unit][id] or nil
+        end,
+    }
+    -- Earth Shield, two ranks, each its own id - which is why one buff is several questions
+    NS.FM.Ranks = function(name)
+        if name ~= "Earth Shield" then return {} end
+        return { { rank = "Rank 1", id = 974 }, { rank = "Rank 2", id = 32593 } }
+    end
+    FG.Roster = function() return { "player", "party1" } end
+
+    -- ---------------------------------------------------------------- NS.AuraById
+    up.party1[32593] = { name = "Earth Shield", spellId = 32593 }
+    local a, why = NS.AuraById("party1", 32593)
+    ok(type(a) == "table" and why == nil, "an aura the client hands over is read")
+    ok(NS.auraSeen == "read", "and it says so", tostring(NS.auraSeen))
+
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "none", "an aura that is not there is 'none', not a refusal", tostring(why))
+
+    mode = "secret"
+    a, why = NS.AuraById("party1", 32593)
+    ok(a == nil and why == "secret", "a secret answer is never read", tostring(why))
+
+    mode = "refuse"
+    a, why = NS.AuraById("party1", 32593)
+    ok(a == nil and why == "refused", "a call that throws is 'refused'", tostring(why))
+    mode = "answer"
+
+    a, why = NS.AuraById("party1", "notanid")
+    ok(a == nil and why == "no spell", "nonsense in, no question asked", tostring(why))
+
+    -- NOT GATED ON Blind(), which is the point: every other reader in the addon refuses in
+    -- combat, and this one must not, because it is the only question the client still answers.
+    STATE.inCombat = true
+    a = NS.AuraById("party1", 32593)
+    ok(type(a) == "table", "by-id still answers inside the lockdown - the whole reason it is used")
+    STATE.inCombat = false
+
+    -- ------------------------------------------------------------- NS.AnyAuraById
+    ok(NS.AnyAuraById("party1", { 974, 32593 }) == true, "any one rank up is 'up'")
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == false,
+       "every rank answered and none up is a real 'no'")
+    mode = "refuse"
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == nil,
+       "one refusal makes the whole answer nil - never a confident 'no'")
+    mode = "answer"
+    ok(NS.AnyAuraById("player", {}) == nil, "no ids is not evidence of anything")
+
+    -- --------------------------------------------------------- FB.EarthShield
+    local who, unsure = FB.EarthShield({ "player", "party1" })
+    ok(who == "party1" and not unsure, "the shield is found on the one who has it", tostring(who))
+    ok(FB.esBy == "id", "and recorded as asked by id even though it returned early", tostring(FB.esBy))
+
+    up.party1[32593] = nil
+    who, unsure = FB.EarthShield({ "player", "party1" })
+    ok(who == nil and unsure == false, "nobody has it, and the client said so for everyone")
+    ok(FB.esBy == "id", "by id, while the index walk throws", tostring(FB.esBy))
+
+    mode = "refuse"
+    who, unsure = FB.EarthShield({ "player", "party1" })
+    ok(who == nil and unsure == true, "a refusal is unsure, not 'nobody has it'")
+    mode = "answer"
+
+    -- THE 0.6.1 RULE, now at the level that matters: a raid where the walk is refused used to
+    -- report nothing at all. It reports properly now - and still says nothing when unsure.
+    local found = FB.Scan()
+    local said = false
+    for _, f in ipairs(found or {}) do if f.kind == "earthshield" then said = true end end
+    ok(said, "in a raid where the walk is refused, the reminder finally works")
+
+    mode = "refuse"
+    found = FB.Scan()
+    said = false
+    for _, f in ipairs(found or {}) do if f.kind == "earthshield" then said = true end end
+    ok(not said, "and when the client will not say, it still says nothing")
+    mode = "answer"
+
+    -- a client with no by-id call at all falls back to the walk, as TBC must
+    _G.C_UnitAuras.GetUnitAuraBySpellID = nil
+    FB.EarthShield({ "player" })
+    ok(FB.esBy == "walk", "with no by-id call, the old walk is still there", tostring(FB.esBy))
+
+    -- ------------------------------------------------- the two new secret guards
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+    ok(NS.CanCompareUnits() == true, "a client with no opinion lets us compare unit tokens")
+
+    _G.C_Secrets.CanCompareUnitTokens = function() return false end
+    ok(NS.CanCompareUnits() == false, "a clear no stops us")
+    _G.C_Secrets.CanCompareUnitTokens = function() return secret() end
+    ok(NS.CanCompareUnits() == false, "so does a secret answer")
+    _G.C_Secrets.CanCompareUnitTokens = function() error("nope", 2) end
+    ok(NS.CanCompareUnits() == false, "and so does a refusal")
+    _G.C_Secrets.CanCompareUnitTokens = function() return true end
+
+    _G.UnitIsUnit = function(x, y) return x == "player" and y == "player" end
+    ok(NS.IsPlayer("player") == true, "UnitIsUnit answers first")
+    ok(NS.IsPlayer("party1") == false, "and says when it is not you")
+
+    -- UnitIsUnit refusing, the compare allowed: the string road still works
+    _G.UnitIsUnit = function() return secret() end
+    ok(NS.IsPlayer("player") == true, "a secret UnitIsUnit falls back to the compare")
+
+    -- both roads shut: nil, so a caller can tell "not you" from "could not tell"
+    _G.C_Secrets.CanCompareUnitTokens = function() return false end
+    ok(NS.IsPlayer("player") == nil, "with neither road open, the answer is 'could not tell'")
+    _G.C_Secrets.CanCompareUnitTokens = function() return true end
+    _G.UnitIsUnit = function(x, y) return x == "player" and y == "player" end
+
+    -- stats secrecy is a live question now, not a decision made at login
+    ok(NS.StatsSecret() == nil, "with no call for it, we do not pretend to know")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() return false end
+    ok(NS.StatsSecret() == false, "the client can say stats are readable")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() return true end
+    ok(NS.StatsSecret() == true, "and that they are not")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() error("nope", 2) end
+    ok(NS.StatsSecret() == true, "a refusal counts as secret - the safe side")
+
+    -- ------------------------------------------------------- the two commands
+    -- THIS IS A REGRESSION TEST FOR A BUG WRITTEN TODAY: the new diagnostic was first called
+    -- NS.DO.auras, which silently replaced the debug-marker command of the same name. NS.DO being
+    -- one table is what keeps the three doors in step; it also makes this collision possible.
+    ok(type(NS.DO.byid) == "function", "the by-id diagnostic has its own name")
+    ok(type(NS.DO.auras) == "function", "and the debug marker still has its")
+    ok(pcall(SlashCmdList.BISHEALING, "byid"), "/bish byid threw")
+    ok(pcall(SlashCmdList.BISHEALING, "scan"), "/bish scan threw with the walk refusing")
+
+    _G.C_UnitAuras, _G.C_Secrets = realAuras, realSecrets
+    _G.UnitIsUnit, NS.FM.Ranks, FG.Roster = realIsUnit, realRanks, realRoster
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

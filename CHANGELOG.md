@@ -1,5 +1,21 @@
 # BiS Healing
 
+## 0.8.0
+
+- **The Earth Shield reminder works in a raid now.** It is asked by spell id instead of by reading
+  the whole aura list, and that is the one aura question this client still answers under raid and
+  dungeon restrictions — where listing auras is refused outright, even between pulls. Until now the
+  reminder went quiet in exactly the place a shaman wanted it.
+- **It still never guesses.** An unanswered question stays unanswered: if the client will not say
+  whether someone has it, nothing is printed. That is the 0.6.1 rule, and by id there are simply far
+  fewer questions it refuses.
+- **`/bish byid`** says what this client will tell the addon about other people's auras — which call
+  answered, whether the old list walk is being refused right now, and what it said about your
+  target. Built because the range dimming was broken for nine days while looking fine.
+- **Groundwork, not yet visible:** the addon now asks the client whether unit tokens may be compared
+  at all before comparing them, and whether unit stats are secret as a live question rather than a
+  decision made once at login. Both are answers this client gives and we were not asking for.
+
 ## 0.7.6
 
 Everything since 0.7.0, which is the last version that reached CurseForge. The six in between were

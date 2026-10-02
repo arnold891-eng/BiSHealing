@@ -138,3 +138,125 @@ function NS.Plain(v)
     if NS.Secret(v) then return nil end
     return v
 end
+
+--- ONE AURA, BY SPELL ID -- and the only way to ask that works while auras are secret (1 Oct 2026).
+---
+--- `NS.Restricted()` above exists because the INDEX walk hard-errors under instance restrictions.
+--- This is the other half of that finding, and the more useful half. ForeverAuras 0.42.11 says it
+--- plainly in its own source: there is no way to iterate a unit's auras while auras are secret,
+--- "but we can call C_UnitAuras.GetUnitAuraBySpellID for each spell id we're interested in". They
+--- then check `issecretvalue` on what comes back and skip it if it is secret.
+---
+--- SO THIS IS DELIBERATELY NOT GATED ON Blind(). Every other reader in this addon refuses while
+--- the client is hiding auras, and that is right for a walk. A by-id lookup is the one question
+--- the client will still answer, so gating it here would throw away the whole point. What it is
+--- gated on instead is the answer: a secret table, or a call that throws, is never read.
+---
+--- The price, also from their comment: two auras with the same spell id are one answer, and you
+--- cannot choose which. For a healer that is nearly free -- one Renew per target, one Earth Shield
+--- in the raid -- and it is why this returns at most one aura and says so.
+---
+--- Returns aura, why:
+---   table, nil        the client handed over an aura we may read
+---   nil, "none"       the client answered, and that aura is not on them
+---   nil, "secret"     the answer came back secret
+---   nil, "refused"    the call itself threw
+---   nil, "no spell"   no usable spell id was given
+---   nil, "no api"     this client has no GetUnitAuraBySpellID (TBC, and older betas)
+---
+--- `NS.auraSeen` keeps the last `why` for `/bish auras`, the same way the range check keeps its
+--- own. Guessing which branch ran is how an evening disappears; the client can just say.
+function NS.AuraById(unit, spellID)
+    local get = C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID
+    if not get then NS.auraSeen = "no api" return nil, "no api" end
+    if type(unit) ~= "string" or type(spellID) ~= "number" then
+        NS.auraSeen = "no spell"
+        return nil, "no spell"
+    end
+    local ok, a = pcall(get, unit, spellID)
+    if not ok then NS.auraSeen = "refused" return nil, "refused" end
+    if NS.Secret(a) then NS.auraSeen = "secret" return nil, "secret" end
+    if a == nil or a == false then NS.auraSeen = "none" return nil, "none" end
+    NS.auraSeen = "read"
+    return a, nil
+end
+
+--- Is one of these spell ids on them? Ranks are separate ids, so "Renew" is five questions, and
+--- a shaman's Earth Shield is however many they have trained.
+---
+--- Returns true (one of them is up), false (the client answered for all of them and none is), or
+--- nil -- which is the answer this addon cares most about getting right. nil means SOMETHING went
+--- unanswered, and 0.6.1 shipped because an unanswered question read as a confident "no": a
+--- refused aura list became "Earth Shield is not up on anyone", printed to a raid where it was up.
+function NS.AnyAuraById(unit, ids)
+    if type(ids) ~= "table" or #ids == 0 then return nil end
+    local answered = false
+    for _, id in ipairs(ids) do
+        local a, why = NS.AuraById(unit, id)
+        if a then return true end
+        if why == "none" then answered = true else return nil end
+    end
+    -- NOT `return answered and false or nil`. That reads like the ternary it is pretending to be
+    -- and is not one: `answered and false` is false, and `false or nil` is nil, so the function
+    -- could never say a confident no. Written and caught the same hour (1 Oct 2026) - and it is
+    -- the 0.6.1 bug's twin, an answered question coming back as "we could not tell".
+    if answered then return false end
+    return nil
+end
+
+--- MAY I COMPARE TWO UNIT TOKENS? (1 Oct 2026, read off EllesmereUI 9.3.4.)
+---
+--- `unit == "player"` is in four places in this addon, and on a client that can hand back a secret
+--- unit token that comparison is exactly the shape that gets refused -- the same trap as a secret
+--- boolean in an `if`, which cost us a dungeon on 21 Sep. EllesmereUI asks
+--- `C_Secrets.CanCompareUnitTokens` before it compares, so we ask too.
+---
+--- Answers TRUE when the client has no opinion, because that is the honest default: on TBC, and on
+--- a client without the function, comparing unit tokens is ordinary Lua. Only a clear "no" stops
+--- the caller.
+function NS.CanCompareUnits()
+    if not (C_Secrets and C_Secrets.CanCompareUnitTokens) then return true end
+    local ok, yes = pcall(C_Secrets.CanCompareUnitTokens)
+    if not ok then return false end          -- the client refused to answer: do not compare
+    local plain = NS.Plain(yes)
+    if plain == nil then return false end    -- the answer is itself secret: same
+    return plain ~= false
+end
+
+--- Is this unit the player? The question the four comparisons were really asking, with the guard
+--- in one place. `UnitIsUnit` is the client's own answer and survives secret tokens; the string
+--- compare is the fallback, and only when the client says comparing is allowed.
+---
+--- Returns nil when neither road is open, so a caller can tell "not you" from "could not tell".
+function NS.IsPlayer(unit)
+    if type(unit) ~= "string" then return nil end
+    if UnitIsUnit then
+        local ok, same = pcall(UnitIsUnit, unit, "player")
+        if ok then
+            local plain = NS.Plain(same)
+            if plain ~= nil then return plain and true or false end
+        end
+    end
+    if not NS.CanCompareUnits() then return nil end
+    return unit == "player"
+end
+
+--- ARE UNIT STATS SECRET RIGHT NOW? (1 Oct 2026.)
+---
+--- Until now this addon had one answer for everything -- `NS.SECRET`, decided once at load -- and
+--- treated health, mana and the rest as hidden for the whole session. That is safe and it is also
+--- wrong: `C_Secrets.ShouldUnitStatsBeSecret` is a live question, separate from the aura one, and
+--- the client will answer it. Where it says no, a plain read is allowed.
+---
+--- Nothing is rewritten to depend on this yet, on purpose: it goes into `/bish scan` first so the
+--- answer can be watched for a few days before anything is built on it. The display bargain --
+--- hand the value to the client, never read it -- keeps working either way.
+function NS.StatsSecret()
+    if not NS.SECRET then return false end
+    if not (C_Secrets and C_Secrets.ShouldUnitStatsBeSecret) then return nil end
+    local ok, yes = pcall(C_Secrets.ShouldUnitStatsBeSecret)
+    if not ok then return true end
+    local plain = NS.Plain(yes)
+    if plain == nil then return true end
+    return plain and true or false
+end

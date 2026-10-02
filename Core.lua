@@ -503,6 +503,27 @@ function NS.DO.ping(which)
         Print("  cooldown info: |cffb980ff%s|r", okcd and type(cd) == "table" and "a table" or tostring(cd))
     end
 
+    -- BLIZZARD'S OWN SLASH DOOR, which is the whole plan now (Arn, 1 Oct): ping types as buttons in
+    -- the mouse window, dragged onto a mouse button like a spell, and the cell fires the ping at
+    -- whoever is in it. We cannot call SendMacroPing - it is forbidden - but a secure button may
+    -- hold a MACRO, and a macro is Blizzard's code. Mouse.lua already does exactly this for the
+    -- wheel ("/target [@mouseover]"), so the machinery is there; what is missing is the command.
+    local slash, token = nil, nil
+    for k in pairs(SlashCmdList or {}) do
+        if type(k) == "string" and k:lower():find("ping") then slash = k break end
+    end
+    for i = 1, 4 do
+        local t = _G["SLASH_PING" .. i] or (slash and _G["SLASH_" .. slash .. i])
+        if t then token = tostring(t) break end
+    end
+    Print("  Blizzard's own ping command: %s%s",
+        slash and ("|cff4fd0cfSlashCmdList." .. slash .. "|r") or "|cfff08cb0no /ping in SlashCmdList|r",
+        token and (" as |cffb980ff" .. token .. "|r") or "")
+    if slash then
+        Print("  %s", "|cff968eadso a secure button holding \"" .. (token or "/ping") .. " assist\""
+            .. " is worth trying - that is a macro, and a macro is not us|r")
+    end
+
     if type(P.SendMacroPing) ~= "function" then
         Print("  %s", "|cfff08cb0no SendMacroPing - nothing to try|r")
         return false

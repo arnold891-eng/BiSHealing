@@ -5076,6 +5076,17 @@ do
         return f
     end
 
+    -- BLIZZARD'S SLASH DOOR, found or not found. This is the one that decides whether ping buttons
+    -- can live in the mouse window at all, so it must not quietly report a yes.
+    local realSlashList, realToken = _G.SlashCmdList, _G.SLASH_PING1
+    _G.SlashCmdList = {}
+    _G.SLASH_PING1 = nil
+    ok(pcall(NS.DO.ping), "with no /ping command, the diagnostic still runs")
+    _G.SlashCmdList = { PING = function() end }
+    _G.SLASH_PING1 = "/ping"
+    ok(pcall(NS.DO.ping), "and with one, it still runs")
+    _G.SlashCmdList, _G.SLASH_PING1 = realSlashList, realToken
+
     -- a client that has the system and lets us call it
     local sent = {}
     _G.C_Ping = {

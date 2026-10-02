@@ -5189,6 +5189,52 @@ do
     local FN = NS.FN
     FN.Reset()
 
+    -- THE CURVES, AND THE ONE BRANCH THAT READS ANYTHING. Arn watched the first version appear at
+    -- 30% and said what that is worth: "at 30% a healer is already 1 hit from dying most of the
+    -- time". So the thresholds matter enough to pin down, and so does dead-is-not-hurt.
+    do
+        local realCU, realHP, realDead = _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost
+        local points = {}
+        local curveObj = { AddPoint = function(_, at, col) points[#points + 1] = at end,
+                           SetType = function() end }
+        _G.C_CurveUtil = { CreateColorCurve = function() return curveObj end }
+        _G.CreateColor = _G.CreateColor or function(r, g, b, a)
+            return { GetRGBA = function() return r, g, b, a end }
+        end
+        FN.helpCurve, FN.glowCurve = nil, nil
+        ok(FN.HelpCurve() ~= nil, "the help curve is built")
+        local top, bottom = nil, nil
+        for _, at in ipairs(points) do
+            top = (top == nil or at > top) and at or top
+            bottom = (bottom == nil or at < bottom) and at or bottom
+        end
+        ok(bottom == 0 and top == 1, "and it covers the whole range", tostring(bottom) .. ".." .. tostring(top))
+        local appears = nil
+        for _, at in ipairs(points) do
+            if at < 1 and (appears == nil or at > appears) then appears = at end
+        end
+        ok(appears and appears >= 0.65,
+           "it starts warning well above 30%, which is already too late",
+           tostring(appears))
+
+        -- DEAD: steady, and no pulse at the corpse
+        local painted = {}
+        local btn = { art = { SetVertexColor = function(_, r, g, b, a) painted.art = { r, g, b, a } end },
+                      glow = { SetVertexColor = function(_, r) painted.glow = r end,
+                               SetAlpha = function(_, a) painted.alpha = a end } }
+        -- DEAD IS A BEACON, NOT SILENCE. Arn's correction, and his reason: a combat res has to
+        -- find the corpse. Dimmer and slower than the living pulse, so the two never read alike.
+        _G.UnitIsDeadOrGhost = function() return true end
+        FN.PaintHelp(btn)
+        ok(FN.seen == "dead - a dimmer beacon", "a corpse still glows, for the res", tostring(FN.seen))
+        ok(painted.glow and painted.glow > 0.5, "red, not blacked out", tostring(painted.glow))
+        ok(painted.alpha and painted.alpha <= 0.35,
+           "but dimmer than the living pulse ever gets", tostring(painted.alpha))
+
+        _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost = realCU, realHP, realDead
+        FN.helpCurve, FN.glowCurve = nil, nil
+    end
+
     ok(FN.Place("help") == 1, "the help button starts first")
     ok(#FN.Order() == #FN.BUTTONS, "and every button is in the order")
 

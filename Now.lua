@@ -235,33 +235,114 @@ function FN.HelpCurve()
     if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then
         pcall(c.SetType, c, Enum.LuaCurveType.Linear)
     end
-    pcall(c.AddPoint, c, 0.00, CreateColor(1.0, 0.10, 0.10, 1))   -- dying: red, solid
-    pcall(c.AddPoint, c, 0.20, CreateColor(1.0, 0.25, 0.25, 1))
-    pcall(c.AddPoint, c, 0.35, CreateColor(1.0, 0.55, 0.35, 0.85))-- hurt: warm, nearly solid
-    pcall(c.AddPoint, c, 0.5001, CreateColor(1, 1, 1, 0))         -- a step, not a fade
-    pcall(c.AddPoint, c, 1.00, CreateColor(1, 1, 1, 0))           -- well: not there at all
+    -- THRESHOLDS, SECOND ATTEMPT (1 Oct 2026). The first appeared below 50% and only looked urgent
+    -- under 20%, which Arn tested and rejected in one line: "at 30% a healer is already 1 hit from
+    -- dying most of the time". A warning that arrives when it is already too late is decoration.
+    --
+    -- So it starts at 70% - early enough to be a nudge rather than an obituary - and is fully red
+    -- by 40% rather than 20%. Below that it only deepens.
+    pcall(c.AddPoint, c, 0.00, CreateColor(1.00, 0.05, 0.05, 1))    -- dying
+    pcall(c.AddPoint, c, 0.40, CreateColor(1.00, 0.15, 0.15, 1))    -- red, and solid, well before the end
+    pcall(c.AddPoint, c, 0.55, CreateColor(1.00, 0.45, 0.15, 0.95)) -- orange
+    pcall(c.AddPoint, c, 0.70, CreateColor(1.00, 0.80, 0.25, 0.80)) -- amber: the first nudge
+    pcall(c.AddPoint, c, 0.7001, CreateColor(1, 1, 1, 0))           -- a step, not a fade
+    pcall(c.AddPoint, c, 1.00, CreateColor(1, 1, 1, 0))             -- well: not there at all
     helpCurve = c
+    return c
+end
+
+--- THE GLOW, and the trick that makes it legal (EllesmereUI 9.3.4, measured 1 Oct 2026).
+---
+--- A pulse is movement, and movement is what the eye actually catches - Arn: "need a glowing effect
+--- or flashing to bring attention". But we may not ask whether you are low, so we cannot start or
+--- stop a pulse. We do not have to: the pulse runs ALWAYS, and the client decides whether it is
+--- visible, by handing back a colour.
+---
+--- The glow texture is drawn with an ADD blend, where BLACK contributes nothing at all. So above
+--- the threshold the curve returns black and the pulse is invisible however bright it gets; below
+--- it the curve returns red and the same unchanged pulse becomes a flashing red halo. Alpha stays
+--- 1 at every point, because their note says curve alpha interpolation is not to be relied on -
+--- the colour does all the work.
+local glowCurve
+function FN.GlowCurve()
+    if glowCurve then return glowCurve end
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
+    local ok, c = pcall(C_CurveUtil.CreateColorCurve)
+    if not ok or not c or not c.AddPoint then return nil end
+    if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then
+        pcall(c.SetType, c, Enum.LuaCurveType.Linear)
+    end
+    pcall(c.AddPoint, c, 0.00, CreateColor(1, 0.10, 0.10, 1))   -- glowing red
+    pcall(c.AddPoint, c, 0.40, CreateColor(1, 0.10, 0.10, 1))
+    pcall(c.AddPoint, c, 0.4001, CreateColor(0, 0, 0, 1))       -- black: nothing, under ADD
+    pcall(c.AddPoint, c, 1.00, CreateColor(0, 0, 0, 1))
+    glowCurve = c
     return c
 end
 
 --- Paint the help button from the client's own answer about health. Nothing is read: the curve
 --- goes in, a colour comes out, and the colour goes onto the texture.
+---
+--- The pulse is OURS and runs always - a sine on the clock, nothing to do with your health. What
+--- the client decides is whether it can be seen: black under an ADD blend is nothing at all, so
+--- above the threshold the same pulse is simply invisible. That is the only way to have a flashing
+--- warning on a client that will not tell us when to flash.
 function FN.PaintHelp(b)
     b = b or (FN.buttons and FN.buttons.help)
     if not (b and b.art) then return nil end
+
+    -- DEAD IS NOT HURT, BUT IT IS NOT NOTHING EITHER. This blanked the glow at first, on the
+    -- grounds that a corpse flashing for help is noise about something the raid can already see.
+    -- Arn, who has actually been the corpse: "when dead it can glow but not as bright so if a
+    -- combat res is looking for you i can click it and they can find me easier". He is right - it
+    -- stops being a cry for healing and becomes a beacon, and the button still pings when clicked.
+    --
+    -- So: dimmer and slower than the living pulse, which keeps the two unmistakable at a glance.
+    -- The only branch in this file that reads anything; UnitIsDeadOrGhost is a clean boolean for
+    -- group units on this client, and it is guarded regardless.
+    local dead = UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost("player")) == true
+    if dead then
+        b.art:SetVertexColor(0.85, 0.15, 0.15, 0.90)
+        if b.glow then
+            b.glow:SetVertexColor(0.80, 0.10, 0.10, 1)
+            local t = (GetTime and GetTime()) or 0
+            b.glow:SetAlpha(0.12 + 0.18 * (0.5 + 0.5 * math.sin(t * 2)))
+        end
+        FN.seen = "dead - a dimmer beacon"
+        return true
+    end
+
     local curve = FN.HelpCurve()
     if not (curve and UnitHealthPercent) then
         b.art:SetVertexColor(1, 0.3, 0.3, 0.35)      -- no curves here: a constant, honest dim
+        if b.glow then b.glow:SetVertexColor(0, 0, 0, 1) end
         FN.seen = "no curve"
         return false
     end
     local ok, col = pcall(UnitHealthPercent, "player", true, curve)
     if not ok or not col or not col.GetRGBA then
         b.art:SetVertexColor(1, 0.3, 0.3, 0.35)
+        if b.glow then b.glow:SetVertexColor(0, 0, 0, 1) end
         FN.seen = ok and "no colour back" or "refused"
         return false
     end
     local drew = pcall(function() b.art:SetVertexColor(col:GetRGBA()) end)
+
+    -- the halo: its colour from the client, its brightness from the clock
+    if b.glow then
+        local g = FN.GlowCurve()
+        local painted = false
+        if g then
+            local okG, gc = pcall(UnitHealthPercent, "player", true, g)
+            if okG and gc and gc.GetRGBA then
+                painted = pcall(function() b.glow:SetVertexColor(gc:GetRGBA()) end)
+            end
+        end
+        if not painted then b.glow:SetVertexColor(0, 0, 0, 1) end
+        local t = (GetTime and GetTime()) or 0
+        b.glow:SetAlpha(0.35 + 0.45 * (0.5 + 0.5 * math.sin(t * 4)))
+    end
+
     FN.seen = drew and "painted by the client" or "colour refused"
     return drew
 end
@@ -273,6 +354,13 @@ local function makeButton(parent, key)
     b:SetSize(BTN_W, BTN_H)
     b.art = b:CreateTexture(nil, "ARTWORK")
     b.art:SetAllPoints()
+    -- ADD blend, and bigger than the button so it reads as a halo rather than a tint. Black under
+    -- ADD contributes nothing, which is what keeps it invisible while you are well.
+    b.glow = b:CreateTexture(nil, "OVERLAY")
+    b.glow:SetPoint("TOPLEFT", b, "TOPLEFT", -6, 6)
+    b.glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 6, -6)
+    if b.glow.SetBlendMode then b.glow:SetBlendMode("ADD") end
+    b.glow:SetVertexColor(0, 0, 0, 1)
     b.key = key
     -- WHAT THE BUTTON DOES IS PER BUTTON. Everything here used to get the Assist ping, icon and
     -- all, which is how a Tremor button appeared wearing a ping's face (1 Oct).
@@ -286,7 +374,17 @@ local function makeButton(parent, key)
             b:SetAttribute("*macrotext1", "/ping [@mouseover] assist")
         end
         local atlas = NS.FM and NS.FM.PingAtlas and NS.FM.PingAtlas("assist")
-        if atlas and b.art.SetAtlas then pcall(b.art.SetAtlas, b.art, atlas) end
+        local drew = false
+        if atlas and b.art.SetAtlas then drew = pcall(b.art.SetAtlas, b.art, atlas) end
+        -- THE HALO IS THE SAME SHAPE, BIGGER. A texture with nothing in it draws nothing, and
+        -- picking a soft-glow atlas by name is the guessing that cost five misses this evening -
+        -- so the glow reuses art we have already proved exists. Under ADD it reads as the flag
+        -- itself catching light rather than a square behind it.
+        if drew and b.glow.SetAtlas then
+            if not pcall(b.glow.SetAtlas, b.glow, atlas) then b.glow:SetTexture(WHITE8X8 or nil) end
+        elseif b.glow.SetColorTexture then
+            b.glow:SetColorTexture(1, 1, 1, 1)
+        end
     end
     return b
 end

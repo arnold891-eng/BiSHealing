@@ -35,7 +35,11 @@ local FRAME_W, FRAME_H, PAD = 84, 34, 3
 FG.CELL_W, FG.CELL_H, FG.CELL_PAD = FRAME_W, FRAME_H, PAD
 -- the little bar on top of the target cell and the tot cell (FG.CellHeader). Two pixels shorter
 -- than the grid's own 16, so the block reads as hanging off the grid rather than competing with it.
-local HEADER_H, HEADER_LIFT = 14, 1
+-- A BLOCK'S BAR IS THE SAME SIZE AS THE GRID'S BAR (1 Oct 2026). These were 14 and 1 against the
+-- grid header's 16 and 2, which nobody notices until a block sits beside the grid's own header -
+-- and then the two read as a mistake rather than a pair. Arn, with BiS> now on the left: "the
+-- header still looks a little small". Same numbers now, one pair for every bar in the addon.
+local HEADER_H, HEADER_LIFT = 16, 2
 -- the grid's own bar, and how far it floats above the anchor (makeHeader)
 local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
 -- EVERY GAP IN THE BLOCK IS THE GRID'S OWN PAD. Arn, 23 Sep, looking at the two of them lined up:

@@ -2788,8 +2788,10 @@ do
     -- EXACTLY THE ROOM ITS BAR NEEDS, AND THE GRID'S OWN GAP. Arn, 23 Sep: "make sure all the
     -- windows line up". A block a different distance from the grid than the grid's own columns
     -- are from each other reads as "nearly lined up", which is worse than plainly apart.
-    -- 3 (the cells' own gap) + 1 (a bar floats a pixel above its cell) + 14 (the bar).
-    ok(dropOf() == -18, "and it drops by exactly its bar plus the grid's own gap", dropOf())
+    -- 3 (the cells' own gap) + 2 (a bar floats above its cell) + 16 (the bar). Was 3 + 1 + 14
+    -- until 1 Oct, when a block's bar grew to match the grid's own - they sat side by side at
+    -- different heights and read as a mistake.
+    ok(dropOf() == -21, "and it drops by exactly its bar plus the grid's own gap", dropOf())
     NS.DO.target("top")
     ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
     ok(t.handle and t.handle.__fontstrings and #t.handle.__fontstrings == 1

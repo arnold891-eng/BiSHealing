@@ -198,24 +198,20 @@ end
   UnitHealthPercent and the client hands back the result. We never learn a number.
 -----------------------------------------------------------------------------]]
 
-local BTN_W, BTN_H, GAP = 34, 34, 3
-
---- HOW BRIGHT THE HALO BREATHES. Arn, on the first attempt: "it just looks like a dimmed version
---- overlayed" - which is what the same art at low alpha IS. Brighter, and spilling further past the
---- edge so it reads as light coming off the button rather than a second copy of it.
----
---- `dead` must stay entirely below `alive`: a corpse beacon and a dying player have to be
---- unmistakable at a glance, and the suite asserts the two ranges never overlap rather than
---- checking numbers it would have to be taught again every time these are tuned.
-FN.PULSE = {
-    alive = { lo = 0.55, hi = 1.00, speed = 4 },
-    dead  = { lo = 0.10, hi = 0.34, speed = 2 },
-}
-
-local function pulse(p)
-    local t = (GetTime and GetTime()) or 0
-    return p.lo + (p.hi - p.lo) * (0.5 + 0.5 * math.sin(t * p.speed))
+-- THE SAME SIZE AS A CELL, and the same gap between them: a button here IS a cell, so the block
+-- lines up with the grid on every side instead of sitting near it. Taken from Grid rather than
+-- written down again (1 Oct 2026).
+local function dims()
+    local FG = NS.FG
+    return (FG and FG.CELL_W) or 84, (FG and FG.CELL_H) or 34, (FG and FG.CELL_PAD) or 3
 end
+
+--- THE BLOCK'S OWN COLOURS. Arn, on the halo that replaced the plain colour change: "the glow is
+--- too confusing it just looks like i have an astigmatism." He is right - a soft additive glow on a
+--- 34-pixel icon has no shape, it just smears. A BORDER has a shape, so the border does the work
+--- instead: crisp, unmistakable, and it pops without blurring anything.
+FN.EDGE_WELL = { 0.45, 0.42, 0.52, 0.90 }   -- the ordinary outline, replaced by BiSTheme's accent
+FN.EDGE_DEAD = { 0.55, 0.14, 0.14, 0.95 }   -- a corpse: red, and plainly duller than the living
 
 FN.NOW_KEYS = { what = "the now block", at = "nowAt", pos = "nowPos",
                 spot = function() return FN.Spot() end,
@@ -268,62 +264,59 @@ function FN.HelpCurve()
     return c
 end
 
---- THE GLOW, and the trick that makes it legal (EllesmereUI 9.3.4, measured 1 Oct 2026).
+--- THE OUTLINE'S COLOUR, from the same secret the button's own colour comes from.
 ---
---- A pulse is movement, and movement is what the eye actually catches - Arn: "need a glowing effect
---- or flashing to bring attention". But we may not ask whether you are low, so we cannot start or
---- stop a pulse. We do not have to: the pulse runs ALWAYS, and the client decides whether it is
---- visible, by handing back a colour.
+--- This was a glow: an additive halo, pulsing on a sine, invisible above the threshold because the
+--- curve handed back black and black adds nothing. The trick worked exactly as designed and the
+--- RESULT was wrong - on an icon that size a soft glow reads as bad eyesight, not as alarm. So the
+--- same idea moved to the border, where it has edges.
 ---
---- The glow texture is drawn with an ADD blend, where BLACK contributes nothing at all. So above
---- the threshold the curve returns black and the pulse is invisible however bright it gets; below
---- it the curve returns red and the same unchanged pulse becomes a flashing red halo. Alpha stays
---- 1 at every point, because their note says curve alpha interpolation is not to be relied on -
---- the colour does all the work.
-local glowCurve
-function FN.GlowCurve()
-    if glowCurve then return glowCurve end
+--- Above the threshold the curve returns the ordinary outline colour rather than black, because an
+--- outline that vanishes is the empty block Arn already asked to have a body.
+local edgeCurve
+function FN.EdgeCurve()
+    if edgeCurve then return edgeCurve end
     if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
     local ok, c = pcall(C_CurveUtil.CreateColorCurve)
     if not ok or not c or not c.AddPoint then return nil end
     if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then
         pcall(c.SetType, c, Enum.LuaCurveType.Linear)
     end
-    pcall(c.AddPoint, c, 0.00, CreateColor(1, 0.10, 0.10, 1))   -- glowing red
-    pcall(c.AddPoint, c, 0.40, CreateColor(1, 0.10, 0.10, 1))
-    pcall(c.AddPoint, c, 0.4001, CreateColor(0, 0, 0, 1))       -- black: nothing, under ADD
-    pcall(c.AddPoint, c, 1.00, CreateColor(0, 0, 0, 1))
-    glowCurve = c
+    local w = FN.EDGE_WELL
+    pcall(c.AddPoint, c, 0.00, CreateColor(1.00, 0.08, 0.08, 1))        -- dying: hot red
+    pcall(c.AddPoint, c, 0.40, CreateColor(1.00, 0.18, 0.18, 1))
+    pcall(c.AddPoint, c, 0.55, CreateColor(1.00, 0.50, 0.15, 1))        -- orange
+    pcall(c.AddPoint, c, 0.70, CreateColor(1.00, 0.80, 0.25, 1))        -- amber
+    pcall(c.AddPoint, c, 0.7001, CreateColor(w[1], w[2], w[3], w[4]))   -- a step back to ordinary
+    pcall(c.AddPoint, c, 1.00, CreateColor(w[1], w[2], w[3], w[4]))
+    edgeCurve = c
     return c
 end
 
---- Paint the help button from the client's own answer about health. Nothing is read: the curve
---- goes in, a colour comes out, and the colour goes onto the texture.
----
---- The pulse is OURS and runs always - a sine on the clock, nothing to do with your health. What
---- the client decides is whether it can be seen: black under an ADD blend is nothing at all, so
---- above the threshold the same pulse is simply invisible. That is the only way to have a flashing
---- warning on a client that will not tell us when to flash.
+--- Paint every side of the outline one colour.
+function FN.PaintEdge(r, g, b, a)
+    local block = FN.block
+    if not (block and block.edge) then return false end
+    for _, t in pairs(block.edge) do
+        if t.SetColorTexture then t:SetColorTexture(r, g, b, a or 1) end
+    end
+    return true
+end
+
+--- Paint the button and the outline from the client's own answer about health. Nothing is read:
+--- the curve goes in, a colour comes out, and the colour goes onto a texture.
 function FN.PaintHelp(b)
     b = b or (FN.buttons and FN.buttons.help)
     if not (b and b.art) then return nil end
 
-    -- DEAD IS NOT HURT, BUT IT IS NOT NOTHING EITHER. This blanked the glow at first, on the
-    -- grounds that a corpse flashing for help is noise about something the raid can already see.
-    -- Arn, who has actually been the corpse: "when dead it can glow but not as bright so if a
-    -- combat res is looking for you i can click it and they can find me easier". He is right - it
-    -- stops being a cry for healing and becomes a beacon, and the button still pings when clicked.
-    --
-    -- So: dimmer and slower than the living pulse, which keeps the two unmistakable at a glance.
-    -- The only branch in this file that reads anything; UnitIsDeadOrGhost is a clean boolean for
-    -- group units on this client, and it is guarded regardless.
+    -- DEAD IS NOT HURT, BUT IT IS NOT NOTHING EITHER. Arn, who has been the corpse: "if a combat
+    -- res is looking for you i can click it and they can find me easier." So it stays visible and
+    -- stays clickable - it just stops shouting, and reads plainly duller than a dying player.
     local dead = UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost("player")) == true
     if dead then
         b.art:SetVertexColor(0.85, 0.15, 0.15, 0.90)
-        if b.glow then
-            b.glow:SetVertexColor(0.80, 0.10, 0.10, 1)
-            b.glow:SetAlpha(pulse(FN.PULSE.dead))
-        end
+        local e = FN.EDGE_DEAD
+        FN.PaintEdge(e[1], e[2], e[3], e[4])
         FN.seen = "dead - a dimmer beacon"
         return true
     end
@@ -331,31 +324,24 @@ function FN.PaintHelp(b)
     local curve = FN.HelpCurve()
     if not (curve and UnitHealthPercent) then
         b.art:SetVertexColor(1, 0.3, 0.3, 0.35)      -- no curves here: a constant, honest dim
-        if b.glow then b.glow:SetVertexColor(0, 0, 0, 1) end
+        local w = FN.EDGE_WELL
+        FN.PaintEdge(w[1], w[2], w[3], w[4])
         FN.seen = "no curve"
         return false
     end
     local ok, col = pcall(UnitHealthPercent, "player", true, curve)
     if not ok or not col or not col.GetRGBA then
         b.art:SetVertexColor(1, 0.3, 0.3, 0.35)
-        if b.glow then b.glow:SetVertexColor(0, 0, 0, 1) end
         FN.seen = ok and "no colour back" or "refused"
         return false
     end
     local drew = pcall(function() b.art:SetVertexColor(col:GetRGBA()) end)
 
-    -- the halo: its colour from the client, its brightness from the clock
-    if b.glow then
-        local g = FN.GlowCurve()
-        local painted = false
-        if g then
-            local okG, gc = pcall(UnitHealthPercent, "player", true, g)
-            if okG and gc and gc.GetRGBA then
-                painted = pcall(function() b.glow:SetVertexColor(gc:GetRGBA()) end)
-            end
-        end
-        if not painted then b.glow:SetVertexColor(0, 0, 0, 1) end
-        b.glow:SetAlpha(pulse(FN.PULSE.alive))
+    -- the outline, from the same place
+    local ec = FN.EdgeCurve()
+    if ec then
+        local okE, c2 = pcall(UnitHealthPercent, "player", true, ec)
+        if okE and c2 and c2.GetRGBA then pcall(function() FN.PaintEdge(c2:GetRGBA()) end) end
     end
 
     FN.seen = drew and "painted by the client" or "colour refused"
@@ -366,16 +352,12 @@ end
 --- which is what `/ping [@mouseover] assist` then aims at. Built out of combat, never rewritten.
 local function makeButton(parent, key)
     local b = CreateFrame("Button", "BiSHealingNow" .. key, parent, "SecureUnitButtonTemplate")
-    b:SetSize(BTN_W, BTN_H)
+    local w, h = dims()
+    b:SetSize(w, h)
     b.art = b:CreateTexture(nil, "ARTWORK")
-    b.art:SetAllPoints()
-    -- ADD blend, and bigger than the button so it reads as a halo rather than a tint. Black under
-    -- ADD contributes nothing, which is what keeps it invisible while you are well.
-    b.glow = b:CreateTexture(nil, "OVERLAY")
-    b.glow:SetPoint("TOPLEFT", b, "TOPLEFT", -11, 11)
-    b.glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 11, -11)
-    if b.glow.SetBlendMode then b.glow:SetBlendMode("ADD") end
-    b.glow:SetVertexColor(0, 0, 0, 1)
+    -- the icon is square and the cell is not: centred at the cell's height rather than stretched
+    b.art:SetSize(h - 8, h - 8)
+    b.art:SetPoint("CENTER")
     b.key = key
     -- WHAT THE BUTTON DOES IS PER BUTTON. Everything here used to get the Assist ping, icon and
     -- all, which is how a Tremor button appeared wearing a ping's face (1 Oct).
@@ -389,17 +371,7 @@ local function makeButton(parent, key)
             b:SetAttribute("*macrotext1", "/ping [@mouseover] assist")
         end
         local atlas = NS.FM and NS.FM.PingAtlas and NS.FM.PingAtlas("assist")
-        local drew = false
-        if atlas and b.art.SetAtlas then drew = pcall(b.art.SetAtlas, b.art, atlas) end
-        -- THE HALO IS THE SAME SHAPE, BIGGER. A texture with nothing in it draws nothing, and
-        -- picking a soft-glow atlas by name is the guessing that cost five misses this evening -
-        -- so the glow reuses art we have already proved exists. Under ADD it reads as the flag
-        -- itself catching light rather than a square behind it.
-        if drew and b.glow.SetAtlas then
-            if not pcall(b.glow.SetAtlas, b.glow, atlas) then b.glow:SetTexture(WHITE8X8 or nil) end
-        elseif b.glow.SetColorTexture then
-            b.glow:SetColorTexture(1, 1, 1, 1)
-        end
+        if atlas and b.art.SetAtlas then pcall(b.art.SetAtlas, b.art, atlas) end
     end
     return b
 end
@@ -419,7 +391,7 @@ function FN.Layout(anchor)
     end
     if not FN.block then
         local a = CreateFrame("Frame", "BiSHealingNowBlock", anchor)
-        a:SetSize(BTN_W, BTN_H)
+        a:SetSize(dims())
         FN.block, FN.buttons = a, {}
         -- A BODY, EVEN WHEN EVERY BUTTON IS INVISIBLE. Arn, with the block on the left and himself
         -- at full health: "give it its own outline even when empty". Without one there is nothing
@@ -462,7 +434,8 @@ function FN.Layout(anchor)
         local b = FN.buttons[key] or makeButton(a, key)
         FN.buttons[key] = b
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", a, "TOPLEFT", GAP + (i - 1) * (BTN_W + GAP), GAP)
+        local w, _, pad = dims()
+        b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (w + pad), 0)
         b:Show()
     end
     for key, b in pairs(FN.buttons) do
@@ -470,8 +443,10 @@ function FN.Layout(anchor)
         for _, k in ipairs(mine) do if k == key then still = true end end
         if not still then b:Hide() end
     end
-    -- sized to what is in it, with room for the outline: one button, or wider as more arrive
-    a:SetSize(#mine * BTN_W + (#mine + 1) * GAP, BTN_H + 2 * GAP)
+    -- sized to what is in it, in whole cells: one cell wide, two when a second button arrives,
+    -- with the grid's own gap between them so it reads as part of the grid
+    local w, h, pad = dims()
+    a:SetSize(#mine * w + (#mine - 1) * pad, h)
     FN.PlaceBlock(a, anchor)
     FN.PaintHelp()
     return true, #mine

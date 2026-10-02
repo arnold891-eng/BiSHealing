@@ -5217,27 +5217,35 @@ do
            "it starts warning well above 30%, which is already too late",
            tostring(appears))
 
-        -- DEAD: steady, and no pulse at the corpse
+        -- DEAD: still visible, still clickable, plainly duller than a dying player. Arn's call -
+        -- a combat res has to be able to find the corpse.
         local painted = {}
-        local btn = { art = { SetVertexColor = function(_, r, g, b, a) painted.art = { r, g, b, a } end },
-                      glow = { SetVertexColor = function(_, r) painted.glow = r end,
-                               SetAlpha = function(_, a) painted.alpha = a end } }
-        -- DEAD IS A BEACON, NOT SILENCE. Arn's correction, and his reason: a combat res has to
-        -- find the corpse. Dimmer and slower than the living pulse, so the two never read alike.
+        local btn = { art = { SetVertexColor = function(_, r) painted.art = r end } }
+        local edges = {}
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+            edges[side] = { SetColorTexture = function(_, r, g, b, a) painted.edge = { r, g, b, a } end }
+        end
+        local realBlock = FN.block
+        FN.block = { edge = edges }
+
         _G.UnitIsDeadOrGhost = function() return true end
         FN.PaintHelp(btn)
         ok(FN.seen == "dead - a dimmer beacon", "a corpse still glows, for the res", tostring(FN.seen))
-        ok(painted.glow and painted.glow > 0.5, "red, not blacked out", tostring(painted.glow))
-        ok(painted.alpha and painted.alpha >= FN.PULSE.dead.lo - 0.001
-                         and painted.alpha <= FN.PULSE.dead.hi + 0.001,
-           "pulsing inside the corpse's own range", tostring(painted.alpha))
-        -- THE RANGES MUST NOT OVERLAP. A corpse beacon and a dying player have to be unmistakable
-        -- at a glance, and this holds however the two are tuned later.
-        ok(FN.PULSE.dead.hi < FN.PULSE.alive.lo,
-           "the corpse never glows as brightly as the living, at any point in either pulse",
-           FN.PULSE.dead.hi .. " vs " .. FN.PULSE.alive.lo)
-        ok(FN.PULSE.dead.speed < FN.PULSE.alive.speed, "and breathes more slowly")
+        ok(painted.edge and painted.edge[1] == FN.EDGE_DEAD[1],
+           "and its outline is the corpse's red", tostring(painted.edge and painted.edge[1]))
 
+        -- THE TWO MUST NOT READ ALIKE, however either is tuned later: a corpse is duller than the
+        -- ordinary outline is bright, and nowhere near the red a dying player gets.
+        ok(FN.EDGE_DEAD[1] < 1.0, "the corpse's red is not the dying player's red")
+        ok(FN.EDGE_DEAD[1] > FN.EDGE_WELL[1], "but it is redder than the ordinary outline")
+
+        -- EVERY SIDE IS PAINTED, not just the one that happened to be last
+        local n = 0
+        for _ in pairs(edges) do n = n + 1 end
+        ok(n == 4, "all four sides exist to be painted", tostring(n))
+        ok(FN.PaintEdge(1, 0, 0, 1) == true, "and PaintEdge reports that it painted them")
+
+        FN.block = realBlock
         _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost = realCU, realHP, realDead
         FN.helpCurve, FN.glowCurve = nil, nil
     end

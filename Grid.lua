@@ -28,6 +28,11 @@ local FG = {}
 NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
+-- EVERY BLOCK IS BUILT OUT OF THESE, so a new one lines up with the grid instead of guessing at
+-- it. BiS> now spent a build 34 wide with its own padding and read as a stray box beside the
+-- cells rather than one of them (Arn, 1 Oct: "make sure everything lines up and same size of the
+-- cells"). Exposed rather than copied: a second copy of 84 is a second thing to change.
+FG.CELL_W, FG.CELL_H, FG.CELL_PAD = FRAME_W, FRAME_H, PAD
 -- the little bar on top of the target cell and the tot cell (FG.CellHeader). Two pixels shorter
 -- than the grid's own 16, so the block reads as hanging off the grid rather than competing with it.
 local HEADER_H, HEADER_LIFT = 14, 1

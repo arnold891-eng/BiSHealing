@@ -5051,6 +5051,47 @@ do
     _G.UnitIsUnit, NS.FM.Ranks, FG.Roster = realIsUnit, realRanks, realRoster
 end
 
+------------------------------------------------------- can we send a ping (0.8.0) --
+--
+-- A MEASUREMENT, so what is tested is that it reports honestly - not that pings work. The client
+-- is the authority on that and only Arn can run it. What must hold here: it never throws, it says
+-- "no" when there is nothing to call, and a protected refusal is RECORDED rather than guessed at.
+do
+    local realPing, realEnum = _G.C_Ping, _G.Enum
+
+    -- no ping system at all: the TBC case, and the honest answer is "no"
+    _G.C_Ping = nil
+    ok(NS.DO.ping() == false, "with no C_Ping, it says so instead of throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "ping"), "/bish ping threw with no ping system")
+
+    -- a client that has the system and lets us call it
+    local sent = {}
+    _G.C_Ping = {
+        IsPingSystemEnabled = function() return true end,
+        GetCooldownInfo = function() return { ready = true } end,
+        SendMacroPing = function(t) sent[#sent + 1] = t end,
+    }
+    _G.Enum = _G.Enum or {}
+    _G.Enum.PingSubjectType = { Attack = 0, Warning = 1, OnMyWay = 2, Assist = 3 }
+    local worked = NS.DO.ping()
+    ok(worked ~= nil and worked ~= false, "when the call goes through, it says which argument worked")
+    ok(#sent > 0, "and it actually tried")
+
+    -- ONE ARGUMENT WHEN ASKED, so a measurement can be repeated on the type that matters
+    sent = {}
+    NS.DO.ping(3)
+    ok(#sent == 1 and sent[1] == 3, "a type given on the command is the only one tried", tostring(sent[1]))
+
+    -- THE PROTECTED CASE, which is the whole reason this exists. A refusal must not throw, and
+    -- must come back as "no", not as a shrug.
+    _G.C_Ping.SendMacroPing = function() error("You can't do that yet", 2) end
+    ok(NS.DO.ping(3) == nil or NS.DO.ping(3) == false,
+       "a refused ping is reported, not raised")
+    ok(pcall(SlashCmdList.BISHEALING, "ping 3"), "/bish ping 3 threw on a refusing client")
+
+    _G.C_Ping, _G.Enum = realPing, realEnum
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

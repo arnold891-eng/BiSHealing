@@ -438,6 +438,101 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- CAN THIS ADDON SEND A PING? A measurement, not a feature (1 Oct 2026).
+---
+--- Arn's idea was an automatic ping when his health drops. The trigger half is already answered -
+--- UnitHealth is secret on every unit including your own, so "am I low" is a comparison the client
+--- refuses, and nothing can be built on it. The other half is open: can we send a ping AT ALL, from
+--- a button the player pressed? `C_Ping.SendMacroPing` is named for the macro door, which usually
+--- means it wants a real keypress; whether our secure button counts is not something to guess.
+---
+--- SO THIS DISCOVERS RATHER THAN ASSUMES. It names what is there, dumps whatever Ping enum the
+--- client has instead of hardcoding a type number, and only then tries the call. Twice today a
+--- hardcoded fact about this game turned out to be wrong (Earth Shield, Water Shield), and both
+--- times the right answer was already available by asking.
+---
+--- THE BLOCKED DIALOG NAMES THE ADDON AND NOT THE FUNCTION, so "BiSHealing has been blocked" would
+--- leave us guessing which line did it. The client fires an event that DOES name it; it is listened
+--- for here, the way BiSProbe does, so a refusal is evidence instead of a mystery.
+local blocked
+local function watchBlocked()
+    if blocked then return blocked end
+    blocked = {}
+    local ok, f = pcall(CreateFrame, "Frame")
+    if not ok or not f then return blocked end
+    for _, e in ipairs({ "ADDON_ACTION_FORBIDDEN", "ADDON_ACTION_BLOCKED" }) do
+        pcall(f.RegisterEvent, f, e)
+    end
+    f:SetScript("OnEvent", function(_, event, who, what)
+        if who ~= nil and who ~= ADDON then return end      -- somebody else's problem
+        blocked.seen = tostring(event) .. " on " .. tostring(what or "?")
+    end)
+    blocked.frame = f
+    return blocked
+end
+
+function NS.DO.ping(which)
+    local P = C_Ping
+    if not P then Print("this client has no C_Ping at all") return false end
+    local names = { "IsPingSystemEnabled", "SendMacroPing", "GetDefaultPingOptions",
+                    "GetCooldownInfo", "TogglePingListener", "GetTextureKitForType" }
+    local have = {}
+    for _, n in ipairs(names) do if type(P[n]) == "function" then have[#have + 1] = n end end
+    Print("C_Ping: |cffb980ff%s|r", #have > 0 and table.concat(have, ", ") or "no functions")
+
+    local on = select(2, pcall(P.IsPingSystemEnabled))
+    Print("  ping system enabled: |cffb980ff%s|r", tostring(NS.Plain(on)))
+
+    -- the ping TYPES, from the client rather than from memory
+    local found = {}
+    if type(Enum) == "table" then
+        for k, v in pairs(Enum) do
+            if type(k) == "string" and k:lower():find("ping") and type(v) == "table" then
+                local keys = {}
+                for name, val in pairs(v) do keys[#keys + 1] = tostring(name) .. "=" .. tostring(val) end
+                table.sort(keys)
+                found[#found + 1] = k .. ": " .. table.concat(keys, " ")
+            end
+        end
+    end
+    if #found == 0 then Print("  %s", "|cff968eadno Ping enum on this client - trying bare numbers|r") end
+    for _, line in ipairs(found) do Print("  |cffb980ff%s|r", line) end
+
+    if type(P.GetCooldownInfo) == "function" then
+        local okcd, cd = pcall(P.GetCooldownInfo)
+        Print("  cooldown info: |cffb980ff%s|r", okcd and type(cd) == "table" and "a table" or tostring(cd))
+    end
+
+    if type(P.SendMacroPing) ~= "function" then
+        Print("  %s", "|cfff08cb0no SendMacroPing - nothing to try|r")
+        return false
+    end
+
+    -- THE ATTEMPT. `which` is whatever you want to pass; with nothing given it tries no argument
+    -- and then 0..3, stopping at the first that does not throw. Each is guarded, and the blocked
+    -- listener is armed first so a protected refusal is caught rather than inferred.
+    local watch = watchBlocked()
+    watch.seen = nil
+    local tried, worked = {}, nil
+    local args = { }
+    if tonumber(which) then args[#args + 1] = tonumber(which) else
+        args[1] = false            -- a marker for "call it with nothing"
+        for i = 0, 3 do args[#args + 1] = i end
+    end
+    for _, a in ipairs(args) do
+        local okc, err
+        if a == false then okc, err = pcall(P.SendMacroPing) else okc, err = pcall(P.SendMacroPing, a) end
+        tried[#tried + 1] = (a == false and "no argument" or tostring(a)) .. ": "
+            .. (okc and "|cff4fd0cfno error|r" or ("|cfff08cb0" .. tostring(err):gsub("^.*:%s*", "") .. "|r"))
+        if okc and worked == nil then worked = (a == false) and "no argument" or tostring(a) end
+    end
+    for _, line in ipairs(tried) do Print("  %s", line) end
+    Print("  blocked by the client: |cffb980ff%s|r", tostring(watch.seen or "nothing reported"))
+    Print("  %s", "|cff968eadno error AND nothing blocked, with a ping visible in game, means a key"
+        .. " on the cells could do this|r")
+    return worked
+end
+
 --- WHAT WILL THIS CLIENT TELL ME ABOUT SOMEONE ELSE'S AURAS? (1 Oct 2026.)
 ---
 --- Built the same way `/bish range` was, and for the same reason: the dimming was broken for nine
@@ -1002,6 +1097,7 @@ function NS.DO.help()
     Print("  |cffb980ffmouse|r  drag spells onto a mouse    |cffb980ffrescan|r  look at the group again")
     Print("  |cffb980ffscan|r   what this client will tell me")
     Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
+    Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
@@ -1093,6 +1189,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.range()
     elseif msg == "byid" then
         NS.DO.byid()
+    elseif msg == "ping" then
+        NS.DO.ping()
+    elseif msg:match("^ping%s+%d+$") then
+        NS.DO.ping(tonumber(msg:match("^ping%s+(%d+)$")))
     elseif msg == "watch" then
         NS.DO.watch()
     elseif msg:match("^watch%s") then

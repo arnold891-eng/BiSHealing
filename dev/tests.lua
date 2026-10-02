@@ -5064,6 +5064,18 @@ do
     ok(NS.DO.ping() == false, "with no C_Ping, it says so instead of throwing")
     ok(pcall(SlashCmdList.BISHEALING, "ping"), "/bish ping threw with no ping system")
 
+    -- CAPTURE THE LISTENER FRAME BEFORE THE FIRST CALL. The blocked-action watcher is memoised, so
+    -- it is built on the first /bish ping and never again - wrapping CreateFrame afterwards catches
+    -- nothing, and the test below then silently does not run. Caught because the check count did
+    -- not move when it was added (890 before, 890 after), which is the only reason it was noticed.
+    local frames = {}
+    local realCreate = _G.CreateFrame
+    _G.CreateFrame = function(...)
+        local f = realCreate(...)
+        frames[#frames + 1] = f
+        return f
+    end
+
     -- a client that has the system and lets us call it
     local sent = {}
     _G.C_Ping = {
@@ -5088,6 +5100,40 @@ do
     ok(NS.DO.ping(3) == nil or NS.DO.ping(3) == false,
        "a refused ping is reported, not raised")
     ok(pcall(SlashCmdList.BISHEALING, "ping 3"), "/bish ping 3 threw on a refusing client")
+
+    -- THE SHAPE THE REAL CLIENT ACTUALLY USED (measured 1 Oct 2026): the call raises nothing at
+    -- all, and the refusal arrives as ADDON_ACTION_FORBIDDEN naming this addon. A verdict that
+    -- trusts "no error" over a fired event reports a yes when the answer is no, which is exactly
+    -- what the first run did.
+    _G.CreateFrame = realCreate
+    local fired = false
+    _G.C_Ping.SendMacroPing = function()
+        -- THE CLIENT'S ACTUAL SHAPE: it returns quietly and fires the forbidden event DURING the
+        -- call. Firing it beforehand instead would be wiped by the arming step, which is how the
+        -- first version of this test fooled itself.
+        for _, f in ipairs(frames) do
+            local on = f.__scripts and f.__scripts.OnEvent
+            -- NAMED, the way the client names it. Passing nil here would slip through the handler's
+            -- "unnamed" branch and prove nothing about the test that matters below.
+            if on then on(f, "ADDON_ACTION_FORBIDDEN", "BiSHealing", "SendMacroPing()"); fired = true end
+        end
+    end
+    local verdict = NS.DO.ping(2)
+    ok(fired, "the blocked-action listener was found, so this test can actually run")
+    ok(verdict == false,
+       "a forbidden action beats 'no error' - the verdict is no, however quiet the call was")
+
+    -- AND SOMEBODY ELSE'S BLOCKED ACTION IS NOT OURS. Half the addons on this client trip the
+    -- forbidden event sooner or later; reading one of those as our own verdict would retire a
+    -- feature that works.
+    _G.C_Ping.SendMacroPing = function()
+        for _, f in ipairs(frames) do
+            local on = f.__scripts and f.__scripts.OnEvent
+            if on then on(f, "ADDON_ACTION_FORBIDDEN", "SomeOtherAddon", "DoSomething()") end
+        end
+    end
+    ok(NS.DO.ping(2) ~= false,
+       "another addon being blocked is not our refusal")
 
     _G.C_Ping, _G.Enum = realPing, realEnum
 end

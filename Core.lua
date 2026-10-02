@@ -528,8 +528,20 @@ function NS.DO.ping(which)
     end
     for _, line in ipairs(tried) do Print("  %s", line) end
     Print("  blocked by the client: |cffb980ff%s|r", tostring(watch.seen or "nothing reported"))
-    Print("  %s", "|cff968eadno error AND nothing blocked, with a ping visible in game, means a key"
-        .. " on the cells could do this|r")
+
+    -- A BLOCKED ACTION BEATS "no error", and this line used to let them argue (measured 1 Oct 2026,
+    -- Arn's first run). Every type came back "no error" AND the client fired ADDON_ACTION_FORBIDDEN
+    -- naming this addon: a forbidden call is refused by the EVENT, not by raising into our pcall.
+    -- So a diagnostic that weighs the two equally reports a yes when the answer is no - which is
+    -- the same failure as a mock being kinder than the client, in the one tool built to prevent it.
+    if watch.seen then
+        Print("  %s", "|cfff08cb0VERDICT: forbidden to addon code.|r |cff968eadNo error was raised -"
+            .. " the client blocks it by firing that event instead, so 'no error' means nothing"
+            .. " here. A secure button running Blizzard's own /ping is the only road left.|r")
+        return false
+    end
+    Print("  %s", "|cff968eadVERDICT: nothing refused it. Now the real question - did a ping actually"
+        .. " appear in game? A call that is accepted and silently dropped looks exactly like this.|r")
     return worked
 end
 

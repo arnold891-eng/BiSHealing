@@ -301,10 +301,19 @@ end
 --- plain enough and I over-read it - "showing one button or bigger if there are more".
 ---
 --- Alignment lives in the header and the placement, not in padding the body out to a column.
+--- WIDE ENOUGH FOR ITS OWN NAME. The body is exactly its buttons, but the bar above it carries
+--- "BiS> now", and at one button (34px) the label ran off the end and the grid's own header drew
+--- straight over it - Arn: "little cut off from last time". A block narrower than its label is a
+--- block with no name.
+---
+--- 62 is measured off the drawn bar, not guessed: the other blocks are a cell wide (84) and sit
+--- comfortably, this is the smallest that keeps "BiS> now" whole.
+FN.HEADER_MIN = 62
+
 function FN.BlockWidth(n)
     local w, _, pad = dims()
     local content = n * w + math.max(0, n - 1) * pad
-    return content, content
+    return math.max(content, FN.HEADER_MIN), content
 end
 
 --- THE BLOCK'S OWN COLOURS. Arn, on the halo that replaced the plain colour change: "the glow is

@@ -5394,10 +5394,13 @@ do
            (2 * cellH + pad) .. " vs " .. cellW)
         -- EXACTLY ITS BUTTONS. A block padded out to a whole cell column left one button sitting
         -- in 84 pixels of nothing, which Arn objected to twice.
-        ok(FN.BlockWidth(1) == cellH, "one button is one button wide", tostring(FN.BlockWidth(1)))
+        -- wide enough for the bar's own label: at one button the body is 34 and "BiS> now" is not
+        ok(FN.BlockWidth(1) == FN.HEADER_MIN, "one button is as wide as its own name",
+           tostring(FN.BlockWidth(1)))
+        ok(FN.HEADER_MIN < cellW, "but still narrower than a cell", tostring(FN.HEADER_MIN))
         ok(FN.BlockWidth(2) == 2 * cellH + pad, "two is two, with the grid's gap between",
            tostring(FN.BlockWidth(2)))
-        for _, n in ipairs({ 1, 2, 3, 7 }) do
+        for _, n in ipairs({ 2, 3, 7 }) do
             ok(FN.BlockWidth(n) == n * cellH + (n - 1) * pad,
                ("%d buttons take exactly the room %d buttons need"):format(n, n),
                tostring(FN.BlockWidth(n)))

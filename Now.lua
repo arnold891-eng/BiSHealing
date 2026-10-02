@@ -54,7 +54,7 @@ NS.FN = FN
 --- carrying the Assist ping's macro, because it had an entry here and nothing else. A placeholder
 --- that does the wrong thing is worse than an empty window.
 FN.BUTTONS = {
-    { id = 1, key = "help",   word = "Help",   pinned = true, ready = true },
+    { id = 1, key = "help",   word = "Help",   pinned = true, ready = true, always = true },
     { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem", ready = true,
       cast = "Tremor Totem", holds = "TREMOR" },
     { id = 3, key = "poison", word = "Poison", needs = "Poison Cleansing Totem" },
@@ -185,18 +185,24 @@ function FN.Settle()
             end
         end
     end
+    local won = false
+    for key in pairs(FN.noted) do
+        if not FN.earned[key] then FN.earned[key] = true won = true end
+    end
     FN.noted = {}
     FN.order = order
-    return moved
+    return moved or won, won
 end
 
 --- THE ORDER AS DIGITS, for the macro. One digit per button id, in order: "132". A row carries
 --- digits and nothing else, which is why the ids exist at all.
 function FN.Encode()
     local out = {}
+    -- only what has been earned, which makes this one row both the order AND the memory of which
+    -- buttons this character has ever needed
     for _, k in ipairs(FN.Order()) do
         local b = FN.Button(k)
-        if b and b.id >= 1 and b.id <= 9 then out[#out + 1] = tostring(b.id) end
+        if b and FN.Earned(k) and b.id >= 1 and b.id <= 9 then out[#out + 1] = tostring(b.id) end
     end
     return table.concat(out)
 end
@@ -217,6 +223,7 @@ function FN.Decode(digits)
         end
     end
     if #out == 0 then return false end
+    for _, k in ipairs(out) do FN.earned[k] = true end
     FN.order = out
     return true
 end
@@ -228,16 +235,36 @@ function FN.Mine()
     local out = {}
     for _, k in ipairs(FN.Order()) do
         local b = FN.Button(k)
-        if b and b.ready and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
+        if b and b.ready and FN.Earned(k)
+           and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
             out[#out + 1] = k
         end
     end
     return out
 end
 
---- Start again: the registry order, nothing noted.
+--- A BUTTON IS EARNED, NOT ISSUED (1 Oct 2026). Arn, looking at a block holding a Tremor button he
+--- had never needed: "it should be smarter always the assist there, after combat if anyone get
+--- feared we add the tremor button."
+---
+--- So capability is not enough. Knowing Tremor Totem means the button CAN exist; somebody actually
+--- being feared is what makes it exist. `always` buttons skip this - the help button is there from
+--- the first login, because the first time you need it is not the moment to start earning it.
+---
+--- Earned at the END of the fight, with the reorder, for the same reason the reorder waits: a
+--- secure button cannot be built in combat anyway. The fight that teaches it is not the fight that
+--- shows it.
+FN.earned = {}
+
+function FN.Earned(key)
+    local b = FN.Button(key)
+    if not b then return false end
+    return (b.always or FN.earned[key]) and true or false
+end
+
+--- Start again: the registry order, nothing noted, nothing earned.
 function FN.Reset()
-    FN.order, FN.noted = defaultOrder(), {}
+    FN.order, FN.noted, FN.earned = defaultOrder(), {}, {}
 end
 
 --[[---------------------------------------------------------------------------
@@ -254,9 +281,29 @@ end
 -- THE SAME SIZE AS A CELL, and the same gap between them: a button here IS a cell, so the block
 -- lines up with the grid on every side instead of sitting near it. Taken from Grid rather than
 -- written down again (1 Oct 2026).
+--- A BUTTON IS SQUARE; THE BLOCK IS WHAT LINES UP (1 Oct 2026, second attempt). "Same size as the
+--- cells" was read as "every button is a cell", which gave each icon 84 pixels of clickable area
+--- with a 26-pixel picture adrift in it - Arn: "i click to the left and right of the tremor icon it
+--- drops a tremor... almost like 3 button there all assist". Two buttons reading as three, and most
+--- of the block being invisible help button.
+---
+--- So a button is a square the height of a cell, and the BLOCK rounds up to whole cell columns.
+--- That keeps it flush with the grid on every side, which was the actual ask, without pretending an
+--- icon needs the width of a name and a health number.
 local function dims()
     local FG = NS.FG
-    return (FG and FG.CELL_W) or 84, (FG and FG.CELL_H) or 34, (FG and FG.CELL_PAD) or 3
+    return (FG and FG.CELL_H) or 34, (FG and FG.CELL_H) or 34, (FG and FG.CELL_PAD) or 3
+end
+
+--- How wide the block is for n buttons: enough to hold them, rounded up to whole cells so it still
+--- lines up with the grid's columns.
+function FN.BlockWidth(n)
+    local FG = NS.FG
+    local cellW = (FG and FG.CELL_W) or 84
+    local w, _, pad = dims()
+    local content = n * w + math.max(0, n - 1) * pad
+    local cells = math.max(1, math.ceil((content + pad) / (cellW + pad)))
+    return cells * cellW + (cells - 1) * pad, content
 end
 
 --- THE BLOCK'S OWN COLOURS. Arn, on the halo that replaced the plain colour change: "the glow is
@@ -467,8 +514,23 @@ local function makeButton(parent, key)
     return b
 end
 
+--- WATCH FOR WHAT IS NOT THERE YET. A button is earned by its situation happening - but if the
+--- button does not exist, nothing was looking, and it could never be earned. That circle is why
+--- this is separate from the paint: every button this character COULD have is watched, shown or
+--- not, and the unshown ones are exactly the ones with something to prove.
+function FN.Watch()
+    for _, b in ipairs(FN.BUTTONS) do
+        if b.ready and not FN.Earned(b.key) and b.holds
+           and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
+            local unit = FN.WhoNeeds(b.key)
+            if unit then FN.Note(b.key) end
+        end
+    end
+end
+
 --- Paint everything the block holds. Help reads a curve; the rest read plain data.
 function FN.Paint()
+    FN.Watch()
     for key, b in pairs(FN.buttons or {}) do
         if b:IsShown() then
             if key == "help" then FN.PaintHelp(b) else FN.PaintNeed(b, key) end
@@ -546,7 +608,8 @@ function FN.Layout(anchor)
     -- sized to what is in it, in whole cells: one cell wide, two when a second button arrives,
     -- with the grid's own gap between them so it reads as part of the grid
     local w, h, pad = dims()
-    a:SetSize(#mine * w + (#mine - 1) * pad, h)
+    local width = FN.BlockWidth(#mine)
+    a:SetSize(width, h)
     FN.PlaceBlock(a, anchor)
     FN.Paint()
     return true, #mine

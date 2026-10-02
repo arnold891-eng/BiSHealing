@@ -5331,6 +5331,81 @@ do
         FN.Reset()
     end
 
+    -- A BUTTON IS EARNED, NOT ISSUED. Arn, looking at a Tremor button he had never needed: "it
+    -- should be smarter always the assist there, after combat if anyone get feared we add the
+    -- tremor button." Knowing the spell means the button CAN exist; somebody being feared is what
+    -- makes it exist.
+    do
+        FN.Reset()
+        local realKnows = NS.FB.Knows
+        NS.FB.Knows = function() return true end          -- a shaman with every totem trained
+
+        local mine = FN.Mine()
+        ok(#mine == 1 and mine[1] == "help",
+           "a fresh install shows the help button and nothing else",
+           table.concat(mine, " "))
+
+        -- a fight where somebody was feared, and the fight ending
+        FN.Note("tremor")
+        local _, won = FN.Settle()
+        ok(won == true, "the fight that needed it says so")
+        mine = FN.Mine()
+        ok(#mine == 2, "and afterwards the Tremor button is there", table.concat(mine, " "))
+
+        -- IT STAYS. Earning it is a fact about this character, not about that fight.
+        FN.Settle()
+        ok(#FN.Mine() == 2, "a quiet fight does not take it away again")
+
+        -- AND IT SURVIVES A RESTART, in the same row as the order
+        local digits = FN.Encode()
+        FN.Reset()
+        ok(#FN.Mine() == 1, "a reset forgets it")
+        FN.Decode(digits)
+        ok(#FN.Mine() == 2, "and the macro remembers it", table.concat(FN.Mine(), " "))
+
+        -- THE CIRCLE THAT HAD TO BE BROKEN: nothing watches a button that is not there, so it
+        -- could never be earned. FN.Watch looks for the ones with something to prove.
+        FN.Reset()
+        local realLC, realRoster = _G.C_LossOfControl, NS.FG.Roster
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+            GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = "FEAR" } end,
+        }
+        NS.FG.Roster = function() return { "party1" } end
+        ok(#FN.Mine() == 1, "the Tremor button is not there to do the watching")
+        FN.Watch()
+        FN.Settle()
+        ok(#FN.Mine() == 2, "but the fear was still noticed, and earned it")
+
+        _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
+        FN.Reset()
+    end
+
+    -- THE BLOCK LINES UP; THE BUTTONS DO NOT PRETEND TO BE CELLS. A button 84 wide gives an icon
+    -- a cell of clickable area, which is how two buttons read as three and most of the block was
+    -- invisible help button (Arn, 1 Oct).
+    do
+        local FG = NS.FG
+        local cellW, cellH, pad = FG.CELL_W, FG.CELL_H, FG.CELL_PAD
+        ok(cellW == 84 and cellH == 34, "the grid still publishes its cell size", cellW .. "x" .. cellH)
+        -- one and two buttons both fit inside a single cell's width, so the block stays one column
+        ok(2 * cellH + pad <= cellW,
+           "two square buttons fit in one cell column, so the block does not grow for them",
+           (2 * cellH + pad) .. " vs " .. cellW)
+        -- and a block is always a whole number of cell columns, so its edges meet the grid's
+        for _, n in ipairs({ 1, 2, 3, 4, 7, 12 }) do
+            local w, content = FN.BlockWidth(n)
+            local cells = (w + pad) / (cellW + pad)
+            ok(cells == math.floor(cells),
+               ("%d buttons is a whole number of cell columns"):format(n), tostring(cells))
+            ok(w >= content, ("and wide enough to hold all %d of them"):format(n),
+               w .. " vs " .. content)
+        end
+        ok(FN.BlockWidth(1) == cellW, "one button is one cell wide", tostring(FN.BlockWidth(1)))
+        ok(FN.BlockWidth(2) == cellW, "and so is two - they fit side by side",
+           tostring(FN.BlockWidth(2)))
+    end
+
     ok(FN.Place("help") == 1, "the help button starts first")
     ok(#FN.Order() == #FN.BUTTONS, "and every button is in the order")
 

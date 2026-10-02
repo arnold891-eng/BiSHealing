@@ -168,7 +168,12 @@ function FB.Scan()
     if watch and FB.Knows(watch) then
         local onUnit, unsure = FB.Watched(roster, watch)
         if not onUnit and not unsure then
-            found[#found + 1] = { kind = "groupbuff", text = watch .. " is not up on anyone" }
+            -- "not up on anyone" reads as nonsense when there is only one person it could be on -
+            -- solo, or watching a buff that only goes on yourself. Arn, on Lightning Shield: "i
+            -- can only throw shield on my self." Same answer, said the way it is meant.
+            found[#found + 1] = { kind = "groupbuff",
+                                  text = watch .. (#roster > 1 and " is not up on anyone"
+                                                                or " is not up on you") }
         end
     end
 

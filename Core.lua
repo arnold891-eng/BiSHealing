@@ -361,7 +361,12 @@ function NS.DO.watch(name)
         local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
         local onUnit, unsure = NS.FB.Watched(roster, watch)
         Print("  %s", onUnit and ("up on |cff4fd0cf" .. tostring(onUnit) .. "|r")
-            or (unsure and "|cffe5c04athe client would not say|r" or "|cfff08cb0not up on anyone|r"))
+            or (unsure and "|cffe5c04athe client would not say|r"
+                or ("|cfff08cb0not up on " .. (#roster > 1 and "anyone" or "you") .. "|r")))
+        if #roster <= 1 then
+            Print("  %s", "|cff968eadyou are on your own, so this is only about you - a buff that"
+                .. " only goes on yourself belongs in |rcffb980ff/bish buff|r")
+        end
     end
     return watch
 end

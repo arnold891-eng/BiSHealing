@@ -55,9 +55,62 @@ NS.FN = FN
 --- that does the wrong thing is worse than an empty window.
 FN.BUTTONS = {
     { id = 1, key = "help",   word = "Help",   pinned = true, ready = true },
-    { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem" },
+    { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem", ready = true,
+      cast = "Tremor Totem", holds = "TREMOR" },
     { id = 3, key = "poison", word = "Poison", needs = "Poison Cleansing Totem" },
 }
+
+--- WHAT A TREMOR TOTEM ACTUALLY ANSWERS. Arn: "dimmed until somone in the party is feared charmed
+--- or sleep" - and that list is the point. A button that lit for every root and stun would be a
+--- button you learn to ignore, and the client hands back the TYPE as a plain string, so there is no
+--- reason to be vague about it.
+---
+--- Kept as a set rather than a list because the client's exact spelling on this build is not fully
+--- known: a root reads as "ROOT" (measured 1 Oct), and the rest are the retail names. Anything not
+--- in here is recorded by /bish control rather than guessed at, so an unseen spelling shows up as
+--- evidence instead of as a button that never lights.
+FN.HOLDS = {
+    TREMOR = { FEAR = true, FEAR_MECHANIC = true, CHARM = true, SLEEP = true, POSSESS = true },
+}
+
+--- What is holding a unit, as a plain string, or nil. Loss of control is NOT secret on this client
+--- - count, type and the by-unit call all read plainly (measured 1 Oct with a root on Arn) - so
+--- this is an ordinary read and an ordinary test, unlike anything health-shaped.
+function FN.HoldOn(unit)
+    local LC = C_LossOfControl
+    if not (LC and LC.GetActiveLossOfControlDataCountByUnit and LC.GetActiveLossOfControlDataByUnit) then
+        return nil, "no api"
+    end
+    local okN, n = pcall(LC.GetActiveLossOfControlDataCountByUnit, unit)
+    n = okN and NS.Plain(n) or nil
+    if type(n) ~= "number" or n < 1 then return nil, okN and "none" or "refused" end
+    for i = 1, n do
+        local okD, d = pcall(LC.GetActiveLossOfControlDataByUnit, unit, i)
+        if okD and type(d) == "table" then
+            local okT, kind = pcall(function() return d.lossOfControlType or d.locType end)
+            kind = okT and NS.Plain(kind) or nil
+            if type(kind) == "string" then
+                FN.seenHolds = FN.seenHolds or {}
+                FN.seenHolds[kind] = (FN.seenHolds[kind] or 0) + 1
+                return kind, nil
+            end
+        end
+    end
+    return nil, "unreadable"
+end
+
+--- Is anyone in the group held by something this button answers? Returns the unit and the type.
+function FN.WhoNeeds(key)
+    local want = FN.HOLDS[(FN.Button(key) or {}).holds or ""]
+    if not want then return nil end
+    local FG = NS.FG
+    local roster = (FG and FG.Roster and FG.Roster()) or { "player" }
+    for _, unit in ipairs(roster) do
+        local kind = FN.HoldOn(unit)
+        if kind and want[kind] then return unit, kind end
+    end
+    return nil
+end
 
 --- The button a key names, or nil.
 function FN.Button(key)
@@ -303,6 +356,30 @@ function FN.PaintEdge(r, g, b, a)
     return true
 end
 
+--- A BUTTON THAT WAITS FOR SOMEBODY ELSE'S TROUBLE. Dim until it is needed, bright when it is -
+--- and this one needs no curve at all, because loss of control is plain on this client. An
+--- ordinary read, an ordinary test, the way Innervate watches a party.
+---
+--- Noted when it fires, which is what teaches the order: a night of fears walks this button up the
+--- block past one that only came up once (see FN.Note / FN.Settle).
+function FN.PaintNeed(b, key)
+    b = b or (FN.buttons and FN.buttons[key])
+    if not (b and b.art) then return nil end
+    local unit, kind = FN.WhoNeeds(key)
+    if unit then
+        b.art:SetVertexColor(1, 1, 1, 1)
+        b.art:SetDesaturated(false)
+        if b.__held ~= true then FN.Note(key) end        -- counted once per hold, not per frame
+        b.__held = true
+        FN.needSeen = kind .. " on " .. tostring(unit)
+        return true
+    end
+    b.art:SetVertexColor(0.55, 0.55, 0.55, 0.35)
+    if b.art.SetDesaturated then b.art:SetDesaturated(true) end
+    b.__held = false
+    return false
+end
+
 --- Paint the button and the outline from the client's own answer about health. Nothing is read:
 --- the curve goes in, a colour comes out, and the colour goes onto a texture.
 function FN.PaintHelp(b)
@@ -365,6 +442,20 @@ local function makeButton(parent, key)
         b:SetAttribute("unit", "player")
         b:RegisterForClicks("AnyUp")
     end
+    local def = FN.Button(key)
+    if def and def.cast then
+        -- A SPELL, not a ping: written once, out of combat, like everything secure here. The
+        -- spellbook already decided this button exists at all (FN.Mine), so the name is one this
+        -- character has trained.
+        if b.SetAttribute then
+            b:SetAttribute("*type1", "macro")
+            b:SetAttribute("*macrotext1", "/cast " .. def.cast)
+        end
+        local okT, icon = pcall(function()
+            return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(def.cast)
+        end)
+        if okT and icon and b.art.SetTexture then pcall(b.art.SetTexture, b.art, icon) end
+    end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -374,6 +465,15 @@ local function makeButton(parent, key)
         if atlas and b.art.SetAtlas then pcall(b.art.SetAtlas, b.art, atlas) end
     end
     return b
+end
+
+--- Paint everything the block holds. Help reads a curve; the rest read plain data.
+function FN.Paint()
+    for key, b in pairs(FN.buttons or {}) do
+        if b:IsShown() then
+            if key == "help" then FN.PaintHelp(b) else FN.PaintNeed(b, key) end
+        end
+    end
 end
 
 --- Build or refresh the block. OUT OF COMBAT ONLY, like every other secure thing here.
@@ -448,6 +548,6 @@ function FN.Layout(anchor)
     local w, h, pad = dims()
     a:SetSize(#mine * w + (#mine - 1) * pad, h)
     FN.PlaceBlock(a, anchor)
-    FN.PaintHelp()
+    FN.Paint()
     return true, #mine
 end

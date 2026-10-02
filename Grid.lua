@@ -2043,8 +2043,8 @@ function FG.Start()
         end
         -- BiS> now. Its buttons never change in a fight; only the colour does, and the colour is
         -- the client's answer about a number we are not allowed to see.
-        if NS.FN and NS.FN.PaintHelp and NS.FN.block and NS.FN.block:IsShown() then
-            NS.FN.PaintHelp()
+        if NS.FN and NS.FN.Paint and NS.FN.block and NS.FN.block:IsShown() then
+            NS.FN.Paint()
         end
         -- your own cell is out of the roster, so the loop above never reaches it
         local me = FG.me

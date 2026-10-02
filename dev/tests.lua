@@ -5271,6 +5271,66 @@ do
         FN.helpCurve, FN.glowCurve = nil, nil
     end
 
+    -- THE TREMOR BUTTON: dim until somebody in the party is held by something a Tremor Totem
+    -- actually answers. Arn: "dimmed until somone in the party is feared charmed or sleep" - and
+    -- that list matters, because a button that lights for every root is one you learn to ignore.
+    do
+        local realLC, realRoster = _G.C_LossOfControl, NS.FG.Roster
+        local held = {}
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function(u) return held[u] and 1 or 0 end,
+            GetActiveLossOfControlDataByUnit = function(u)
+                return held[u] and { lossOfControlType = held[u] } or nil
+            end,
+        }
+        NS.FG.Roster = function() return { "player", "party1" } end
+
+        local painted = {}
+        local btn = { art = { SetVertexColor = function(_, r, g, b, a) painted.a = a end,
+                              SetDesaturated = function(_, on) painted.grey = on end },
+                      IsShown = function() return true end }
+
+        ok(FN.PaintNeed(btn, "tremor") == false, "nothing holding anyone: the button is dim")
+        ok(painted.grey == true, "and greyed out")
+
+        held.party1 = "ROOT"
+        ok(FN.PaintNeed(btn, "tremor") == false,
+           "a ROOT does not light it - a totem does not break roots")
+
+        held.party1 = "FEAR"
+        ok(FN.PaintNeed(btn, "tremor") == true, "a FEAR does")
+        ok(painted.a == 1 and painted.grey == false, "bright and in colour")
+        ok(FN.needSeen == "FEAR on party1", "and it says who", tostring(FN.needSeen))
+
+        held.party1 = "CHARM"
+        ok(FN.PaintNeed(btn, "tremor") == true, "so does a CHARM")
+        held.party1 = "SLEEP"
+        ok(FN.PaintNeed(btn, "tremor") == true, "and a SLEEP")
+
+        -- COUNTED ONCE PER HOLD, not once per frame: the paint runs several times a second and the
+        -- order would be nonsense if every frame of one fear counted as another fear.
+        FN.Reset()
+        btn.__held = nil
+        held.party1 = "FEAR"
+        for _ = 1, 20 do FN.PaintNeed(btn, "tremor") end
+        ok((FN.noted.tremor or 0) == 1, "twenty frames of one fear is one note",
+           tostring(FN.noted.tremor))
+        held.party1 = nil
+        FN.PaintNeed(btn, "tremor")
+        held.party1 = "FEAR"
+        FN.PaintNeed(btn, "tremor")
+        ok((FN.noted.tremor or 0) == 2, "and a second fear is a second note",
+           tostring(FN.noted.tremor))
+
+        -- an unknown spelling is recorded rather than guessed at
+        held.party1 = "SOMETHING_NEW"
+        FN.PaintNeed(btn, "tremor")
+        ok(FN.seenHolds and FN.seenHolds.SOMETHING_NEW, "an unseen hold type is written down")
+
+        _G.C_LossOfControl, NS.FG.Roster = realLC, realRoster
+        FN.Reset()
+    end
+
     ok(FN.Place("help") == 1, "the help button starts first")
     ok(#FN.Order() == #FN.BUTTONS, "and every button is in the order")
 

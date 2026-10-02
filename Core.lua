@@ -516,12 +516,17 @@ function NS.DO.ping(which)
         local t = _G["SLASH_PING" .. i] or (slash and _G["SLASH_" .. slash .. i])
         if t then token = tostring(t) break end
     end
+    -- THE TOKEN IS THE EVIDENCE, NOT THE TABLE. This printed "no /ping in SlashCmdList as /ping"
+    -- on 1 Oct - nonsense on its face, and worse, misleading: /ping demonstrably works, because
+    -- the ping binds built on it work. A command handled by the client itself need not appear in
+    -- SlashCmdList at all, so an empty table there proves nothing and SLASH_PING1 proves plenty.
     Print("  Blizzard's own ping command: %s%s",
-        slash and ("|cff4fd0cfSlashCmdList." .. slash .. "|r") or "|cfff08cb0no /ping in SlashCmdList|r",
-        token and (" as |cffb980ff" .. token .. "|r") or "")
-    if slash then
-        Print("  %s", "|cff968eadso a secure button holding \"" .. (token or "/ping") .. " assist\""
-            .. " is worth trying - that is a macro, and a macro is not us|r")
+        token and ("|cff4fd0cf" .. token .. "|r works") or "|cfff08cb0no SLASH_PING token|r",
+        slash and (" (and SlashCmdList." .. slash .. ")") or " (handled by the client, not SlashCmdList)")
+    if token or slash then
+        Print("  %s", "|cff968eadand the cells use \"" .. (token or "/ping")
+            .. " [@mouseover] <type>\" - the condition is what aims it at the cell"
+            .. " rather than at the floor|r")
     end
 
     -- THE ART, so the mouse window can show an icon instead of a word (Arn, 1 Oct). The client has
@@ -538,18 +543,33 @@ function NS.DO.ping(which)
             local gotKit, kit = pcall(kitOf, e.val)
             local line = ("  %s=%s kit: |cffb980ff%s|r"):format(e.name, tostring(e.val),
                 gotKit and tostring(kit) or "refused")
-            if gotKit and type(kit) == "string" and atlasInfo then
-                local hits = {}
-                for _, suffix in ipairs({ "", "-center", "-expand", "-rotation", "-icon" }) do
-                    local okA, info = pcall(atlasInfo, kit .. suffix)
-                    if okA and type(info) == "table" then
-                        hits[#hits + 1] = (suffix == "" and "(bare)" or suffix)
-                    end
-                end
-                line = line .. "  atlas: " .. (#hits > 0
-                    and ("|cff4fd0cf" .. table.concat(hits, " ") .. "|r") or "|cfff08cb0none resolve|r")
-            end
             Print("%s", line)
+        end
+
+        -- ASK THE CLIENT FOR THE NAMES RATHER THAN INVENTING THEM. The kits come back as bare
+        -- words ("Assist", "Attack", "OnMyWay"), so the atlas name is those composed into some
+        -- format - and five guessed suffixes all missed. C_Texture.GetAtlasElements lists what
+        -- actually exists, which ends the guessing for good (1 Oct 2026).
+        local elements = C_Texture and C_Texture.GetAtlasElements
+        if type(elements) == "function" then
+            local okE, list = pcall(elements)
+            local hits = {}
+            if okE and type(list) == "table" then
+                for k, v in pairs(list) do
+                    local nm = (type(k) == "string" and k) or (type(v) == "string" and v) or nil
+                    if nm and nm:lower():find("ping") then hits[#hits + 1] = nm end
+                end
+            end
+            table.sort(hits)
+            if #hits == 0 then
+                Print("  %s", "|cfff08cb0no atlas with 'ping' in its name|r")
+            else
+                Print("  atlases with 'ping' in the name: |cffb980ff%d|r", #hits)
+                for i = 1, math.min(#hits, 24) do Print("    |cff4fd0cf%s|r", hits[i]) end
+                if #hits > 24 then Print("    ... and %d more", #hits - 24) end
+            end
+        elseif atlasInfo then
+            Print("  %s", "|cff968eadno GetAtlasElements - cannot list what exists|r")
         end
     end
 

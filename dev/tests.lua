@@ -5140,6 +5140,90 @@ do
     FM.Apply()
 end
 
+------------------------------------------ BiS> now: the order that learns (0.8.x) --
+--
+-- Arn's rule, in his words: "if a party member is feared after combat the button moves up one
+-- space... if 2 combats happen and people are poison more often the poison cleanse totem moves up
+-- more spaces than the fear". One swap per occurrence, settled when the fight ends - which is also
+-- the only legal moment, since a secure button cannot be moved in combat.
+do
+    local FN = NS.FN
+    FN.Reset()
+
+    ok(FN.Place("help") == 1, "the help button starts first")
+    ok(#FN.Order() == #FN.BUTTONS, "and every button is in the order")
+
+    -- NOTHING MOVES WHILE THE FIGHT IS ON
+    FN.Note("poison")
+    FN.Note("poison")
+    ok(FN.Place("poison") == 3, "noting something mid-fight moves nothing yet", tostring(FN.Place("poison")))
+
+    -- ONE SWAP PER OCCURRENCE: two poisons in one fight walks it up two places - except it cannot
+    -- pass the help button, so it lands second
+    ok(FN.Settle() == true, "the fight ending settles the order")
+    ok(FN.Place("poison") == 2, "poison moved up", tostring(FN.Place("poison")))
+    ok(FN.Place("help") == 1, "and the help button did not move")
+
+    -- ARN'S EXACT EXAMPLE: poison in two fights passes fear in one
+    FN.Reset()
+    FN.Note("tremor") FN.Settle()
+    ok(FN.Place("tremor") == 2, "one fear, one place up", tostring(FN.Place("tremor")))
+    FN.Note("poison") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    ok(FN.Place("poison") == 2 and FN.Place("tremor") == 3,
+       "poison in two fights passes fear in one",
+       tostring(FN.Place("poison")) .. "/" .. tostring(FN.Place("tremor")))
+
+    -- ONE SWAP PER OCCURRENCE, PROVEN. With three buttons and help pinned, the furthest anything
+    -- can travel is one place - so "twice in a fight moves it twice" was not actually being tested,
+    -- and a mutation that moved things once per FIGHT passed the whole suite. Caught by mutating
+    -- it (M16, 1 Oct). A fourth button is added here to give the order room to show the difference.
+    FN.BUTTONS[#FN.BUTTONS + 1] = { id = 9, key = "testonly", word = "Test" }
+    FN.Reset()
+    ok(FN.Place("testonly") == 4, "the extra button starts last")
+    FN.Note("testonly") FN.Note("testonly")
+    FN.Settle()
+    ok(FN.Place("testonly") == 2,
+       "twice in one fight moves it TWO places, not one",
+       tostring(FN.Place("testonly")))
+    FN.BUTTONS[#FN.BUTTONS] = nil
+    FN.Reset()
+
+    -- and Arn's example again, now that the order has room
+    FN.Note("tremor") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    ok(FN.Place("poison") == 2 and FN.Place("tremor") == 3,
+       "poison in two fights still passes fear in one with the extra room gone")
+
+    -- NOTHING PASSES A PINNED BUTTON, however bad the night
+    for _ = 1, 20 do FN.Note("poison") end
+    FN.Settle()
+    ok(FN.Place("help") == 1, "twenty poisons still do not move the help button")
+
+    ok(FN.Settle() == false, "a quiet fight changes nothing, so nothing is written")
+
+    -- THE ORDER IS THE MEMORY, and it has to survive a restart in a handful of characters
+    local digits = FN.Encode()
+    ok(digits:find("%d"), "the order writes down as digits", digits)
+    FN.Reset()
+    ok(FN.Place("poison") == 3, "reset puts it back")
+    ok(FN.Decode(digits) == true, "and the digits are read back")
+    ok(FN.Place("poison") == 2, "with the learned order intact", tostring(FN.Place("poison")))
+
+    -- AN OLDER MACRO KNOWS ABOUT FEWER BUTTONS, and must not drop the ones it never heard of
+    FN.Reset()
+    ok(FN.Decode("1") == true, "a macro from a version with one button still reads")
+    ok(#FN.Order() == #FN.BUTTONS, "and the buttons it never heard of keep their places")
+    ok(FN.Place("help") == 1, "with help still first")
+
+    ok(FN.Decode("") == false, "nothing is not an order")
+    ok(FN.Decode(nil) == false, "and neither is nil")
+    ok(FN.Note("nosuchbutton") == false, "a button we do not have is not noted")
+
+    FN.Reset()
+end
+
 --------------------------------------------- who is feared, and may I tell anyone --
 do
     local realLC, realCI = _G.C_LossOfControl, _G.C_ChatInfo

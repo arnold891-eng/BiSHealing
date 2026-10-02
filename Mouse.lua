@@ -626,9 +626,12 @@ function FM.ApplyTo(cell)
                 local kind, text, cast = nil, nil, spell
                 local ping = FM.PingOf(spell)
                 if ping then
-                    -- Blizzard's own command, aimed the way the wheel binds are aimed: the cell is
-                    -- what the cursor is over when you click it, which is the unit you meant.
-                    kind, text, cast = "macro", "/ping " .. ping, nil
+                    -- `[@mouseover]` IS THE WHOLE THING (measured 1 Oct 2026). Without it the ping
+                    -- fires at wherever the cursor is in the WORLD, so clicking a person's cell
+                    -- pings the floor at your feet - which Arn saw, and which is worse than no
+                    -- button at all. The same condition the wheel binds have used all along:
+                    -- "/target [@mouseover]". Arn confirmed by hand before a line of this changed.
+                    kind, text, cast = "macro", "/ping [@mouseover] " .. ping, nil
                 elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end

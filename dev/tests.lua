@@ -5079,7 +5079,10 @@ do
     FM.Apply()
     local cell = FG.frames[1]
     ok(cell.__attrs["alt-type1"] == "macro", "a ping binds as a macro", tostring(cell.__attrs["alt-type1"]))
-    ok(cell.__attrs["alt-macrotext1"] == "/ping assist", "running Blizzard's own command",
+    -- THE CONDITION IS THE FEATURE, not decoration: without [@mouseover] the ping lands on the
+    -- floor at your feet instead of on the person whose cell you clicked (measured 1 Oct).
+    ok(cell.__attrs["alt-macrotext1"] == "/ping [@mouseover] assist",
+       "running Blizzard's own command, aimed at the unit under the cursor",
        tostring(cell.__attrs["alt-macrotext1"]))
     ok(cell.__attrs["alt-spell1"] == nil, "and never as a spell", tostring(cell.__attrs["alt-spell1"]))
 

@@ -5224,6 +5224,38 @@ do
     FN.Reset()
 end
 
+----------------------------------------- does anything say somebody was hit (0.8.x) --
+do
+    ok(pcall(NS.DO.hits), "the hit counter runs before anything has arrived")
+    ok(pcall(SlashCmdList.BISHEALING, "hits"), "/bish hits threw")
+
+    -- it must count what arrives, per unit, without reading anything
+    local frames, realCreate = {}, _G.CreateFrame
+    _G.CreateFrame = function(...) local f = realCreate(...) frames[#frames + 1] = f return f end
+    NS.DO.hits("reset")
+    _G.CreateFrame = realCreate
+    local fired = false
+    for _, f in ipairs(frames) do
+        local on = f.__scripts and f.__scripts.OnEvent
+        if on then
+            on(f, "UNIT_COMBAT", "party1")
+            on(f, "UNIT_COMBAT", "party1")
+            on(f, "UNIT_COMBAT", "party2")
+            fired = true
+        end
+    end
+    if fired then ok(pcall(NS.DO.hits), "and after events arrive it still runs") end
+
+    -- A SECRET UNIT TOKEN MUST NOT BECOME A TABLE KEY. A secret string refuses to be one, which is
+    -- the whole reason NS.Plain exists - and an event handler is exactly where an unguarded one
+    -- would arrive.
+    for _, f in ipairs(frames) do
+        local on = f.__scripts and f.__scripts.OnEvent
+        if on then ok(pcall(on, f, "UNIT_COMBAT", secret()),
+                      "a secret unit token is not used as a key") end
+    end
+end
+
 --------------------------------------------- who is feared, and may I tell anyone --
 do
     local realLC, realCI = _G.C_LossOfControl, _G.C_ChatInfo

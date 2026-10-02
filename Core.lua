@@ -438,6 +438,83 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- DOES ANYTHING STILL TELL US SOMEBODY WAS HIT? (1 Oct 2026.)
+---
+--- Arn wants the pyramid to learn: whoever takes more HITS - not more damage, just more hits -
+--- rises within their band when it rearranges, tanks still on top, the main tank holding the apex.
+---
+--- THE COMBAT LOG IS NOT THE ROAD. It never fires here, and registering it is a PROTECTED call
+--- (Lockdown.lua, and the dialog that named PartyHealingDisplay). It is deliberately NOT registered
+--- below: we know that answer, and re-asking it only pops the blocked dialog at Arn.
+---
+--- But "who got hit" and "how hard" are different questions, and only the second is a number. The
+--- old per-unit combat event predates the combat log and carries the first without us reading the
+--- second - we would be COUNTING NOTIFICATIONS, never reading a value. So: register the candidates,
+--- count what arrives, and let Arn go and get hit.
+---
+--- Deliberately crude: it counts, it does not interpret. What it is for is answering whether the
+--- signal exists at all, before anything is designed around it.
+local hits
+local function watchHits()
+    if hits then return hits end
+    hits = { counts = {}, units = {}, refused = {} }
+    local okF, f = pcall(CreateFrame, "Frame")
+    if not okF or not f then return hits end
+    for _, e in ipairs({ "UNIT_COMBAT", "UNIT_HEALTH", "UNIT_HEALTH_FREQUENT", "UNIT_MAXHEALTH" }) do
+        local okR = pcall(f.RegisterEvent, f, e)
+        if not okR then hits.refused[#hits.refused + 1] = e end
+    end
+    f:SetScript("OnEvent", function(_, event, unit)
+        hits.counts[event] = (hits.counts[event] or 0) + 1
+        local u = NS.Plain(unit)
+        if type(u) == "string" then
+            hits.units[u] = hits.units[u] or {}
+            hits.units[u][event] = (hits.units[u][event] or 0) + 1
+        end
+    end)
+    hits.frame = f
+    hits.since = (GetTime and GetTime()) or 0
+    return hits
+end
+
+function NS.DO.hits(arg)
+    local h = watchHits()
+    if arg == "reset" then
+        h.counts, h.units, h.since = {}, {}, (GetTime and GetTime()) or 0
+        Print("counting again from now")
+        return true
+    end
+    if #h.refused > 0 then
+        Print("refused to register: |cfff08cb0%s|r", table.concat(h.refused, ", "))
+    end
+    Print("listening for: |cffb980ffUNIT_COMBAT UNIT_HEALTH UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH|r")
+    Print("  %s", "|cff968eadnot the combat log: it never fires here and registering it is"
+        .. " protected - that question is already answered|r")
+    local any = false
+    for _, e in ipairs({ "UNIT_COMBAT", "UNIT_HEALTH", "UNIT_HEALTH_FREQUENT", "UNIT_MAXHEALTH" }) do
+        local n = h.counts[e]
+        if n then any = true end
+        Print("  %-22s |cff%s%s|r", e, n and "4fd0cf" or "968ead", n and tostring(n) or "nothing")
+    end
+    if not any then
+        Print("  %s", "|cffe5c04ago and get hit, then run this again|r - nothing has arrived yet")
+    else
+        local shown = 0
+        for u, by in pairs(h.units) do
+            if shown < 8 then
+                local parts = {}
+                for e, n in pairs(by) do parts[#parts + 1] = e:gsub("^UNIT_", "") .. "=" .. n end
+                table.sort(parts)
+                Print("    %s: %s", u, table.concat(parts, " "))
+                shown = shown + 1
+            end
+        end
+    end
+    Print("  %s", "|cff968eadUNIT_COMBAT firing per unit is the one that would work - a count of"
+        .. " notifications, never a damage number|r")
+    return true
+end
+
 --- WHO IS FEARED, AND MAY I TELL ANYONE? (1 Oct 2026.)
 ---
 --- Arn's idea: a feared player's addon lights a button, and the shaman in their group gets a
@@ -1341,6 +1418,7 @@ function NS.DO.help()
     Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
     Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
     Print("  |cffb980ffcontrol|r  who is feared, and may I tell anyone (a measurement)")
+    Print("  |cffb980ffhits|r   does anything still say somebody was hit (a measurement)")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
@@ -1436,6 +1514,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.curve()
     elseif msg == "control" or msg == "fear" then
         NS.DO.control()
+    elseif msg == "hits" then
+        NS.DO.hits()
+    elseif msg == "hits reset" then
+        NS.DO.hits("reset")
     elseif msg == "ping" then
         NS.DO.ping()
     elseif msg:match("^ping%s+%d+$") then

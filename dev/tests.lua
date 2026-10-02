@@ -5392,18 +5392,16 @@ do
         ok(2 * cellH + pad <= cellW,
            "two square buttons fit in one cell column, so the block does not grow for them",
            (2 * cellH + pad) .. " vs " .. cellW)
-        -- and a block is always a whole number of cell columns, so its edges meet the grid's
-        for _, n in ipairs({ 1, 2, 3, 4, 7, 12 }) do
-            local w, content = FN.BlockWidth(n)
-            local cells = (w + pad) / (cellW + pad)
-            ok(cells == math.floor(cells),
-               ("%d buttons is a whole number of cell columns"):format(n), tostring(cells))
-            ok(w >= content, ("and wide enough to hold all %d of them"):format(n),
-               w .. " vs " .. content)
-        end
-        ok(FN.BlockWidth(1) == cellW, "one button is one cell wide", tostring(FN.BlockWidth(1)))
-        ok(FN.BlockWidth(2) == cellW, "and so is two - they fit side by side",
+        -- EXACTLY ITS BUTTONS. A block padded out to a whole cell column left one button sitting
+        -- in 84 pixels of nothing, which Arn objected to twice.
+        ok(FN.BlockWidth(1) == cellH, "one button is one button wide", tostring(FN.BlockWidth(1)))
+        ok(FN.BlockWidth(2) == 2 * cellH + pad, "two is two, with the grid's gap between",
            tostring(FN.BlockWidth(2)))
+        for _, n in ipairs({ 1, 2, 3, 7 }) do
+            ok(FN.BlockWidth(n) == n * cellH + (n - 1) * pad,
+               ("%d buttons take exactly the room %d buttons need"):format(n, n),
+               tostring(FN.BlockWidth(n)))
+        end
     end
 
     ok(FN.Place("help") == 1, "the help button starts first")

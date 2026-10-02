@@ -295,15 +295,16 @@ local function dims()
     return (FG and FG.CELL_H) or 34, (FG and FG.CELL_H) or 34, (FG and FG.CELL_PAD) or 3
 end
 
---- How wide the block is for n buttons: enough to hold them, rounded up to whole cells so it still
---- lines up with the grid's columns.
+--- EXACTLY ITS BUTTONS, AND NO MORE. Rounding up to whole cell columns left a one-button block
+--- with 50 pixels of nothing beside it, which is the thing Arn has now objected to twice: "the
+--- window should only be 1 cell long until a tremor is drawn out of combat". His original ask was
+--- plain enough and I over-read it - "showing one button or bigger if there are more".
+---
+--- Alignment lives in the header and the placement, not in padding the body out to a column.
 function FN.BlockWidth(n)
-    local FG = NS.FG
-    local cellW = (FG and FG.CELL_W) or 84
     local w, _, pad = dims()
     local content = n * w + math.max(0, n - 1) * pad
-    local cells = math.max(1, math.ceil((content + pad) / (cellW + pad)))
-    return cells * cellW + (cells - 1) * pad, content
+    return content, content
 end
 
 --- THE BLOCK'S OWN COLOURS. Arn, on the halo that replaced the plain colour change: "the glow is
@@ -358,8 +359,11 @@ function FN.HelpCurve()
     pcall(c.AddPoint, c, 0.40, CreateColor(1.00, 0.15, 0.15, 1))    -- red, and solid, well before the end
     pcall(c.AddPoint, c, 0.55, CreateColor(1.00, 0.45, 0.15, 0.95)) -- orange
     pcall(c.AddPoint, c, 0.70, CreateColor(1.00, 0.80, 0.25, 0.80)) -- amber: the first nudge
-    pcall(c.AddPoint, c, 0.7001, CreateColor(1, 1, 1, 0))           -- a step, not a fade
-    pcall(c.AddPoint, c, 1.00, CreateColor(1, 1, 1, 0))             -- well: not there at all
+    -- FAINT, NOT GONE. It was fully transparent above the threshold, which left a square you
+    -- could click and could not see - Arn: "give it a faint alpha so i can see it". A panic button
+    -- you cannot find when you are well is one you will not find when you are not.
+    pcall(c.AddPoint, c, 0.7001, CreateColor(0.75, 0.78, 0.88, 0.22))
+    pcall(c.AddPoint, c, 1.00, CreateColor(0.75, 0.78, 0.88, 0.22))
     helpCurve = c
     return c
 end

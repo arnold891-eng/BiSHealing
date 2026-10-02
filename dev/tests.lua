@@ -5051,6 +5051,64 @@ do
     _G.UnitIsUnit, NS.FM.Ranks, FG.Roster = realIsUnit, realRanks, realRoster
 end
 
+--------------------------------------------------- a ping on a mouse button (0.8.0) --
+--
+-- Arn's design, and the only road left after SendMacroPing came back forbidden: the cell holds a
+-- MACRO running Blizzard's own /ping, the same way the wheel binds run /target [@mouseover].
+do
+    local FM, FG = NS.FM, NS.FG
+
+    ok(FM.PingOf("!ping:assist") == "assist", "a ping bind is recognised")
+    ok(FM.PingOf("!ping:nonsense") == nil, "a ping type we do not offer is not one")
+    ok(FM.PingOf("Healing Wave(Rank 3)") == nil, "a spell is not a ping")
+    ok(FM.PingOf(nil) == nil, "and nothing is not a ping")
+    ok(FM.PingBind("assist") == "!ping:assist", "a ping is stored under a mark no spell can wear")
+    ok(FM.PingWord("onmyway") == "On My Way", "and shown by its own name")
+
+    local keepLeft, keepAlt = FM.Get("", "left"), FM.Get("alt-", "left")
+
+    -- IT BECOMES A MACRO, NOT A SPELL. If it ever went in as a spell the cell would try to cast
+    -- something called "!ping:assist", which is a visible error in the middle of a fight.
+    FM.Set("alt-", "left", FM.PingBind("assist"))
+    FM.Apply()
+    local cell = FG.frames[1]
+    ok(cell.__attrs["alt-type1"] == "macro", "a ping binds as a macro", tostring(cell.__attrs["alt-type1"]))
+    ok(cell.__attrs["alt-macrotext1"] == "/ping assist", "running Blizzard's own command",
+       tostring(cell.__attrs["alt-macrotext1"]))
+    ok(cell.__attrs["alt-spell1"] == nil, "and never as a spell", tostring(cell.__attrs["alt-spell1"]))
+
+    -- THE REGRESSION THAT MATTERS. The range check takes "whatever you have bound", and a ping is
+    -- not a spell: handing it one answers "don't know", which reads as "in range", which is the
+    -- whole raid staying bright. That bug cost 0.7.2 and 0.7.5; it is not coming back this way.
+    FM.Clear("", "left")
+    FM.Clear("", "right")
+    for _, slot in ipairs(FM.SLOTS) do
+        for _, m in ipairs(FM.MODS) do FM.Clear(m.key, slot.key) end
+    end
+    FM.Set("alt-", "left", FM.PingBind("assist"))
+    ok(FM.RangeSpell() == nil,
+       "with only a ping bound, range is measured with nothing - never with the ping",
+       tostring(FM.RangeSpell()))
+    FM.Set("", "left", "Healing Wave(Rank 3)")
+    ok(FM.RangeSpell() == "Healing Wave", "and a real spell is still found", tostring(FM.RangeSpell()))
+
+    -- IT HAS TO SURVIVE A RESTART like any other bind, which it gets for free by riding in the
+    -- spell list as a name - but free is not the same as tested.
+    local body = NS.FK.Encode({ ["alt-left"] = FM.PingBind("assist"),
+                                left = "Healing Wave(Rank 3)" }, {})
+    ok(type(body) == "string" and body:find("!ping:assist", 1, true) ~= nil,
+       "a ping bind is written into the macro", tostring(body))
+    local back = NS.FK.Decode(body)
+    local found = false
+    for _, v in pairs(back or {}) do if v == "!ping:assist" then found = true end end
+    ok(found, "and comes back out of it")
+
+    FM.Clear("alt-", "left")
+    if keepLeft then FM.Set("", "left", keepLeft) else FM.Clear("", "left") end
+    if keepAlt then FM.Set("alt-", "left", keepAlt) end
+    FM.Apply()
+end
+
 ------------------------------------------------------- can we send a ping (0.8.0) --
 --
 -- A MEASUREMENT, so what is tested is that it reports honestly - not that pings work. The client

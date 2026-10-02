@@ -342,6 +342,43 @@ function FM.Cast(name, rank)
     return name
 end
 
+--- A PING AS A BIND (1 Oct 2026, Arn's design: "they would have the buttons on the mouse bind
+--- window and its just drag and drop to the buttons").
+---
+--- `C_Ping.SendMacroPing` is forbidden to addon code - measured with `/bish ping`, which came back
+--- with no Lua error at all and an ADDON_ACTION_FORBIDDEN naming us. But a secure button may hold
+--- a MACRO, and a macro is Blizzard's code running Blizzard's own `/ping`, which this client has
+--- (`SlashCmdList.PING`). So the one road that is open is the one the wheel already drives on:
+--- `FM.ApplyWheel` has been putting `/target [@mouseover]` on hidden secure buttons for a fortnight.
+---
+--- Stored like a spell so every existing road still works - the macro that keeps your binds, the
+--- trimmer, Set/Get/Clear - but MARKED, so nothing mistakes one for something castable. A bind is
+--- "!ping:assist"; a spell can never collide with that, because no spell name begins with "!".
+FM.PING_MARK = "!ping:"
+FM.PINGS = {
+    { key = "assist",  word = "Assist"    },
+    { key = "attack",  word = "Attack"    },
+    { key = "warning", word = "Warning"   },
+    { key = "onmyway", word = "On My Way" },
+}
+
+--- The ping a bind means, or nil when it is an ordinary spell.
+function FM.PingOf(cast)
+    if type(cast) ~= "string" then return nil end
+    local key = cast:match("^" .. FM.PING_MARK .. "(%w+)$")
+    if not key then return nil end
+    for _, p in ipairs(FM.PINGS) do if p.key == key then return key end end
+    return nil
+end
+
+--- What to store for a ping, and what to call it on screen.
+function FM.PingBind(key) return FM.PING_MARK .. tostring(key) end
+
+function FM.PingWord(key)
+    for _, p in ipairs(FM.PINGS) do if p.key == key then return p.word end end
+    return tostring(key)
+end
+
 --- Split a stored bind back into its parts, for showing it.
 function FM.Split(cast)
     if type(cast) ~= "string" then return nil, nil end
@@ -375,11 +412,20 @@ function FM.RangeSpell()
     -- Any heal he has bound answers the range question about as well as any other: they are all
     -- 40 yards, and "can I reach them with what I cast" is the question either way. Left and right
     -- stay first because that is what the hand reaches for.
-    local cast = FM.Get("", "left") or FM.Get("", "right")
+    -- A PING IS NOT A SPELL AND HAS NO RANGE (1 Oct 2026). Without this, binding a ping to left
+    -- click would hand "!ping:assist" to the range call, which answers "don't know" for a spell it
+    -- cannot find - read as "in range", so the whole raid stays bright. That is exactly the bug
+    -- 0.7.2 and 0.7.5 were spent on, and it would have come back through a new door.
+    local function spellAt(mod, key)
+        local c = FM.Get(mod, key)
+        if c and FM.PingOf(c) then return nil end
+        return c
+    end
+    local cast = spellAt("", "left") or spellAt("", "right")
     if not cast then
         for _, slot in ipairs(FM.SLOTS) do
             for _, m in ipairs(FM.MODS) do
-                cast = cast or FM.Get(m.key, slot.key)
+                cast = cast or spellAt(m.key, slot.key)
             end
         end
     end
@@ -577,12 +623,17 @@ function FM.ApplyTo(cell)
                 -- "target" does nothing; the SecureUnitButton path honours "target" for buttons 1
                 -- and 2 only. So 1-2 keep the built-in action, and 3-5 get a secure macro that does
                 -- the same thing through the one unit the cursor is on.
-                local kind, text
-                if spell then kind = "spell"
+                local kind, text, cast = nil, nil, spell
+                local ping = FM.PingOf(spell)
+                if ping then
+                    -- Blizzard's own command, aimed the way the wheel binds are aimed: the cell is
+                    -- what the cursor is over when you click it, which is the unit you meant.
+                    kind, text, cast = "macro", "/ping " .. ping, nil
+                elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end
                 cell:SetAttribute(prefix .. "type" .. slot.attr, kind)
-                cell:SetAttribute(prefix .. "spell" .. slot.attr, spell or nil)
+                cell:SetAttribute(prefix .. "spell" .. slot.attr, cast or nil)
                 cell:SetAttribute(prefix .. "macrotext" .. slot.attr, text)
                 if spell then n = n + 1 end
             end

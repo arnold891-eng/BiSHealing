@@ -183,6 +183,15 @@ local function makeSlot(parent, slot)
     f.slot = slot
 
     local function take()
+        -- a held ping first: it is the only payload the real cursor cannot carry
+        if FM.held then
+            FM.Set(parent.mod, slot.key, FM.PingBind(FM.held))
+            FM.held = nil
+            if ClearCursor then ClearCursor() end
+            parent:Refresh()
+            FM.Apply()
+            return true
+        end
         local spell = FM.CursorSpell()
         if not spell then return false end
         FM.Set(parent.mod, slot.key, spell)
@@ -228,7 +237,7 @@ function FM.Window()
     if FM.win then return FM.win end
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
-    w:SetSize(250, 300)
+    w:SetSize(250, 330)
     FM.Restore(w)                   -- the last place it was put, or the middle on a first run
     w:SetMovable(true)
     w:EnableMouse(true)
@@ -317,7 +326,7 @@ function FM.Window()
     -- two of them were printing on top of each other
     local hint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOP", 0, -62)
-    hint:SetText("drag a spell onto a button, then click its rank")
+    hint:SetText("drag a spell onto a button - or click a ping, then a button")
 
     -- the modifier tabs
     w.tabs = {}
@@ -377,6 +386,46 @@ function FM.Window()
         w.slots[slot.key] = makeSlot(w, slot)
     end
 
+    -- THE PINGS, AS THINGS YOU CAN PUT ON A BUTTON (1 Oct 2026, Arn's design). A spell arrives on
+    -- the real cursor and `FM.CursorSpell` reads it; a ping cannot, because the game's cursor only
+    -- carries the game's own objects. So these are PICKED UP rather than dragged: click one, it
+    -- lights, click a mouse button to drop it there. Click it again, or right-click anywhere, to
+    -- put it down.
+    --
+    -- What they become is a macro on the cell - Blizzard's own /ping, run by Blizzard's code,
+    -- which is the only road open after SendMacroPing came back forbidden (/bish ping, 1 Oct).
+    w.pings = {}
+    local pingHint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    pingHint:SetPoint("BOTTOMLEFT", 8, 36)
+    pingHint:SetText("pings:")
+    pingHint:SetTextColor(rgb("muted"))
+    for i, p in ipairs(FM.PINGS or {}) do
+        local b = CreateFrame("Button", nil, w)
+        b:SetSize(52, 16)
+        b:SetPoint("BOTTOMLEFT", 44 + ((i - 1) % 4) * 52, 36)
+        b.bg = texture(b, "BACKGROUND", SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.9)
+        b.bg:SetAllPoints()
+        b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.text:SetPoint("CENTER")
+        b.text:SetText(p.word)
+        b.ping = p.key
+        b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        b:SetScript("OnClick", function(self, button)
+            FM.held = (button == "RightButton" or FM.held == self.ping) and nil or self.ping
+            w:Refresh()
+        end)
+        b:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(p.word .. " ping", rgb("accent"))
+            GameTooltip:AddLine("click, then click a mouse button to put it there", rgb("muted"))
+            GameTooltip:AddLine("the cell you click is who it pings", rgb("muted"))
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        w.pings[i] = b
+    end
+
     local foot = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     foot:SetPoint("BOTTOM", 0, 8)
     foot:SetWidth(230)
@@ -404,11 +453,27 @@ function FM.Window()
                                            on and SLOT_ON[3] or SLOT_BG[3], on and 1 or 0.9)
             self.tabs[i].text:SetTextColor(rgb(on and "accent" or "muted"))
         end
+        for _, b in ipairs(self.pings or {}) do
+            local on = (FM.held == b.ping)
+            b.bg:SetVertexColor(on and SLOT_ON[1] or SLOT_BG[1],
+                                on and SLOT_ON[2] or SLOT_BG[2],
+                                on and SLOT_ON[3] or SLOT_BG[3], on and 1 or 0.9)
+            b.text:SetTextColor(rgb(on and "accent" or "muted"))
+        end
         for key, f in pairs(self.slots) do
             local spell = FM.Get(self.mod, key)
             local name, rank = FM.Split(spell)
-            local icon = spellIcon(spell)
-            if spell and icon then
+            local ping = FM.PingOf(spell)
+            local icon = not ping and spellIcon(spell) or nil
+            if ping then
+                -- no icon and no rank: a ping has neither, and showing "-" where a rank goes
+                -- reads as "rank unknown" on something that was never a spell
+                f.icon:Hide()
+                f.empty:Show()
+                f.empty:SetText(FM.PingWord(ping):sub(1, 4))
+                f.rank:SetText("")
+                f.rankBtn:Hide()
+            elseif spell and icon then
                 f.icon:SetTexture(icon)
                 f.icon:Show()
                 f.empty:Hide()
@@ -421,10 +486,12 @@ function FM.Window()
                 f.empty:Show()
                 f.empty:SetText("--")
             end
-            -- "Rank 3" -> "3": the slot is 30 pixels wide and you already know what it means
-            f.rank:SetText(rank and (rank:match("%d+") or rank) or (spell and "-" or ""))
-            f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
-            if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
+            if not ping then
+                -- "Rank 3" -> "3": the slot is 30 pixels wide and you already know what it means
+                f.rank:SetText(rank and (rank:match("%d+") or rank) or (spell and "-" or ""))
+                f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
+                if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
+            end
         end
         foot:SetText((InCombatLockdown and InCombatLockdown())
             and "in combat: binds are queued until the fight ends"

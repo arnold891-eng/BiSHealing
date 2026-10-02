@@ -5228,8 +5228,15 @@ do
         FN.PaintHelp(btn)
         ok(FN.seen == "dead - a dimmer beacon", "a corpse still glows, for the res", tostring(FN.seen))
         ok(painted.glow and painted.glow > 0.5, "red, not blacked out", tostring(painted.glow))
-        ok(painted.alpha and painted.alpha <= 0.35,
-           "but dimmer than the living pulse ever gets", tostring(painted.alpha))
+        ok(painted.alpha and painted.alpha >= FN.PULSE.dead.lo - 0.001
+                         and painted.alpha <= FN.PULSE.dead.hi + 0.001,
+           "pulsing inside the corpse's own range", tostring(painted.alpha))
+        -- THE RANGES MUST NOT OVERLAP. A corpse beacon and a dying player have to be unmistakable
+        -- at a glance, and this holds however the two are tuned later.
+        ok(FN.PULSE.dead.hi < FN.PULSE.alive.lo,
+           "the corpse never glows as brightly as the living, at any point in either pulse",
+           FN.PULSE.dead.hi .. " vs " .. FN.PULSE.alive.lo)
+        ok(FN.PULSE.dead.speed < FN.PULSE.alive.speed, "and breathes more slowly")
 
         _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost = realCU, realHP, realDead
         FN.helpCurve, FN.glowCurve = nil, nil

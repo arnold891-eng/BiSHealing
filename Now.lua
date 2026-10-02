@@ -200,6 +200,23 @@ end
 
 local BTN_W, BTN_H, GAP = 34, 34, 3
 
+--- HOW BRIGHT THE HALO BREATHES. Arn, on the first attempt: "it just looks like a dimmed version
+--- overlayed" - which is what the same art at low alpha IS. Brighter, and spilling further past the
+--- edge so it reads as light coming off the button rather than a second copy of it.
+---
+--- `dead` must stay entirely below `alive`: a corpse beacon and a dying player have to be
+--- unmistakable at a glance, and the suite asserts the two ranges never overlap rather than
+--- checking numbers it would have to be taught again every time these are tuned.
+FN.PULSE = {
+    alive = { lo = 0.55, hi = 1.00, speed = 4 },
+    dead  = { lo = 0.10, hi = 0.34, speed = 2 },
+}
+
+local function pulse(p)
+    local t = (GetTime and GetTime()) or 0
+    return p.lo + (p.hi - p.lo) * (0.5 + 0.5 * math.sin(t * p.speed))
+end
+
 FN.NOW_KEYS = { what = "the now block", at = "nowAt", pos = "nowPos",
                 spot = function() return FN.Spot() end,
                 place = function(f) return FN.PlaceBlock(f) end }
@@ -305,8 +322,7 @@ function FN.PaintHelp(b)
         b.art:SetVertexColor(0.85, 0.15, 0.15, 0.90)
         if b.glow then
             b.glow:SetVertexColor(0.80, 0.10, 0.10, 1)
-            local t = (GetTime and GetTime()) or 0
-            b.glow:SetAlpha(0.12 + 0.18 * (0.5 + 0.5 * math.sin(t * 2)))
+            b.glow:SetAlpha(pulse(FN.PULSE.dead))
         end
         FN.seen = "dead - a dimmer beacon"
         return true
@@ -339,8 +355,7 @@ function FN.PaintHelp(b)
             end
         end
         if not painted then b.glow:SetVertexColor(0, 0, 0, 1) end
-        local t = (GetTime and GetTime()) or 0
-        b.glow:SetAlpha(0.35 + 0.45 * (0.5 + 0.5 * math.sin(t * 4)))
+        b.glow:SetAlpha(pulse(FN.PULSE.alive))
     end
 
     FN.seen = drew and "painted by the client" or "colour refused"
@@ -357,8 +372,8 @@ local function makeButton(parent, key)
     -- ADD blend, and bigger than the button so it reads as a halo rather than a tint. Black under
     -- ADD contributes nothing, which is what keeps it invisible while you are well.
     b.glow = b:CreateTexture(nil, "OVERLAY")
-    b.glow:SetPoint("TOPLEFT", b, "TOPLEFT", -6, 6)
-    b.glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 6, -6)
+    b.glow:SetPoint("TOPLEFT", b, "TOPLEFT", -11, 11)
+    b.glow:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 11, -11)
     if b.glow.SetBlendMode then b.glow:SetBlendMode("ADD") end
     b.glow:SetVertexColor(0, 0, 0, 1)
     b.key = key

@@ -829,6 +829,10 @@ function FG.SpotTaken(at, mine)
     if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
     if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
     if mine ~= FG.MANA_KEYS and d.mana == true and FG.ManaSpot() == at then return true end
+    -- BiS> now is a block like any other, and was not in this list for one build: Arn shift-clicked
+    -- it to the left and it landed on top of the header already sitting there (1 Oct 2026).
+    if NS.FN and mine ~= NS.FN.NOW_KEYS and d.now == true
+       and NS.FN.Spot and NS.FN.Spot() == at then return true end
     return false
 end
 

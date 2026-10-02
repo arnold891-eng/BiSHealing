@@ -421,6 +421,38 @@ function FN.Layout(anchor)
         local a = CreateFrame("Frame", "BiSHealingNowBlock", anchor)
         a:SetSize(BTN_W, BTN_H)
         FN.block, FN.buttons = a, {}
+        -- A BODY, EVEN WHEN EVERY BUTTON IS INVISIBLE. Arn, with the block on the left and himself
+        -- at full health: "give it its own outline even when empty". Without one there is nothing
+        -- but the bar, which reads as a stray label floating over whatever is behind it - and the
+        -- whole point of this block is that its contents are invisible most of the time.
+        a.bg = a:CreateTexture(nil, "BACKGROUND")
+        a.bg:SetAllPoints()
+        a.bg:SetColorTexture(0.07, 0.07, 0.09, 0.55)
+        a.edge = {}
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+            local t = a:CreateTexture(nil, "BORDER")
+            t:SetColorTexture(0.45, 0.42, 0.52, 0.9)
+            a.edge[side] = t
+        end
+        local e = a.edge
+        e.top:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
+        e.top:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
+        e.top:SetHeight(1)
+        e.bottom:SetPoint("BOTTOMLEFT", a, "BOTTOMLEFT", 0, 0)
+        e.bottom:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
+        e.bottom:SetHeight(1)
+        e.left:SetPoint("TOPLEFT", a, "TOPLEFT", 0, 0)
+        e.left:SetPoint("BOTTOMLEFT", a, "BOTTOMLEFT", 0, 0)
+        e.left:SetWidth(1)
+        e.right:SetPoint("TOPRIGHT", a, "TOPRIGHT", 0, 0)
+        e.right:SetPoint("BOTTOMRIGHT", a, "BOTTOMRIGHT", 0, 0)
+        e.right:SetWidth(1)
+        local T = _G.BiSTheme
+        if T and T.rgb and a.edge.top.SetColorTexture then
+            local r, g, b = T.rgb("accent")
+            if r then for _, t in pairs(a.edge) do t:SetColorTexture(r, g, b, 0.55) end end
+        end
+        FN.buttons = {}
         if FG.CellHeader then FG.CellHeader(a, "now", a, FN.NOW_KEYS) end
     end
     local a = FN.block
@@ -430,7 +462,7 @@ function FN.Layout(anchor)
         local b = FN.buttons[key] or makeButton(a, key)
         FN.buttons[key] = b
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (BTN_W + GAP), 0)
+        b:SetPoint("TOPLEFT", a, "TOPLEFT", GAP + (i - 1) * (BTN_W + GAP), GAP)
         b:Show()
     end
     for key, b in pairs(FN.buttons) do
@@ -438,7 +470,8 @@ function FN.Layout(anchor)
         for _, k in ipairs(mine) do if k == key then still = true end end
         if not still then b:Hide() end
     end
-    a:SetSize(#mine * BTN_W + (#mine - 1) * GAP, BTN_H)
+    -- sized to what is in it, with room for the outline: one button, or wider as more arrive
+    a:SetSize(#mine * BTN_W + (#mine + 1) * GAP, BTN_H + 2 * GAP)
     FN.PlaceBlock(a, anchor)
     FN.PaintHelp()
     return true, #mine

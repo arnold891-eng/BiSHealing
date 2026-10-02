@@ -338,7 +338,10 @@ function NS.DO.now(arg)
     local d = DB()
     local FG, FN = NS.FG, NS.FN
     if arg and FG and FG.TARGET_SPOTS and FG.TARGET_SPOTS[arg] then
-        d.nowAt, d.nowPos = arg, nil
+        -- the side you asked for, or the next free one: two blocks never share a side, and this
+        -- door was the one that did not know that (1 Oct)
+        d.nowAt = (FG.FreeSpot and FG.FreeSpot(arg, NS.FN and NS.FN.NOW_KEYS)) or arg
+        d.nowPos = nil
         d.now = true
     elseif arg == "off" then d.now = false
     elseif arg == "on" then d.now = true

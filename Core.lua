@@ -438,6 +438,82 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- WHO IS FEARED, AND MAY I TELL ANYONE? (1 Oct 2026.)
+---
+--- Arn's idea: a feared player's addon lights a button, and the shaman in their group gets a
+--- Tremor Totem button to click. Three questions decide whether it is one addon or two, and
+--- whether it works in the only moment it matters.
+---
+---   1. Is loss-of-control data PLAIN? Auras go secret in a fight; C_LossOfControl is a different
+---      door, and ForeverAuras reaches for it. A secret answer cannot be tested, so there would be
+---      nothing to light the button with.
+---   2. Does it read for OTHER UNITS? GetActiveLossOfControlDataByUnit exists on this client. If it
+---      answers about party members, the shaman's own addon sees the fear and NOBODY ELSE NEEDS THE
+---      ADDON - which is a far better feature than the one that was asked for.
+---   3. If it is self-only, can we even tell them? This client has InChatMessagingLockdown, so
+---      addon messages may be shut exactly when a fight is on. LibBiSComm is already embedded in
+---      six BiS addons, so the channel is not the work - permission is.
+function NS.DO.control()
+    local LC = C_LossOfControl
+    if not LC then Print("this client has no C_LossOfControl") return false end
+    local names = {}
+    for _, n in ipairs({ "GetActiveLossOfControlData", "GetActiveLossOfControlDataCount",
+                         "GetActiveLossOfControlDataByUnit", "GetActiveLossOfControlDataCountByUnit",
+                         "GetActiveLossOfControlDuration" }) do
+        if type(LC[n]) == "function" then names[#names + 1] = n end
+    end
+    Print("C_LossOfControl: |cffb980ff%s|r", #names > 0 and table.concat(names, ", ") or "none")
+
+    local function say(label, ok, v)
+        if not ok then Print("  %s: |cfff08cb0refused|r", label) return end
+        if v == nil then Print("  %s: |cff968eadnothing right now|r", label) return end
+        if NS.Secret(v) then Print("  %s: |cffe5c04aa secret|r - cannot be tested", label) return end
+        if type(v) == "table" then
+            local kind = nil
+            local okF, got = pcall(function() return v.lossOfControlType or v.locType end)
+            if okF then kind = got end
+            Print("  %s: |cff4fd0cfplain|r (%s)", label,
+                NS.Secret(kind) and "its type is secret" or tostring(kind or "a table"))
+            return
+        end
+        Print("  %s: |cff4fd0cfplain|r (%s)", label, tostring(v))
+    end
+
+    if LC.GetActiveLossOfControlDataCount then
+        local ok, n = pcall(LC.GetActiveLossOfControlDataCount)
+        say("how many things hold me", ok, n)
+    end
+    if LC.GetActiveLossOfControlData then
+        local ok, d = pcall(LC.GetActiveLossOfControlData, 1)
+        say("the first one on me", ok, d)
+    end
+
+    -- THE ONE THAT DECIDES THE WHOLE SHAPE
+    local unit = (UnitExists and UnitExists("target") and "target")
+        or (IsInGroup and IsInGroup() and "party1") or "player"
+    if LC.GetActiveLossOfControlDataCountByUnit then
+        local ok, n = pcall(LC.GetActiveLossOfControlDataCountByUnit, unit)
+        say("how many hold " .. unit, ok, n)
+    end
+    if LC.GetActiveLossOfControlDataByUnit then
+        local ok, d = pcall(LC.GetActiveLossOfControlDataByUnit, unit, 1)
+        say("the first one on " .. unit, ok, d)
+    end
+
+    -- and whether we could tell a shaman, if we had to
+    local CI = C_ChatInfo
+    if CI then
+        local okL, locked = pcall(CI.InChatMessagingLockdown)
+        local okR, restricted = pcall(CI.AreOutgoingAddonChatMessagesRestricted)
+        Print("  addon messages locked down: |cffb980ff%s|r   restricted: |cffb980ff%s|r",
+            okL and tostring(NS.Plain(locked)) or "refused",
+            okR and tostring(NS.Plain(restricted)) or "refused")
+    end
+    Print("  %s", "|cff968eadplain + reads for other units = the shaman alone needs the addon."
+        .. " plain but self-only = both of you do, and only if messages get through in a fight.|r")
+    return true
+end
+
 --- WILL THE CLIENT PICK A BRIGHTNESS FROM A SECRET NUMBER? (1 Oct 2026.)
 ---
 --- The whole of `BiS> now` rests on this one question. Arn's design: a help button at alpha 0
@@ -1264,6 +1340,7 @@ function NS.DO.help()
     Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
     Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
     Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
+    Print("  |cffb980ffcontrol|r  who is feared, and may I tell anyone (a measurement)")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
@@ -1357,6 +1434,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.byid()
     elseif msg == "curve" then
         NS.DO.curve()
+    elseif msg == "control" or msg == "fear" then
+        NS.DO.control()
     elseif msg == "ping" then
         NS.DO.ping()
     elseif msg:match("^ping%s+%d+$") then

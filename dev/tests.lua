@@ -5140,6 +5140,40 @@ do
     FM.Apply()
 end
 
+--------------------------------------------- who is feared, and may I tell anyone --
+do
+    local realLC, realCI = _G.C_LossOfControl, _G.C_ChatInfo
+
+    _G.C_LossOfControl = nil
+    ok(NS.DO.control() == false, "with no C_LossOfControl it says so rather than throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "control"), "/bish control threw with no loss-of-control")
+
+    -- the shape that makes this ONE addon instead of two: readable for another unit
+    _G.C_LossOfControl = {
+        GetActiveLossOfControlDataCount = function() return 1 end,
+        GetActiveLossOfControlData = function() return { lossOfControlType = "FEAR" } end,
+        GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+        GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = "FEAR" } end,
+    }
+    ok(NS.DO.control() == true, "a client that answers about other units is walked without error")
+
+    -- A SECRET ANSWER IS THE CASE THAT KILLS THE FEATURE, so it must not throw on the way past:
+    -- a secret table cannot even be indexed, which is how the totem bug of 21 Sep started.
+    _G.C_LossOfControl.GetActiveLossOfControlDataByUnit = function() return secret() end
+    _G.C_LossOfControl.GetActiveLossOfControlData = function() return secret() end
+    ok(pcall(NS.DO.control), "a secret loss-of-control answer is reported, not indexed")
+
+    -- and one that refuses outright
+    _G.C_LossOfControl.GetActiveLossOfControlDataByUnit = function() error("nope", 2) end
+    ok(pcall(NS.DO.control), "a refusal is reported too")
+
+    _G.C_ChatInfo = { InChatMessagingLockdown = function() return true end,
+                      AreOutgoingAddonChatMessagesRestricted = function() return secret() end }
+    ok(pcall(NS.DO.control), "a secret answer about messaging does not throw either")
+
+    _G.C_LossOfControl, _G.C_ChatInfo = realLC, realCI
+end
+
 ------------------------------------- will the client pick a brightness (BiS> now) --
 --
 -- A measurement again, so what is tested is that it survives every client it might meet: one with

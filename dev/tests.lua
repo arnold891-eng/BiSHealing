@@ -5140,6 +5140,36 @@ do
     FM.Apply()
 end
 
+------------------------------------- will the client pick a brightness (BiS> now) --
+--
+-- A measurement again, so what is tested is that it survives every client it might meet: one with
+-- no C_CurveUtil, one whose makers refuse, and one that answers. It must never throw, because a
+-- diagnostic that falls over is one nobody runs twice.
+do
+    local realCU = _G.C_CurveUtil
+
+    _G.C_CurveUtil = nil
+    ok(NS.DO.curve() == false, "with no C_CurveUtil it says so rather than throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "curve"), "/bish curve threw with no curves")
+
+    -- a maker that refuses bare, which is likely: these usually want points up front
+    _G.C_CurveUtil = { CreateCurve = function() error("Usage: CreateCurve(points)", 2) end }
+    ok(pcall(NS.DO.curve), "a maker that refuses with no arguments is reported, not raised")
+
+    -- one that answers, with its methods behind a metatable the way a real object would be
+    local obj = setmetatable({}, { __index = { AddPoint = function() end,
+                                               Evaluate = function() return 0.5 end } })
+    _G.C_CurveUtil = {
+        CreateCurve = function() return obj end,
+        CreateColorCurve = function() return obj end,
+        EvaluateColorValueFromBoolean = function(_, a) return a end,
+    }
+    ok(NS.DO.curve() == true, "and a client that answers is walked without error")
+    ok(pcall(SlashCmdList.BISHEALING, "curve"), "/bish curve threw on a client that answers")
+
+    _G.C_CurveUtil = realCU
+end
+
 ------------------------------------------------------- can we send a ping (0.8.0) --
 --
 -- A MEASUREMENT, so what is tested is that it reports honestly - not that pings work. The client

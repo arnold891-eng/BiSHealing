@@ -438,6 +438,89 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- WILL THE CLIENT PICK A BRIGHTNESS FROM A SECRET NUMBER? (1 Oct 2026.)
+---
+--- The whole of `BiS> now` rests on this one question. Arn's design: a help button at alpha 0
+--- while you are healthy, growing more opaque as your health drops, red and glowing at the bottom.
+--- Three mappings from one secret number - alpha, tint, glow - and the addon must learn none of
+--- them.
+---
+--- We already know the BOOLEAN half works: `EvaluateColorValueFromBoolean` is what made range
+--- dimming real in 0.6.2, and `SetAlpha` accepts what it hands back. What is unmeasured is the
+--- NUMBER half: `C_CurveUtil.CreateCurve` and `CreateColorCurve` are both on this client, nothing
+--- here has ever called one, and how a curve is fed is not something to guess at - five guessed
+--- atlas suffixes in a row this evening is the argument against guessing.
+---
+--- So: name what is there, build a curve, DUMP ITS METHODS, and then try the two questions that
+--- matter - does it evaluate a plain number, and does it evaluate a secret one into something a
+--- texture will take.
+function NS.DO.curve()
+    local CU = C_CurveUtil
+    if not CU then Print("this client has no C_CurveUtil") return false end
+    local names = {}
+    for _, n in ipairs({ "CreateCurve", "CreateColorCurve", "EvaluateColorValueFromBoolean" }) do
+        if type(CU[n]) == "function" then names[#names + 1] = n end
+    end
+    Print("C_CurveUtil: |cffb980ff%s|r", #names > 0 and table.concat(names, ", ") or "no functions")
+
+    local function methodsOf(o)
+        local out, seen = {}, {}
+        local function take(t)
+            if type(t) ~= "table" then return end
+            for k, v in pairs(t) do
+                if type(k) == "string" and type(v) == "function" and not seen[k] then
+                    seen[k] = true
+                    out[#out + 1] = k
+                end
+            end
+        end
+        take(o)
+        local mt = getmetatable(o)
+        if type(mt) == "table" then take(mt.__index) take(mt) end
+        table.sort(out)
+        return out
+    end
+
+    for _, maker in ipairs({ "CreateCurve", "CreateColorCurve" }) do
+        if type(CU[maker]) == "function" then
+            local got, obj = pcall(CU[maker])
+            if not got then
+                Print("  %s: |cfff08cb0refused with no arguments|r (%s)", maker,
+                    tostring(obj):gsub("^.*:%s*", ""))
+            else
+                local m = methodsOf(obj)
+                Print("  %s -> |cffb980ff%s|r", maker, type(obj))
+                Print("    methods: %s", #m > 0 and ("|cff4fd0cf" .. table.concat(m, " ") .. "|r")
+                    or "|cfff08cb0none visible|r")
+            end
+        end
+    end
+
+    -- AND THE QUESTION UNDER THE QUESTION: a texture will take a number. Will it take the client's
+    -- answer about a number nobody may read? That is the whole bargain, and it is the one thing a
+    -- dumped method list cannot tell us.
+    local okHP, raw = pcall(UnitHealth, "player")
+    Print("  your own health reads as: |cffb980ff%s|r",
+        not okHP and "refused" or (NS.Secret(raw) and "a secret" or "a plain number"))
+    local tex = NS.DO.__curveTex
+    if not tex then
+        local okF, f = pcall(CreateFrame, "Frame", nil, UIParent)
+        if okF and f then
+            f:Hide()
+            tex = f
+            NS.DO.__curveTex = f
+        end
+    end
+    if tex and okHP then
+        local okA = pcall(tex.SetAlpha, tex, raw)
+        Print("  SetAlpha straight from that value: %s",
+            okA and "|cff4fd0cftaken|r - the client did not object" or "|cfff08cb0refused|r")
+    end
+    Print("  %s", "|cff968eadwhat BiS> now needs: a curve that turns that value into an alpha,"
+        .. " evaluated by the client, never read by us|r")
+    return true
+end
+
 --- CAN THIS ADDON SEND A PING? A measurement, not a feature (1 Oct 2026).
 ---
 --- Arn's idea was an automatic ping when his health drops. The trigger half is already answered -
@@ -1180,6 +1263,7 @@ function NS.DO.help()
     Print("  |cffb980ffscan|r   what this client will tell me")
     Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
     Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
+    Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
@@ -1271,6 +1355,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.range()
     elseif msg == "byid" then
         NS.DO.byid()
+    elseif msg == "curve" then
+        NS.DO.curve()
     elseif msg == "ping" then
         NS.DO.ping()
     elseif msg:match("^ping%s+%d+$") then

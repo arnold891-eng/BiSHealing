@@ -355,12 +355,40 @@ end
 --- trimmer, Set/Get/Clear - but MARKED, so nothing mistakes one for something castable. A bind is
 --- "!ping:assist"; a spell can never collide with that, because no spell name begins with "!".
 FM.PING_MARK = "!ping:"
+--- `subject` is the name in the client's own `Enum.PingSubjectType`, which is how the art is found:
+--- `C_Ping.GetTextureKitForType` turns the type into a kit word ("Assist", "OnMyWay") and the atlas
+--- is `Ping_Chat_<kit>`. Measured 1 Oct 2026 by listing every atlas with "ping" in its name
+--- (`C_Texture.GetAtlasElements`), after five guessed suffixes all missed.
 FM.PINGS = {
-    { key = "assist",  word = "Assist"    },
-    { key = "attack",  word = "Attack"    },
-    { key = "warning", word = "Warning"   },
-    { key = "onmyway", word = "On My Way" },
+    { key = "assist",  word = "Assist",    subject = "Assist"  },
+    { key = "attack",  word = "Attack",    subject = "Attack"  },
+    { key = "warning", word = "Warning",   subject = "Warning" },
+    { key = "onmyway", word = "On My Way", subject = "OnMyWay" },
 }
+
+--- The client's own icon for a ping, or nil - and nil is a real answer, not a failure. Not every
+--- subject type even has a kit (ActionNotReady has none), and two of them share one, so anything
+--- built on this has to cope with a missing icon rather than assume one per type.
+---
+--- `Ping_Chat_*` is the small one, meant for a line of chat: the right size for a 16-pixel chip
+--- and a 30-pixel slot. The big world art is `Ping_GroundMarker_Pin_*`.
+function FM.PingAtlas(key)
+    local p
+    for _, e in ipairs(FM.PINGS) do if e.key == key then p = e break end end
+    if not p then return nil end
+    local subject = Enum and Enum.PingSubjectType and Enum.PingSubjectType[p.subject]
+    local kitOf = C_Ping and C_Ping.GetTextureKitForType
+    if subject == nil or type(kitOf) ~= "function" then return nil end
+    local got, kit = pcall(kitOf, subject)
+    if not got or type(kit) ~= "string" or kit == "" then return nil end
+    local atlas = "Ping_Chat_" .. kit
+    local exists = C_Texture and C_Texture.GetAtlasExists
+    if type(exists) == "function" then
+        local okE, yes = pcall(exists, atlas)
+        if not okE or not yes then return nil end
+    end
+    return atlas
+end
 
 --- The ping a bind means, or nil when it is an ordinary spell.
 function FM.PingOf(cast)

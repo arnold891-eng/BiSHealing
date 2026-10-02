@@ -5071,6 +5071,28 @@ do
     ok(FM.PingBind("assist") == "!ping:assist", "a ping is stored under a mark no spell can wear")
     ok(FM.PingWord("onmyway") == "On My Way", "and shown by its own name")
 
+    -- THE CLIENT'S OWN PING ART. The kit is a bare word ("Assist") and the atlas is
+    -- "Ping_Chat_<kit>", found on 1 Oct by listing every atlas with "ping" in its name rather than
+    -- by guessing a suffix - five guesses had already missed.
+    local realPing2, realTex, realEnum2 = _G.C_Ping, _G.C_Texture, _G.Enum
+    _G.Enum = _G.Enum or {}
+    _G.Enum.PingSubjectType = { Attack = 0, Warning = 1, Assist = 2, OnMyWay = 3, ActionNotReady = 9 }
+    _G.C_Ping = { GetTextureKitForType = function(t) return t == 2 and "Assist" or (t == 0 and "Attack" or nil) end }
+    _G.C_Texture = { GetAtlasExists = function(n) return n == "Ping_Chat_Assist" end }
+
+    ok(FM.PingAtlas("assist") == "Ping_Chat_Assist", "a ping finds the client's own icon",
+       tostring(FM.PingAtlas("assist")))
+    ok(FM.PingAtlas("attack") == nil,
+       "an atlas the client does not have is nil, not a broken texture name",
+       tostring(FM.PingAtlas("attack")))
+    ok(FM.PingAtlas("warning") == nil, "and a type with no kit at all is nil")
+    ok(FM.PingAtlas("nonsense") == nil, "and a ping we do not offer has no icon")
+
+    -- no art on this client at all: the chips must still work, in words
+    _G.C_Ping = nil
+    ok(FM.PingAtlas("assist") == nil, "with no C_Ping, there is no icon and no error")
+    _G.C_Ping, _G.C_Texture, _G.Enum = realPing2, realTex, realEnum2
+
     local keepLeft, keepAlt = FM.Get("", "left"), FM.Get("alt-", "left")
 
     -- IT BECOMES A MACRO, NOT A SPELL. If it ever went in as a spell the cell would try to cast

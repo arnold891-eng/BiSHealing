@@ -408,6 +408,17 @@ function FM.Window()
         b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         b.text:SetPoint("CENTER")
         b.text:SetText(p.word)
+        -- the client's own ping art when it has it, the word when it does not: not every ping
+        -- type has a kit, so a missing icon is an ordinary outcome and not a failure
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetSize(14, 14)
+        b.icon:SetPoint("CENTER")
+        b.icon:Hide()
+        local atlas = FM.PingAtlas and FM.PingAtlas(p.key)
+        if atlas and b.icon.SetAtlas then
+            local okA = pcall(b.icon.SetAtlas, b.icon, atlas)
+            if okA then b.icon:Show() b.text:Hide() end
+        end
         b.ping = p.key
         b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         b:SetScript("OnClick", function(self, button)
@@ -466,11 +477,20 @@ function FM.Window()
             local ping = FM.PingOf(spell)
             local icon = not ping and spellIcon(spell) or nil
             if ping then
-                -- no icon and no rank: a ping has neither, and showing "-" where a rank goes
-                -- reads as "rank unknown" on something that was never a spell
-                f.icon:Hide()
-                f.empty:Show()
-                f.empty:SetText(FM.PingWord(ping):sub(1, 4))
+                -- the client's own art if it has it, the first four letters if not. No rank
+                -- either way: showing "-" where a rank goes reads as "rank unknown" on something
+                -- that was never a spell.
+                local atlas = FM.PingAtlas and FM.PingAtlas(ping)
+                local drew = false
+                if atlas and f.icon.SetAtlas then drew = pcall(f.icon.SetAtlas, f.icon, atlas) end
+                if drew then
+                    f.icon:Show()
+                    f.empty:Hide()
+                else
+                    f.icon:Hide()
+                    f.empty:Show()
+                    f.empty:SetText(FM.PingWord(ping):sub(1, 4))
+                end
                 f.rank:SetText("")
                 f.rankBtn:Hide()
             elseif spell and icon then

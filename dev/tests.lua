@@ -5058,6 +5058,13 @@ end
 do
     local FM, FG = NS.FM, NS.FG
 
+    -- THE CELL HAS TO CLAIM IT CAN BE PINGED. Measured 1 Oct: with the macro firing correctly, the
+    -- ping still landed on the ground, because the ping system aims at frames that opted in rather
+    -- than at whatever the cursor happens to be over.
+    ok(FG.frames[1].__attrs["ping-receiver"] == true,
+       "a cell says it can be the target of a ping",
+       tostring(FG.frames[1].__attrs["ping-receiver"]))
+
     ok(FM.PingOf("!ping:assist") == "assist", "a ping bind is recognised")
     ok(FM.PingOf("!ping:nonsense") == nil, "a ping type we do not offer is not one")
     ok(FM.PingOf("Healing Wave(Rank 3)") == nil, "a spell is not a ping")

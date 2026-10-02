@@ -1185,6 +1185,13 @@ function FG.Bind(f, unit)
     if InCombatLockdown and InCombatLockdown() then return false end
     f.unit = unit
     f:SetAttribute("unit", unit)
+    -- A PING AIMS AT A FRAME THAT SAYS IT CAN BE AIMED AT (1 Oct 2026). Arn bound an Assist ping to
+    -- a mouse button, clicked his own cell and the ping landed on the GROUND - so Blizzard's /ping
+    -- fired (the macro road works) but aimed where the cursor was in the world rather than at the
+    -- unit under it. Retail's own unit frames opt in with this attribute; the ping system does not
+    -- go looking for frames that never claimed to be one. Harmless where it means nothing: an
+    -- attribute no client reads is an attribute no client reads.
+    f:SetAttribute("ping-receiver", true)
     -- What a click MEANS belongs to Forever/Mouse.lua - every button, every modifier, in one
     -- place the player can see and change. The grid used to set three of them here, and then the
     -- mouse's own pass wiped whatever it did not know about. One owner.

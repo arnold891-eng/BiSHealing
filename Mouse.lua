@@ -714,11 +714,26 @@ function FM.ApplyWheel(owner)
                 end
                 if b then
                     b:SetAttribute("type", spell and "macro" or nil)
-                    -- [@mouseover] is what makes a wheel turn land on the cell under the cursor;
-                    -- the stopmacro keeps it quiet when the cursor is over nothing healable.
-                    b:SetAttribute("macrotext", spell and
-                        ("/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n/cast [@mouseover] " .. spell)
-                        or nil)
+                    -- A PING ON THE WHEEL (1 Oct 2026). Arn: "the ping system we build does not
+                    -- work with mouse wheel up or down". It could not: the wheel is not a click,
+                    -- so it never goes through ApplyTo where ping binds are turned into /ping -
+                    -- it comes here instead, and arrived as `/cast !ping:assist`, which casts
+                    -- nothing. The wheel is where his heals live, so it is where a ping belongs.
+                    --
+                    -- The guard is narrower than the cast one: a ping may go at anything you can
+                    -- see, friend or enemy, so only "nothing under the cursor" stops it. `nohelp`
+                    -- would make Attack pings impossible on the one bind that matters most.
+                    local ping = FM.PingOf(spell)
+                    local text
+                    if ping then
+                        text = "/stopmacro [@mouseover,noexists]\n/ping [@mouseover] " .. ping
+                    elseif spell then
+                        -- [@mouseover] is what makes a wheel turn land on the cell under the
+                        -- cursor; the stopmacro keeps it quiet when the cursor is over nothing
+                        -- healable.
+                        text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n/cast [@mouseover] " .. spell
+                    end
+                    b:SetAttribute("macrotext", text)
                 end
                 if spell and SetOverrideBindingClick then
                     local key = (m.key == "" and "" or m.key:upper():gsub("%-", "-")) .. slot.bind

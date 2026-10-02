@@ -5149,6 +5149,25 @@ do
        tostring(cell.__attrs["alt-macrotext1"]))
     ok(cell.__attrs["alt-spell1"] == nil, "and never as a spell", tostring(cell.__attrs["alt-spell1"]))
 
+    -- THE WHEEL IS NOT A CLICK, and that is why pings did not work there for a build. Wheel binds
+    -- never reach ApplyTo; they are override bindings onto hidden secure buttons, built in
+    -- ApplyWheel, and a ping bind arrived there as "/cast !ping:assist".
+    FM.Set("", "wheelup", FM.PingBind("attack"))
+    FM.ApplyWheel(FG.anchor)
+    local wheel = _G["BiSHealWheelwheelup"]
+    ok(wheel ~= nil, "the wheel has a secure button behind it")
+    if wheel then
+        local text = wheel.__attrs and wheel.__attrs.macrotext or ""
+        ok(text:find("/ping %[@mouseover%] attack") ~= nil,
+           "and a ping on the wheel pings rather than casting", text)
+        ok(text:find("/cast") == nil, "with no /cast left in it", text)
+        -- a ping may go at an enemy, so the cast guard would have blocked the Attack ping
+        ok(text:find("nohelp") == nil,
+           "and it is not filtered to friendly targets, which would kill the attack ping", text)
+    end
+    FM.Clear("", "wheelup")
+    FM.ApplyWheel(FG.anchor)
+
     -- THE REGRESSION THAT MATTERS. The range check takes "whatever you have bound", and a ping is
     -- not a spell: handing it one answers "don't know", which reads as "in range", which is the
     -- whole raid staying bright. That bug cost 0.7.2 and 0.7.5; it is not coming back this way.

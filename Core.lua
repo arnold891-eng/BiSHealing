@@ -328,6 +328,44 @@ end
 
 --- The buffs the header reminds you about. No argument lists them; a name adds it, the same name
 --- again takes it off, and "reset" goes back to your class's one.
+--- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
+---
+--- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
+--- because Between.lua had "Earth Shield" written into it -- a TBC spell, on a 1.60 client, so the
+--- check could never once have run. Nothing is hardcoded now: you name a spell you have trained,
+--- every rank of it is looked up in your book, and the reminder says only what the client answered.
+---
+--- `off` stops it. With nothing watched, nothing is said, which is the default.
+function NS.DO.watch(name)
+    local d = DB()
+    if name == "off" or name == "none" then
+        d.groupBuff = nil
+        if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+        Print("not watching anything on the group")
+        return nil
+    end
+    if name and name ~= "" then
+        d.groupBuff = name
+        if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    end
+    local watch = d.groupBuff
+    if not watch then
+        Print("nothing watched on the group - |cffb980ff/bish watch <spell>|r, a spell you have trained")
+        return nil
+    end
+    local knows = NS.FB and NS.FB.Knows and NS.FB.Knows(watch)
+    Print("watching |cffb980ff%s|r on the group - %s", watch,
+        knows and "|cff4fd0cfin your spellbook|r"
+        or "|cfff08cb0not in your spellbook, so nothing will be said|r")
+    if knows and NS.FB and NS.FB.Watched then
+        local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
+        local onUnit, unsure = NS.FB.Watched(roster, watch)
+        Print("  %s", onUnit and ("up on |cff4fd0cf" .. tostring(onUnit) .. "|r")
+            or (unsure and "|cffe5c04athe client would not say|r" or "|cfff08cb0not up on anyone|r"))
+    end
+    return watch
+end
+
 function NS.DO.buff(name)
     local FS = NS.FS
     if not FS then return end
@@ -415,27 +453,34 @@ function NS.DO.byid()
     Print("  auras secret right now: %s", (NS.Blind and NS.Blind())
         and "|cffe5c04ayes|r" or "|cff4fd0cfno|r")
 
+    -- SOMETHING THIS CHARACTER ACTUALLY HAS. This used to ask for Earth Shield's ids, which on a
+    -- 1.60 client is a spell that does not exist - so the diagnostic reported "no spell ids" and
+    -- looked like a broken client rather than a wrong question (Arn, 1 Oct).
     local unit = (UnitExists and UnitExists("target") and "target") or "player"
-    local es = NS.FM and NS.FM.Ranks and NS.FM.Ranks("Earth Shield") or {}
-    local ids = {}
-    for _, r in ipairs(es) do if type(r.id) == "number" then ids[#ids + 1] = r.id end end
-    if #ids == 0 then
-        local watched = (NS.FS and NS.FS.List and NS.FS.List()) or {}
-        local own = watched[1]
-        local alt = (own and NS.FS.SpellIds and NS.FS.SpellIds(own)) or {}
-        for _, id in ipairs(alt) do ids[#ids + 1] = id end
-        if #ids > 0 then Print("  no Earth Shield trained - asking about |cffb980ff%s|r instead", tostring(own)) end
+    local ids, from = {}, nil
+    local function take(name)
+        if #ids > 0 or not name then return end
+        local got = (NS.FM and NS.FM.Ranks and NS.FM.Ranks(name)) or {}
+        for _, r in ipairs(got) do if type(r.id) == "number" then ids[#ids + 1] = r.id end end
+        if #ids == 0 and NS.FS and NS.FS.SpellIds then
+            for _, id in ipairs(NS.FS.SpellIds(name)) do ids[#ids + 1] = id end
+        end
+        if #ids > 0 then from = name end
     end
+    take(DB().groupBuff)                                   -- what /bish watch is set to
+    take(((NS.FS and NS.FS.List and NS.FS.List()) or {})[1])   -- else your own watched buff
     if #ids == 0 then
-        Print("  %s", "|cff968eadno spell ids to ask with - train Earth Shield, or set /bish buff|r")
+        Print("  %s", "|cff968eadno spell ids to ask with - set |rcffb980ff/bish watch <spell>|r"
+            .. "|cff968ead, or /bish buff|r")
     else
+        Print("  asking with |cffb980ff%s|r", tostring(from))
         local a, why = NS.AuraById(unit, ids[1])
         Print("  about %s, id %d: %s", unit, ids[1], a and "|cff4fd0cfread it|r"
             or ("|cffe5c04a" .. tostring(why) .. "|r"))
     end
     Print("  last answer: |cffb980ff%s|r", tostring(NS.auraSeen or "nothing asked yet"))
-    Print("  Earth Shield asked by: |cffb980ff%s|r",
-        tostring((NS.FB and NS.FB.esBy) or "not yet - run /bish scan"))
+    Print("  the watched buff asked by: |cffb980ff%s|r",
+        tostring((NS.FB and NS.FB.watchBy) or "not yet - run /bish scan"))
     Print("  may I compare unit tokens: %s", NS.CanCompareUnits and NS.CanCompareUnits()
         and "|cff4fd0cfyes|r" or "|cffe5c04ano - UnitIsUnit only|r")
     Print("  unit stats secret: |cffb980ff%s|r", tostring(NS.StatsSecret and NS.StatsSecret()))
@@ -952,6 +997,7 @@ function NS.DO.help()
     Print("  |cffb980ffmouse|r  drag spells onto a mouse    |cffb980ffrescan|r  look at the group again")
     Print("  |cffb980ffscan|r   what this client will tell me")
     Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
+    Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
@@ -1042,6 +1088,11 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.range()
     elseif msg == "byid" then
         NS.DO.byid()
+    elseif msg == "watch" then
+        NS.DO.watch()
+    elseif msg:match("^watch%s") then
+        -- the name as typed, capitals and all, the same way /bish buff takes one
+        NS.DO.watch((input or ""):match("^%s*[Ww][Aa][Tt][Cc][Hh]%s+(.-)%s*$"))
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
     elseif msg == "buffsound" or msg:match("^buffsound%s") then

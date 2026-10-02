@@ -33,7 +33,24 @@ NS = NS or {}
 local FB = {}
 NS.FB = FB
 
-local EARTH_SHIELD = "Earth Shield"
+-- A BUFF TO WATCH ON THE GROUP, and EMPTY ON PURPOSE -- the same decision FA.WATCH records in
+-- Auras.lua, for the same reason, and this file did not get the memo until 1 Oct 2026.
+--
+-- This used to be the string "Earth Shield", hardcoded. Arn: "there is no earth shield in this
+-- game mode." He is right, and Auras.lua:45 had already written it down on 19 Sep: Earth Shield is
+-- a TBC spell and Forever is a 1.60 client. So the check could never run here -- FB.Knows asks the
+-- spellbook and the spellbook has never heard of it -- which is also the real reason the 0.6.1
+-- "not up on anyone" bug went away. It was not fixed. It became unreachable.
+--
+-- So nothing is hardcoded now. The watch is a spell NAME the player chooses, every rank of it
+-- found in their own book, and the reminder only ever speaks about a spell they have actually
+-- trained. That way it is right in whatever this mode turns out to contain, without this file
+-- holding an opinion about the game's spell list -- which is the thing it kept getting wrong.
+local function watched()
+    local d = NS.DB and NS.DB()
+    local name = type(d) == "table" and d.groupBuff or nil
+    return (type(name) == "string" and name ~= "") and name or nil
+end
 local TOTEM_SLOTS = 4
 local CURABLE = { Poison = true, Disease = true }     -- what a shaman can actually remove
 
@@ -81,7 +98,7 @@ local function idsFor(name)
     return out
 end
 
---- WHO HAS EARTH SHIELD -- asked by spell id now, and the walk only as a fallback (1 Oct 2026).
+--- WHO HAS THE WATCHED BUFF -- asked by spell id now, and the walk only as a fallback (1 Oct 2026).
 ---
 --- The walk is the thing that hard-errors under instance restrictions, which is the one place a
 --- shaman most wants this answered: a raid, out of combat, between pulls. There `ShouldAurasBeSecret`
@@ -92,12 +109,14 @@ end
 --- By id the client answers. See `NS.AuraById`: it is the one aura question that survives.
 ---
 --- Returns unit-or-nil, unsure. `unsure` is the load-bearing half -- see NS.AnyAuraById.
-function FB.EarthShield(roster)
-    local ids = idsFor(EARTH_SHIELD)
+function FB.Watched(roster, name)
+    name = name or watched()
+    if not name then return nil, false end
+    local ids = idsFor(name)
     if #ids > 0 and C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
         -- recorded BEFORE the loop: finding the shield returns early, and `/bish byid` saying
         -- "walk" right after a by-id answer is the kind of wrong that costs an evening
-        FB.esBy = "id"
+        FB.watchBy = "id"
         local unsure = false
         for _, unit in ipairs(roster) do
             local up = NS.AnyAuraById(unit, ids)
@@ -109,17 +128,17 @@ function FB.EarthShield(roster)
 
     -- no by-id lookup on this client (TBC, or a beta older than the call): the old walk, which is
     -- better than nothing out in the world and no worse than before anywhere else
-    FB.esBy = "walk"
-    local esOn, unsure = nil, false
+    FB.watchBy = "walk"
+    local onUnit, unsure = nil, false
     for _, unit in ipairs(roster) do
         local list, refused = auras(unit, "HELPFUL")
         if refused then unsure = true end
         for _, a in ipairs(list) do
-            local name = field(a, "name")
-            if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
+            local got = field(a, "name")
+            if got == nil then unsure = true elseif got == name then onUnit = unit end
         end
     end
-    return esOn, unsure
+    return onUnit, unsure
 end
 
 --- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
@@ -145,10 +164,11 @@ function FB.Scan()
     -- client's word for auras as a whole; a single field can still come back secret (a totem did,
     -- 21 Sep), and one unguarded `if` on it throws the whole scan. What cannot be read is treated
     -- as not known: never "missing", never "empty", never "dead".
-    if FB.Knows(EARTH_SHIELD) then
-        local esOn, unsure = FB.EarthShield(roster)
-        if not esOn and not unsure then
-            found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
+    local watch = watched()
+    if watch and FB.Knows(watch) then
+        local onUnit, unsure = FB.Watched(roster, watch)
+        if not onUnit and not unsure then
+            found[#found + 1] = { kind = "groupbuff", text = watch .. " is not up on anyone" }
         end
     end
 

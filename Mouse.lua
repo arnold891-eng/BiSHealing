@@ -223,6 +223,11 @@ local function db()
                     d.buffSound = settings.sound
                     if NS.FS and NS.FS.Sounds then NS.FS.Sounds() end
                 end
+                -- the buff watched on the GROUP, by name. Only set when the macro carries a U row,
+                -- so a player who never chose one keeps the default of watching nothing.
+                if type(settings.groupBuff) == "string" and settings.groupBuff ~= "" then
+                    d.groupBuff = settings.groupBuff
+                end
                 if settings.hidden then
                     d.shown = false
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the

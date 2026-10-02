@@ -2,19 +2,27 @@
 
 ## 0.8.0
 
-- **The Earth Shield reminder works in a raid now.** It is asked by spell id instead of by reading
-  the whole aura list, and that is the one aura question this client still answers under raid and
-  dungeon restrictions — where listing auras is refused outright, even between pulls. Until now the
-  reminder went quiet in exactly the place a shaman wanted it.
-- **It still never guesses.** An unanswered question stays unanswered: if the client will not say
-  whether someone has it, nothing is printed. That is the 0.6.1 rule, and by id there are simply far
-  fewer questions it refuses.
-- **`/bish byid`** says what this client will tell the addon about other people's auras — which call
+- **A buff you can watch on the whole group: `/bish watch <spell>`.** Name a spell you have trained
+  and the reminder tells you between pulls when it is not up on anyone. `/bish watch off` stops it,
+  and nothing is watched until you ask — so it never nags about a spell you do not have.
+- **It works in a raid, which is the point.** The buff is asked for **by spell id** rather than by
+  reading a unit's whole aura list, and by id is the one aura question this client still answers
+  under raid and dungeon restrictions — where listing auras is refused outright, even out of combat.
+  Anything built on reading the list goes quiet in exactly the place you wanted it.
+- **It still never guesses.** If the client will not say whether someone has the buff, nothing is
+  printed. "We could not tell" is never reported as "nobody has it" — that is the 0.6.1 rule, and
+  asking by id simply gets refused far less often.
+- **Your choice is remembered**, in the same per-character macro as your binds.
+- **`/bish byid`** says what this client will tell the addon about other people's auras: which call
   answered, whether the old list walk is being refused right now, and what it said about your
   target. Built because the range dimming was broken for nine days while looking fine.
 - **Groundwork, not yet visible:** the addon now asks the client whether unit tokens may be compared
   at all before comparing them, and whether unit stats are secret as a live question rather than a
   decision made once at login. Both are answers this client gives and we were not asking for.
+
+> Replaces a hardcoded Earth Shield check that could never have run here — Earth Shield is a
+> Burning Crusade spell and this is a 1.60 client, so the reminder it guarded was unreachable. The
+> watch holds no opinion about the game's spell list now; your spellbook decides.
 
 ## 0.7.6
 

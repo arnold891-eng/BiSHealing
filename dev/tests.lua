@@ -3784,18 +3784,23 @@ local blindScan, why = FB.Scan()
 ok(blindScan == nil and why ~= nil, "the brain refuses to scan inside the lockdown")
 STATE.inCombat = false
 
--- THIS CHARACTER HAS EARTH SHIELD, and is in a group. Both matter now: the brain does not nag
+-- THIS CHARACTER HAS THE WATCHED BUFF, and is in a group. Both matter: the brain does not nag
 -- about a spell you have not trained (a level-15 shaman grinding leather was told six times in
 -- ninety seconds that it was not up), and it says nothing at all when you are playing alone.
-BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
+--
+-- The spell is CHOSEN now rather than hardcoded (1 Oct 2026). It was "Earth Shield", which does
+-- not exist on a 1.60 client - so the check it guards could never run, and these tests were the
+-- only place it ever did. Nothing is watched until the player says so.
+BOOK[20] = { name = "Lightning Shield", rank = "Rank 1" }
+NS.DB().groupBuff = "Lightning Shield"
 local GROUPED = true
 _G.IsInGroup = function() return GROUPED end
 
--- nothing up: Earth Shield missing and no totems out, both worth saying between pulls
+-- nothing up: the watched buff missing and no totems out, both worth saying between pulls
 local found = FB.Scan()
 local kinds = {}
 for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
-ok(kinds.earthshield == 1, "a missing Earth Shield is reported")
+ok(kinds.groupbuff == 1, "a missing watched buff is reported")
 ok(kinds.totems == 1, "four empty totem slots are reported")
 
 -- CAN THE AURA LIST BE WALKED AT ALL? The client answers that by throwing, not by saying so:
@@ -3829,31 +3834,31 @@ end
 -- on 28 Sep: the index walk hard-errors under instance restrictions even out of combat, where
 -- ShouldAurasBeSecret still answers no. The walk broke out of its loop on the error and handed
 -- back an empty list, which is indistinguishable from "nobody has it" - and that one gets printed
--- in chat. "Earth Shield is not up on anyone", to a raid where it was up the whole time.
+-- in chat. "<buff> is not up on anyone", to a raid where it was up the whole time.
 do
     local realGet = _G.C_UnitAuras.GetAuraDataByIndex
     _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
     local refusedScan = FB.Scan()
     local said = {}
     for _, f in ipairs(refusedScan or {}) do said[f.kind] = true end
-    ok(not said.earthshield,
-       "a refused aura list is never reported as a missing Earth Shield")
+    ok(not said.groupbuff,
+       "a refused aura list is never reported as a missing watched buff")
     ok(not said.dispel, "and never as somebody standing there with a debuff on them")
     _G.C_UnitAuras.GetAuraDataByIndex = realGet
     -- and with the client answering again, the report comes back rather than staying quiet
     local backScan = FB.Scan()
     local kinds2 = {}
     for _, f in ipairs(backScan or {}) do kinds2[f.kind] = true end
-    ok(kinds2.earthshield, "and when the client answers again, so does the brain")
+    ok(kinds2.groupbuff, "and when the client answers again, so does the brain")
 end
 
--- with Earth Shield up on the tank, it stops nagging
-AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
+-- with the watched buff up on the tank, it stops nagging
+AURAS.party1.HELPFUL[1] = { name = "Lightning Shield", dispelName = nil }
 TOTEMS[1] = true
 found = FB.Scan()
 kinds = {}
 for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
-ok(kinds.earthshield == nil, "Earth Shield up on anyone is enough")
+ok(kinds.groupbuff == nil, "the watched buff up on anyone is enough")
 ok(kinds.totems == nil, "one totem down is not 'no totems down'")
 
 -- dispel debt: what the addon could not even SEE during the fight
@@ -3925,7 +3930,7 @@ do
     ok(FB.totemsKnown == 0, "and all four are counted as unknown - never put in an `if`",
        tostring(FB.totemsKnown))
     ok(not kinds2.dead, "nobody is called dead on a flag it cannot read")
-    ok(not kinds2.earthshield, "and an unreadable buff is not called a missing Earth Shield")
+    ok(not kinds2.groupbuff, "and an unreadable buff is not called a missing one")
     ok(pcall(FB.Dump), "/bish scan's dump survives them too")
     _G.GetTotemInfo, _G.UnitIsDeadOrGhost = realTotem, realDead
     AURAS.party2.HARMFUL[3] = nil
@@ -3956,7 +3961,7 @@ NS.DO.between(true)
 BOOK[20] = nil
 local noES = FB.Scan()
 local mentions = 0
-for _, f in ipairs(noES) do if f.kind == "earthshield" then mentions = mentions + 1 end end
+for _, f in ipairs(noES) do if f.kind == "groupbuff" then mentions = mentions + 1 end end
 ok(mentions == 0, "no Earth Shield in the spellbook, no Earth Shield in the report")
 BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
 AURAS.party2.HARMFUL[1], AURAS.party2.HARMFUL[2] = nil, nil
@@ -4878,11 +4883,16 @@ do
             return up[unit] and up[unit][id] or nil
         end,
     }
-    -- Earth Shield, two ranks, each its own id - which is why one buff is several questions
+    -- A SPELL THIS MODE ACTUALLY HAS. It was Earth Shield until Arn pointed out there is no such
+    -- thing on a 1.60 client - which is exactly the bug the watch is now generic to avoid, so the
+    -- suite should not quietly re-enshrine it either. Two ranks, each its own id, which is why one
+    -- buff is several questions.
     NS.FM.Ranks = function(name)
-        if name ~= "Earth Shield" then return {} end
+        if name ~= "Lightning Shield" then return {} end
         return { { rank = "Rank 1", id = 974 }, { rank = "Rank 2", id = 32593 } }
     end
+    local realDB = NS.DB()
+    realDB.groupBuff = "Lightning Shield"
     FG.Roster = function() return { "player", "party1" } end
 
     -- ---------------------------------------------------------------- NS.AuraById
@@ -4923,18 +4933,18 @@ do
     mode = "answer"
     ok(NS.AnyAuraById("player", {}) == nil, "no ids is not evidence of anything")
 
-    -- --------------------------------------------------------- FB.EarthShield
-    local who, unsure = FB.EarthShield({ "player", "party1" })
+    -- ------------------------------------------------------------- FB.Watched
+    local who, unsure = FB.Watched({ "player", "party1" })
     ok(who == "party1" and not unsure, "the shield is found on the one who has it", tostring(who))
-    ok(FB.esBy == "id", "and recorded as asked by id even though it returned early", tostring(FB.esBy))
+    ok(FB.watchBy == "id", "and recorded as asked by id even though it returned early", tostring(FB.watchBy))
 
     up.party1[32593] = nil
-    who, unsure = FB.EarthShield({ "player", "party1" })
+    who, unsure = FB.Watched({ "player", "party1" })
     ok(who == nil and unsure == false, "nobody has it, and the client said so for everyone")
-    ok(FB.esBy == "id", "by id, while the index walk throws", tostring(FB.esBy))
+    ok(FB.watchBy == "id", "by id, while the index walk throws", tostring(FB.watchBy))
 
     mode = "refuse"
-    who, unsure = FB.EarthShield({ "player", "party1" })
+    who, unsure = FB.Watched({ "player", "party1" })
     ok(who == nil and unsure == true, "a refusal is unsure, not 'nobody has it'")
     mode = "answer"
 
@@ -4942,20 +4952,20 @@ do
     -- report nothing at all. It reports properly now - and still says nothing when unsure.
     local found = FB.Scan()
     local said = false
-    for _, f in ipairs(found or {}) do if f.kind == "earthshield" then said = true end end
+    for _, f in ipairs(found or {}) do if f.kind == "groupbuff" then said = true end end
     ok(said, "in a raid where the walk is refused, the reminder finally works")
 
     mode = "refuse"
     found = FB.Scan()
     said = false
-    for _, f in ipairs(found or {}) do if f.kind == "earthshield" then said = true end end
+    for _, f in ipairs(found or {}) do if f.kind == "groupbuff" then said = true end end
     ok(not said, "and when the client will not say, it still says nothing")
     mode = "answer"
 
     -- a client with no by-id call at all falls back to the walk, as TBC must
     _G.C_UnitAuras.GetUnitAuraBySpellID = nil
-    FB.EarthShield({ "player" })
-    ok(FB.esBy == "walk", "with no by-id call, the old walk is still there", tostring(FB.esBy))
+    FB.Watched({ "player" })
+    ok(FB.watchBy == "walk", "with no by-id call, the old walk is still there", tostring(FB.watchBy))
 
     -- ------------------------------------------------- the two new secret guards
     _G.C_Secrets = { HasSecretRestrictions = function() return true end }
@@ -4998,6 +5008,42 @@ do
     -- one table is what keeps the three doors in step; it also makes this collision possible.
     ok(type(NS.DO.byid) == "function", "the by-id diagnostic has its own name")
     ok(type(NS.DO.auras) == "function", "and the debug marker still has its")
+
+    -- NOTHING WATCHED IS THE DEFAULT, and the whole lesson of the day: a hardcoded spell name was
+    -- wrong about this game mode for twelve days. With nothing chosen, nothing is said.
+    local keep = NS.DB().groupBuff
+    NS.DB().groupBuff = nil
+    local quiet = FB.Scan()
+    local spoke = false
+    for _, f in ipairs(quiet or {}) do if f.kind == "groupbuff" then spoke = true end end
+    ok(not spoke, "with nothing watched, the group-buff reminder says nothing at all")
+    ok(select(1, FB.Watched({ "player" })) == nil, "and nothing is asked about")
+
+    -- IT HAS TO SURVIVE A RESTART. SavedVariables never come back on this client, so a setting
+    -- that is not in the macro is a setting the player sets once per session - and the row carries
+    -- only digits, so the NAME rides as an index into the leading spell list, like a bind does.
+    NS.DB().groupBuff = "Lightning Shield"
+    local FK = NS.FK
+    local body = FK.Encode({ left = "Healing Wave(Rank 1)" }, { groupBuff = "Lightning Shield" })
+    ok(type(body) == "string" and body:find("Lightning Shield", 1, true) ~= nil,
+       "the watched buff's name is written into the macro", tostring(body))
+    local _, settings = FK.Decode(body)
+    ok(settings and settings.groupBuff == "Lightning Shield",
+       "and comes back out of it", tostring(settings and settings.groupBuff))
+
+    local plain = FK.Encode({ left = "Healing Wave(Rank 1)" }, {})
+    local _, none = FK.Decode(plain)
+    ok(none and none.groupBuff == nil,
+       "a macro with no U row leaves the watch alone rather than clearing it")
+
+    -- the command, both ways
+    NS.DO.watch("Lightning Shield")
+    ok(NS.DB().groupBuff == "Lightning Shield", "/bish watch <spell> sets it")
+    NS.DO.watch("off")
+    ok(NS.DB().groupBuff == nil, "/bish watch off stops it")
+    ok(pcall(SlashCmdList.BISHEALING, "watch Lightning Shield"), "/bish watch <spell> threw")
+    ok(pcall(SlashCmdList.BISHEALING, "watch"), "/bish watch threw")
+    NS.DB().groupBuff = keep
     ok(pcall(SlashCmdList.BISHEALING, "byid"), "/bish byid threw")
     ok(pcall(SlashCmdList.BISHEALING, "scan"), "/bish scan threw with the walk refusing")
 

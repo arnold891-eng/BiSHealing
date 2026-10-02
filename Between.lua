@@ -93,7 +93,7 @@ local function idsFor(name)
     local out = {}
     if not (NS.FM and NS.FM.Ranks) then return out end
     for _, r in ipairs(NS.FM.Ranks(name)) do
-        if type(r.id) == "number" then out[#out + 1] = r.id end
+        if type(r.spell) == "number" then out[#out + 1] = r.spell end
     end
     return out
 end

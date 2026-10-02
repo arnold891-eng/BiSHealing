@@ -907,7 +907,7 @@ function NS.DO.byid()
     local function take(name)
         if #ids > 0 or not name then return end
         local got = (NS.FM and NS.FM.Ranks and NS.FM.Ranks(name)) or {}
-        for _, r in ipairs(got) do if type(r.id) == "number" then ids[#ids + 1] = r.id end end
+        for _, r in ipairs(got) do if type(r.spell) == "number" then ids[#ids + 1] = r.spell end end
         if #ids == 0 and NS.FS and NS.FS.SpellIds then
             for _, id in ipairs(NS.FS.SpellIds(name)) do ids[#ids + 1] = id end
         end

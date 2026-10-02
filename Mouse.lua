@@ -460,7 +460,7 @@ function FM.RangeSpell()
     if not cast then return nil end
     local name = FM.Split(cast)
     for _, r in ipairs(FM.Ranks(name) or {}) do
-        if r.id then return name, r.id end
+        if r.spell then return name, r.spell end
     end
     return name
 end
@@ -476,12 +476,30 @@ end
 function FM.Ranks(name)
     if not name or name == "" then return {} end
     local out, seen = {}, {}
-    local function add(nm, rank, id)
+    -- `index` IS A BOOK SLOT AND `spell` IS A SPELL ID, and they are not the same number (1 Oct
+    -- 2026). This field was called `id` and held the slot, which read like a spell id to everything
+    -- that touched it - so three callers asked the client about the wrong thing entirely, and the
+    -- only reason it was ever noticed is that `/bish byid` printed the number: Arn's Water Shield
+    -- came back as "id 35", which is a row in his spellbook.
+    --
+    -- The one that had been wrong longest is the range check (0.7.2), which has been asking
+    -- IsSpellInRange about slot numbers ever since and quietly working off its name fallback - a
+    -- bug hidden by its own safety net. A field named for what it is cannot be misread that way.
+    local function add(nm, rank, index, spell)
         if nm ~= name then return end
         local key = tostring(rank or "")
         if seen[key] then return end
         seen[key] = true
-        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil, id = id }
+        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil,
+                          index = index, spell = spell }
+    end
+
+    --- The real spell id behind a book slot, or nil. The same read SelfBuff.lua has always done.
+    local function idAt(i, bank)
+        if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo) then return nil end
+        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
+        local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
+        return type(id) == "number" and id or nil
     end
 
     -- THE MODERN BOOK TAKES TWO ARGUMENTS: the slot, and which bank it is in. Measured in game
@@ -504,14 +522,14 @@ function FM.Ranks(name)
     if C_SpellBook and C_SpellBook.GetSpellBookItemName then
         for i = 1, 500 do
             local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, idAt(i, bank)) end
         end
     end
     -- the old book: (index, bookType), and a count per tab
     if #out == 0 and GetSpellBookItemName and GetNumSpellTabs then
         for i = 1, 500 do
             local got, nm, sub = pcall(GetSpellBookItemName, i, "spell")
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, nil) end
         end
     end
     return out

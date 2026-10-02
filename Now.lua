@@ -48,8 +48,13 @@ NS.FN = FN
 ---
 --- `needs` is the spell this character must actually have trained, asked of the spellbook rather
 --- than assumed - the lesson of Earth Shield and Water Shield in one evening. nil means anyone.
+--- `ready` is whether the button DOES anything yet. The order engine knows about every button so
+--- that a macro written today still reads tomorrow, but a button with no behaviour must never
+--- appear: on 1 Oct the Tremor button turned up on Arn's shaman wearing the Assist ping's icon and
+--- carrying the Assist ping's macro, because it had an entry here and nothing else. A placeholder
+--- that does the wrong thing is worse than an empty window.
 FN.BUTTONS = {
-    { id = 1, key = "help",   word = "Help",   pinned = true },
+    { id = 1, key = "help",   word = "Help",   pinned = true, ready = true },
     { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem" },
     { id = 3, key = "poison", word = "Poison", needs = "Poison Cleansing Totem" },
 }
@@ -170,7 +175,7 @@ function FN.Mine()
     local out = {}
     for _, k in ipairs(FN.Order()) do
         local b = FN.Button(k)
-        if b and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
+        if b and b.ready and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
             out[#out + 1] = k
         end
     end
@@ -269,14 +274,20 @@ local function makeButton(parent, key)
     b.art = b:CreateTexture(nil, "ARTWORK")
     b.art:SetAllPoints()
     b.key = key
+    -- WHAT THE BUTTON DOES IS PER BUTTON. Everything here used to get the Assist ping, icon and
+    -- all, which is how a Tremor button appeared wearing a ping's face (1 Oct).
     if b.SetAttribute then
         b:SetAttribute("unit", "player")
         b:RegisterForClicks("AnyUp")
-        b:SetAttribute("*type1", "macro")
-        b:SetAttribute("*macrotext1", "/ping [@mouseover] assist")
     end
-    local atlas = NS.FM and NS.FM.PingAtlas and NS.FM.PingAtlas("assist")
-    if atlas and b.art.SetAtlas then pcall(b.art.SetAtlas, b.art, atlas) end
+    if key == "help" then
+        if b.SetAttribute then
+            b:SetAttribute("*type1", "macro")
+            b:SetAttribute("*macrotext1", "/ping [@mouseover] assist")
+        end
+        local atlas = NS.FM and NS.FM.PingAtlas and NS.FM.PingAtlas("assist")
+        if atlas and b.art.SetAtlas then pcall(b.art.SetAtlas, b.art, atlas) end
+    end
     return b
 end
 

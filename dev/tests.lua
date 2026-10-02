@@ -555,6 +555,20 @@ _G.C_SpellBook.GetSpellBookItemName = function(n, bank)
     if e then return e.name, e.rank end
     return nil
 end
+-- A BOOK SLOT IS NOT A SPELL ID, and this mock had neither - so nothing could tell them apart and
+-- a caller passing the slot number looked exactly like a caller passing the id. That is how the
+-- range check spent from 0.7.2 to 1 Oct asking C_Spell.IsSpellInRange about row numbers, with a
+-- green test named "the range call is asked with a spell id" standing over it: the slot IS a
+-- number, so the assertion held while the meaning was wrong.
+--
+-- The ids here are deliberately nothing like the slots (1000 + slot), so passing the wrong one is
+-- always visible.
+_G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+    if type(n) ~= "number" or type(bank) ~= "number" then error("bad argument", 2) end
+    if not BOOK[n] then return nil end
+    return { spellID = 1000 + n }
+end
+
 _G.C_Spell.GetSpellSubtext = function(id) return RANKS[id] end
 
 local BOUND = {}
@@ -834,6 +848,11 @@ do
     FG.Paint(f)
     local asked = STATE.rangeAsked[1]
     ok(type(asked) == "number", "the range call is asked with a spell id, not a name", tostring(asked))
+    -- AND IT IS THE RIGHT NUMBER. "a number" was satisfied by a spellbook ROW for months: slots and
+    -- ids are both numbers, so the old assertion held while the call was being handed the wrong one.
+    -- The mock's ids are 1000 + slot, so a slot leaking through is unmistakable.
+    ok(asked and asked > 1000, "and it is the spell's id, not its row in the spellbook",
+       tostring(asked))
 
     -- AND WHEN IT WILL NOT ANSWER, A DIFFERENT QUESTION. nil means "cannot say about this spell";
     -- UnitInRange answers about the unit instead, and this client makes THAT one a secret - which
@@ -4889,7 +4908,8 @@ do
     -- buff is several questions.
     NS.FM.Ranks = function(name)
         if name ~= "Lightning Shield" then return {} end
-        return { { rank = "Rank 1", id = 974 }, { rank = "Rank 2", id = 32593 } }
+        return { { rank = "Rank 1", index = 20, spell = 974 },
+                 { rank = "Rank 2", index = 21, spell = 32593 } }
     end
     local realDB = NS.DB()
     realDB.groupBuff = "Lightning Shield"

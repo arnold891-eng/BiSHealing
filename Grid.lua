@@ -1356,6 +1356,9 @@ function FG.Layout(anchor)
     FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
     FG.LayoutPets(anchor)           -- and the pets, when they have a block rather than a column
     FG.LayoutMana(anchor)           -- and the other healers' mana, when it is wanted
+    -- BiS> now, the block of buttons that matter right now. Built out of combat with everything
+    -- else; only its colour moves after that, and the client chooses that.
+    if NS.FN and NS.FN.Layout then NS.FN.Layout(anchor) end
 
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
@@ -2024,6 +2027,11 @@ function FG.Start()
         -- the pet block's cells are not in FG.frames either
         for _, f in ipairs(FG.petFrames or {}) do
             if f.unit and f:IsShown() then FG.Paint(f) end
+        end
+        -- BiS> now. Its buttons never change in a fight; only the colour does, and the colour is
+        -- the client's answer about a number we are not allowed to see.
+        if NS.FN and NS.FN.PaintHelp and NS.FN.block and NS.FN.block:IsShown() then
+            NS.FN.PaintHelp()
         end
         -- your own cell is out of the roster, so the loop above never reaches it
         local me = FG.me

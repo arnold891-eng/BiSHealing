@@ -4896,6 +4896,25 @@ do
     FG.Roster = function() return { "player", "party1" } end
 
     -- ---------------------------------------------------------------- NS.AuraById
+    -- YOUR OWN AURAS COME FROM THE PLAYER CALL. Measured 1 Oct: with Water Shield visibly on him,
+    -- the watch said "not up on you" - the unit call does not answer about the player. So the mock
+    -- behaves the way the client did, and the suite would have caught it: GetUnitAuraBySpellID
+    -- knows nothing about "player", and only GetPlayerAuraBySpellID does.
+    local ownAuras = {}
+    _G.C_UnitAuras.GetPlayerAuraBySpellID = function(id) return ownAuras[id] end
+    local realIsPlayer = NS.IsPlayer
+    NS.IsPlayer = function(u) return u == "player" end
+
+    ownAuras[24398] = { name = "Water Shield", spellId = 24398 }
+    local own, ownWhy = NS.AuraById("player", 24398)
+    ok(type(own) == "table" and ownWhy == nil,
+       "a buff on YOU is found, through the player call the unit call cannot answer",
+       tostring(ownWhy))
+    ok(NS.AnyAuraById("player", { 24398 }) == true, "and the watch sees it")
+    ownAuras[24398] = nil
+    ok(NS.AnyAuraById("player", { 24398 }) == false, "and sees it go")
+    NS.IsPlayer = realIsPlayer
+
     up.party1[32593] = { name = "Earth Shield", spellId = 32593 }
     local a, why = NS.AuraById("party1", 32593)
     ok(type(a) == "table" and why == nil, "an aura the client hands over is read")

@@ -102,6 +102,9 @@ local DEFAULTS = {
     color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
     buffQuiet = false,   -- no noise when a watched buff drops; it keeps the chosen id for later
+    now     = false,     -- BiS> now: the block of buttons that matter right now, help first
+    nowAt   = "under",   -- where it sits: top / left / right / under, or "free" once dragged
+    nowPos  = nil,       -- where it was dragged to, from the middle of the screen
 }
 
 -- Keys with no useful default, which a migration must still carry: `selfBuffs` is a table (a
@@ -328,6 +331,31 @@ end
 
 --- The buffs the header reminds you about. No argument lists them; a name adds it, the same name
 --- again takes it off, and "reset" goes back to your class's one.
+--- BiS> NOW: the block of buttons that matter right now (1 Oct 2026, Arn's design).
+---
+--- Off by default, like every other block. `on`/`off`, or a side to put it on.
+function NS.DO.now(arg)
+    local d = DB()
+    local FG, FN = NS.FG, NS.FN
+    if arg and FG and FG.TARGET_SPOTS and FG.TARGET_SPOTS[arg] then
+        d.nowAt, d.nowPos = arg, nil
+        d.now = true
+    elseif arg == "off" then d.now = false
+    elseif arg == "on" then d.now = true
+    elseif arg == nil then d.now = not d.now
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    if FG and FG.Layout then FG.Layout() end
+    Print("BiS> now is %s%s", d.now and "|cff4fd0cfon|r" or "|cfff08cb0off|r",
+        d.now and (" - " .. tostring(d.nowAt or "under")) or "")
+    if d.now and FN then
+        local mine = FN.Mine and FN.Mine() or {}
+        Print("  buttons: |cffb980ff%s|r", #mine > 0 and table.concat(mine, " ") or "none yet")
+        Print("  the help button is painted: |cffb980ff%s|r", tostring(FN.seen or "not yet"))
+    end
+    return d.now
+end
+
 --- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
 ---
 --- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
@@ -365,7 +393,7 @@ function NS.DO.watch(name)
                 or ("|cfff08cb0not up on " .. (#roster > 1 and "anyone" or "you") .. "|r")))
         if #roster <= 1 then
             Print("  %s", "|cff968eadyou are on your own, so this is only about you - a buff that"
-                .. " only goes on yourself belongs in |rcffb980ff/bish buff|r")
+                .. " only goes on yourself belongs in |r|cffb980ff/bish buff|r")
         end
     end
     return watch
@@ -888,7 +916,7 @@ function NS.DO.byid()
     take(DB().groupBuff)                                   -- what /bish watch is set to
     take(((NS.FS and NS.FS.List and NS.FS.List()) or {})[1])   -- else your own watched buff
     if #ids == 0 then
-        Print("  %s", "|cff968eadno spell ids to ask with - set |rcffb980ff/bish watch <spell>|r"
+        Print("  %s", "|cff968eadno spell ids to ask with - set |r|cffb980ff/bish watch <spell>|r"
             .. "|cff968ead, or /bish buff|r")
     else
         Print("  asking with |cffb980ff%s|r", tostring(from))
@@ -1419,6 +1447,7 @@ function NS.DO.help()
     Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
     Print("  |cffb980ffcontrol|r  who is feared, and may I tell anyone (a measurement)")
     Print("  |cffb980ffhits|r   does anything still say somebody was hit (a measurement)")
+    Print("  |cffb980ffnow|r    BiS> now - the buttons that matter right now")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
@@ -1514,6 +1543,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.curve()
     elseif msg == "control" or msg == "fear" then
         NS.DO.control()
+    elseif msg == "now" then
+        NS.DO.now()
+    elseif msg:match("^now%s+%a+$") then
+        NS.DO.now(msg:match("^now%s+(%a+)$"))
     elseif msg == "hits" then
         NS.DO.hits()
     elseif msg == "hits reset" then

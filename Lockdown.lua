@@ -173,6 +173,22 @@ function NS.AuraById(unit, spellID)
         NS.auraSeen = "no spell"
         return nil, "no spell"
     end
+
+    -- YOUR OWN AURAS HAVE THEIR OWN CALL, and it is the one that works (1 Oct 2026). Arn put Water
+    -- Shield on himself and `/bish watch Water Shield` still said "not up on you": the unit call
+    -- does not answer about the player, while `GetPlayerAuraBySpellID` - which SelfBuff.lua has
+    -- used for the header reminder since 0.5.3, and which has never missed - does. Asked first for
+    -- yourself, with the unit call still there behind it in case a future build changes its mind.
+    local mine = NS.IsPlayer and NS.IsPlayer(unit) == true
+    local byPlayer = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+    if mine and byPlayer then
+        local okP, p = pcall(byPlayer, spellID)
+        if okP and not NS.Secret(p) and p ~= nil and p ~= false then
+            NS.auraSeen = "read (yours)"
+            return p, nil
+        end
+    end
+
     local ok, a = pcall(get, unit, spellID)
     if not ok then NS.auraSeen = "refused" return nil, "refused" end
     if NS.Secret(a) then NS.auraSeen = "secret" return nil, "secret" end

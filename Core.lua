@@ -102,6 +102,9 @@ local DEFAULTS = {
     color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
     buffQuiet = false,   -- no noise when a watched buff drops; it keeps the chosen id for later
+    now     = false,     -- BiS> now: the block of buttons that matter right now, help first
+    nowAt   = "under",   -- where it sits: top / left / right / under, or "free" once dragged
+    nowPos  = nil,       -- where it was dragged to, from the middle of the screen
 }
 
 -- Keys with no useful default, which a migration must still carry: `selfBuffs` is a table (a
@@ -328,6 +331,77 @@ end
 
 --- The buffs the header reminds you about. No argument lists them; a name adds it, the same name
 --- again takes it off, and "reset" goes back to your class's one.
+--- BiS> NOW: the block of buttons that matter right now (1 Oct 2026, Arn's design).
+---
+--- Off by default, like every other block. `on`/`off`, or a side to put it on.
+function NS.DO.now(arg)
+    local d = DB()
+    local FG, FN = NS.FG, NS.FN
+    if arg and FG and FG.TARGET_SPOTS and FG.TARGET_SPOTS[arg] then
+        -- the side you asked for, or the next free one: two blocks never share a side, and this
+        -- door was the one that did not know that (1 Oct)
+        d.nowAt = (FG.FreeSpot and FG.FreeSpot(arg, NS.FN and NS.FN.NOW_KEYS)) or arg
+        d.nowPos = nil
+        d.now = true
+    elseif arg == "off" then d.now = false
+    elseif arg == "on" then d.now = true
+    elseif arg == nil then d.now = not d.now
+    end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    if FG and FG.Layout then FG.Layout() end
+    Print("BiS> now is %s%s", d.now and "|cff4fd0cfon|r" or "|cfff08cb0off|r",
+        d.now and (" - " .. tostring(d.nowAt or "under")) or "")
+    if d.now and FN then
+        local mine = FN.Mine and FN.Mine() or {}
+        Print("  buttons: |cffb980ff%s|r", #mine > 0 and table.concat(mine, " ") or "none yet")
+        Print("  the help button is painted: |cffb980ff%s|r", tostring(FN.seen or "not yet"))
+    end
+    return d.now
+end
+
+--- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
+---
+--- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
+--- because Between.lua had "Earth Shield" written into it -- a TBC spell, on a 1.60 client, so the
+--- check could never once have run. Nothing is hardcoded now: you name a spell you have trained,
+--- every rank of it is looked up in your book, and the reminder says only what the client answered.
+---
+--- `off` stops it. With nothing watched, nothing is said, which is the default.
+function NS.DO.watch(name)
+    local d = DB()
+    if name == "off" or name == "none" then
+        d.groupBuff = nil
+        if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+        Print("not watching anything on the group")
+        return nil
+    end
+    if name and name ~= "" then
+        d.groupBuff = name
+        if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    end
+    local watch = d.groupBuff
+    if not watch then
+        Print("nothing watched on the group - |cffb980ff/bish watch <spell>|r, a spell you have trained")
+        return nil
+    end
+    local knows = NS.FB and NS.FB.Knows and NS.FB.Knows(watch)
+    Print("watching |cffb980ff%s|r on the group - %s", watch,
+        knows and "|cff4fd0cfin your spellbook|r"
+        or "|cfff08cb0not in your spellbook, so nothing will be said|r")
+    if knows and NS.FB and NS.FB.Watched then
+        local roster = (NS.FG and NS.FG.Roster and NS.FG.Roster()) or { "player" }
+        local onUnit, unsure = NS.FB.Watched(roster, watch)
+        Print("  %s", onUnit and ("up on |cff4fd0cf" .. tostring(onUnit) .. "|r")
+            or (unsure and "|cffe5c04athe client would not say|r"
+                or ("|cfff08cb0not up on " .. (#roster > 1 and "anyone" or "you") .. "|r")))
+        if #roster <= 1 then
+            Print("  %s", "|cff968eadyou are on your own, so this is only about you - a buff that"
+                .. " only goes on yourself belongs in |r|cffb980ff/bish buff|r")
+        end
+    end
+    return watch
+end
+
 function NS.DO.buff(name)
     local FS = NS.FS
     if not FS then return end
@@ -395,6 +469,474 @@ end
 --- WHAT THE CLIENT SAYS ABOUT RANGE, and whether the dimming can act on it. The same shape as
 --- /bish regen, and for the same reason: "the cells are not dimming" has four possible causes and
 --- from the screen they all look identical.
+--- DOES ANYTHING STILL TELL US SOMEBODY WAS HIT? (1 Oct 2026.)
+---
+--- Arn wants the pyramid to learn: whoever takes more HITS - not more damage, just more hits -
+--- rises within their band when it rearranges, tanks still on top, the main tank holding the apex.
+---
+--- THE COMBAT LOG IS NOT THE ROAD. It never fires here, and registering it is a PROTECTED call
+--- (Lockdown.lua, and the dialog that named PartyHealingDisplay). It is deliberately NOT registered
+--- below: we know that answer, and re-asking it only pops the blocked dialog at Arn.
+---
+--- But "who got hit" and "how hard" are different questions, and only the second is a number. The
+--- old per-unit combat event predates the combat log and carries the first without us reading the
+--- second - we would be COUNTING NOTIFICATIONS, never reading a value. So: register the candidates,
+--- count what arrives, and let Arn go and get hit.
+---
+--- Deliberately crude: it counts, it does not interpret. What it is for is answering whether the
+--- signal exists at all, before anything is designed around it.
+local hits
+local function watchHits()
+    if hits then return hits end
+    hits = { counts = {}, units = {}, refused = {} }
+    local okF, f = pcall(CreateFrame, "Frame")
+    if not okF or not f then return hits end
+    for _, e in ipairs({ "UNIT_COMBAT", "UNIT_HEALTH", "UNIT_HEALTH_FREQUENT", "UNIT_MAXHEALTH" }) do
+        local okR = pcall(f.RegisterEvent, f, e)
+        if not okR then hits.refused[#hits.refused + 1] = e end
+    end
+    f:SetScript("OnEvent", function(_, event, unit)
+        hits.counts[event] = (hits.counts[event] or 0) + 1
+        local u = NS.Plain(unit)
+        if type(u) == "string" then
+            hits.units[u] = hits.units[u] or {}
+            hits.units[u][event] = (hits.units[u][event] or 0) + 1
+        end
+    end)
+    hits.frame = f
+    hits.since = (GetTime and GetTime()) or 0
+    return hits
+end
+
+function NS.DO.hits(arg)
+    local h = watchHits()
+    if arg == "reset" then
+        h.counts, h.units, h.since = {}, {}, (GetTime and GetTime()) or 0
+        Print("counting again from now")
+        return true
+    end
+    if #h.refused > 0 then
+        Print("refused to register: |cfff08cb0%s|r", table.concat(h.refused, ", "))
+    end
+    Print("listening for: |cffb980ffUNIT_COMBAT UNIT_HEALTH UNIT_HEALTH_FREQUENT UNIT_MAXHEALTH|r")
+    Print("  %s", "|cff968eadnot the combat log: it never fires here and registering it is"
+        .. " protected - that question is already answered|r")
+    local any = false
+    for _, e in ipairs({ "UNIT_COMBAT", "UNIT_HEALTH", "UNIT_HEALTH_FREQUENT", "UNIT_MAXHEALTH" }) do
+        local n = h.counts[e]
+        if n then any = true end
+        Print("  %-22s |cff%s%s|r", e, n and "4fd0cf" or "968ead", n and tostring(n) or "nothing")
+    end
+    if not any then
+        Print("  %s", "|cffe5c04ago and get hit, then run this again|r - nothing has arrived yet")
+    else
+        local shown = 0
+        for u, by in pairs(h.units) do
+            if shown < 8 then
+                local parts = {}
+                for e, n in pairs(by) do parts[#parts + 1] = e:gsub("^UNIT_", "") .. "=" .. n end
+                table.sort(parts)
+                Print("    %s: %s", u, table.concat(parts, " "))
+                shown = shown + 1
+            end
+        end
+    end
+    Print("  %s", "|cff968eadUNIT_COMBAT firing per unit is the one that would work - a count of"
+        .. " notifications, never a damage number|r")
+    return true
+end
+
+--- WHO IS FEARED, AND MAY I TELL ANYONE? (1 Oct 2026.)
+---
+--- Arn's idea: a feared player's addon lights a button, and the shaman in their group gets a
+--- Tremor Totem button to click. Three questions decide whether it is one addon or two, and
+--- whether it works in the only moment it matters.
+---
+---   1. Is loss-of-control data PLAIN? Auras go secret in a fight; C_LossOfControl is a different
+---      door, and ForeverAuras reaches for it. A secret answer cannot be tested, so there would be
+---      nothing to light the button with.
+---   2. Does it read for OTHER UNITS? GetActiveLossOfControlDataByUnit exists on this client. If it
+---      answers about party members, the shaman's own addon sees the fear and NOBODY ELSE NEEDS THE
+---      ADDON - which is a far better feature than the one that was asked for.
+---   3. If it is self-only, can we even tell them? This client has InChatMessagingLockdown, so
+---      addon messages may be shut exactly when a fight is on. LibBiSComm is already embedded in
+---      six BiS addons, so the channel is not the work - permission is.
+function NS.DO.control()
+    local LC = C_LossOfControl
+    if not LC then Print("this client has no C_LossOfControl") return false end
+    local names = {}
+    for _, n in ipairs({ "GetActiveLossOfControlData", "GetActiveLossOfControlDataCount",
+                         "GetActiveLossOfControlDataByUnit", "GetActiveLossOfControlDataCountByUnit",
+                         "GetActiveLossOfControlDuration" }) do
+        if type(LC[n]) == "function" then names[#names + 1] = n end
+    end
+    Print("C_LossOfControl: |cffb980ff%s|r", #names > 0 and table.concat(names, ", ") or "none")
+
+    local function say(label, ok, v)
+        if not ok then Print("  %s: |cfff08cb0refused|r", label) return end
+        if v == nil then Print("  %s: |cff968eadnothing right now|r", label) return end
+        if NS.Secret(v) then Print("  %s: |cffe5c04aa secret|r - cannot be tested", label) return end
+        if type(v) == "table" then
+            local kind = nil
+            local okF, got = pcall(function() return v.lossOfControlType or v.locType end)
+            if okF then kind = got end
+            Print("  %s: |cff4fd0cfplain|r (%s)", label,
+                NS.Secret(kind) and "its type is secret" or tostring(kind or "a table"))
+            return
+        end
+        Print("  %s: |cff4fd0cfplain|r (%s)", label, tostring(v))
+    end
+
+    if LC.GetActiveLossOfControlDataCount then
+        local ok, n = pcall(LC.GetActiveLossOfControlDataCount)
+        say("how many things hold me", ok, n)
+    end
+    if LC.GetActiveLossOfControlData then
+        local ok, d = pcall(LC.GetActiveLossOfControlData, 1)
+        say("the first one on me", ok, d)
+    end
+
+    -- THE ONE THAT DECIDES THE WHOLE SHAPE
+    local unit = (UnitExists and UnitExists("target") and "target")
+        or (IsInGroup and IsInGroup() and "party1") or "player"
+    if LC.GetActiveLossOfControlDataCountByUnit then
+        local ok, n = pcall(LC.GetActiveLossOfControlDataCountByUnit, unit)
+        say("how many hold " .. unit, ok, n)
+    end
+    if LC.GetActiveLossOfControlDataByUnit then
+        local ok, d = pcall(LC.GetActiveLossOfControlDataByUnit, unit, 1)
+        say("the first one on " .. unit, ok, d)
+    end
+
+    -- and whether we could tell a shaman, if we had to
+    local CI = C_ChatInfo
+    if CI then
+        local okL, locked = pcall(CI.InChatMessagingLockdown)
+        local okR, restricted = pcall(CI.AreOutgoingAddonChatMessagesRestricted)
+        Print("  addon messages locked down: |cffb980ff%s|r   restricted: |cffb980ff%s|r",
+            okL and tostring(NS.Plain(locked)) or "refused",
+            okR and tostring(NS.Plain(restricted)) or "refused")
+    end
+    Print("  %s", "|cff968eadplain + reads for other units = the shaman alone needs the addon."
+        .. " plain but self-only = both of you do, and only if messages get through in a fight.|r")
+    return true
+end
+
+--- WILL THE CLIENT PICK A BRIGHTNESS FROM A SECRET NUMBER? (1 Oct 2026.)
+---
+--- The whole of `BiS> now` rests on this one question. Arn's design: a help button at alpha 0
+--- while you are healthy, growing more opaque as your health drops, red and glowing at the bottom.
+--- Three mappings from one secret number - alpha, tint, glow - and the addon must learn none of
+--- them.
+---
+--- We already know the BOOLEAN half works: `EvaluateColorValueFromBoolean` is what made range
+--- dimming real in 0.6.2, and `SetAlpha` accepts what it hands back. What is unmeasured is the
+--- NUMBER half: `C_CurveUtil.CreateCurve` and `CreateColorCurve` are both on this client, nothing
+--- here has ever called one, and how a curve is fed is not something to guess at - five guessed
+--- atlas suffixes in a row this evening is the argument against guessing.
+---
+--- So: name what is there, build a curve, DUMP ITS METHODS, and then try the two questions that
+--- matter - does it evaluate a plain number, and does it evaluate a secret one into something a
+--- texture will take.
+function NS.DO.curve()
+    local CU = C_CurveUtil
+    if not CU then Print("this client has no C_CurveUtil") return false end
+    local names = {}
+    for _, n in ipairs({ "CreateCurve", "CreateColorCurve", "EvaluateColorValueFromBoolean" }) do
+        if type(CU[n]) == "function" then names[#names + 1] = n end
+    end
+    Print("C_CurveUtil: |cffb980ff%s|r", #names > 0 and table.concat(names, ", ") or "no functions")
+
+    local function methodsOf(o)
+        local out, seen = {}, {}
+        local function take(t)
+            if type(t) ~= "table" then return end
+            for k, v in pairs(t) do
+                if type(k) == "string" and type(v) == "function" and not seen[k] then
+                    seen[k] = true
+                    out[#out + 1] = k
+                end
+            end
+        end
+        take(o)
+        local mt = getmetatable(o)
+        if type(mt) == "table" then take(mt.__index) take(mt) end
+        table.sort(out)
+        return out
+    end
+
+    for _, maker in ipairs({ "CreateCurve", "CreateColorCurve" }) do
+        if type(CU[maker]) == "function" then
+            local got, obj = pcall(CU[maker])
+            if not got then
+                Print("  %s: |cfff08cb0refused with no arguments|r (%s)", maker,
+                    tostring(obj):gsub("^.*:%s*", ""))
+            else
+                local m = methodsOf(obj)
+                Print("  %s -> |cffb980ff%s|r", maker, type(obj))
+                Print("    methods: %s", #m > 0 and ("|cff4fd0cf" .. table.concat(m, " ") .. "|r")
+                    or "|cfff08cb0none visible|r")
+            end
+        end
+    end
+
+    -- AND THE QUESTION UNDER THE QUESTION: a texture will take a number. Will it take the client's
+    -- answer about a number nobody may read? That is the whole bargain, and it is the one thing a
+    -- dumped method list cannot tell us.
+    local okHP, raw = pcall(UnitHealth, "player")
+    Print("  your own health reads as: |cffb980ff%s|r",
+        not okHP and "refused" or (NS.Secret(raw) and "a secret" or "a plain number"))
+    local tex = NS.DO.__curveTex
+    if not tex then
+        local okF, f = pcall(CreateFrame, "Frame", nil, UIParent)
+        if okF and f then
+            f:Hide()
+            tex = f
+            NS.DO.__curveTex = f
+        end
+    end
+    if tex and okHP then
+        local okA = pcall(tex.SetAlpha, tex, raw)
+        Print("  SetAlpha straight from that value: %s",
+            okA and "|cff4fd0cftaken|r - the client did not object" or "|cfff08cb0refused|r")
+    end
+    Print("  %s", "|cff968eadwhat BiS> now needs: a curve that turns that value into an alpha,"
+        .. " evaluated by the client, never read by us|r")
+    return true
+end
+
+--- CAN THIS ADDON SEND A PING? A measurement, not a feature (1 Oct 2026).
+---
+--- Arn's idea was an automatic ping when his health drops. The trigger half is already answered -
+--- UnitHealth is secret on every unit including your own, so "am I low" is a comparison the client
+--- refuses, and nothing can be built on it. The other half is open: can we send a ping AT ALL, from
+--- a button the player pressed? `C_Ping.SendMacroPing` is named for the macro door, which usually
+--- means it wants a real keypress; whether our secure button counts is not something to guess.
+---
+--- SO THIS DISCOVERS RATHER THAN ASSUMES. It names what is there, dumps whatever Ping enum the
+--- client has instead of hardcoding a type number, and only then tries the call. Twice today a
+--- hardcoded fact about this game turned out to be wrong (Earth Shield, Water Shield), and both
+--- times the right answer was already available by asking.
+---
+--- THE BLOCKED DIALOG NAMES THE ADDON AND NOT THE FUNCTION, so "BiSHealing has been blocked" would
+--- leave us guessing which line did it. The client fires an event that DOES name it; it is listened
+--- for here, the way BiSProbe does, so a refusal is evidence instead of a mystery.
+local blocked
+local function watchBlocked()
+    if blocked then return blocked end
+    blocked = {}
+    local ok, f = pcall(CreateFrame, "Frame")
+    if not ok or not f then return blocked end
+    for _, e in ipairs({ "ADDON_ACTION_FORBIDDEN", "ADDON_ACTION_BLOCKED" }) do
+        pcall(f.RegisterEvent, f, e)
+    end
+    f:SetScript("OnEvent", function(_, event, who, what)
+        if who ~= nil and who ~= ADDON then return end      -- somebody else's problem
+        blocked.seen = tostring(event) .. " on " .. tostring(what or "?")
+    end)
+    blocked.frame = f
+    return blocked
+end
+
+function NS.DO.ping(which)
+    local P = C_Ping
+    if not P then Print("this client has no C_Ping at all") return false end
+    local names = { "IsPingSystemEnabled", "SendMacroPing", "GetDefaultPingOptions",
+                    "GetCooldownInfo", "TogglePingListener", "GetTextureKitForType" }
+    local have = {}
+    for _, n in ipairs(names) do if type(P[n]) == "function" then have[#have + 1] = n end end
+    Print("C_Ping: |cffb980ff%s|r", #have > 0 and table.concat(have, ", ") or "no functions")
+
+    local on = select(2, pcall(P.IsPingSystemEnabled))
+    Print("  ping system enabled: |cffb980ff%s|r", tostring(NS.Plain(on)))
+
+    -- the ping TYPES, from the client rather than from memory
+    local found = {}
+    if type(Enum) == "table" then
+        for k, v in pairs(Enum) do
+            if type(k) == "string" and k:lower():find("ping") and type(v) == "table" then
+                local keys = {}
+                for name, val in pairs(v) do keys[#keys + 1] = tostring(name) .. "=" .. tostring(val) end
+                table.sort(keys)
+                found[#found + 1] = k .. ": " .. table.concat(keys, " ")
+            end
+        end
+    end
+    if #found == 0 then Print("  %s", "|cff968eadno Ping enum on this client - trying bare numbers|r") end
+    for _, line in ipairs(found) do Print("  |cffb980ff%s|r", line) end
+
+    if type(P.GetCooldownInfo) == "function" then
+        local okcd, cd = pcall(P.GetCooldownInfo)
+        Print("  cooldown info: |cffb980ff%s|r", okcd and type(cd) == "table" and "a table" or tostring(cd))
+    end
+
+    -- BLIZZARD'S OWN SLASH DOOR, which is the whole plan now (Arn, 1 Oct): ping types as buttons in
+    -- the mouse window, dragged onto a mouse button like a spell, and the cell fires the ping at
+    -- whoever is in it. We cannot call SendMacroPing - it is forbidden - but a secure button may
+    -- hold a MACRO, and a macro is Blizzard's code. Mouse.lua already does exactly this for the
+    -- wheel ("/target [@mouseover]"), so the machinery is there; what is missing is the command.
+    local slash, token = nil, nil
+    for k in pairs(SlashCmdList or {}) do
+        if type(k) == "string" and k:lower():find("ping") then slash = k break end
+    end
+    for i = 1, 4 do
+        local t = _G["SLASH_PING" .. i] or (slash and _G["SLASH_" .. slash .. i])
+        if t then token = tostring(t) break end
+    end
+    -- THE TOKEN IS THE EVIDENCE, NOT THE TABLE. This printed "no /ping in SlashCmdList as /ping"
+    -- on 1 Oct - nonsense on its face, and worse, misleading: /ping demonstrably works, because
+    -- the ping binds built on it work. A command handled by the client itself need not appear in
+    -- SlashCmdList at all, so an empty table there proves nothing and SLASH_PING1 proves plenty.
+    Print("  Blizzard's own ping command: %s%s",
+        token and ("|cff4fd0cf" .. token .. "|r works") or "|cfff08cb0no SLASH_PING token|r",
+        slash and (" (and SlashCmdList." .. slash .. ")") or " (handled by the client, not SlashCmdList)")
+    if token or slash then
+        Print("  %s", "|cff968eadand the cells use \"" .. (token or "/ping")
+            .. " [@mouseover] <type>\" - the condition is what aims it at the cell"
+            .. " rather than at the floor|r")
+    end
+
+    -- THE ART, so the mouse window can show an icon instead of a word (Arn, 1 Oct). The client has
+    -- GetTextureKitForType; what it hands back, and what atlas names are built from it, is not
+    -- something to guess at - PingTextureType says the art comes in three pieces (Center, Expand,
+    -- Rotation), so each is asked for and C_Texture.GetAtlasInfo says which of them actually exist.
+    local kitOf = P.GetTextureKitForType
+    local atlasInfo = C_Texture and C_Texture.GetAtlasInfo
+    if type(kitOf) == "function" and type(Enum) == "table" and type(Enum.PingSubjectType) == "table" then
+        local order = {}
+        for name, val in pairs(Enum.PingSubjectType) do order[#order + 1] = { name = name, val = val } end
+        table.sort(order, function(a, b) return (tonumber(a.val) or 0) < (tonumber(b.val) or 0) end)
+        for _, e in ipairs(order) do
+            local gotKit, kit = pcall(kitOf, e.val)
+            local line = ("  %s=%s kit: |cffb980ff%s|r"):format(e.name, tostring(e.val),
+                gotKit and tostring(kit) or "refused")
+            Print("%s", line)
+        end
+
+        -- ASK THE CLIENT FOR THE NAMES RATHER THAN INVENTING THEM. The kits come back as bare
+        -- words ("Assist", "Attack", "OnMyWay"), so the atlas name is those composed into some
+        -- format - and five guessed suffixes all missed. C_Texture.GetAtlasElements lists what
+        -- actually exists, which ends the guessing for good (1 Oct 2026).
+        local elements = C_Texture and C_Texture.GetAtlasElements
+        if type(elements) == "function" then
+            local okE, list = pcall(elements)
+            local hits = {}
+            if okE and type(list) == "table" then
+                for k, v in pairs(list) do
+                    local nm = (type(k) == "string" and k) or (type(v) == "string" and v) or nil
+                    if nm and nm:lower():find("ping") then hits[#hits + 1] = nm end
+                end
+            end
+            table.sort(hits)
+            if #hits == 0 then
+                Print("  %s", "|cfff08cb0no atlas with 'ping' in its name|r")
+            else
+                Print("  atlases with 'ping' in the name: |cffb980ff%d|r", #hits)
+                for i = 1, math.min(#hits, 24) do Print("    |cff4fd0cf%s|r", hits[i]) end
+                if #hits > 24 then Print("    ... and %d more", #hits - 24) end
+            end
+        elseif atlasInfo then
+            Print("  %s", "|cff968eadno GetAtlasElements - cannot list what exists|r")
+        end
+    end
+
+    if type(P.SendMacroPing) ~= "function" then
+        Print("  %s", "|cfff08cb0no SendMacroPing - nothing to try|r")
+        return false
+    end
+
+    -- THE ATTEMPT. `which` is whatever you want to pass; with nothing given it tries no argument
+    -- and then 0..3, stopping at the first that does not throw. Each is guarded, and the blocked
+    -- listener is armed first so a protected refusal is caught rather than inferred.
+    local watch = watchBlocked()
+    watch.seen = nil
+    local tried, worked = {}, nil
+    local args = { }
+    if tonumber(which) then args[#args + 1] = tonumber(which) else
+        args[1] = false            -- a marker for "call it with nothing"
+        for i = 0, 3 do args[#args + 1] = i end
+    end
+    for _, a in ipairs(args) do
+        local okc, err
+        if a == false then okc, err = pcall(P.SendMacroPing) else okc, err = pcall(P.SendMacroPing, a) end
+        tried[#tried + 1] = (a == false and "no argument" or tostring(a)) .. ": "
+            .. (okc and "|cff4fd0cfno error|r" or ("|cfff08cb0" .. tostring(err):gsub("^.*:%s*", "") .. "|r"))
+        if okc and worked == nil then worked = (a == false) and "no argument" or tostring(a) end
+    end
+    for _, line in ipairs(tried) do Print("  %s", line) end
+    Print("  blocked by the client: |cffb980ff%s|r", tostring(watch.seen or "nothing reported"))
+
+    -- A BLOCKED ACTION BEATS "no error", and this line used to let them argue (measured 1 Oct 2026,
+    -- Arn's first run). Every type came back "no error" AND the client fired ADDON_ACTION_FORBIDDEN
+    -- naming this addon: a forbidden call is refused by the EVENT, not by raising into our pcall.
+    -- So a diagnostic that weighs the two equally reports a yes when the answer is no - which is
+    -- the same failure as a mock being kinder than the client, in the one tool built to prevent it.
+    if watch.seen then
+        Print("  %s", "|cfff08cb0VERDICT: forbidden to addon code.|r |cff968eadNo error was raised -"
+            .. " the client blocks it by firing that event instead, so 'no error' means nothing"
+            .. " here. A secure button running Blizzard's own /ping is the only road left.|r")
+        return false
+    end
+    Print("  %s", "|cff968eadVERDICT: nothing refused it. Now the real question - did a ping actually"
+        .. " appear in game? A call that is accepted and silently dropped looks exactly like this.|r")
+    return worked
+end
+
+--- WHAT WILL THIS CLIENT TELL ME ABOUT SOMEONE ELSE'S AURAS? (1 Oct 2026.)
+---
+--- Built the same way `/bish range` was, and for the same reason: the dimming was broken for nine
+--- days because nobody could see which branch ran. By-id aura lookups have exactly that shape --
+--- several roads, each failing silently in its own way -- so the client is asked to say out loud
+--- which one answered, on the unit you have selected.
+---
+--- NOT called `auras`: that is already the debug switch that marks every debuff, and defining a
+--- second NS.DO.auras here quietly replaced it -- the whole point of NS.DO being one table is that
+--- this kind of collision is possible, so it is worth saying where it nearly happened.
+function NS.DO.byid()
+    local byID = C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID
+    Print("asking by spell id: |cffb980ff%s|r",
+        byID and "C_UnitAuras.GetUnitAuraBySpellID" or "missing on this client - the walk is all we have")
+    Print("  the index walk: %s", (NS.Restricted and NS.Restricted())
+        and "|cfff08cb0refused right now|r - this is the case by-id exists for"
+        or "|cff4fd0cfanswering|r")
+    Print("  auras secret right now: %s", (NS.Blind and NS.Blind())
+        and "|cffe5c04ayes|r" or "|cff4fd0cfno|r")
+
+    -- SOMETHING THIS CHARACTER ACTUALLY HAS. This used to ask for Earth Shield's ids, which on a
+    -- 1.60 client is a spell that does not exist - so the diagnostic reported "no spell ids" and
+    -- looked like a broken client rather than a wrong question (Arn, 1 Oct).
+    local unit = (UnitExists and UnitExists("target") and "target") or "player"
+    local ids, from = {}, nil
+    local function take(name)
+        if #ids > 0 or not name then return end
+        local got = (NS.FM and NS.FM.Ranks and NS.FM.Ranks(name)) or {}
+        for _, r in ipairs(got) do if type(r.spell) == "number" then ids[#ids + 1] = r.spell end end
+        if #ids == 0 and NS.FS and NS.FS.SpellIds then
+            for _, id in ipairs(NS.FS.SpellIds(name)) do ids[#ids + 1] = id end
+        end
+        if #ids > 0 then from = name end
+    end
+    take(DB().groupBuff)                                   -- what /bish watch is set to
+    take(((NS.FS and NS.FS.List and NS.FS.List()) or {})[1])   -- else your own watched buff
+    if #ids == 0 then
+        Print("  %s", "|cff968eadno spell ids to ask with - set |r|cffb980ff/bish watch <spell>|r"
+            .. "|cff968ead, or /bish buff|r")
+    else
+        Print("  asking with |cffb980ff%s|r", tostring(from))
+        local a, why = NS.AuraById(unit, ids[1])
+        Print("  about %s, id %d: %s", unit, ids[1], a and "|cff4fd0cfread it|r"
+            or ("|cffe5c04a" .. tostring(why) .. "|r"))
+    end
+    Print("  last answer: |cffb980ff%s|r", tostring(NS.auraSeen or "nothing asked yet"))
+    Print("  the watched buff asked by: |cffb980ff%s|r",
+        tostring((NS.FB and NS.FB.watchBy) or "not yet - run /bish scan"))
+    Print("  may I compare unit tokens: %s", NS.CanCompareUnits and NS.CanCompareUnits()
+        and "|cff4fd0cfyes|r" or "|cffe5c04ano - UnitIsUnit only|r")
+    Print("  unit stats secret: |cffb980ff%s|r", tostring(NS.StatsSecret and NS.StatsSecret()))
+    Print("  %s", "|cff968eadread = the client handed it over · none = answered, not on them"
+        .. " · secret/refused = it would not say, and we never guess|r")
+end
+
 function NS.DO.range()
     local FG = NS.FG
     local spell = NS.FM and NS.FM.RangeSpell and NS.FM.RangeSpell()
@@ -903,6 +1445,13 @@ function NS.DO.help()
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
     Print("  |cffb980ffmouse|r  drag spells onto a mouse    |cffb980ffrescan|r  look at the group again")
     Print("  |cffb980ffscan|r   what this client will tell me")
+    Print("  |cffb980ffbyid|r   what it will tell me about someone else's auras")
+    Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
+    Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
+    Print("  |cffb980ffcontrol|r  who is feared, and may I tell anyone (a measurement)")
+    Print("  |cffb980ffhits|r   does anything still say somebody was hit (a measurement)")
+    Print("  |cffb980ffnow|r    BiS> now - the buttons that matter right now")
+    Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
     Print("  |cffb980ffauras|r  mark every debuff, to prove the markers draw")
     Print("  |cffb980ffminimap|r  hide or show the button")
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
@@ -991,6 +1540,29 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.regen()
     elseif msg == "range" then
         NS.DO.range()
+    elseif msg == "byid" then
+        NS.DO.byid()
+    elseif msg == "curve" then
+        NS.DO.curve()
+    elseif msg == "control" or msg == "fear" then
+        NS.DO.control()
+    elseif msg == "now" then
+        NS.DO.now()
+    elseif msg:match("^now%s+%a+$") then
+        NS.DO.now(msg:match("^now%s+(%a+)$"))
+    elseif msg == "hits" then
+        NS.DO.hits()
+    elseif msg == "hits reset" then
+        NS.DO.hits("reset")
+    elseif msg == "ping" then
+        NS.DO.ping()
+    elseif msg:match("^ping%s+%d+$") then
+        NS.DO.ping(tonumber(msg:match("^ping%s+(%d+)$")))
+    elseif msg == "watch" then
+        NS.DO.watch()
+    elseif msg:match("^watch%s") then
+        -- the name as typed, capitals and all, the same way /bish buff takes one
+        NS.DO.watch((input or ""):match("^%s*[Ww][Aa][Tt][Cc][Hh]%s+(.-)%s*$"))
     elseif msg == "between" or msg == "reminders" then
         NS.DO.between()
     elseif msg == "buffsound" or msg:match("^buffsound%s") then

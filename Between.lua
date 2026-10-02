@@ -33,7 +33,24 @@ NS = NS or {}
 local FB = {}
 NS.FB = FB
 
-local EARTH_SHIELD = "Earth Shield"
+-- A BUFF TO WATCH ON THE GROUP, and EMPTY ON PURPOSE -- the same decision FA.WATCH records in
+-- Auras.lua, for the same reason, and this file did not get the memo until 1 Oct 2026.
+--
+-- This used to be the string "Earth Shield", hardcoded. Arn: "there is no earth shield in this
+-- game mode." He is right, and Auras.lua:45 had already written it down on 19 Sep: Earth Shield is
+-- a TBC spell and Forever is a 1.60 client. So the check could never run here -- FB.Knows asks the
+-- spellbook and the spellbook has never heard of it -- which is also the real reason the 0.6.1
+-- "not up on anyone" bug went away. It was not fixed. It became unreachable.
+--
+-- So nothing is hardcoded now. The watch is a spell NAME the player chooses, every rank of it
+-- found in their own book, and the reminder only ever speaks about a spell they have actually
+-- trained. That way it is right in whatever this mode turns out to contain, without this file
+-- holding an opinion about the game's spell list -- which is the thing it kept getting wrong.
+local function watched()
+    local d = NS.DB and NS.DB()
+    local name = type(d) == "table" and d.groupBuff or nil
+    return (type(name) == "string" and name ~= "") and name or nil
+end
 local TOTEM_SLOTS = 4
 local CURABLE = { Poison = true, Disease = true }     -- what a shaman can actually remove
 
@@ -70,6 +87,60 @@ local function field(a, k)
     return NS.Plain(v)
 end
 
+--- The spell ids for something this character has trained, every rank. The book is already read
+--- for the mouse binds, and each rank is its own id -- so "Earth Shield" is several questions.
+local function idsFor(name)
+    local out = {}
+    if not (NS.FM and NS.FM.Ranks) then return out end
+    for _, r in ipairs(NS.FM.Ranks(name)) do
+        if type(r.spell) == "number" then out[#out + 1] = r.spell end
+    end
+    return out
+end
+
+--- WHO HAS THE WATCHED BUFF -- asked by spell id now, and the walk only as a fallback (1 Oct 2026).
+---
+--- The walk is the thing that hard-errors under instance restrictions, which is the one place a
+--- shaman most wants this answered: a raid, out of combat, between pulls. There `ShouldAurasBeSecret`
+--- says auras are not secret, so `Blind()` lets the scan run, and then every single
+--- `GetAuraDataByIndex` throws -- forty refusals per unit, and the whole question comes back
+--- "unsure". Silence, in exactly the situation the reminder exists for.
+---
+--- By id the client answers. See `NS.AuraById`: it is the one aura question that survives.
+---
+--- Returns unit-or-nil, unsure. `unsure` is the load-bearing half -- see NS.AnyAuraById.
+function FB.Watched(roster, name)
+    name = name or watched()
+    if not name then return nil, false end
+    local ids = idsFor(name)
+    if #ids > 0 and C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
+        -- recorded BEFORE the loop: finding the shield returns early, and `/bish byid` saying
+        -- "walk" right after a by-id answer is the kind of wrong that costs an evening
+        FB.watchBy = "id"
+        local unsure = false
+        for _, unit in ipairs(roster) do
+            local up = NS.AnyAuraById(unit, ids)
+            if up == true then return unit, false end
+            if up == nil then unsure = true end
+        end
+        return nil, unsure
+    end
+
+    -- no by-id lookup on this client (TBC, or a beta older than the call): the old walk, which is
+    -- better than nothing out in the world and no worse than before anywhere else
+    FB.watchBy = "walk"
+    local onUnit, unsure = nil, false
+    for _, unit in ipairs(roster) do
+        local list, refused = auras(unit, "HELPFUL")
+        if refused then unsure = true end
+        for _, a in ipairs(list) do
+            local got = field(a, "name")
+            if got == nil then unsure = true elseif got == name then onUnit = unit end
+        end
+    end
+    return onUnit, unsure
+end
+
 --- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
 --- chat may not be built from one.
 local function nameOf(unit)
@@ -93,18 +164,16 @@ function FB.Scan()
     -- client's word for auras as a whole; a single field can still come back secret (a totem did,
     -- 21 Sep), and one unguarded `if` on it throws the whole scan. What cannot be read is treated
     -- as not known: never "missing", never "empty", never "dead".
-    if FB.Knows(EARTH_SHIELD) then
-        local esOn, unsure = nil, false
-        for _, unit in ipairs(roster) do
-            local list, refused = auras(unit, "HELPFUL")
-            if refused then unsure = true end
-            for _, a in ipairs(list) do
-                local name = field(a, "name")
-                if name == nil then unsure = true elseif name == EARTH_SHIELD then esOn = unit end
-            end
-        end
-        if not esOn and not unsure then
-            found[#found + 1] = { kind = "earthshield", text = "Earth Shield is not up on anyone" }
+    local watch = watched()
+    if watch and FB.Knows(watch) then
+        local onUnit, unsure = FB.Watched(roster, watch)
+        if not onUnit and not unsure then
+            -- "not up on anyone" reads as nonsense when there is only one person it could be on -
+            -- solo, or watching a buff that only goes on yourself. Arn, on Lightning Shield: "i
+            -- can only throw shield on my self." Same answer, said the way it is meant.
+            found[#found + 1] = { kind = "groupbuff",
+                                  text = watch .. (#roster > 1 and " is not up on anyone"
+                                                                or " is not up on you") }
         end
     end
 

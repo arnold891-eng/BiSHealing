@@ -555,6 +555,20 @@ _G.C_SpellBook.GetSpellBookItemName = function(n, bank)
     if e then return e.name, e.rank end
     return nil
 end
+-- A BOOK SLOT IS NOT A SPELL ID, and this mock had neither - so nothing could tell them apart and
+-- a caller passing the slot number looked exactly like a caller passing the id. That is how the
+-- range check spent from 0.7.2 to 1 Oct asking C_Spell.IsSpellInRange about row numbers, with a
+-- green test named "the range call is asked with a spell id" standing over it: the slot IS a
+-- number, so the assertion held while the meaning was wrong.
+--
+-- The ids here are deliberately nothing like the slots (1000 + slot), so passing the wrong one is
+-- always visible.
+_G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
+    if type(n) ~= "number" or type(bank) ~= "number" then error("bad argument", 2) end
+    if not BOOK[n] then return nil end
+    return { spellID = 1000 + n }
+end
+
 _G.C_Spell.GetSpellSubtext = function(id) return RANKS[id] end
 
 local BOUND = {}
@@ -834,6 +848,11 @@ do
     FG.Paint(f)
     local asked = STATE.rangeAsked[1]
     ok(type(asked) == "number", "the range call is asked with a spell id, not a name", tostring(asked))
+    -- AND IT IS THE RIGHT NUMBER. "a number" was satisfied by a spellbook ROW for months: slots and
+    -- ids are both numbers, so the old assertion held while the call was being handed the wrong one.
+    -- The mock's ids are 1000 + slot, so a slot leaking through is unmistakable.
+    ok(asked and asked > 1000, "and it is the spell's id, not its row in the spellbook",
+       tostring(asked))
 
     -- AND WHEN IT WILL NOT ANSWER, A DIFFERENT QUESTION. nil means "cannot say about this spell";
     -- UnitInRange answers about the unit instead, and this client makes THAT one a secret - which
@@ -2769,8 +2788,10 @@ do
     -- EXACTLY THE ROOM ITS BAR NEEDS, AND THE GRID'S OWN GAP. Arn, 23 Sep: "make sure all the
     -- windows line up". A block a different distance from the grid than the grid's own columns
     -- are from each other reads as "nearly lined up", which is worse than plainly apart.
-    -- 3 (the cells' own gap) + 1 (a bar floats a pixel above its cell) + 14 (the bar).
-    ok(dropOf() == -18, "and it drops by exactly its bar plus the grid's own gap", dropOf())
+    -- 3 (the cells' own gap) + 2 (a bar floats above its cell) + 16 (the bar). Was 3 + 1 + 14
+    -- until 1 Oct, when a block's bar grew to match the grid's own - they sat side by side at
+    -- different heights and read as a mistake.
+    ok(dropOf() == -21, "and it drops by exactly its bar plus the grid's own gap", dropOf())
     NS.DO.target("top")
     ok(handleAt() == "BOTTOMRIGHT->TOPRIGHT", "and above it everywhere else", handleAt())
     ok(t.handle and t.handle.__fontstrings and #t.handle.__fontstrings == 1
@@ -3784,18 +3805,23 @@ local blindScan, why = FB.Scan()
 ok(blindScan == nil and why ~= nil, "the brain refuses to scan inside the lockdown")
 STATE.inCombat = false
 
--- THIS CHARACTER HAS EARTH SHIELD, and is in a group. Both matter now: the brain does not nag
+-- THIS CHARACTER HAS THE WATCHED BUFF, and is in a group. Both matter: the brain does not nag
 -- about a spell you have not trained (a level-15 shaman grinding leather was told six times in
 -- ninety seconds that it was not up), and it says nothing at all when you are playing alone.
-BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
+--
+-- The spell is CHOSEN now rather than hardcoded (1 Oct 2026). It was "Earth Shield", which does
+-- not exist on a 1.60 client - so the check it guards could never run, and these tests were the
+-- only place it ever did. Nothing is watched until the player says so.
+BOOK[20] = { name = "Lightning Shield", rank = "Rank 1" }
+NS.DB().groupBuff = "Lightning Shield"
 local GROUPED = true
 _G.IsInGroup = function() return GROUPED end
 
--- nothing up: Earth Shield missing and no totems out, both worth saying between pulls
+-- nothing up: the watched buff missing and no totems out, both worth saying between pulls
 local found = FB.Scan()
 local kinds = {}
 for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
-ok(kinds.earthshield == 1, "a missing Earth Shield is reported")
+ok(kinds.groupbuff == 1, "a missing watched buff is reported")
 ok(kinds.totems == 1, "four empty totem slots are reported")
 
 -- CAN THE AURA LIST BE WALKED AT ALL? The client answers that by throwing, not by saying so:
@@ -3829,31 +3855,31 @@ end
 -- on 28 Sep: the index walk hard-errors under instance restrictions even out of combat, where
 -- ShouldAurasBeSecret still answers no. The walk broke out of its loop on the error and handed
 -- back an empty list, which is indistinguishable from "nobody has it" - and that one gets printed
--- in chat. "Earth Shield is not up on anyone", to a raid where it was up the whole time.
+-- in chat. "<buff> is not up on anyone", to a raid where it was up the whole time.
 do
     local realGet = _G.C_UnitAuras.GetAuraDataByIndex
     _G.C_UnitAuras.GetAuraDataByIndex = function() error("aura access denied here", 2) end
     local refusedScan = FB.Scan()
     local said = {}
     for _, f in ipairs(refusedScan or {}) do said[f.kind] = true end
-    ok(not said.earthshield,
-       "a refused aura list is never reported as a missing Earth Shield")
+    ok(not said.groupbuff,
+       "a refused aura list is never reported as a missing watched buff")
     ok(not said.dispel, "and never as somebody standing there with a debuff on them")
     _G.C_UnitAuras.GetAuraDataByIndex = realGet
     -- and with the client answering again, the report comes back rather than staying quiet
     local backScan = FB.Scan()
     local kinds2 = {}
     for _, f in ipairs(backScan or {}) do kinds2[f.kind] = true end
-    ok(kinds2.earthshield, "and when the client answers again, so does the brain")
+    ok(kinds2.groupbuff, "and when the client answers again, so does the brain")
 end
 
--- with Earth Shield up on the tank, it stops nagging
-AURAS.party1.HELPFUL[1] = { name = "Earth Shield", dispelName = nil }
+-- with the watched buff up on the tank, it stops nagging
+AURAS.party1.HELPFUL[1] = { name = "Lightning Shield", dispelName = nil }
 TOTEMS[1] = true
 found = FB.Scan()
 kinds = {}
 for _, f in ipairs(found) do kinds[f.kind] = (kinds[f.kind] or 0) + 1 end
-ok(kinds.earthshield == nil, "Earth Shield up on anyone is enough")
+ok(kinds.groupbuff == nil, "the watched buff up on anyone is enough")
 ok(kinds.totems == nil, "one totem down is not 'no totems down'")
 
 -- dispel debt: what the addon could not even SEE during the fight
@@ -3925,7 +3951,7 @@ do
     ok(FB.totemsKnown == 0, "and all four are counted as unknown - never put in an `if`",
        tostring(FB.totemsKnown))
     ok(not kinds2.dead, "nobody is called dead on a flag it cannot read")
-    ok(not kinds2.earthshield, "and an unreadable buff is not called a missing Earth Shield")
+    ok(not kinds2.groupbuff, "and an unreadable buff is not called a missing one")
     ok(pcall(FB.Dump), "/bish scan's dump survives them too")
     _G.GetTotemInfo, _G.UnitIsDeadOrGhost = realTotem, realDead
     AURAS.party2.HARMFUL[3] = nil
@@ -3956,7 +3982,7 @@ NS.DO.between(true)
 BOOK[20] = nil
 local noES = FB.Scan()
 local mentions = 0
-for _, f in ipairs(noES) do if f.kind == "earthshield" then mentions = mentions + 1 end end
+for _, f in ipairs(noES) do if f.kind == "groupbuff" then mentions = mentions + 1 end end
 ok(mentions == 0, "no Earth Shield in the spellbook, no Earth Shield in the report")
 BOOK[20] = { name = "Earth Shield", rank = "Rank 1" }
 AURAS.party2.HARMFUL[1], AURAS.party2.HARMFUL[2] = nil, nil
@@ -4853,6 +4879,800 @@ do
         ok(pcall(SlashCmdList.BISHEALING, cmd), ("/bish %s threw"):format(cmd))
     end
     NS.DO.auras()          -- back off again: the debug marker must not be left on
+end
+
+--------------------------------------------- auras asked for by spell id (0.8.0) --
+--
+-- THE CLIENT THIS MOCKS is the one EllesmereUI and ForeverAuras both describe: in a raid or a
+-- dungeon the index walk hard-errors even out of combat, while a by-id lookup still answers. So
+-- GetAuraDataByIndex here THROWS and GetUnitAuraBySpellID answers, which is the combination the
+-- whole release exists for. A mock where both work would pass without testing anything.
+do
+    local FB, FG = NS.FB, NS.FG
+    local realAuras, realSecrets = _G.C_UnitAuras, _G.C_Secrets
+    local realIsUnit, realRanks, realRoster = _G.UnitIsUnit, NS.FM.Ranks, FG.Roster
+
+    local up, asked, mode = { player = {}, party1 = {} }, {}, "answer"
+    _G.C_UnitAuras = {
+        GetAuraDataByIndex = function()
+            error("Auras cannot be accessed when secret while tainted", 2)
+        end,
+        GetUnitAuraBySpellID = function(unit, id)
+            asked[#asked + 1] = tostring(unit) .. ":" .. tostring(id)
+            if mode == "refuse" then error("cannot be accessed", 2) end
+            if mode == "secret" then return secret() end
+            return up[unit] and up[unit][id] or nil
+        end,
+    }
+    -- A SPELL THIS MODE ACTUALLY HAS. It was Earth Shield until Arn pointed out there is no such
+    -- thing on a 1.60 client - which is exactly the bug the watch is now generic to avoid, so the
+    -- suite should not quietly re-enshrine it either. Two ranks, each its own id, which is why one
+    -- buff is several questions.
+    NS.FM.Ranks = function(name)
+        if name ~= "Lightning Shield" then return {} end
+        return { { rank = "Rank 1", index = 20, spell = 974 },
+                 { rank = "Rank 2", index = 21, spell = 32593 } }
+    end
+    local realDB = NS.DB()
+    realDB.groupBuff = "Lightning Shield"
+    FG.Roster = function() return { "player", "party1" } end
+
+    -- ---------------------------------------------------------------- NS.AuraById
+    -- YOUR OWN AURAS COME FROM THE PLAYER CALL. Measured 1 Oct: with Water Shield visibly on him,
+    -- the watch said "not up on you" - the unit call does not answer about the player. So the mock
+    -- behaves the way the client did, and the suite would have caught it: GetUnitAuraBySpellID
+    -- knows nothing about "player", and only GetPlayerAuraBySpellID does.
+    local ownAuras = {}
+    _G.C_UnitAuras.GetPlayerAuraBySpellID = function(id) return ownAuras[id] end
+    local realIsPlayer = NS.IsPlayer
+    NS.IsPlayer = function(u) return u == "player" end
+
+    ownAuras[24398] = { name = "Water Shield", spellId = 24398 }
+    local own, ownWhy = NS.AuraById("player", 24398)
+    ok(type(own) == "table" and ownWhy == nil,
+       "a buff on YOU is found, through the player call the unit call cannot answer",
+       tostring(ownWhy))
+    ok(NS.AnyAuraById("player", { 24398 }) == true, "and the watch sees it")
+    ownAuras[24398] = nil
+    ok(NS.AnyAuraById("player", { 24398 }) == false, "and sees it go")
+    NS.IsPlayer = realIsPlayer
+
+    up.party1[32593] = { name = "Earth Shield", spellId = 32593 }
+    local a, why = NS.AuraById("party1", 32593)
+    ok(type(a) == "table" and why == nil, "an aura the client hands over is read")
+    ok(NS.auraSeen == "read", "and it says so", tostring(NS.auraSeen))
+
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "none", "an aura that is not there is 'none', not a refusal", tostring(why))
+
+    mode = "secret"
+    a, why = NS.AuraById("party1", 32593)
+    ok(a == nil and why == "secret", "a secret answer is never read", tostring(why))
+
+    mode = "refuse"
+    a, why = NS.AuraById("party1", 32593)
+    ok(a == nil and why == "refused", "a call that throws is 'refused'", tostring(why))
+    mode = "answer"
+
+    a, why = NS.AuraById("party1", "notanid")
+    ok(a == nil and why == "no spell", "nonsense in, no question asked", tostring(why))
+
+    -- NOT GATED ON Blind(), which is the point: every other reader in the addon refuses in
+    -- combat, and this one must not, because it is the only question the client still answers.
+    STATE.inCombat = true
+    a = NS.AuraById("party1", 32593)
+    ok(type(a) == "table", "by-id still answers inside the lockdown - the whole reason it is used")
+    STATE.inCombat = false
+
+    -- ------------------------------------------------------------- NS.AnyAuraById
+    ok(NS.AnyAuraById("party1", { 974, 32593 }) == true, "any one rank up is 'up'")
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == false,
+       "every rank answered and none up is a real 'no'")
+    mode = "refuse"
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == nil,
+       "one refusal makes the whole answer nil - never a confident 'no'")
+    mode = "answer"
+    ok(NS.AnyAuraById("player", {}) == nil, "no ids is not evidence of anything")
+
+    -- ------------------------------------------------------------- FB.Watched
+    local who, unsure = FB.Watched({ "player", "party1" })
+    ok(who == "party1" and not unsure, "the shield is found on the one who has it", tostring(who))
+    ok(FB.watchBy == "id", "and recorded as asked by id even though it returned early", tostring(FB.watchBy))
+
+    up.party1[32593] = nil
+    who, unsure = FB.Watched({ "player", "party1" })
+    ok(who == nil and unsure == false, "nobody has it, and the client said so for everyone")
+    ok(FB.watchBy == "id", "by id, while the index walk throws", tostring(FB.watchBy))
+
+    mode = "refuse"
+    who, unsure = FB.Watched({ "player", "party1" })
+    ok(who == nil and unsure == true, "a refusal is unsure, not 'nobody has it'")
+    mode = "answer"
+
+    -- THE 0.6.1 RULE, now at the level that matters: a raid where the walk is refused used to
+    -- report nothing at all. It reports properly now - and still says nothing when unsure.
+    local found = FB.Scan()
+    local said = false
+    for _, f in ipairs(found or {}) do if f.kind == "groupbuff" then said = true end end
+    ok(said, "in a raid where the walk is refused, the reminder finally works")
+
+    mode = "refuse"
+    found = FB.Scan()
+    said = false
+    for _, f in ipairs(found or {}) do if f.kind == "groupbuff" then said = true end end
+    ok(not said, "and when the client will not say, it still says nothing")
+    mode = "answer"
+
+    -- a client with no by-id call at all falls back to the walk, as TBC must
+    _G.C_UnitAuras.GetUnitAuraBySpellID = nil
+    FB.Watched({ "player" })
+    ok(FB.watchBy == "walk", "with no by-id call, the old walk is still there", tostring(FB.watchBy))
+
+    -- ------------------------------------------------- the two new secret guards
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+    ok(NS.CanCompareUnits() == true, "a client with no opinion lets us compare unit tokens")
+
+    _G.C_Secrets.CanCompareUnitTokens = function() return false end
+    ok(NS.CanCompareUnits() == false, "a clear no stops us")
+    _G.C_Secrets.CanCompareUnitTokens = function() return secret() end
+    ok(NS.CanCompareUnits() == false, "so does a secret answer")
+    _G.C_Secrets.CanCompareUnitTokens = function() error("nope", 2) end
+    ok(NS.CanCompareUnits() == false, "and so does a refusal")
+    _G.C_Secrets.CanCompareUnitTokens = function() return true end
+
+    _G.UnitIsUnit = function(x, y) return x == "player" and y == "player" end
+    ok(NS.IsPlayer("player") == true, "UnitIsUnit answers first")
+    ok(NS.IsPlayer("party1") == false, "and says when it is not you")
+
+    -- UnitIsUnit refusing, the compare allowed: the string road still works
+    _G.UnitIsUnit = function() return secret() end
+    ok(NS.IsPlayer("player") == true, "a secret UnitIsUnit falls back to the compare")
+
+    -- both roads shut: nil, so a caller can tell "not you" from "could not tell"
+    _G.C_Secrets.CanCompareUnitTokens = function() return false end
+    ok(NS.IsPlayer("player") == nil, "with neither road open, the answer is 'could not tell'")
+    _G.C_Secrets.CanCompareUnitTokens = function() return true end
+    _G.UnitIsUnit = function(x, y) return x == "player" and y == "player" end
+
+    -- stats secrecy is a live question now, not a decision made at login
+    ok(NS.StatsSecret() == nil, "with no call for it, we do not pretend to know")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() return false end
+    ok(NS.StatsSecret() == false, "the client can say stats are readable")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() return true end
+    ok(NS.StatsSecret() == true, "and that they are not")
+    _G.C_Secrets.ShouldUnitStatsBeSecret = function() error("nope", 2) end
+    ok(NS.StatsSecret() == true, "a refusal counts as secret - the safe side")
+
+    -- ------------------------------------------------------- the two commands
+    -- THIS IS A REGRESSION TEST FOR A BUG WRITTEN TODAY: the new diagnostic was first called
+    -- NS.DO.auras, which silently replaced the debug-marker command of the same name. NS.DO being
+    -- one table is what keeps the three doors in step; it also makes this collision possible.
+    ok(type(NS.DO.byid) == "function", "the by-id diagnostic has its own name")
+    ok(type(NS.DO.auras) == "function", "and the debug marker still has its")
+
+    -- NOTHING WATCHED IS THE DEFAULT, and the whole lesson of the day: a hardcoded spell name was
+    -- wrong about this game mode for twelve days. With nothing chosen, nothing is said.
+    local keep = NS.DB().groupBuff
+    NS.DB().groupBuff = nil
+    local quiet = FB.Scan()
+    local spoke = false
+    for _, f in ipairs(quiet or {}) do if f.kind == "groupbuff" then spoke = true end end
+    ok(not spoke, "with nothing watched, the group-buff reminder says nothing at all")
+    ok(select(1, FB.Watched({ "player" })) == nil, "and nothing is asked about")
+
+    -- IT HAS TO SURVIVE A RESTART. SavedVariables never come back on this client, so a setting
+    -- that is not in the macro is a setting the player sets once per session - and the row carries
+    -- only digits, so the NAME rides as an index into the leading spell list, like a bind does.
+    NS.DB().groupBuff = "Lightning Shield"
+    local FK = NS.FK
+    local body = FK.Encode({ left = "Healing Wave(Rank 1)" }, { groupBuff = "Lightning Shield" })
+    ok(type(body) == "string" and body:find("Lightning Shield", 1, true) ~= nil,
+       "the watched buff's name is written into the macro", tostring(body))
+    local _, settings = FK.Decode(body)
+    ok(settings and settings.groupBuff == "Lightning Shield",
+       "and comes back out of it", tostring(settings and settings.groupBuff))
+
+    local plain = FK.Encode({ left = "Healing Wave(Rank 1)" }, {})
+    local _, none = FK.Decode(plain)
+    ok(none and none.groupBuff == nil,
+       "a macro with no U row leaves the watch alone rather than clearing it")
+
+    -- the command, both ways
+    NS.DO.watch("Lightning Shield")
+    ok(NS.DB().groupBuff == "Lightning Shield", "/bish watch <spell> sets it")
+    NS.DO.watch("off")
+    ok(NS.DB().groupBuff == nil, "/bish watch off stops it")
+    ok(pcall(SlashCmdList.BISHEALING, "watch Lightning Shield"), "/bish watch <spell> threw")
+    ok(pcall(SlashCmdList.BISHEALING, "watch"), "/bish watch threw")
+    NS.DB().groupBuff = keep
+    ok(pcall(SlashCmdList.BISHEALING, "byid"), "/bish byid threw")
+    ok(pcall(SlashCmdList.BISHEALING, "scan"), "/bish scan threw with the walk refusing")
+
+    _G.C_UnitAuras, _G.C_Secrets = realAuras, realSecrets
+    _G.UnitIsUnit, NS.FM.Ranks, FG.Roster = realIsUnit, realRanks, realRoster
+end
+
+--------------------------------------------------- a ping on a mouse button (0.8.0) --
+--
+-- Arn's design, and the only road left after SendMacroPing came back forbidden: the cell holds a
+-- MACRO running Blizzard's own /ping, the same way the wheel binds run /target [@mouseover].
+do
+    local FM, FG = NS.FM, NS.FG
+
+    -- NOT ping-receiver: setting it stopped the ping happening at all (1 Oct). A cell must NOT
+    -- claim to be one on this client, so the suite holds the line the other way round.
+    ok(FG.frames[1].__attrs["ping-receiver"] == nil,
+       "a cell does not claim to be a ping receiver - it swallows the click on this client",
+       tostring(FG.frames[1].__attrs["ping-receiver"]))
+
+    ok(FM.PingOf("!ping:assist") == "assist", "a ping bind is recognised")
+    ok(FM.PingOf("!ping:nonsense") == nil, "a ping type we do not offer is not one")
+    ok(FM.PingOf("Healing Wave(Rank 3)") == nil, "a spell is not a ping")
+    ok(FM.PingOf(nil) == nil, "and nothing is not a ping")
+    ok(FM.PingBind("assist") == "!ping:assist", "a ping is stored under a mark no spell can wear")
+    ok(FM.PingWord("onmyway") == "On My Way", "and shown by its own name")
+
+    -- THE CLIENT'S OWN PING ART. The kit is a bare word ("Assist") and the atlas is
+    -- "Ping_Chat_<kit>", found on 1 Oct by listing every atlas with "ping" in its name rather than
+    -- by guessing a suffix - five guesses had already missed.
+    local realPing2, realTex, realEnum2 = _G.C_Ping, _G.C_Texture, _G.Enum
+    _G.Enum = _G.Enum or {}
+    _G.Enum.PingSubjectType = { Attack = 0, Warning = 1, Assist = 2, OnMyWay = 3, ActionNotReady = 9 }
+    _G.C_Ping = { GetTextureKitForType = function(t) return t == 2 and "Assist" or (t == 0 and "Attack" or nil) end }
+    _G.C_Texture = { GetAtlasExists = function(n) return n == "Ping_Chat_Assist" end }
+
+    ok(FM.PingAtlas("assist") == "Ping_Chat_Assist", "a ping finds the client's own icon",
+       tostring(FM.PingAtlas("assist")))
+    ok(FM.PingAtlas("attack") == nil,
+       "an atlas the client does not have is nil, not a broken texture name",
+       tostring(FM.PingAtlas("attack")))
+    ok(FM.PingAtlas("warning") == nil, "and a type with no kit at all is nil")
+    ok(FM.PingAtlas("nonsense") == nil, "and a ping we do not offer has no icon")
+
+    -- no art on this client at all: the chips must still work, in words
+    _G.C_Ping = nil
+    ok(FM.PingAtlas("assist") == nil, "with no C_Ping, there is no icon and no error")
+    _G.C_Ping, _G.C_Texture, _G.Enum = realPing2, realTex, realEnum2
+
+    local keepLeft, keepAlt = FM.Get("", "left"), FM.Get("alt-", "left")
+
+    -- IT BECOMES A MACRO, NOT A SPELL. If it ever went in as a spell the cell would try to cast
+    -- something called "!ping:assist", which is a visible error in the middle of a fight.
+    FM.Set("alt-", "left", FM.PingBind("assist"))
+    FM.Apply()
+    local cell = FG.frames[1]
+    ok(cell.__attrs["alt-type1"] == "macro", "a ping binds as a macro", tostring(cell.__attrs["alt-type1"]))
+    -- THE CONDITION IS THE FEATURE, not decoration: without [@mouseover] the ping lands on the
+    -- floor at your feet instead of on the person whose cell you clicked (measured 1 Oct).
+    ok(cell.__attrs["alt-macrotext1"] == "/ping [@mouseover] assist",
+       "running Blizzard's own command, aimed at the unit under the cursor",
+       tostring(cell.__attrs["alt-macrotext1"]))
+    ok(cell.__attrs["alt-spell1"] == nil, "and never as a spell", tostring(cell.__attrs["alt-spell1"]))
+
+    -- THE WHEEL IS NOT A CLICK, and that is why pings did not work there for a build. Wheel binds
+    -- never reach ApplyTo; they are override bindings onto hidden secure buttons, built in
+    -- ApplyWheel, and a ping bind arrived there as "/cast !ping:assist".
+    FM.Set("", "wheelup", FM.PingBind("attack"))
+    FM.ApplyWheel(FG.anchor)
+    local wheel = _G["BiSHealWheelwheelup"]
+    ok(wheel ~= nil, "the wheel has a secure button behind it")
+    if wheel then
+        local text = wheel.__attrs and wheel.__attrs.macrotext or ""
+        ok(text:find("/ping %[@mouseover%] attack") ~= nil,
+           "and a ping on the wheel pings rather than casting", text)
+        ok(text:find("/cast") == nil, "with no /cast left in it", text)
+        -- a ping may go at an enemy, so the cast guard would have blocked the Attack ping
+        ok(text:find("nohelp") == nil,
+           "and it is not filtered to friendly targets, which would kill the attack ping", text)
+    end
+    FM.Clear("", "wheelup")
+    FM.ApplyWheel(FG.anchor)
+
+    -- THE REGRESSION THAT MATTERS. The range check takes "whatever you have bound", and a ping is
+    -- not a spell: handing it one answers "don't know", which reads as "in range", which is the
+    -- whole raid staying bright. That bug cost 0.7.2 and 0.7.5; it is not coming back this way.
+    FM.Clear("", "left")
+    FM.Clear("", "right")
+    for _, slot in ipairs(FM.SLOTS) do
+        for _, m in ipairs(FM.MODS) do FM.Clear(m.key, slot.key) end
+    end
+    FM.Set("alt-", "left", FM.PingBind("assist"))
+    ok(FM.RangeSpell() == nil,
+       "with only a ping bound, range is measured with nothing - never with the ping",
+       tostring(FM.RangeSpell()))
+    FM.Set("", "left", "Healing Wave(Rank 3)")
+    ok(FM.RangeSpell() == "Healing Wave", "and a real spell is still found", tostring(FM.RangeSpell()))
+
+    -- IT HAS TO SURVIVE A RESTART like any other bind, which it gets for free by riding in the
+    -- spell list as a name - but free is not the same as tested.
+    local body = NS.FK.Encode({ ["alt-left"] = FM.PingBind("assist"),
+                                left = "Healing Wave(Rank 3)" }, {})
+    ok(type(body) == "string" and body:find("!ping:assist", 1, true) ~= nil,
+       "a ping bind is written into the macro", tostring(body))
+    local back = NS.FK.Decode(body)
+    local found = false
+    for _, v in pairs(back or {}) do if v == "!ping:assist" then found = true end end
+    ok(found, "and comes back out of it")
+
+    FM.Clear("alt-", "left")
+    if keepLeft then FM.Set("", "left", keepLeft) else FM.Clear("", "left") end
+    if keepAlt then FM.Set("alt-", "left", keepAlt) end
+    FM.Apply()
+end
+
+------------------------------------------ BiS> now: the order that learns (0.8.x) --
+--
+-- Arn's rule, in his words: "if a party member is feared after combat the button moves up one
+-- space... if 2 combats happen and people are poison more often the poison cleanse totem moves up
+-- more spaces than the fear". One swap per occurrence, settled when the fight ends - which is also
+-- the only legal moment, since a secure button cannot be moved in combat.
+do
+    local FN = NS.FN
+    FN.Reset()
+
+    -- THE CURVES, AND THE ONE BRANCH THAT READS ANYTHING. Arn watched the first version appear at
+    -- 30% and said what that is worth: "at 30% a healer is already 1 hit from dying most of the
+    -- time". So the thresholds matter enough to pin down, and so does dead-is-not-hurt.
+    do
+        local realCU, realHP, realDead = _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost
+        local points = {}
+        local curveObj = { AddPoint = function(_, at, col) points[#points + 1] = at end,
+                           SetType = function() end }
+        _G.C_CurveUtil = { CreateColorCurve = function() return curveObj end }
+        _G.CreateColor = _G.CreateColor or function(r, g, b, a)
+            return { GetRGBA = function() return r, g, b, a end }
+        end
+        FN.helpCurve, FN.glowCurve = nil, nil
+        ok(FN.HelpCurve() ~= nil, "the help curve is built")
+        local top, bottom = nil, nil
+        for _, at in ipairs(points) do
+            top = (top == nil or at > top) and at or top
+            bottom = (bottom == nil or at < bottom) and at or bottom
+        end
+        ok(bottom == 0 and top == 1, "and it covers the whole range", tostring(bottom) .. ".." .. tostring(top))
+        local appears = nil
+        for _, at in ipairs(points) do
+            if at < 1 and (appears == nil or at > appears) then appears = at end
+        end
+        ok(appears and appears >= 0.65,
+           "it starts warning well above 30%, which is already too late",
+           tostring(appears))
+
+        -- DEAD: still visible, still clickable, plainly duller than a dying player. Arn's call -
+        -- a combat res has to be able to find the corpse.
+        local painted = {}
+        local btn = { art = { SetVertexColor = function(_, r) painted.art = r end } }
+        local edges = {}
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+            edges[side] = { SetColorTexture = function(_, r, g, b, a) painted.edge = { r, g, b, a } end }
+        end
+        local realBlock = FN.block
+        FN.block = { edge = edges }
+
+        _G.UnitIsDeadOrGhost = function() return true end
+        FN.PaintHelp(btn)
+        ok(FN.seen == "dead - a dimmer beacon", "a corpse still glows, for the res", tostring(FN.seen))
+        ok(painted.edge and painted.edge[1] == FN.EDGE_DEAD[1],
+           "and its outline is the corpse's red", tostring(painted.edge and painted.edge[1]))
+
+        -- THE TWO MUST NOT READ ALIKE, however either is tuned later: a corpse is duller than the
+        -- ordinary outline is bright, and nowhere near the red a dying player gets.
+        ok(FN.EDGE_DEAD[1] < 1.0, "the corpse's red is not the dying player's red")
+        ok(FN.EDGE_DEAD[1] > FN.EDGE_WELL[1], "but it is redder than the ordinary outline")
+
+        -- EVERY SIDE IS PAINTED, not just the one that happened to be last
+        local n = 0
+        for _ in pairs(edges) do n = n + 1 end
+        ok(n == 4, "all four sides exist to be painted", tostring(n))
+        ok(FN.PaintEdge(1, 0, 0, 1) == true, "and PaintEdge reports that it painted them")
+
+        FN.block = realBlock
+        _G.C_CurveUtil, _G.UnitHealthPercent, _G.UnitIsDeadOrGhost = realCU, realHP, realDead
+        FN.helpCurve, FN.glowCurve = nil, nil
+    end
+
+    -- THE TREMOR BUTTON: dim until somebody in the party is held by something a Tremor Totem
+    -- actually answers. Arn: "dimmed until somone in the party is feared charmed or sleep" - and
+    -- that list matters, because a button that lights for every root is one you learn to ignore.
+    do
+        local realLC, realRoster = _G.C_LossOfControl, NS.FG.Roster
+        local held = {}
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function(u) return held[u] and 1 or 0 end,
+            GetActiveLossOfControlDataByUnit = function(u)
+                return held[u] and { lossOfControlType = held[u] } or nil
+            end,
+        }
+        NS.FG.Roster = function() return { "player", "party1" } end
+
+        local painted = {}
+        local btn = { art = { SetVertexColor = function(_, r, g, b, a) painted.a = a end,
+                              SetDesaturated = function(_, on) painted.grey = on end },
+                      IsShown = function() return true end }
+
+        ok(FN.PaintNeed(btn, "tremor") == false, "nothing holding anyone: the button is dim")
+        ok(painted.grey == true, "and greyed out")
+
+        held.party1 = "ROOT"
+        ok(FN.PaintNeed(btn, "tremor") == false,
+           "a ROOT does not light it - a totem does not break roots")
+
+        held.party1 = "FEAR"
+        ok(FN.PaintNeed(btn, "tremor") == true, "a FEAR does")
+        ok(painted.a == 1 and painted.grey == false, "bright and in colour")
+        ok(FN.needSeen == "FEAR on party1", "and it says who", tostring(FN.needSeen))
+
+        held.party1 = "CHARM"
+        ok(FN.PaintNeed(btn, "tremor") == true, "so does a CHARM")
+        held.party1 = "SLEEP"
+        ok(FN.PaintNeed(btn, "tremor") == true, "and a SLEEP")
+
+        -- COUNTED ONCE PER HOLD, not once per frame: the paint runs several times a second and the
+        -- order would be nonsense if every frame of one fear counted as another fear.
+        FN.Reset()
+        btn.__held = nil
+        held.party1 = "FEAR"
+        for _ = 1, 20 do FN.PaintNeed(btn, "tremor") end
+        ok((FN.noted.tremor or 0) == 1, "twenty frames of one fear is one note",
+           tostring(FN.noted.tremor))
+        held.party1 = nil
+        FN.PaintNeed(btn, "tremor")
+        held.party1 = "FEAR"
+        FN.PaintNeed(btn, "tremor")
+        ok((FN.noted.tremor or 0) == 2, "and a second fear is a second note",
+           tostring(FN.noted.tremor))
+
+        -- an unknown spelling is recorded rather than guessed at
+        held.party1 = "SOMETHING_NEW"
+        FN.PaintNeed(btn, "tremor")
+        ok(FN.seenHolds and FN.seenHolds.SOMETHING_NEW, "an unseen hold type is written down")
+
+        _G.C_LossOfControl, NS.FG.Roster = realLC, realRoster
+        FN.Reset()
+    end
+
+    -- A BUTTON IS EARNED, NOT ISSUED. Arn, looking at a Tremor button he had never needed: "it
+    -- should be smarter always the assist there, after combat if anyone get feared we add the
+    -- tremor button." Knowing the spell means the button CAN exist; somebody being feared is what
+    -- makes it exist.
+    do
+        FN.Reset()
+        local realKnows = NS.FB.Knows
+        NS.FB.Knows = function() return true end          -- a shaman with every totem trained
+
+        local mine = FN.Mine()
+        ok(#mine == 1 and mine[1] == "help",
+           "a fresh install shows the help button and nothing else",
+           table.concat(mine, " "))
+
+        -- a fight where somebody was feared, and the fight ending
+        FN.Note("tremor")
+        local _, won = FN.Settle()
+        ok(won == true, "the fight that needed it says so")
+        mine = FN.Mine()
+        ok(#mine == 2, "and afterwards the Tremor button is there", table.concat(mine, " "))
+
+        -- IT STAYS. Earning it is a fact about this character, not about that fight.
+        FN.Settle()
+        ok(#FN.Mine() == 2, "a quiet fight does not take it away again")
+
+        -- AND IT SURVIVES A RESTART, in the same row as the order
+        local digits = FN.Encode()
+        FN.Reset()
+        ok(#FN.Mine() == 1, "a reset forgets it")
+        FN.Decode(digits)
+        ok(#FN.Mine() == 2, "and the macro remembers it", table.concat(FN.Mine(), " "))
+
+        -- THE CIRCLE THAT HAD TO BE BROKEN: nothing watches a button that is not there, so it
+        -- could never be earned. FN.Watch looks for the ones with something to prove.
+        FN.Reset()
+        local realLC, realRoster = _G.C_LossOfControl, NS.FG.Roster
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+            GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = "FEAR" } end,
+        }
+        NS.FG.Roster = function() return { "party1" } end
+        ok(#FN.Mine() == 1, "the Tremor button is not there to do the watching")
+        FN.Watch()
+        FN.Settle()
+        ok(#FN.Mine() == 2, "but the fear was still noticed, and earned it")
+
+        _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
+        FN.Reset()
+    end
+
+    -- THE BLOCK LINES UP; THE BUTTONS DO NOT PRETEND TO BE CELLS. A button 84 wide gives an icon
+    -- a cell of clickable area, which is how two buttons read as three and most of the block was
+    -- invisible help button (Arn, 1 Oct).
+    do
+        local FG = NS.FG
+        local cellW, cellH, pad = FG.CELL_W, FG.CELL_H, FG.CELL_PAD
+        ok(cellW == 84 and cellH == 34, "the grid still publishes its cell size", cellW .. "x" .. cellH)
+        -- one and two buttons both fit inside a single cell's width, so the block stays one column
+        ok(2 * cellH + pad <= cellW,
+           "two square buttons fit in one cell column, so the block does not grow for them",
+           (2 * cellH + pad) .. " vs " .. cellW)
+        -- EXACTLY ITS BUTTONS. A block padded out to a whole cell column left one button sitting
+        -- in 84 pixels of nothing, which Arn objected to twice.
+        -- wide enough for the bar's own label: at one button the body is 34 and "BiS> now" is not
+        ok(FN.BlockWidth(1) == FN.HEADER_MIN, "one button is as wide as its own name",
+           tostring(FN.BlockWidth(1)))
+        ok(FN.HEADER_MIN < cellW, "but still narrower than a cell", tostring(FN.HEADER_MIN))
+        ok(FN.BlockWidth(2) == 2 * cellH + pad, "two is two, with the grid's gap between",
+           tostring(FN.BlockWidth(2)))
+        for _, n in ipairs({ 2, 3, 7 }) do
+            ok(FN.BlockWidth(n) == n * cellH + (n - 1) * pad,
+               ("%d buttons take exactly the room %d buttons need"):format(n, n),
+               tostring(FN.BlockWidth(n)))
+        end
+    end
+
+    ok(FN.Place("help") == 1, "the help button starts first")
+    ok(#FN.Order() == #FN.BUTTONS, "and every button is in the order")
+
+    -- NOTHING MOVES WHILE THE FIGHT IS ON
+    FN.Note("poison")
+    FN.Note("poison")
+    ok(FN.Place("poison") == 3, "noting something mid-fight moves nothing yet", tostring(FN.Place("poison")))
+
+    -- ONE SWAP PER OCCURRENCE: two poisons in one fight walks it up two places - except it cannot
+    -- pass the help button, so it lands second
+    ok(FN.Settle() == true, "the fight ending settles the order")
+    ok(FN.Place("poison") == 2, "poison moved up", tostring(FN.Place("poison")))
+    ok(FN.Place("help") == 1, "and the help button did not move")
+
+    -- ARN'S EXACT EXAMPLE: poison in two fights passes fear in one
+    FN.Reset()
+    FN.Note("tremor") FN.Settle()
+    ok(FN.Place("tremor") == 2, "one fear, one place up", tostring(FN.Place("tremor")))
+    FN.Note("poison") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    ok(FN.Place("poison") == 2 and FN.Place("tremor") == 3,
+       "poison in two fights passes fear in one",
+       tostring(FN.Place("poison")) .. "/" .. tostring(FN.Place("tremor")))
+
+    -- ONE SWAP PER OCCURRENCE, PROVEN. With three buttons and help pinned, the furthest anything
+    -- can travel is one place - so "twice in a fight moves it twice" was not actually being tested,
+    -- and a mutation that moved things once per FIGHT passed the whole suite. Caught by mutating
+    -- it (M16, 1 Oct). A fourth button is added here to give the order room to show the difference.
+    FN.BUTTONS[#FN.BUTTONS + 1] = { id = 9, key = "testonly", word = "Test" }
+    FN.Reset()
+    ok(FN.Place("testonly") == 4, "the extra button starts last")
+    FN.Note("testonly") FN.Note("testonly")
+    FN.Settle()
+    ok(FN.Place("testonly") == 2,
+       "twice in one fight moves it TWO places, not one",
+       tostring(FN.Place("testonly")))
+    FN.BUTTONS[#FN.BUTTONS] = nil
+    FN.Reset()
+
+    -- and Arn's example again, now that the order has room
+    FN.Note("tremor") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    FN.Note("poison") FN.Settle()
+    ok(FN.Place("poison") == 2 and FN.Place("tremor") == 3,
+       "poison in two fights still passes fear in one with the extra room gone")
+
+    -- NOTHING PASSES A PINNED BUTTON, however bad the night
+    for _ = 1, 20 do FN.Note("poison") end
+    FN.Settle()
+    ok(FN.Place("help") == 1, "twenty poisons still do not move the help button")
+
+    ok(FN.Settle() == false, "a quiet fight changes nothing, so nothing is written")
+
+    -- THE ORDER IS THE MEMORY, and it has to survive a restart in a handful of characters
+    local digits = FN.Encode()
+    ok(digits:find("%d"), "the order writes down as digits", digits)
+    FN.Reset()
+    ok(FN.Place("poison") == 3, "reset puts it back")
+    ok(FN.Decode(digits) == true, "and the digits are read back")
+    ok(FN.Place("poison") == 2, "with the learned order intact", tostring(FN.Place("poison")))
+
+    -- AN OLDER MACRO KNOWS ABOUT FEWER BUTTONS, and must not drop the ones it never heard of
+    FN.Reset()
+    ok(FN.Decode("1") == true, "a macro from a version with one button still reads")
+    ok(#FN.Order() == #FN.BUTTONS, "and the buttons it never heard of keep their places")
+    ok(FN.Place("help") == 1, "with help still first")
+
+    ok(FN.Decode("") == false, "nothing is not an order")
+    ok(FN.Decode(nil) == false, "and neither is nil")
+    ok(FN.Note("nosuchbutton") == false, "a button we do not have is not noted")
+
+    FN.Reset()
+end
+
+----------------------------------------- does anything say somebody was hit (0.8.x) --
+do
+    ok(pcall(NS.DO.hits), "the hit counter runs before anything has arrived")
+    ok(pcall(SlashCmdList.BISHEALING, "hits"), "/bish hits threw")
+
+    -- it must count what arrives, per unit, without reading anything
+    local frames, realCreate = {}, _G.CreateFrame
+    _G.CreateFrame = function(...) local f = realCreate(...) frames[#frames + 1] = f return f end
+    NS.DO.hits("reset")
+    _G.CreateFrame = realCreate
+    local fired = false
+    for _, f in ipairs(frames) do
+        local on = f.__scripts and f.__scripts.OnEvent
+        if on then
+            on(f, "UNIT_COMBAT", "party1")
+            on(f, "UNIT_COMBAT", "party1")
+            on(f, "UNIT_COMBAT", "party2")
+            fired = true
+        end
+    end
+    if fired then ok(pcall(NS.DO.hits), "and after events arrive it still runs") end
+
+    -- A SECRET UNIT TOKEN MUST NOT BECOME A TABLE KEY. A secret string refuses to be one, which is
+    -- the whole reason NS.Plain exists - and an event handler is exactly where an unguarded one
+    -- would arrive.
+    for _, f in ipairs(frames) do
+        local on = f.__scripts and f.__scripts.OnEvent
+        if on then ok(pcall(on, f, "UNIT_COMBAT", secret()),
+                      "a secret unit token is not used as a key") end
+    end
+end
+
+--------------------------------------------- who is feared, and may I tell anyone --
+do
+    local realLC, realCI = _G.C_LossOfControl, _G.C_ChatInfo
+
+    _G.C_LossOfControl = nil
+    ok(NS.DO.control() == false, "with no C_LossOfControl it says so rather than throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "control"), "/bish control threw with no loss-of-control")
+
+    -- the shape that makes this ONE addon instead of two: readable for another unit
+    _G.C_LossOfControl = {
+        GetActiveLossOfControlDataCount = function() return 1 end,
+        GetActiveLossOfControlData = function() return { lossOfControlType = "FEAR" } end,
+        GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+        GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = "FEAR" } end,
+    }
+    ok(NS.DO.control() == true, "a client that answers about other units is walked without error")
+
+    -- A SECRET ANSWER IS THE CASE THAT KILLS THE FEATURE, so it must not throw on the way past:
+    -- a secret table cannot even be indexed, which is how the totem bug of 21 Sep started.
+    _G.C_LossOfControl.GetActiveLossOfControlDataByUnit = function() return secret() end
+    _G.C_LossOfControl.GetActiveLossOfControlData = function() return secret() end
+    ok(pcall(NS.DO.control), "a secret loss-of-control answer is reported, not indexed")
+
+    -- and one that refuses outright
+    _G.C_LossOfControl.GetActiveLossOfControlDataByUnit = function() error("nope", 2) end
+    ok(pcall(NS.DO.control), "a refusal is reported too")
+
+    _G.C_ChatInfo = { InChatMessagingLockdown = function() return true end,
+                      AreOutgoingAddonChatMessagesRestricted = function() return secret() end }
+    ok(pcall(NS.DO.control), "a secret answer about messaging does not throw either")
+
+    _G.C_LossOfControl, _G.C_ChatInfo = realLC, realCI
+end
+
+------------------------------------- will the client pick a brightness (BiS> now) --
+--
+-- A measurement again, so what is tested is that it survives every client it might meet: one with
+-- no C_CurveUtil, one whose makers refuse, and one that answers. It must never throw, because a
+-- diagnostic that falls over is one nobody runs twice.
+do
+    local realCU = _G.C_CurveUtil
+
+    _G.C_CurveUtil = nil
+    ok(NS.DO.curve() == false, "with no C_CurveUtil it says so rather than throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "curve"), "/bish curve threw with no curves")
+
+    -- a maker that refuses bare, which is likely: these usually want points up front
+    _G.C_CurveUtil = { CreateCurve = function() error("Usage: CreateCurve(points)", 2) end }
+    ok(pcall(NS.DO.curve), "a maker that refuses with no arguments is reported, not raised")
+
+    -- one that answers, with its methods behind a metatable the way a real object would be
+    local obj = setmetatable({}, { __index = { AddPoint = function() end,
+                                               Evaluate = function() return 0.5 end } })
+    _G.C_CurveUtil = {
+        CreateCurve = function() return obj end,
+        CreateColorCurve = function() return obj end,
+        EvaluateColorValueFromBoolean = function(_, a) return a end,
+    }
+    ok(NS.DO.curve() == true, "and a client that answers is walked without error")
+    ok(pcall(SlashCmdList.BISHEALING, "curve"), "/bish curve threw on a client that answers")
+
+    _G.C_CurveUtil = realCU
+end
+
+------------------------------------------------------- can we send a ping (0.8.0) --
+--
+-- A MEASUREMENT, so what is tested is that it reports honestly - not that pings work. The client
+-- is the authority on that and only Arn can run it. What must hold here: it never throws, it says
+-- "no" when there is nothing to call, and a protected refusal is RECORDED rather than guessed at.
+do
+    local realPing, realEnum = _G.C_Ping, _G.Enum
+
+    -- no ping system at all: the TBC case, and the honest answer is "no"
+    _G.C_Ping = nil
+    ok(NS.DO.ping() == false, "with no C_Ping, it says so instead of throwing")
+    ok(pcall(SlashCmdList.BISHEALING, "ping"), "/bish ping threw with no ping system")
+
+    -- CAPTURE THE LISTENER FRAME BEFORE THE FIRST CALL. The blocked-action watcher is memoised, so
+    -- it is built on the first /bish ping and never again - wrapping CreateFrame afterwards catches
+    -- nothing, and the test below then silently does not run. Caught because the check count did
+    -- not move when it was added (890 before, 890 after), which is the only reason it was noticed.
+    local frames = {}
+    local realCreate = _G.CreateFrame
+    _G.CreateFrame = function(...)
+        local f = realCreate(...)
+        frames[#frames + 1] = f
+        return f
+    end
+
+    -- BLIZZARD'S SLASH DOOR, found or not found. This is the one that decides whether ping buttons
+    -- can live in the mouse window at all, so it must not quietly report a yes.
+    local realSlashList, realToken = _G.SlashCmdList, _G.SLASH_PING1
+    _G.SlashCmdList = {}
+    _G.SLASH_PING1 = nil
+    ok(pcall(NS.DO.ping), "with no /ping command, the diagnostic still runs")
+    _G.SlashCmdList = { PING = function() end }
+    _G.SLASH_PING1 = "/ping"
+    ok(pcall(NS.DO.ping), "and with one, it still runs")
+    _G.SlashCmdList, _G.SLASH_PING1 = realSlashList, realToken
+
+    -- a client that has the system and lets us call it
+    local sent = {}
+    _G.C_Ping = {
+        IsPingSystemEnabled = function() return true end,
+        GetCooldownInfo = function() return { ready = true } end,
+        SendMacroPing = function(t) sent[#sent + 1] = t end,
+    }
+    _G.Enum = _G.Enum or {}
+    _G.Enum.PingSubjectType = { Attack = 0, Warning = 1, OnMyWay = 2, Assist = 3 }
+    local worked = NS.DO.ping()
+    ok(worked ~= nil and worked ~= false, "when the call goes through, it says which argument worked")
+    ok(#sent > 0, "and it actually tried")
+
+    -- ONE ARGUMENT WHEN ASKED, so a measurement can be repeated on the type that matters
+    sent = {}
+    NS.DO.ping(3)
+    ok(#sent == 1 and sent[1] == 3, "a type given on the command is the only one tried", tostring(sent[1]))
+
+    -- THE PROTECTED CASE, which is the whole reason this exists. A refusal must not throw, and
+    -- must come back as "no", not as a shrug.
+    _G.C_Ping.SendMacroPing = function() error("You can't do that yet", 2) end
+    ok(NS.DO.ping(3) == nil or NS.DO.ping(3) == false,
+       "a refused ping is reported, not raised")
+    ok(pcall(SlashCmdList.BISHEALING, "ping 3"), "/bish ping 3 threw on a refusing client")
+
+    -- THE SHAPE THE REAL CLIENT ACTUALLY USED (measured 1 Oct 2026): the call raises nothing at
+    -- all, and the refusal arrives as ADDON_ACTION_FORBIDDEN naming this addon. A verdict that
+    -- trusts "no error" over a fired event reports a yes when the answer is no, which is exactly
+    -- what the first run did.
+    _G.CreateFrame = realCreate
+    local fired = false
+    _G.C_Ping.SendMacroPing = function()
+        -- THE CLIENT'S ACTUAL SHAPE: it returns quietly and fires the forbidden event DURING the
+        -- call. Firing it beforehand instead would be wiped by the arming step, which is how the
+        -- first version of this test fooled itself.
+        for _, f in ipairs(frames) do
+            local on = f.__scripts and f.__scripts.OnEvent
+            -- NAMED, the way the client names it. Passing nil here would slip through the handler's
+            -- "unnamed" branch and prove nothing about the test that matters below.
+            if on then on(f, "ADDON_ACTION_FORBIDDEN", "BiSHealing", "SendMacroPing()"); fired = true end
+        end
+    end
+    local verdict = NS.DO.ping(2)
+    ok(fired, "the blocked-action listener was found, so this test can actually run")
+    ok(verdict == false,
+       "a forbidden action beats 'no error' - the verdict is no, however quiet the call was")
+
+    -- AND SOMEBODY ELSE'S BLOCKED ACTION IS NOT OURS. Half the addons on this client trip the
+    -- forbidden event sooner or later; reading one of those as our own verdict would retire a
+    -- feature that works.
+    _G.C_Ping.SendMacroPing = function()
+        for _, f in ipairs(frames) do
+            local on = f.__scripts and f.__scripts.OnEvent
+            if on then on(f, "ADDON_ACTION_FORBIDDEN", "SomeOtherAddon", "DoSomething()") end
+        end
+    end
+    ok(NS.DO.ping(2) ~= false,
+       "another addon being blocked is not our refusal")
+
+    _G.C_Ping, _G.Enum = realPing, realEnum
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

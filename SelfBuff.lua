@@ -23,6 +23,18 @@ NS = NS or {}
 local FS = {}
 NS.FS = FS
 
+-- WATER SHIELD IS CORRECT HERE, and the reasoning that said otherwise was wrong (1 Oct 2026).
+--
+-- Earth Shield does not exist in this game mode (Arn), and Water Shield is a Burning Crusade spell
+-- too, so this default looked like the same bug and was changed to Lightning Shield. Arn: "i do
+-- have water shield." Forever has one and not the other.
+--
+-- THE REAL LESSON, now measured twice in one evening from both directions: THE CLIENT'S BUILD
+-- NUMBER DOES NOT PREDICT ITS SPELL LIST. 1.60.1 does not mean "vanilla spells", and a spell being
+-- TBC-era says nothing about whether this mode has it. The only authority is the spellbook, which
+-- is what FS.Knows asks before the header says a word - so a wrong name here is quiet rather than
+-- harmful, and a right one cannot be deduced from the version string. Guess nothing; ask Arn or
+-- ask the book.
 FS.CLASS = {
     SHAMAN  = { "Water Shield" },
     PRIEST  = { "Inner Fire" },
@@ -352,7 +364,9 @@ function FS.Start()
         pcall(f.RegisterEvent, f, e)
     end
     f:SetScript("OnEvent", function(_, event, unit)
-        if unit ~= nil and unit ~= "player" then return end
+        -- nil unit = an event about nobody in particular (SPELLS_CHANGED), which we want. A unit
+        -- that is somebody, or that the client will not let us identify, is not our business.
+        if unit ~= nil and (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return end
         FS.Check()
         -- the book fills in late at login, and a rank learned later is a new spell id
         if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then FS.Sounds() end

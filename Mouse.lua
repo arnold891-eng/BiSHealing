@@ -223,6 +223,11 @@ local function db()
                     d.buffSound = settings.sound
                     if NS.FS and NS.FS.Sounds then NS.FS.Sounds() end
                 end
+                -- the buff watched on the GROUP, by name. Only set when the macro carries a U row,
+                -- so a player who never chose one keeps the default of watching nothing.
+                if type(settings.groupBuff) == "string" and settings.groupBuff ~= "" then
+                    d.groupBuff = settings.groupBuff
+                end
                 if settings.hidden then
                     d.shown = false
                     if NS.FG and NS.FG.Layout then NS.FG.Layout() end   -- refuses in combat; the
@@ -337,6 +342,71 @@ function FM.Cast(name, rank)
     return name
 end
 
+--- A PING AS A BIND (1 Oct 2026, Arn's design: "they would have the buttons on the mouse bind
+--- window and its just drag and drop to the buttons").
+---
+--- `C_Ping.SendMacroPing` is forbidden to addon code - measured with `/bish ping`, which came back
+--- with no Lua error at all and an ADDON_ACTION_FORBIDDEN naming us. But a secure button may hold
+--- a MACRO, and a macro is Blizzard's code running Blizzard's own `/ping`, which this client has
+--- (`SlashCmdList.PING`). So the one road that is open is the one the wheel already drives on:
+--- `FM.ApplyWheel` has been putting `/target [@mouseover]` on hidden secure buttons for a fortnight.
+---
+--- Stored like a spell so every existing road still works - the macro that keeps your binds, the
+--- trimmer, Set/Get/Clear - but MARKED, so nothing mistakes one for something castable. A bind is
+--- "!ping:assist"; a spell can never collide with that, because no spell name begins with "!".
+FM.PING_MARK = "!ping:"
+--- `subject` is the name in the client's own `Enum.PingSubjectType`, which is how the art is found:
+--- `C_Ping.GetTextureKitForType` turns the type into a kit word ("Assist", "OnMyWay") and the atlas
+--- is `Ping_Chat_<kit>`. Measured 1 Oct 2026 by listing every atlas with "ping" in its name
+--- (`C_Texture.GetAtlasElements`), after five guessed suffixes all missed.
+FM.PINGS = {
+    { key = "assist",  word = "Assist",    subject = "Assist"  },
+    { key = "attack",  word = "Attack",    subject = "Attack"  },
+    { key = "warning", word = "Warning",   subject = "Warning" },
+    { key = "onmyway", word = "On My Way", subject = "OnMyWay" },
+}
+
+--- The client's own icon for a ping, or nil - and nil is a real answer, not a failure. Not every
+--- subject type even has a kit (ActionNotReady has none), and two of them share one, so anything
+--- built on this has to cope with a missing icon rather than assume one per type.
+---
+--- `Ping_Chat_*` is the small one, meant for a line of chat: the right size for a 16-pixel chip
+--- and a 30-pixel slot. The big world art is `Ping_GroundMarker_Pin_*`.
+function FM.PingAtlas(key)
+    local p
+    for _, e in ipairs(FM.PINGS) do if e.key == key then p = e break end end
+    if not p then return nil end
+    local subject = Enum and Enum.PingSubjectType and Enum.PingSubjectType[p.subject]
+    local kitOf = C_Ping and C_Ping.GetTextureKitForType
+    if subject == nil or type(kitOf) ~= "function" then return nil end
+    local got, kit = pcall(kitOf, subject)
+    if not got or type(kit) ~= "string" or kit == "" then return nil end
+    local atlas = "Ping_Chat_" .. kit
+    local exists = C_Texture and C_Texture.GetAtlasExists
+    if type(exists) == "function" then
+        local okE, yes = pcall(exists, atlas)
+        if not okE or not yes then return nil end
+    end
+    return atlas
+end
+
+--- The ping a bind means, or nil when it is an ordinary spell.
+function FM.PingOf(cast)
+    if type(cast) ~= "string" then return nil end
+    local key = cast:match("^" .. FM.PING_MARK .. "(%w+)$")
+    if not key then return nil end
+    for _, p in ipairs(FM.PINGS) do if p.key == key then return key end end
+    return nil
+end
+
+--- What to store for a ping, and what to call it on screen.
+function FM.PingBind(key) return FM.PING_MARK .. tostring(key) end
+
+function FM.PingWord(key)
+    for _, p in ipairs(FM.PINGS) do if p.key == key then return p.word end end
+    return tostring(key)
+end
+
 --- Split a stored bind back into its parts, for showing it.
 function FM.Split(cast)
     if type(cast) ~= "string" then return nil, nil end
@@ -370,18 +440,27 @@ function FM.RangeSpell()
     -- Any heal he has bound answers the range question about as well as any other: they are all
     -- 40 yards, and "can I reach them with what I cast" is the question either way. Left and right
     -- stay first because that is what the hand reaches for.
-    local cast = FM.Get("", "left") or FM.Get("", "right")
+    -- A PING IS NOT A SPELL AND HAS NO RANGE (1 Oct 2026). Without this, binding a ping to left
+    -- click would hand "!ping:assist" to the range call, which answers "don't know" for a spell it
+    -- cannot find - read as "in range", so the whole raid stays bright. That is exactly the bug
+    -- 0.7.2 and 0.7.5 were spent on, and it would have come back through a new door.
+    local function spellAt(mod, key)
+        local c = FM.Get(mod, key)
+        if c and FM.PingOf(c) then return nil end
+        return c
+    end
+    local cast = spellAt("", "left") or spellAt("", "right")
     if not cast then
         for _, slot in ipairs(FM.SLOTS) do
             for _, m in ipairs(FM.MODS) do
-                cast = cast or FM.Get(m.key, slot.key)
+                cast = cast or spellAt(m.key, slot.key)
             end
         end
     end
     if not cast then return nil end
     local name = FM.Split(cast)
     for _, r in ipairs(FM.Ranks(name) or {}) do
-        if r.id then return name, r.id end
+        if r.spell then return name, r.spell end
     end
     return name
 end
@@ -397,12 +476,30 @@ end
 function FM.Ranks(name)
     if not name or name == "" then return {} end
     local out, seen = {}, {}
-    local function add(nm, rank, id)
+    -- `index` IS A BOOK SLOT AND `spell` IS A SPELL ID, and they are not the same number (1 Oct
+    -- 2026). This field was called `id` and held the slot, which read like a spell id to everything
+    -- that touched it - so three callers asked the client about the wrong thing entirely, and the
+    -- only reason it was ever noticed is that `/bish byid` printed the number: Arn's Water Shield
+    -- came back as "id 35", which is a row in his spellbook.
+    --
+    -- The one that had been wrong longest is the range check (0.7.2), which has been asking
+    -- IsSpellInRange about slot numbers ever since and quietly working off its name fallback - a
+    -- bug hidden by its own safety net. A field named for what it is cannot be misread that way.
+    local function add(nm, rank, index, spell)
         if nm ~= name then return end
         local key = tostring(rank or "")
         if seen[key] then return end
         seen[key] = true
-        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil, id = id }
+        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil,
+                          index = index, spell = spell }
+    end
+
+    --- The real spell id behind a book slot, or nil. The same read SelfBuff.lua has always done.
+    local function idAt(i, bank)
+        if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo) then return nil end
+        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
+        local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
+        return type(id) == "number" and id or nil
     end
 
     -- THE MODERN BOOK TAKES TWO ARGUMENTS: the slot, and which bank it is in. Measured in game
@@ -425,14 +522,14 @@ function FM.Ranks(name)
     if C_SpellBook and C_SpellBook.GetSpellBookItemName then
         for i = 1, 500 do
             local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, idAt(i, bank)) end
         end
     end
     -- the old book: (index, bookType), and a count per tab
     if #out == 0 and GetSpellBookItemName and GetNumSpellTabs then
         for i = 1, 500 do
             local got, nm, sub = pcall(GetSpellBookItemName, i, "spell")
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i) end
+            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, nil) end
         end
     end
     return out
@@ -572,12 +669,20 @@ function FM.ApplyTo(cell)
                 -- "target" does nothing; the SecureUnitButton path honours "target" for buttons 1
                 -- and 2 only. So 1-2 keep the built-in action, and 3-5 get a secure macro that does
                 -- the same thing through the one unit the cursor is on.
-                local kind, text
-                if spell then kind = "spell"
+                local kind, text, cast = nil, nil, spell
+                local ping = FM.PingOf(spell)
+                if ping then
+                    -- `[@mouseover]` IS THE WHOLE THING (measured 1 Oct 2026). Without it the ping
+                    -- fires at wherever the cursor is in the WORLD, so clicking a person's cell
+                    -- pings the floor at your feet - which Arn saw, and which is worse than no
+                    -- button at all. The same condition the wheel binds have used all along:
+                    -- "/target [@mouseover]". Arn confirmed by hand before a line of this changed.
+                    kind, text, cast = "macro", "/ping [@mouseover] " .. ping, nil
+                elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end
                 cell:SetAttribute(prefix .. "type" .. slot.attr, kind)
-                cell:SetAttribute(prefix .. "spell" .. slot.attr, spell or nil)
+                cell:SetAttribute(prefix .. "spell" .. slot.attr, cast or nil)
                 cell:SetAttribute(prefix .. "macrotext" .. slot.attr, text)
                 if spell then n = n + 1 end
             end
@@ -609,11 +714,26 @@ function FM.ApplyWheel(owner)
                 end
                 if b then
                     b:SetAttribute("type", spell and "macro" or nil)
-                    -- [@mouseover] is what makes a wheel turn land on the cell under the cursor;
-                    -- the stopmacro keeps it quiet when the cursor is over nothing healable.
-                    b:SetAttribute("macrotext", spell and
-                        ("/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n/cast [@mouseover] " .. spell)
-                        or nil)
+                    -- A PING ON THE WHEEL (1 Oct 2026). Arn: "the ping system we build does not
+                    -- work with mouse wheel up or down". It could not: the wheel is not a click,
+                    -- so it never goes through ApplyTo where ping binds are turned into /ping -
+                    -- it comes here instead, and arrived as `/cast !ping:assist`, which casts
+                    -- nothing. The wheel is where his heals live, so it is where a ping belongs.
+                    --
+                    -- The guard is narrower than the cast one: a ping may go at anything you can
+                    -- see, friend or enemy, so only "nothing under the cursor" stops it. `nohelp`
+                    -- would make Attack pings impossible on the one bind that matters most.
+                    local ping = FM.PingOf(spell)
+                    local text
+                    if ping then
+                        text = "/stopmacro [@mouseover,noexists]\n/ping [@mouseover] " .. ping
+                    elseif spell then
+                        -- [@mouseover] is what makes a wheel turn land on the cell under the
+                        -- cursor; the stopmacro keeps it quiet when the cursor is over nothing
+                        -- healable.
+                        text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n/cast [@mouseover] " .. spell
+                    end
+                    b:SetAttribute("macrotext", text)
                 end
                 if spell and SetOverrideBindingClick then
                     local key = (m.key == "" and "" or m.key:upper():gsub("%-", "-")) .. slot.bind

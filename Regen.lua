@@ -160,7 +160,11 @@ end
 
 --- One cast, as the client reports it.
 function FR.OnCast(unit, spellID)
-    if unit ~= "player" then return false end
+    -- was `unit ~= "player"`. A unit token the client hands an event handler can come back secret,
+    -- and comparing a secret value is refused outright - so ask NS.IsPlayer, which uses UnitIsUnit
+    -- and only falls back to the compare when the client allows it (1 Oct 2026). "Could not tell"
+    -- is treated as not-us, which is what a failed compare did before, minus the error.
+    if (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return false end
     if not FR.CostsMana(spellID) then return false end
     FR.Spend()
     return true

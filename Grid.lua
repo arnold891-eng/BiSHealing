@@ -28,9 +28,18 @@ local FG = {}
 NS.FG = FG
 
 local FRAME_W, FRAME_H, PAD = 84, 34, 3
+-- EVERY BLOCK IS BUILT OUT OF THESE, so a new one lines up with the grid instead of guessing at
+-- it. BiS> now spent a build 34 wide with its own padding and read as a stray box beside the
+-- cells rather than one of them (Arn, 1 Oct: "make sure everything lines up and same size of the
+-- cells"). Exposed rather than copied: a second copy of 84 is a second thing to change.
+FG.CELL_W, FG.CELL_H, FG.CELL_PAD = FRAME_W, FRAME_H, PAD
 -- the little bar on top of the target cell and the tot cell (FG.CellHeader). Two pixels shorter
 -- than the grid's own 16, so the block reads as hanging off the grid rather than competing with it.
-local HEADER_H, HEADER_LIFT = 14, 1
+-- A BLOCK'S BAR IS THE SAME SIZE AS THE GRID'S BAR (1 Oct 2026). These were 14 and 1 against the
+-- grid header's 16 and 2, which nobody notices until a block sits beside the grid's own header -
+-- and then the two read as a mistake rather than a pair. Arn, with BiS> now on the left: "the
+-- header still looks a little small". Same numbers now, one pair for every bar in the addon.
+local HEADER_H, HEADER_LIFT = 16, 2
 -- the grid's own bar, and how far it floats above the anchor (makeHeader)
 local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
 -- EVERY GAP IN THE BLOCK IS THE GRID'S OWN PAD. Arn, 23 Sep, looking at the two of them lined up:
@@ -829,6 +838,10 @@ function FG.SpotTaken(at, mine)
     if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
     if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
     if mine ~= FG.MANA_KEYS and d.mana == true and FG.ManaSpot() == at then return true end
+    -- BiS> now is a block like any other, and was not in this list for one build: Arn shift-clicked
+    -- it to the left and it landed on top of the header already sitting there (1 Oct 2026).
+    if NS.FN and mine ~= NS.FN.NOW_KEYS and d.now == true
+       and NS.FN.Spot and NS.FN.Spot() == at then return true end
     return false
 end
 
@@ -1185,6 +1198,11 @@ function FG.Bind(f, unit)
     if InCombatLockdown and InCombatLockdown() then return false end
     f.unit = unit
     f:SetAttribute("unit", unit)
+    -- NOT `ping-receiver`. It was set here for one build on the theory that retail's unit frames
+    -- opt in that way and ours had never claimed to be one - Arn's ping was landing on the ground
+    -- rather than on the cell. The result was WORSE: no ping at all, on the ground or anywhere.
+    -- The attribute is not inert on this client; it takes the click and does nothing useful with
+    -- it. "Harmless if ignored" was a guess, and it was wrong - measured 1 Oct 2026.
     -- What a click MEANS belongs to Forever/Mouse.lua - every button, every modifier, in one
     -- place the player can see and change. The grid used to set three of them here, and then the
     -- mouse's own pass wiped whatever it did not know about. One owner.
@@ -1351,6 +1369,9 @@ function FG.Layout(anchor)
     FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
     FG.LayoutPets(anchor)           -- and the pets, when they have a block rather than a column
     FG.LayoutMana(anchor)           -- and the other healers' mana, when it is wanted
+    -- BiS> now, the block of buttons that matter right now. Built out of combat with everything
+    -- else; only its colour moves after that, and the client chooses that.
+    if NS.FN and NS.FN.Layout then NS.FN.Layout(anchor) end
 
     -- AND THE WHEEL, which is not a cell attribute and so was never armed here.
     --
@@ -1568,11 +1589,11 @@ FG.EDGE = {
 function FG.PaintEdge(f, unit)
     if not (f and f.bg and unit) then return nil end
     local kind
-    if UnitIsUnit then
-        local ok, mine = pcall(UnitIsUnit, unit, "player")
-        if ok and NS.Plain(mine) == true then kind = "me" end
-    end
-    if not kind and unit == "player" then kind = "me" end
+    -- UnitIsUnit first, then the string compare, and the string compare only when the client says
+    -- unit tokens may be compared at all - NS.IsPlayer is those three steps in one place now
+    -- (1 Oct 2026). nil from it means "could not tell", which falls through to f.__edge below and
+    -- keeps whatever ring the cell last had, rather than taking one away on a shrug.
+    if NS.IsPlayer and NS.IsPlayer(unit) == true then kind = "me" end
     if not kind and UnitGroupRolesAssigned then
         local ok, role = pcall(UnitGroupRolesAssigned, unit)
         local plain = ok and NS.Plain(role)
@@ -2019,6 +2040,11 @@ function FG.Start()
         -- the pet block's cells are not in FG.frames either
         for _, f in ipairs(FG.petFrames or {}) do
             if f.unit and f:IsShown() then FG.Paint(f) end
+        end
+        -- BiS> now. Its buttons never change in a fight; only the colour does, and the colour is
+        -- the client's answer about a number we are not allowed to see.
+        if NS.FN and NS.FN.Paint and NS.FN.block and NS.FN.block:IsShown() then
+            NS.FN.Paint()
         end
         -- your own cell is out of the roster, so the loop above never reaches it
         local me = FG.me

@@ -197,6 +197,15 @@ function FK.Encode(binds, settings)
     if type(binds) ~= "table" then return nil, 0 end
     local lead = settingRows(settings)
     local rows, spells, at = {}, {}, {}
+    -- FIRST, so the trimmer sheds mouse binds before it: rows are dropped from the END, and a
+    -- player who loses the watched buff instead of their 28th modifier bind has lost the better
+    -- of the two. It rides as a spell-list index because a row carries only digits (see Decode).
+    local watch = type(settings) == "table" and settings.groupBuff or nil
+    if type(watch) == "string" and watch ~= "" then
+        spells[#spells + 1] = watch
+        at[watch] = #spells
+        rows[#rows + 1] = { code = "U", spell = at[watch] }
+    end
     for _, e in ipairs(eachKey()) do
         local cast = binds[e.key]
         if type(cast) == "string" and cast ~= "" then
@@ -300,6 +309,11 @@ function FK.Decode(body)
             settings.quiet = tonumber(rank) == 1
         elseif code == "O" then
             settings.hots = tonumber(idx) ~= 0
+        elseif code == "U" then
+            -- THE BUFF WATCHED ON THE GROUP (U for "up on anyone"), and the only setting row that
+            -- carries a NAME. It cannot carry one directly - a row holds digits - so it rides the
+            -- same way a bind does, as an index into the leading spell list. 1 Oct 2026.
+            settings.groupBuff = spells[tonumber(idx)]
         elseif code then
             local slot = CODESLOT[code:sub(-1)]
             local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
@@ -423,7 +437,8 @@ function FK.Save(binds)
                                              pets = (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or nil,
                                              petAt = t.petAt, petPos = t.petPos,
                                              targetAt = t.targetAt, targetPos = t.targetPos,
-                                             sound = tonumber(t.buffSound), quiet = t.buffQuiet == true })
+                                             sound = tonumber(t.buffSound), quiet = t.buffQuiet == true,
+                                             groupBuff = t.groupBuff })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

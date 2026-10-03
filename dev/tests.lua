@@ -4975,6 +4975,33 @@ do
     a, why = NS.AuraById("party1", 32593)
     ok(a == nil and why == "secret", "a secret answer is never read", tostring(why))
 
+    -- A NIL AURA IS NOT PROOF OF ABSENCE. Arn, in a dungeon in combat, with Water Shield plainly
+    -- up: "about player, id 408510: none". A hidden aura answers exactly like a missing one, so
+    -- nil is only a NO where the client would have shown it.
+    mode = "answer"
+    local realSecrets3 = _G.C_Secrets
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end,
+                     ShouldSpellAuraBeSecret = function() return true end }
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "hidden",
+       "a buff the client is hiding is 'hidden', never 'none'", tostring(why))
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == nil,
+       "so the watch says 'could not tell' rather than a confident no")
+
+    -- and a spell the client calls never-secret is still a real answer
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() return false end
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "none",
+       "a spell it says is readable gives a real no", tostring(why))
+    ok(NS.AnyAuraById("player", { 974 }) == false, "and the watch believes that one")
+
+    -- the answer about secrecy being itself secret, or refused, counts as hidden
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() return secret() end
+    ok(select(2, NS.AuraById("player", 974)) == "hidden", "a secret answer about secrecy is hidden")
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("nope", 2) end
+    ok(select(2, NS.AuraById("player", 974)) == "hidden", "so is a refusal to answer it")
+    _G.C_Secrets = realSecrets3
+
     mode = "refuse"
     a, why = NS.AuraById("party1", 32593)
     ok(a == nil and why == "refused", "a call that throws is 'refused'", tostring(why))

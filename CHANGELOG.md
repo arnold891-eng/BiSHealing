@@ -1,5 +1,38 @@
 # BiS Healing
 
+## 0.8.1
+
+Everything since 0.7.6, which is the last version that reached CurseForge.
+
+- **Shamans get their heal-over-time back.** Riptide now shows on a cell with its countdown, the way
+  a priest's Renew and a druid's Rejuvenation always have. It is found by name in your own
+  spellbook, so it appears the day you train it and never before.
+- **A buff you can watch on the whole group: `/bish watch <spell>`.** Name a spell you have trained
+  and the reminder tells you between pulls when it is not up on anyone. `/bish watch off` stops it,
+  and nothing is watched until you ask.
+- **It works in a dungeon, which is the point.** The buff is asked for **by spell id** rather than by
+  reading a unit's whole aura list — and by id is the one aura question this client still answers
+  inside an instance, where listing auras is refused outright even between pulls. Confirmed in
+  Shadowfang Keep: the old way is refused there, the new way answers.
+- **And it never reports a guess as a fact.** If the game is hiding a buff, that is now "we cannot
+  tell" rather than "it is not up" — a hidden buff and a missing one look identical, and the
+  difference matters when the addon is about to tell your raid something.
+- **A new window: `BiS> now`.** A help button that is faint while you are well, amber at 70%, red by
+  40%, with its outline following — the colour is chosen by the game from health the addon is never
+  allowed to see. Click it to ping for help. On your corpse it keeps a dimmer, slower glow so a
+  battle-res can find you. Shamans also get a **Tremor** button that stays dark until somebody in
+  the party is feared, charmed or slept. Buttons are earned the first time you need them, and the
+  order learns: what keeps happening drifts to the front.
+- **Pings on your mouse.** Four of them — Assist, Attack, Warning, On My Way — dragged onto any
+  mouse button or the wheel in `/bish mouse`, wearing the game's own icons. Click a cell and the
+  ping lands on that person.
+- **The number on a cell was being asked about with the wrong spell.** A fix under the floor: ranks
+  were being looked up by their row in your spellbook rather than by their spell id, which quietly
+  broke the out-of-range dimming's first attempt at an answer.
+- `/bish byid`, `/bish ping`, `/bish curve`, `/bish control` and `/bish hits` report what this client
+  will and will not tell the addon. They are for bug reports, and they are why several of the fixes
+  above exist.
+
 ## 0.8.0
 
 - **A buff you can watch on the whole group: `/bish watch <spell>`.** Name a spell you have trained

@@ -4079,7 +4079,33 @@ do
     FA.Attach(cell, "party1")
     local anyHot = false
     for k in pairs(cell.auras.slots) do if k:find("^BiSHealHot") then anyHot = true end end
-    ok(not anyHot, "no heal-over-time slot for a class without one")
+    ok(not anyHot, "no heal-over-time slot for a spell this character has not trained")
+
+    -- RIPTIDE: a shaman HAS a heal over time in this game mode, and the spellbook is what decides.
+    -- Found in the Fojji shaman pack (3 Oct): this mode is a kit, not an era - Water Shield and
+    -- Lava Burst from TBC, Riptide and Maelstrom from Wrath, Totemic Projection from Cata, and no
+    -- Earth Shield. Nobody here knows its spell id, so the family is named and the book answers.
+    do
+        local keep = BOOK[30]
+        BOOK[30] = { name = "Riptide", rank = "Rank 1" }
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        local riptide = nil
+        for k in pairs(cell.auras.slots) do if k == "BiSHealHotRiptide" then riptide = k end end
+        ok(riptide ~= nil, "a shaman who has trained Riptide gets a marker for it", tostring(riptide))
+
+        -- and the ids come from the BOOK, not from a list written on a TBC client
+        local fam
+        for _, f in ipairs(FA.Hots()) do if f.key == "Riptide" then fam = f end end
+        ok(fam ~= nil and fam.ids == nil, "the family carries a name and no ids at all")
+        local ids = FA.HotIds(fam)
+        ok(ids[1030] == true, "and its id is read out of the spellbook", tostring(next(ids)))
+
+        BOOK[30] = keep
+        FA.sig = nil
+        cell.auras = nil
+    end
 
     -- A PRIEST: Renew, every rank, only the priest's own, with the client's countdown
     local realClass, realInfo, realName = _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName

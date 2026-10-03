@@ -153,6 +153,18 @@ FA.HOTS = {
         { key = "Rejuvenation", ids = { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299 } },
         { key = "Regrowth", ids = { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858 } },
     },
+    -- RIPTIDE, WHICH A SHAMAN HAS HERE AND HAD NOT ON TBC (3 Oct 2026). Found in the Fojji shaman
+    -- pack Arn installed: this mode's shaman is a kit, not an era - vanilla, plus Water Shield and
+    -- Lava Burst from TBC, plus Riptide and Maelstrom Weapon from Wrath, plus Totemic Projection
+    -- from Cataclysm, and NO Earth Shield. So the addon's author has been playing the one class
+    -- whose heal over time it did not draw.
+    --
+    -- NAMED, NOT NUMBERED: nobody here knows this client's Riptide ids, and a guess would be the
+    -- same mistake as assuming Water Shield could not exist. The spellbook answers, and a shaman
+    -- who has not trained it simply has no family.
+    SHAMAN = {
+        { key = "Riptide", name = "Riptide" },
+    },
 }
 local HOT_GAP = 2
 
@@ -169,11 +181,23 @@ function FA.MarkerSize()
 end
 
 --- Every spell id for one family: the listed ones, plus every rank of that name in the book.
+---
+--- A FAMILY MAY CARRY A NAME INSTEAD OF IDS (3 Oct 2026). The id list was written from a TBC
+--- client, so it only ever worked for spells that existed there - and the name used to scan the
+--- book was derived FROM the first id, which means a spell we hold no id for could not be found at
+--- all. Riptide is exactly that spell: shamans have it in this game mode and nobody here knows its
+--- id, because it is not a TBC spell and no version number predicts what this client contains.
+---
+--- Naming the family and letting the spellbook answer is the right way round anyway: the book is
+--- the only authority on what a character actually has, and it has been the answer every other
+--- time this addon guessed at the game's spell list.
 function FA.HotIds(family)
     local ids = {}
-    for _, id in ipairs(family.ids) do ids[id] = true end
-    local name = C_Spell and C_Spell.GetSpellName and family.ids[1]
-        and select(2, pcall(C_Spell.GetSpellName, family.ids[1])) or nil
+    for _, id in ipairs(family.ids or {}) do ids[id] = true end
+    local name = family.name
+    if not name and C_Spell and C_Spell.GetSpellName and family.ids and family.ids[1] then
+        name = select(2, pcall(C_Spell.GetSpellName, family.ids[1]))
+    end
     if type(name) ~= "string" or name == "" or NS.Secret(name) then return ids end
     local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
     if C_SpellBook and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemInfo then
@@ -329,10 +353,19 @@ function FA.Attach(cell, unit)
 
     -- 3. YOUR heals over time, bottom left in a row, each with the client's countdown swipe. The
     --    number owns the bottom right, the name the top line; these sit under the name's start.
-    local hots = {}
-    for i, fam in ipairs(FA.Hots()) do
+    -- A FAMILY WITH NO IDS IS A SPELL THIS CHARACTER HAS NOT TRAINED, and it gets no marker: a
+    -- slot filtered to nothing would be a permanently empty icon taking a corner of every cell.
+    -- This became reachable on 3 Oct, when SHAMAN gained Riptide by NAME - a shaman below the
+    -- level that trains it has the family and none of its ids.
+    local hots, shown = {}, 0
+    for _, fam in ipairs(FA.Hots()) do
+        local ids = FA.HotIds(fam)
+        if next(ids) == nil then ids = nil end
+        if ids then
+        shown = shown + 1
+        local i = shown
         local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
-            candidateFilters = { includeSpellIDs = FA.HotIds(fam) },
+            candidateFilters = { includeSpellIDs = ids },
             initializeFrame = hotIcon,
         })
         if slot and slot.SetPoint then
@@ -341,6 +374,7 @@ function FA.Attach(cell, unit)
             slot:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 3 + (i - 1) * (px + HOT_GAP), 3)
         end
         hots[fam.key] = slot
+        end
     end
 
     if container.SetEnabled then container:SetEnabled(true) end

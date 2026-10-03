@@ -934,7 +934,8 @@ function NS.DO.byid()
         and "|cff4fd0cfyes|r" or "|cffe5c04ano - UnitIsUnit only|r")
     Print("  unit stats secret: |cffb980ff%s|r", tostring(NS.StatsSecret and NS.StatsSecret()))
     Print("  %s", "|cff968eadread = the client handed it over · none = answered, not on them"
-        .. " · secret/refused = it would not say, and we never guess|r")
+        .. " · hidden = it is hiding auras, so nil proves nothing · secret/refused = it would not"
+        .. " say, and we never guess|r")
 end
 
 function NS.DO.range()

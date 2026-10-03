@@ -192,9 +192,45 @@ function NS.AuraById(unit, spellID)
     local ok, a = pcall(get, unit, spellID)
     if not ok then NS.auraSeen = "refused" return nil, "refused" end
     if NS.Secret(a) then NS.auraSeen = "secret" return nil, "secret" end
-    if a == nil or a == false then NS.auraSeen = "none" return nil, "none" end
+
+    -- A NIL AURA IS NOT PROOF OF ABSENCE (3 Oct 2026, seen in a dungeon). Arn ran `/bish byid` in
+    -- combat with Water Shield plainly up and got "none": a hidden aura answers EXACTLY like a
+    -- missing one, so nil means "not on them" only where the client would have shown it.
+    --
+    -- This was already written down - the playbook has it from TellMeWhen - and this function
+    -- broke it anyway, one layer under the rule it was built to keep. The group watch happened to
+    -- be shielded, because Scan refuses while blind; that is luck, not design.
+    --
+    -- So nil is only a NO when the client says this spell's aura is readable right now. Where it
+    -- will not say, the honest answer is the one that costs nothing: we could not tell.
+    if a == nil or a == false then
+        if NS.AuraHidden(spellID) then NS.auraSeen = "hidden" return nil, "hidden" end
+        NS.auraSeen = "none"
+        return nil, "none"
+    end
     NS.auraSeen = "read"
     return a, nil
+end
+
+--- COULD THIS SPELL'S AURA BE HIDDEN FROM US RIGHT NOW? Asked before a nil answer is believed.
+---
+--- Two questions, and the narrow one first: `C_Secrets.ShouldSpellAuraBeSecret` is per spell, and a
+--- spell the client calls never-secret stays readable even while auras as a whole are hidden - so a
+--- nil for THAT spell really does mean "not on them". Without the per-spell call, the blanket
+--- answer has to do, which is `Blind()`.
+---
+--- Answers true when it cannot tell, because the cost of being wrong only runs one way: a buff
+--- wrongly called missing gets printed to a raid, and a buff wrongly called unknown says nothing.
+function NS.AuraHidden(spellID)
+    local ask = C_Secrets and C_Secrets.ShouldSpellAuraBeSecret
+    if ask and type(spellID) == "number" then
+        local ok, secret = pcall(ask, spellID)
+        if not ok then return true end
+        local plain = NS.Plain(secret)
+        if plain == nil then return true end
+        return plain and true or false
+    end
+    return (NS.Blind and NS.Blind()) and true or false
 end
 
 --- Is one of these spell ids on them? Ranks are separate ids, so "Renew" is five questions, and

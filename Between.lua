@@ -141,6 +141,32 @@ function FB.Watched(roster, name)
     return onUnit, unsure
 end
 
+--- ONE TOTEM SLOT: down, not down, or the client will not say (3 Oct 2026).
+---
+--- This used to call GetTotemInfo and guard whatever came back, which is SAFE - nothing here ever
+--- tested a secret - but it could not tell "the slot is empty" from "the client refused". On 21 Sep
+--- a totem answered with a secret boolean out of combat, in a dungeon, and the only reason the scan
+--- survived is that it treated every unreadable slot as unknown and said nothing.
+---
+--- ForeverAuras 0.44 added `C_Secrets.ShouldTotemSlotBeSecret` and asks it BEFORE reading. So do
+--- we now: a refusal we were told about in advance is an answer, where a refusal discovered by
+--- reading is only a shrug. The guard after the read stays, because being told it is readable and
+--- having it come back readable are two different claims.
+---
+--- Returns true (down), false (empty) or nil (the client will not say).
+function FB.TotemSlot(slot)
+    local ask = C_Secrets and C_Secrets.ShouldTotemSlotBeSecret
+    if ask then
+        local asked, secret = pcall(ask, slot)
+        if not asked then return nil end
+        local plain = NS.Plain(secret)
+        if plain == nil or plain == true then return nil end
+    end
+    local ok, have = pcall(GetTotemInfo, slot)
+    if not ok then return nil end
+    return NS.Plain(have)
+end
+
 --- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
 --- chat may not be built from one.
 local function nameOf(unit)
@@ -194,15 +220,15 @@ function FB.Scan()
     end
 
     if GetTotemInfo then
-        local empty, known = 0, 0
+        local empty, known, hidden = 0, 0, 0
         for slot = 1, TOTEM_SLOTS do
-            local ok, have = pcall(GetTotemInfo, slot)
-            if ok then have = NS.Plain(have) else have = nil end   -- a failed ask is not "empty"
-            if have ~= nil then
+            local have = FB.TotemSlot(slot)
+            if have == nil then hidden = hidden + 1 else
                 known = known + 1
                 if not have then empty = empty + 1 end
             end
         end
+        FB.totemsHidden = hidden
         -- kept for /bish scan and the suite: how many slots the client would actually answer
         -- for. A secret yes/no cannot be made to refuse a test outside the client, so "it was
         -- counted as unknown" is the evidence that it was never tested.

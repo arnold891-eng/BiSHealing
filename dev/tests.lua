@@ -4079,7 +4079,33 @@ do
     FA.Attach(cell, "party1")
     local anyHot = false
     for k in pairs(cell.auras.slots) do if k:find("^BiSHealHot") then anyHot = true end end
-    ok(not anyHot, "no heal-over-time slot for a class without one")
+    ok(not anyHot, "no heal-over-time slot for a spell this character has not trained")
+
+    -- RIPTIDE: a shaman HAS a heal over time in this game mode, and the spellbook is what decides.
+    -- Found in the Fojji shaman pack (3 Oct): this mode is a kit, not an era - Water Shield and
+    -- Lava Burst from TBC, Riptide and Maelstrom from Wrath, Totemic Projection from Cata, and no
+    -- Earth Shield. Nobody here knows its spell id, so the family is named and the book answers.
+    do
+        local keep = BOOK[30]
+        BOOK[30] = { name = "Riptide", rank = "Rank 1" }
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        local riptide = nil
+        for k in pairs(cell.auras.slots) do if k == "BiSHealHotRiptide" then riptide = k end end
+        ok(riptide ~= nil, "a shaman who has trained Riptide gets a marker for it", tostring(riptide))
+
+        -- and the ids come from the BOOK, not from a list written on a TBC client
+        local fam
+        for _, f in ipairs(FA.Hots()) do if f.key == "Riptide" then fam = f end end
+        ok(fam ~= nil and fam.ids == nil, "the family carries a name and no ids at all")
+        local ids = FA.HotIds(fam)
+        ok(ids[1030] == true, "and its id is read out of the spellbook", tostring(next(ids)))
+
+        BOOK[30] = keep
+        FA.sig = nil
+        cell.auras = nil
+    end
 
     -- A PRIEST: Renew, every rank, only the priest's own, with the client's countdown
     local realClass, realInfo, realName = _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName
@@ -4949,6 +4975,33 @@ do
     a, why = NS.AuraById("party1", 32593)
     ok(a == nil and why == "secret", "a secret answer is never read", tostring(why))
 
+    -- A NIL AURA IS NOT PROOF OF ABSENCE. Arn, in a dungeon in combat, with Water Shield plainly
+    -- up: "about player, id 408510: none". A hidden aura answers exactly like a missing one, so
+    -- nil is only a NO where the client would have shown it.
+    mode = "answer"
+    local realSecrets3 = _G.C_Secrets
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end,
+                     ShouldSpellAuraBeSecret = function() return true end }
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "hidden",
+       "a buff the client is hiding is 'hidden', never 'none'", tostring(why))
+    ok(NS.AnyAuraById("player", { 974, 32593 }) == nil,
+       "so the watch says 'could not tell' rather than a confident no")
+
+    -- and a spell the client calls never-secret is still a real answer
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() return false end
+    a, why = NS.AuraById("player", 974)
+    ok(a == nil and why == "none",
+       "a spell it says is readable gives a real no", tostring(why))
+    ok(NS.AnyAuraById("player", { 974 }) == false, "and the watch believes that one")
+
+    -- the answer about secrecy being itself secret, or refused, counts as hidden
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() return secret() end
+    ok(select(2, NS.AuraById("player", 974)) == "hidden", "a secret answer about secrecy is hidden")
+    _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("nope", 2) end
+    ok(select(2, NS.AuraById("player", 974)) == "hidden", "so is a refusal to answer it")
+    _G.C_Secrets = realSecrets3
+
     mode = "refuse"
     a, why = NS.AuraById("party1", 32593)
     ok(a == nil and why == "refused", "a call that throws is 'refused'", tostring(why))
@@ -5673,6 +5726,51 @@ do
        "another addon being blocked is not our refusal")
 
     _G.C_Ping, _G.Enum = realPing, realEnum
+end
+
+------------------------------------------- a totem slot, asked about first (3 Oct) --
+--
+-- ForeverAuras 0.44 added C_Secrets.ShouldTotemSlotBeSecret and asks it BEFORE reading. A refusal
+-- we are told about in advance is an answer; a refusal discovered by reading is only a shrug.
+do
+    local FB = NS.FB
+    local realSecrets, realTotem = _G.C_Secrets, _G.GetTotemInfo
+    local down, mode = {}, "plain"
+    _G.GetTotemInfo = function(slot)
+        if mode == "secret" then return secret() end
+        if mode == "throw" then error("cannot be accessed", 2) end
+        return down[slot] and true or false, "Totem"
+    end
+
+    -- no such question on this client: read and guard, the way it always did
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+    down[1] = true
+    ok(FB.TotemSlot(1) == true, "a totem that is down reads as down")
+    ok(FB.TotemSlot(2) == false, "an empty slot reads as empty")
+
+    -- the client says this slot is secret: do not even read it
+    local asked = {}
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function(slot) asked[slot] = true return slot == 2 end
+    ok(FB.TotemSlot(1) == true, "a slot the client says is readable is read")
+    ok(FB.TotemSlot(2) == nil, "a slot it says is secret is not read at all")
+    ok(asked[2] == true, "and it was asked before the read, not after")
+
+    -- THE GUARD AFTER THE READ STAYS. Being told a slot is readable and having it come back
+    -- readable are two different claims, and on 21 Sep one came back secret out of combat.
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() return false end
+    mode = "secret"
+    ok(FB.TotemSlot(1) == nil, "a slot that answers secret anyway is still not trusted")
+    mode = "throw"
+    ok(FB.TotemSlot(1) == nil, "and one that throws is not an empty slot")
+    mode = "plain"
+
+    -- a secret ANSWER to the question itself is a no
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() return secret() end
+    ok(FB.TotemSlot(1) == nil, "a secret answer about secrecy is treated as secret")
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() error("nope", 2) end
+    ok(FB.TotemSlot(1) == nil, "so is a refusal to answer it")
+
+    _G.C_Secrets, _G.GetTotemInfo = realSecrets, realTotem
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

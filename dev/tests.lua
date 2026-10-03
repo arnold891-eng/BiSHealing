@@ -5701,6 +5701,51 @@ do
     _G.C_Ping, _G.Enum = realPing, realEnum
 end
 
+------------------------------------------- a totem slot, asked about first (3 Oct) --
+--
+-- ForeverAuras 0.44 added C_Secrets.ShouldTotemSlotBeSecret and asks it BEFORE reading. A refusal
+-- we are told about in advance is an answer; a refusal discovered by reading is only a shrug.
+do
+    local FB = NS.FB
+    local realSecrets, realTotem = _G.C_Secrets, _G.GetTotemInfo
+    local down, mode = {}, "plain"
+    _G.GetTotemInfo = function(slot)
+        if mode == "secret" then return secret() end
+        if mode == "throw" then error("cannot be accessed", 2) end
+        return down[slot] and true or false, "Totem"
+    end
+
+    -- no such question on this client: read and guard, the way it always did
+    _G.C_Secrets = { HasSecretRestrictions = function() return true end }
+    down[1] = true
+    ok(FB.TotemSlot(1) == true, "a totem that is down reads as down")
+    ok(FB.TotemSlot(2) == false, "an empty slot reads as empty")
+
+    -- the client says this slot is secret: do not even read it
+    local asked = {}
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function(slot) asked[slot] = true return slot == 2 end
+    ok(FB.TotemSlot(1) == true, "a slot the client says is readable is read")
+    ok(FB.TotemSlot(2) == nil, "a slot it says is secret is not read at all")
+    ok(asked[2] == true, "and it was asked before the read, not after")
+
+    -- THE GUARD AFTER THE READ STAYS. Being told a slot is readable and having it come back
+    -- readable are two different claims, and on 21 Sep one came back secret out of combat.
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() return false end
+    mode = "secret"
+    ok(FB.TotemSlot(1) == nil, "a slot that answers secret anyway is still not trusted")
+    mode = "throw"
+    ok(FB.TotemSlot(1) == nil, "and one that throws is not an empty slot")
+    mode = "plain"
+
+    -- a secret ANSWER to the question itself is a no
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() return secret() end
+    ok(FB.TotemSlot(1) == nil, "a secret answer about secrecy is treated as secret")
+    _G.C_Secrets.ShouldTotemSlotBeSecret = function() error("nope", 2) end
+    ok(FB.TotemSlot(1) == nil, "so is a refusal to answer it")
+
+    _G.C_Secrets, _G.GetTotemInfo = realSecrets, realTotem
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

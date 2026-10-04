@@ -622,6 +622,71 @@ function NS.DO.control()
     return true
 end
 
+--- WHAT HAS ACTUALLY HELD ANYBODY SINCE LOGIN (3 Oct 2026).
+---
+--- `/bish control` is a probe: it answers for the half-second you type it, which is never the
+--- half-second somebody is feared. Arn ran it three times in Blackfathom Deeps and got `plain (0)`
+--- every time, which is what a probe is for and also exactly why a probe cannot settle this.
+---
+--- The addon is already watching. Every paint of the Tremor button asks every unit in the group
+--- what is holding it, and has been writing the answers down since 0.8.0 - into a table nothing
+--- could read. This is the door to it. Play a dungeon, come back, ask.
+---
+--- The line that matters is the last one. "reads for SOMEBODY ELSE" is the single unproven claim
+--- the whole Tremor design rests on, and it cannot be proved by a client that keeps answering nil
+--- because nobody happens to be feared.
+function NS.DO.holds()
+    local FN = NS.FN
+    if not FN then Print("the now block is not loaded") return false end
+    local seen = FN.seenHolds or {}
+
+    local kinds, other, inFight = {}, false, false
+    for kind in pairs(seen) do kinds[#kinds + 1] = kind end
+    table.sort(kinds)
+
+    if #kinds == 0 then
+        Print("nothing has held anybody since login.")
+        Print("  %s", "|cff968eadThe block has to be ON and drawn for this to be watching at all -"
+            .. " it is the Tremor button's own paint that asks. |cffb980ff/bish now on|r|r")
+        return true
+    end
+
+    Print("held since login:")
+    for _, kind in ipairs(kinds) do
+        local rec = seen[kind]
+        -- 0.8.0 and 0.8.1 counted with a bare number; a session that started on one of those and
+        -- reloaded into this is not worth a crash
+        if type(rec) ~= "table" then rec = { n = rec, units = {}, other = false, fight = false } end
+        local who = {}
+        for unit, n in pairs(rec.units or {}) do
+            who[#who + 1] = unit .. (n > 1 and (" x" .. n) or "")
+        end
+        table.sort(who)
+        if rec.other then other = true end
+        if rec.fight then inFight = true end
+        Print("  |cffb980ff%s|r x%d%s%s", kind, rec.n or 0,
+            #who > 0 and ("  on " .. table.concat(who, ", ")) or "",
+            rec.fight and "  |cff968ead(in a fight)|r" or "")
+    end
+
+    local lit = {}
+    for _, b in ipairs(FN.BUTTONS or {}) do
+        if FN.earned and FN.earned[b.key] and not b.always then lit[#lit + 1] = b.word or b.key end
+    end
+    Print("  buttons earned by something that happened: %s",
+        #lit > 0 and ("|cff4fd0cf" .. table.concat(lit, ", ") .. "|r") or "|cff968eadnone yet|r")
+
+    Print("  in a fight: |cffb980ff%s|r", tostring(inFight))
+    if other then
+        Print("  |cff4fd0cfREAD ON SOMEBODY ELSE - the shaman alone needs the addon.|r")
+    else
+        Print("  |cffe5c04aevery one of these was on YOU.|r %s",
+            "|cff968eadLoss of control reading for another unit is still unproven;"
+            .. " until it is seen, the Tremor button is a design resting on a maybe.|r")
+    end
+    return true
+end
+
 --- WILL THE CLIENT PICK A BRIGHTNESS FROM A SECRET NUMBER? (1 Oct 2026.)
 ---
 --- The whole of `BiS> now` rests on this one question. Arn's design: a help button at alpha 0
@@ -1450,6 +1515,7 @@ function NS.DO.help()
     Print("  |cffb980ffping|r   can this addon send a ping at all (a measurement)")
     Print("  |cffb980ffcurve|r  will the client pick a brightness from a secret (a measurement)")
     Print("  |cffb980ffcontrol|r  who is feared, and may I tell anyone (a measurement)")
+    Print("  |cffb980ffholds|r  what has actually held anybody since login")
     Print("  |cffb980ffhits|r   does anything still say somebody was hit (a measurement)")
     Print("  |cffb980ffnow|r    BiS> now - the buttons that matter right now")
     Print("  |cffb980ffwatch|r  a buff to watch on the GROUP - |cffb980ffwatch off|r to stop")
@@ -1547,6 +1613,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.curve()
     elseif msg == "control" or msg == "fear" then
         NS.DO.control()
+    elseif msg == "holds" then
+        NS.DO.holds()
     elseif msg == "now" then
         NS.DO.now()
     elseif msg:match("^now%s+%a+$") then

@@ -73,6 +73,41 @@ FN.HOLDS = {
     TREMOR = { FEAR = true, FEAR_MECHANIC = true, CHARM = true, SLEEP = true, POSSESS = true },
 }
 
+--- WHAT THE ADDON HAS ACTUALLY SEEN A CLIENT DO (3 Oct 2026).
+---
+--- The hold types were already being written down and there was no way on earth to read them back,
+--- so a week of play collected the one piece of evidence this addon is missing and threw it away at
+--- every reload. `/bish holds` is the other half.
+---
+--- It records the UNIT as well as the type, because the open question is not "does loss of control
+--- read" - that was answered on 1 Oct with a root on Arn - but "does it read for SOMEBODY ELSE".
+--- The whole Tremor design rests on it: if other units read, the shaman alone installs the addon
+--- and the person being feared installs nothing. Arn's 3 Oct run in Blackfathom Deeps got `plain
+--- (0)` for his target over and over, which proves the call ANSWERS plainly for another unit in an
+--- instance - but a zero is not a sighting, and no non-zero reading for another unit has ever been
+--- seen.
+---
+--- The unit is compared as a STRING, which is ours - `unit ~= "player"`. Unit TOKENS may never be
+--- compared through the client on Forever (`UnitIsUnit` is refused), and that rule is about asking
+--- the client, not about our own table key.
+FN.seenHolds = {}
+
+function FN.SawHold(kind, unit)
+    FN.seenHolds = FN.seenHolds or {}
+    local rec = FN.seenHolds[kind]
+    if not rec then
+        rec = { n = 0, units = {}, other = false, fight = false }
+        FN.seenHolds[kind] = rec
+    end
+    rec.n = rec.n + 1
+    if type(unit) == "string" then
+        rec.units[unit] = (rec.units[unit] or 0) + 1
+        if unit ~= "player" then rec.other = true end
+    end
+    if InCombatLockdown and InCombatLockdown() then rec.fight = true end
+    return rec
+end
+
 --- What is holding a unit, as a plain string, or nil. Loss of control is NOT secret on this client
 --- - count, type and the by-unit call all read plainly (measured 1 Oct with a root on Arn) - so
 --- this is an ordinary read and an ordinary test, unlike anything health-shaped.
@@ -90,8 +125,7 @@ function FN.HoldOn(unit)
             local okT, kind = pcall(function() return d.lossOfControlType or d.locType end)
             kind = okT and NS.Plain(kind) or nil
             if type(kind) == "string" then
-                FN.seenHolds = FN.seenHolds or {}
-                FN.seenHolds[kind] = (FN.seenHolds[kind] or 0) + 1
+                FN.SawHold(kind, unit)
                 return kind, nil
             end
         end

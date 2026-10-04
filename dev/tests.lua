@@ -5380,6 +5380,61 @@ do
         FN.PaintNeed(btn, "tremor")
         ok(FN.seenHolds and FN.seenHolds.SOMETHING_NEW, "an unseen hold type is written down")
 
+        -- IT WRITES DOWN WHO, NOT JUST WHAT (3 Oct 2026). The open question is not whether loss of
+        -- control reads - a root on Arn answered that on 1 Oct - but whether it reads for SOMEBODY
+        -- ELSE, which is what lets the shaman alone install the addon. A type with no unit beside
+        -- it cannot answer that, and the addon was collecting exactly that useless shape.
+        ok(FN.seenHolds.SOMETHING_NEW.units.party1 ~= nil,
+           "and the unit it was on is written down with it")
+        ok(FN.seenHolds.SOMETHING_NEW.other == true,
+           "a hold on party1 is marked as read on somebody OTHER than the player")
+
+        FN.seenHolds = {}
+        held.party1 = nil
+        NS.FG.Roster = function() return { "player" } end
+        held.player = "FEAR"
+        FN.PaintNeed(btn, "tremor")
+        ok(FN.seenHolds.FEAR and FN.seenHolds.FEAR.other == false,
+           "a hold on the player alone is NOT - it proves nothing about other units")
+        ok(FN.seenHolds.FEAR.units.player == 1, "counted against the player")
+        held.player = nil
+        NS.FG.Roster = function() return { "player", "party1" } end
+
+        -- THE FIGHT ENDING IS WHAT MAKES THE BUTTON (3 Oct 2026). Arn: "people have been slept and
+        -- the tremor button has not popped up". It was seeing them - Watch asked, Note counted -
+        -- and FN.Settle, the one thing that turns a count into a button, WAS CALLED BY NOTHING BUT
+        -- THIS SUITE. Every test above drove Settle by hand, so the engine was proved and the wire
+        -- to it was never looked at once.
+        --
+        -- This test fires the real event at the real frame, through `fire`, which refuses to
+        -- deliver an event the addon never registered. Calling the handler directly would pass
+        -- with the fix taken straight back out again.
+        do
+            local realKnows = NS.FB and NS.FB.Knows
+            if NS.FB then NS.FB.Knows = function() return true end end
+            FN.Reset()
+            held.party1 = "FEAR"
+
+            FN.Watch()
+            ok((FN.noted.tremor or 0) >= 1, "a sleep in the fight is noticed while it happens",
+               tostring(FN.noted.tremor))
+            ok(FN.Earned("tremor") == false, "but the button is NOT born mid-fight")
+
+            ok(fire(FG.events, "PLAYER_REGEN_ENABLED"),
+               "the grid asked for PLAYER_REGEN_ENABLED in the first place")
+            ok(FN.Earned("tremor") == true,
+               "and the moment the fight ends the button is earned - the wire that was missing")
+
+            -- and a quiet fight must not conjure one out of nothing
+            FN.Reset()
+            held.party1 = nil
+            FN.Watch()
+            fire(FG.events, "PLAYER_REGEN_ENABLED")
+            ok(FN.Earned("tremor") == false, "a fight where nobody was held earns nothing")
+
+            if NS.FB then NS.FB.Knows = realKnows end
+        end
+
         _G.C_LossOfControl, NS.FG.Roster = realLC, realRoster
         FN.Reset()
     end

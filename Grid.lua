@@ -2077,6 +2077,23 @@ function FG.Start()
         pending = true                      -- the update loop relays out when the lockdown lets it
         -- a bind changed mid-fight is queued, not lost: the moment the lockdown lifts it lands
         if event == "PLAYER_REGEN_ENABLED" and NS.FM and NS.FM.pending then NS.FM.Apply() end
+        -- THE FIGHT ENDED: a button that was needed during it is now earned (3 Oct 2026).
+        --
+        -- This line did not exist, and that was the whole of why the Tremor button never appeared.
+        -- Arn: "people have been slept and the tremor button has not popped up". It WAS seeing
+        -- them - FN.Watch asks every unit on every paint, and FN.Note was counting - but Note only
+        -- writes to a scratch tally, and FN.Settle is what turns that tally into a button. Nothing
+        -- called it. The notes had been piling up all week and being thrown away at every reload.
+        --
+        -- The suite was green because THE SUITE called Settle itself: the engine was tested hard
+        -- and the thing that drives it was never tested at all. A test that calls a function the
+        -- addon never calls proves the function works and nothing else.
+        --
+        -- No relayout is needed here. `pending` is already true a few lines up, and the grid's own
+        -- relayout calls FN.Layout, which is what grows the block for a new button.
+        if event == "PLAYER_REGEN_ENABLED" and NS.FN and NS.FN.Settle then
+            pcall(NS.FN.Settle)
+        end
         -- a scale changed mid-fight waits for this moment
         if event == "PLAYER_REGEN_ENABLED" then
             local dd = NS.DB and NS.DB()

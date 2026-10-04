@@ -20,9 +20,8 @@ Everything since 0.7.6, which is the last version that reached CurseForge.
 - **A new window: `BiS> now`.** A help button that is faint while you are well, amber at 70%, red by
   40%, with its outline following — the colour is chosen by the game from health the addon is never
   allowed to see. Click it to ping for help. On your corpse it keeps a dimmer, slower glow so a
-  battle-res can find you. Shamans also get a **Tremor** button that stays dark until somebody in
-  the party is feared, charmed or slept. Buttons are earned the first time you need them, and the
-  order learns: what keeps happening drifts to the front.
+  battle-res can find you. More buttons arrive as you need them — each one earns its place the first
+  time its moment happens, and the order learns: what keeps coming up drifts to the front.
 - **Pings on your mouse.** Four of them — Assist, Attack, Warning, On My Way — dragged onto any
   mouse button or the wheel in `/bish mouse`, wearing the game's own icons. Click a cell and the
   ping lands on that person.

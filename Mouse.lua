@@ -186,6 +186,18 @@ local function db()
                 end
                 -- and your own cell, which is a row of its own: it has nothing to do with the
                 -- target block and a player may want one without the other
+                -- BiS> NOW, which never came back at all until 5 Oct 2026. The block, the side it
+                -- sits on, where it was dragged, and the order its buttons are in - including which
+                -- had been EARNED, because a button's id only appears in that list once something
+                -- happened to earn it. Without this the whole feature started again every login.
+                if settings.now == true then
+                    d.now = true
+                    if settings.nowAt then d.nowAt = settings.nowAt end
+                    if settings.nowPos then d.nowPos = settings.nowPos end
+                    if settings.nowOrder and NS.FN and NS.FN.Decode then
+                        NS.FN.Decode(settings.nowOrder)
+                    end
+                end
                 -- the pets, which never used to come back at all
                 if settings.pets then
                     d.pets = settings.pets

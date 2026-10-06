@@ -5562,6 +5562,68 @@ do
         held.player = nil
         NS.FG.Roster = function() return { "player", "party1" } end
 
+        -- THE ONE BIT SURVIVES A LOGIN (6 Oct 2026). On 5 Oct the button lit after a party fear and
+        -- the proof died at the next reload, because seenHolds is one session. The first sighting
+        -- on somebody else goes into the saved variables, which this client hands back again.
+        do
+            local db = NS.DB()
+            db.holds = nil
+            FN.seenHolds = {}
+            held.player = "FEAR"
+            NS.FG.Roster = function() return { "player" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds and db.holds.FEAR and db.holds.FEAR.firstAt ~= nil,
+               "the first fear is kept in the saved table")
+            ok(db.holds.FEAR.otherAt == nil, "but on the player alone it proves nothing, and says so")
+            held.player = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+            held.party1 = "FEAR"
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt ~= nil and db.holds.FEAR.otherUnit == "party1",
+               "a fear on party1 is kept as the sighting on somebody else, with who")
+            local first = db.holds.FEAR.otherAt
+            held.party1 = nil
+            FN.PaintNeed(btn, "tremor")
+            held.party2 = "FEAR"
+            NS.FG.Roster = function() return { "player", "party1", "party2" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt == first and db.holds.FEAR.otherUnit == "party1",
+               "the FIRST sighting is the one kept - a later one does not move it")
+            held.party2 = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+
+            -- logout, then a login: the table comes back, the session record does not
+            local fireEv = NS.events.__scripts.OnEvent
+            fireEv(NS.events, "PLAYER_LOGOUT")
+            ok(type(_G.BiSHealingCharDB) == "table" and type(_G.BiSHealingCharDB.holds) == "table"
+               and _G.BiSHealingCharDB.holds.FEAR.otherUnit == "party1",
+               "the per-character copy carries it too")
+            FN.seenHolds = {}
+            fireEv(NS.events, "ADDON_LOADED", "BiSHealing")
+            local heard = {}
+            local realChat = _G.DEFAULT_CHAT_FRAME
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            local all = table.concat(heard, "\n")
+            ok(all:find("kept across logins") and all:find("READ ON SOMEBODY ELSE"),
+               "after the login, with nothing held this session, /bish holds still says it was seen", all)
+            ok(not all:find("did not come back"), "and does not cry wolf when the file DID come back")
+
+            -- a login where the client omitted the file: say the record started fresh
+            local realLoaded = NS.loaded
+            NS.loaded = { found = false }
+            heard = {}
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            ok(table.concat(heard, "\n"):find("did not come back"),
+               "a login that got no saved file says the kept record started fresh")
+            NS.loaded = realLoaded
+            db.holds = nil
+            FN.seenHolds = {}
+        end
+
         -- THE FIGHT ENDING IS WHAT MAKES THE BUTTON (3 Oct 2026). Arn: "people have been slept and
         -- the tremor button has not popped up". It was seeing them - Watch asked, Note counted -
         -- and FN.Settle, the one thing that turns a count into a button, WAS CALLED BY NOTHING BUT

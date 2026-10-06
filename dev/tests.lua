@@ -2056,6 +2056,50 @@ do
     d.binds = keptBinds
     MACROS = {}
 
+    -- BIS> NOW SURVIVES A RESTART (5 Oct 2026). It never did. Every other block has ridden the
+    -- macro since Keep.lua was written and this one was simply left out, so the headline feature of
+    -- 0.8.0 - live on CurseForge since 0.8.1 - started again at EVERY login. This client hands back
+    -- no SavedVariables at all (Keep.lua's header, proved six ways), so a setting that is not in the
+    -- macro does not exist.
+    --
+    -- Driven the way the player drives it: turn it on, wipe the table the way a login wipes it, read
+    -- the macro back. No FK.Encode by hand - that would test the engine and not the wiring, which is
+    -- exactly how FN.Settle sat unreachable for a week.
+    do
+        MACROS = {}
+        local keep = d.binds
+        d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
+        local FN = NS.FN
+
+        FN.Reset()
+        FN.Note("tremor") FN.Settle()          -- a fear happened; the button is earned
+        NS.DO.now("left")
+
+        local nowBody = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
+        ok(nowBody and nowBody:find("R=3", 1, true), "the now block goes into the macro", nowBody)
+        ok(nowBody and nowBody:find("R=3:", 1, true),
+           "with the button order in the same row, not a row of its own", nowBody)
+
+        -- the login: the table is empty and nothing has been clicked
+        d.now, d.nowAt, d.nowPos = nil, nil, nil
+        d.binds, d.bindsSeeded, NS.FM.asked = {}, nil, false
+        FN.Reset()
+        ok(FN.Earned("tremor") == false, "a fresh table has earned nothing")
+
+        NS.FM.Get("", "wheelup")
+        ok(d.now == true, "the block comes back on", tostring(d.now))
+        ok(d.nowAt == "left", "on the side it was put", tostring(d.nowAt))
+        ok(FN.Earned("tremor") == true,
+           "and the Tremor button is still earned - a fear last week is not forgotten at login")
+
+        -- PUT THE BENCH BACK. Leaving the block on "left" made thirteen later tests fail, because
+        -- they ask which sides are free and this one had quietly taken one.
+        d.now, d.nowAt, d.nowPos = nil, nil, nil
+        d.binds = keep
+        MACROS = {}
+        FN.Reset()
+    end
+
     -- a group with no other healer in it shows nothing at all, rather than an empty box
     STATE.roles = { player = "DAMAGER", party1 = "DAMAGER" }
     NS.DO.mana(true)

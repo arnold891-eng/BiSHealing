@@ -136,6 +136,26 @@ local function settingRows(settings)
     -- YOUR OWN CELL (Y for You), and where it was dragged (Z, the same two-numbers-from-the-middle
     -- trick as the grid's P and the target's Q). A spot that has to be set again at every login is
     -- not the "same spot for solo or raid" this was asked for.
+    -- BiS> NOW (R, for the row that was missing). Every other block has ridden the macro since the
+    -- day this file was written, and this one never did - so the headline feature of 0.8.0 was
+    -- forgotten at EVERY login, along with which buttons had been earned. The client hands back no
+    -- SavedVariables at all (see the header), so a setting that is not here does not exist.
+    --
+    -- The button ORDER rides in the same row after the colon, the way the tot cell rides with the
+    -- target cell: it only means anything while the block is on, and a row of its own could
+    -- contradict this one. It is digits already (FN.Encode), which is all a row may carry.
+    if settings.now == true then
+        local order = type(settings.nowOrder) == "string" and settings.nowOrder:match("^%d+$")
+        out[#out + 1] = "R=" .. (SPOTCODE[settings.nowAt or ""] or 2) .. (order and (":" .. order) or "")
+        local n = settings.nowPos
+        if (settings.nowAt == "free") and type(n) == "table" and tonumber(n.x) and tonumber(n.y) then
+            local x = math.floor(tonumber(n.x) + 0.5) + FK.POS_ZERO
+            local y = math.floor(tonumber(n.y) + 0.5) + FK.POS_ZERO
+            if x >= 0 and y >= 0 and x < 2 * FK.POS_ZERO and y < 2 * FK.POS_ZERO then
+                out[#out + 1] = ("X=%d:%d"):format(x, y)
+            end
+        end
+    end
     if settings.me == true then
         out[#out + 1] = "Y=" .. (SPOTCODE[settings.meAt or ""] or 3)
         local z = settings.mePos
@@ -296,6 +316,13 @@ function FK.Decode(body)
             if settings.pets == "own" then settings.petAt = CODESPOT[tonumber(rank)] end
         elseif code == "W" and tonumber(idx) and tonumber(rank) then
             settings.petPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
+        elseif code == "R" then
+            settings.now = (tonumber(idx) or 0) > 0
+            settings.nowAt = CODESPOT[tonumber(idx)]
+            -- the button order rides after the colon; digits or nothing
+            if type(rank) == "string" and rank:match("^%d+$") then settings.nowOrder = rank end
+        elseif code == "X" and tonumber(idx) and tonumber(rank) then
+            settings.nowPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "Y" then
             settings.me = (tonumber(idx) or 0) > 0
             settings.meAt = CODESPOT[tonumber(idx)]
@@ -438,7 +465,10 @@ function FK.Save(binds)
                                              petAt = t.petAt, petPos = t.petPos,
                                              targetAt = t.targetAt, targetPos = t.targetPos,
                                              sound = tonumber(t.buffSound), quiet = t.buffQuiet == true,
-                                             groupBuff = t.groupBuff })
+                                             groupBuff = t.groupBuff,
+                                             -- the now block and the order its buttons are in
+                                             now = t.now == true, nowAt = t.nowAt, nowPos = t.nowPos,
+                                             nowOrder = (NS.FN and NS.FN.Encode and NS.FN.Encode()) or nil })
     if not body then return false, "nothing to write" end
 
     -- only ever THIS character's own: a shared one in General is left exactly as it is

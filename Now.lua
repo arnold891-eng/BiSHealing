@@ -530,6 +530,44 @@ local function makeButton(parent, key)
     b.art:SetSize(h - 8, h - 8)
     b.art:SetPoint("CENTER")
     b.key = key
+
+    -- IT SHOULD FEEL LIKE A BUTTON (5 Oct 2026). Arn: "they feel 2d id like if you hover over them
+    -- it changes a little to give it a feel that its a button".
+    --
+    -- A SEPARATE TEXTURE, not a tint on the icon. FN.Paint rewrites b.art's vertex colour on every
+    -- update - from the client's own answer about a number we may not read - so a hover tint there
+    -- would be gone within a frame, and fighting it would mean the hover could lie about health.
+    -- This sits above the icon and says nothing about state.
+    --
+    -- ADD blend so it lifts whatever is underneath: the icon may be bright, dim, greyed or painted
+    -- red by a curve, and a flat white overlay would wash out three of those.
+    b.hover = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hover:SetAllPoints(b)
+    b.hover:SetColorTexture(1, 1, 1, 1)
+    if b.hover.SetBlendMode then b.hover:SetBlendMode("ADD") end
+    b.hover:SetAlpha(0)
+
+    -- HOOKED, NEVER SET. SecureUnitButtonTemplate installs its own OnEnter to make you the
+    -- mouseover, and that is precisely what the help button's `/ping [@mouseover] assist` aims at.
+    -- Replacing the script would take the aim off the button that exists to be aimed.
+    --
+    -- Everything here is alpha and a texture's own anchor: both legal in combat, which is the only
+    -- time this block really matters.
+    if b.HookScript then
+        b:HookScript("OnEnter", function(self) if self.hover then self.hover:SetAlpha(0.18) end end)
+        b:HookScript("OnLeave", function(self)
+            if self.hover then self.hover:SetAlpha(0) end
+            if self.art then self.art:SetPoint("CENTER", 0, 0) end     -- a press left mid-drag
+        end)
+        b:HookScript("OnMouseDown", function(self)
+            if self.art then self.art:SetPoint("CENTER", 1, -1) end    -- the icon takes the press
+            if self.hover then self.hover:SetAlpha(0.30) end
+        end)
+        b:HookScript("OnMouseUp", function(self)
+            if self.art then self.art:SetPoint("CENTER", 0, 0) end
+            if self.hover then self.hover:SetAlpha(self:IsMouseOver() and 0.18 or 0) end
+        end)
+    end
     -- WHAT THE BUTTON DOES IS PER BUTTON. Everything here used to get the Assist ping, icon and
     -- all, which is how a Tremor button appeared wearing a ping's face (1 Oct).
     if b.SetAttribute then

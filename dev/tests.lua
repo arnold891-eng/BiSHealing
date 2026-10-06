@@ -95,7 +95,18 @@ local function newFrame(kind, name, parent)
         return p[1], p[2], p[3], p[4], p[5]
     end
     function f:SetScript(k, fn) self.__scripts[k] = fn end
-    function f:HookScript(k, fn) self.__scripts[k] = fn end
+    -- HookScript CHAINS, it does not replace. The mock did replace, which is kinder than the
+    -- client in the one way that matters here: SecureUnitButtonTemplate installs its own OnEnter to
+    -- make you the mouseover, the help button's `/ping [@mouseover] assist` aims at exactly that,
+    -- and a mock that quietly dropped the original would let a clobbering bug through green.
+    function f:HookScript(k, fn)
+        local prev = self.__scripts[k]
+        if not prev then self.__scripts[k] = fn return end
+        self.__scripts[k] = function(...) prev(...) return fn(...) end
+        self.__hooked = self.__hooked or {}
+        self.__hooked[k] = (self.__hooked[k] or 0) + 1
+    end
+    function f:IsMouseOver() return self.__mouseOver == true end
     function f:GetScript(k) return self.__scripts[k] end
     function f:RegisterEvent(e) self.__events = self.__events or {}; self.__events[e] = true end
     function f:UnregisterEvent(e) if self.__events then self.__events[e] = nil end end
@@ -161,6 +172,14 @@ local function newFrame(kind, name, parent)
             SetTexture  = function(t, v) t.__texture = v end,
             SetTexCoord = function(t, a, b, c, d) t.__coords = { a, b, c, d } end,
             SetAtlas    = function(t, v) t.__atlas = v end,
+            -- A TEXTURE REMEMBERS ITS ALPHA, ITS BLEND AND WHERE IT SITS. All three were no-ops,
+            -- so "does the button react to a hover" and "does the icon take the press" had no
+            -- answer - the same shape of lie as a texture that forgot its colour (26 Sep).
+            SetAlpha    = function(t, a) t.__alpha = a end,
+            GetAlpha    = function(t) return t.__alpha end,
+            SetBlendMode = function(t, m) t.__blend = m end,
+            SetAllPoints = function(t) t.__allpoints = true end,
+            SetPoint    = function(t, p, x, y) t.__point = { p, x or 0, y or 0 } end,
         })
     end
     function f:CreateFontString()
@@ -376,6 +395,15 @@ _G.C_XMLUtil = { GetTemplateInfo = function(t)
 end }
 local realCreateFrame = _G.CreateFrame
 _G.CreateFrame = function(kind, name, parent, template)
+    -- SecureUnitButtonTemplate ARRIVES WITH AN OnEnter ALREADY ON IT. That handler is what makes
+    -- the button the mouseover, and the help button's `/ping [@mouseover] assist` aims at exactly
+    -- it. A mock that handed back a bare frame made "did we put our own script in its place" a
+    -- question with no answer - so anything that clobbered it would have shipped green.
+    if type(template) == "string" and template:find("SecureUnitButton", 1, true) then
+        local b = newFrame(kind, name, parent)
+        b.__scripts.OnEnter = function(self) self.__wasMouseover = true end
+        return b
+    end
     if kind == "AuraContainer" then
         local c = newFrame(kind, nil, parent)
         c.slots, c.unit, c.enabled = {}, nil, false
@@ -2074,6 +2102,55 @@ do
         FN.Reset()
         FN.Note("tremor") FN.Settle()          -- a fear happened; the button is earned
         NS.DO.now("left")
+
+        -- IT SHOULD FEEL LIKE A BUTTON (5 Oct 2026). Arn: "they feel 2d id like if you hover over
+        -- them it changes a little to give it a feel that its a button".
+        --
+        -- Driven through the scripts the client would call, on a button the addon really built -
+        -- and the hover must be its OWN texture, because FN.Paint rewrites the icon's colour on
+        -- every update from the client's answer about health. A tint on the icon would be gone
+        -- within a frame, and fighting Paint would let a hover lie about how hurt somebody is.
+        do
+            local btn = FN.buttons and FN.buttons.help
+            ok(btn ~= nil, "the help button is built")
+            if btn then
+                ok(btn.hover ~= nil, "it has a hover texture of its own, separate from the icon")
+                ok(btn.hover.__blend == "ADD",
+                   "added rather than laid over, so a dim or red icon still lifts",
+                   tostring(btn.hover.__blend))
+                ok(btn.hover.__alpha == 0, "invisible until hovered", tostring(btn.hover.__alpha))
+
+                -- HOOKED, NOT SET: the secure template's own OnEnter is what makes you the
+                -- mouseover, and `/ping [@mouseover] assist` aims at exactly that.
+                ok(btn.__hooked and btn.__hooked.OnEnter,
+                   "the hover is HOOKED onto the template's OnEnter, not put in its place")
+
+                btn.__wasMouseover = nil
+                btn.__scripts.OnEnter(btn)
+                ok(btn.hover.__alpha > 0, "hovering lights it", tostring(btn.hover.__alpha))
+                ok(btn.__wasMouseover == true,
+                   "and the template's own OnEnter still ran - the button is still the mouseover,"
+                   .. " which is what /ping [@mouseover] aims at")
+
+                btn.__scripts.OnMouseDown(btn)
+                ok(btn.art.__point and btn.art.__point[2] ~= 0,
+                   "and pressing moves the icon, so the click is felt")
+                local pressed = btn.hover.__alpha
+
+                btn.__mouseOver = true
+                btn.__scripts.OnMouseUp(btn)
+                ok(btn.art.__point[2] == 0 and btn.art.__point[3] == 0, "letting go puts it back")
+                ok(btn.hover.__alpha < pressed and btn.hover.__alpha > 0,
+                   "still lit while the mouse is on it", tostring(btn.hover.__alpha))
+
+                -- a press that ends with the mouse somewhere else must not leave it stuck lit or
+                -- stuck pressed
+                btn.__scripts.OnMouseDown(btn)
+                btn.__scripts.OnLeave(btn)
+                ok(btn.hover.__alpha == 0, "leaving puts it out")
+                ok(btn.art.__point[2] == 0, "and un-presses an icon the mouse was dragged off")
+            end
+        end
 
         local nowBody = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
         ok(nowBody and nowBody:find("R=3", 1, true), "the now block goes into the macro", nowBody)

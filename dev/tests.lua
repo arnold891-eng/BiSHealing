@@ -148,6 +148,13 @@ local function newFrame(kind, name, parent)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    -- CLIPPING AND REVERSE FILL, RECORDED (6 Oct 2026). Both were auto no-ops, so "the heal bar
+    -- stops at the cell's edge" had no answer - and on Arn's screen it ran straight across the
+    -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
+    function f:SetClipsChildren(v) self.__clips = v and true or false end
+    function f:DoesClipChildren() return self.__clips == true end
+    function f:SetReverseFill(v) self.__reverse = v and true or false end
+    function f:GetReverseFill() return self.__reverse == true end
     -- A TEXTURE REMEMBERS WHAT IT WAS GIVEN. autoMethods answers every call with nil, which is
     -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
     -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
@@ -785,6 +792,60 @@ do
     STATE.absorbSecret = false
     FG.Paint(f)
     ok(f.absorb.__value == 0, "a shield that broke empties the bar rather than leaving it")
+end
+
+-- INSIDE THE CELL, AND THE OVERHEAL AS A FEATURE (6 Oct 2026). Arn's screenshot: a Chain Heal on
+-- its way ran the green bar straight out of the cell and over the next one - and he used that spill
+-- to hold a cast until the heal would not be wasted. So the heal and the shield are clipped to the
+-- EMPTY part of the bar, and the overheal is drawn inside the FILLED part: a bar filling from the
+-- right edge by the incoming amount, clipped to the fill, shows only where incoming is more than
+-- missing. The client does that geometry - nothing here compares a heal with a health.
+do
+    local function clips(fr) return fr and fr.__clips == true end
+    local function anchoredTo(fr, point, rel, relPoint)
+        for _, p in ipairs(fr.points or {}) do
+            if p[1] == point and p[2] == rel and p[3] == relPoint then return true end
+        end
+        return false
+    end
+    local tex = f.bar:GetStatusBarTexture()
+
+    ok(f.incoming.__parent == f.missClip and clips(f.missClip),
+       "the heals on their way sit inside a frame that clips - they stop at the cell's edge")
+    ok(f.absorb.__parent == f.missClip, "so does the shield, which spilled the same way")
+    ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
+       "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
+
+    ok(f.overheal ~= nil, "a cell has an overheal bar")
+    ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
+    ok(f.overheal.__parent == f.curClip and clips(f.curClip),
+       "inside a frame that clips")
+    ok(anchoredTo(f.curClip, "TOPLEFT", f.bar, "TOPLEFT") and anchoredTo(f.curClip, "BOTTOMRIGHT", tex, "BOTTOMRIGHT"),
+       "and that frame is the FILLED part: from the left edge to the end of the fill")
+    ok(f.overheal.__reverse == true, "it fills from the RIGHT")
+    ok(anchoredTo(f.overheal, "TOPRIGHT", f.bar, "TOPRIGHT"), "starting at the cell's right edge")
+    ok(f.overheal.__w == f.incoming.__w, "as wide as the heal bar, so the two are on one scale")
+
+    STATE.incoming.party1 = 700
+    STATE.incomingSecret = true
+    ok(pcall(FG.Paint, f), "a secret heal paints the overheal without throwing")
+    ok(getmetatable(f.overheal.__value) == secretMeta,
+       "the overheal bar is handed the same secret, untouched - the client works out the overlap")
+    -- two secrets are never ==, each UnitHealthMax call is its own; same KIND of max is the claim
+    ok(f.overheal.__max ~= nil and getmetatable(f.overheal.__max) == getmetatable(f.incoming.__max)
+       and (getmetatable(f.incoming.__max) == secretMeta or f.overheal.__max == f.incoming.__max),
+       "on the same scale as the heal bar")
+    STATE.incoming.party1 = nil
+    STATE.incomingSecret = false
+    FG.Paint(f)
+    ok(f.overheal.__value == 0, "nothing coming, no overheal drawn")
+
+    -- the half-width pyramid cells resize every bar, the shield included (it was left out)
+    local sized = true
+    for _, b in ipairs({ "incoming", "absorb", "overheal" }) do
+        if f[b].__w ~= f.incoming.__w then sized = false end
+    end
+    ok(sized, "after a layout every bar in the cell is the same width")
 end
 
 -- A SECRET BOOLEAN, AND A SECRET STRING, both of which go into a test in Paint: one sits in an

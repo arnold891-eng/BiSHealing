@@ -346,6 +346,26 @@ function FG.Make(i, parent)
         if type(lvl) == "number" then f.incoming:SetFrameLevel(lvl + 1) end
     end
 
+    -- THE SHIELD, drawn the same way as the heals on their way: anchored to the health bar's
+    -- TEXTURE, so it starts where the fill ends and the two read as one line. A fixed anchor would
+    -- float away from the fill the moment anybody took damage.
+    --
+    -- ABOVE the incoming bar, because an absorb is already there and a heal is not yet: when both
+    -- are showing, the thing that has actually happened should be the thing you see.
+    f.absorb = CreateFrame("StatusBar", nil, f)
+    f.absorb:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2)
+    f.absorb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    -- pale gold, and deliberately not the green of an incoming heal: at a glance the two must not
+    -- be mistaken for each other
+    f.absorb:SetStatusBarColor(0.95, 0.85, 0.45, 0.50)
+    f.absorb:SetMinMaxValues(0, 1)
+    f.absorb:SetValue(0)
+    if f.absorb.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.absorb:SetFrameLevel(lvl + 2) end
+    end
+
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
     -- the button sits UNDER the health bar -- which looks like "the names are missing" with only
     -- the overflowing tail of a long one visible past the cell's edge (seen on the beta, 17 Sep).
@@ -424,6 +444,7 @@ function FG.LayoutTarget(anchor)
     FG.PlaceTarget(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
     f:Show()
@@ -465,6 +486,7 @@ function FG.LayoutToT(parent)
     FG.PlaceToT(f, parent)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "targettarget")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "targettarget") end
     if f.handle then f.handle:Show() end
@@ -542,6 +564,7 @@ function FG.LayoutSelf(anchor)
     FG.PlaceSelf(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "player")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "player") end
     if f.handle then f.handle:Show() end
@@ -654,6 +677,7 @@ function FG.LayoutPets(anchor)
         f:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -(i - 1) * (FRAME_H + PAD))
         f:SetSize(FRAME_W, FRAME_H)
         if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
         FG.Bind(f, unit)
         if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
         f:Show()
@@ -1522,6 +1546,22 @@ function FG.Paint(f)
         if ok then
             if FG.maxOK then pcall(f.incoming.SetMinMaxValues, f.incoming, 0, UnitHealthMax(unit)) end
             f.incoming:SetValue(NS.Secret(inc) and inc or (inc or 0))
+        end
+    end
+
+    -- THE SHIELD (5 Oct 2026). Arn: "ellesmear draws the shield on the frames can we do the same?"
+    -- Yes, and by the bargain this file is built on: the absorb is handed to a bar and never read.
+    -- EllesmereUIRaidFrames does the same thing - `topBar:SetValue(absorbAmt)` with a secret amount
+    -- - so this is a measured pattern and not a hopeful one.
+    --
+    -- Until now a shielded healer and a hurt one looked identical here, which is the one thing a
+    -- healer most wants to tell apart: a priest's bubble is the difference between topping someone
+    -- up and wasting the cast.
+    if f.absorb and UnitGetTotalAbsorbs then
+        local ok, abs = pcall(UnitGetTotalAbsorbs, unit)
+        if ok then
+            if FG.maxOK then pcall(f.absorb.SetMinMaxValues, f.absorb, 0, UnitHealthMax(unit)) end
+            f.absorb:SetValue(NS.Secret(abs) and abs or (abs or 0))
         end
     end
 

@@ -49,6 +49,8 @@ local STATE = {
     maxRefusesSecret = false,   -- the client rejecting a secret max, if it turns out to do that
     incoming = {},              -- unit -> heals already on their way
     incomingSecret = false,     -- and whether the client will say how much
+    absorb = {},                -- unit -> the shield on them, which a healer must see
+    absorbSecret = false,       -- and whether the client will say how big it is
     deadSecret = false,         -- UnitIsDeadOrGhost as a secret BOOLEAN, which it is in combat
     classSecret = false,        -- so is the class, and it indexes a table here
 }
@@ -380,6 +382,14 @@ _G.UnitGetIncomingHeals = function(u)
     if STATE.incoming[u] == nil then return nil end
     if STATE.incomingSecret then return secret() end
     return STATE.incoming[u]
+end
+-- THE SHIELD. The client answers with a number that may be secret, exactly like an incoming heal -
+-- and the grid hands it straight to a bar. A stub that always said 0 (the one further down, for the
+-- probe) made the whole absorb path untestable: the branch simply never ran.
+_G.UnitGetTotalAbsorbs = function(u)
+    if STATE.absorb[u] == nil then return nil end
+    if STATE.absorbSecret then return secret() end
+    return STATE.absorb[u]
 end
 _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
 
@@ -744,6 +754,37 @@ do
     STATE.incomingSecret = false
     FG.Paint(f)
     ok(f.incoming.__value == 0, "nothing on the way empties the bar rather than leaving it")
+end
+
+-- THE SHIELD (5 Oct 2026). Arn: "ellesmear draws the shield on the frames can we do the same?"
+-- Yes, by the same bargain as the health and the incoming heal: UnitGetTotalAbsorbs hands back a
+-- number that may be secret, and a secret may be GIVEN to a StatusBar. The addon never learns how
+-- big the shield is; the client draws it. EllesmereUIRaidFrames does exactly this on this client
+-- (`topBar:SetValue(absorbAmt)`), so it is a measured pattern and not a hopeful one.
+--
+-- Until now a shielded healer and a hurt one looked identical on the grid - which is the one thing
+-- a healer most wants to tell apart, because a bubble is the difference between topping someone up
+-- and wasting the cast.
+do
+    STATE.absorb.party1 = 1200
+    STATE.absorbSecret = false
+    FG.Paint(f)
+    ok(f.absorb ~= nil, "a cell has a bar for the shield on them")
+    ok(f.absorb.__value == 1200, "and it is handed how big it is")
+
+    STATE.absorbSecret = true
+    ok(pcall(FG.Paint, f), "a SECRET absorb does not throw")
+    ok(getmetatable(f.absorb.__value) == secretMeta,
+       "it is handed the secret itself, untouched, like the health under it")
+
+    -- IT IS NOT THE INCOMING BAR. Two bars growing from the same place must never be confused for
+    -- each other: one is what has already happened, one is what has not happened yet.
+    ok(f.absorb ~= f.incoming, "the shield is its own bar, not the incoming one reused")
+
+    STATE.absorb.party1 = nil
+    STATE.absorbSecret = false
+    FG.Paint(f)
+    ok(f.absorb.__value == 0, "a shield that broke empties the bar rather than leaving it")
 end
 
 -- A SECRET BOOLEAN, AND A SECRET STRING, both of which go into a test in Paint: one sits in an

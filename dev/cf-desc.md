@@ -1,7 +1,10 @@
-# BiS Healing — CurseForge page text (0.8.1)
+# BiS Healing — CurseForge page text (0.8.2)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.1 text: "Quiet by default" names its one exception - on a PC where the game
+will not let the aura markers be placed, 0.8.2 leaves them out and says so once.
 
 Changed since the 0.7.0 text: Riptide in the heal-over-time line; new sections for the group buff
 watch, `BiS> now` and the pings; the command table has eight new rows; the "why it works this way"
@@ -96,6 +99,8 @@ More buttons arrive as you need them. Each earns its place the first time its mo
 ## Quiet by default
 
 Nothing is written to your chat frame during normal play.
+
+One exception, and it is there so you are never left guessing: on some PCs the game will not let an addon place the small aura markers on a cell. BiS Healing then leaves the markers out, draws every cell as normal, and says so **once**. `/bish auras` tells you why.
 
 ## Settings
 

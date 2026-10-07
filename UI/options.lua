@@ -95,6 +95,10 @@ function CFG.Sections()
               values = { "me", "target" },
               get = function(db) return db.ring == "target" and "target" or "me" end,
               set = function(_, v) if DO.ring then DO.ring(v) end end },
+            -- 7 Oct, Arn's cousin's idea: light up the cell of whoever the mouse is on
+            { key = "hover", kind = "toggle", label = "mouse crosshair",
+              get = function(db) return db.hover ~= false end,
+              set = function(_, on) if DO.hover then DO.hover(on) end end },
             { key = "dim", kind = "step", label = "out of range",
               min = 0.2, max = 0.9, step = 0.05,
               get = function(db) return db.dim or 0.45 end,

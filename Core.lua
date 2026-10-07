@@ -1511,6 +1511,23 @@ function NS.DO.ring(how)
     return d.ring
 end
 
+--- /bish hover [on|off] - the white crosshair on whoever your mouse is on (7 Oct 2026, Arn's
+--- cousin's idea). On by default.
+function NS.DO.hover(how)
+    local d = DB()
+    local on
+    if how == "on" or how == true then on = true
+    elseif how == "off" or how == false then on = false
+    else on = d.hover == false end
+    -- on is the default and stores nothing. Not `on and nil or false`: `x and nil` is always nil,
+    -- so that line stored "off" for both (the suite caught it, 7 Oct - landmine #8 again)
+    if on then d.hover = nil else d.hover = false end
+    if NS.FG and NS.FG.HoverAll then NS.FG.HoverAll() end
+    remember()
+    Print(on and "the white crosshair follows your mouse" or "no crosshair for your mouse")
+    return on
+end
+
 --- /bish dim 40 - how bright an out-of-range cell stays, as a percentage, 20 to 90.
 function NS.DO.dim(pct)
     local d = DB()
@@ -1686,6 +1703,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.hots()
     elseif msg == "ring" or msg:match("^ring%s") then
         NS.DO.ring(msg:match("^ring%s+(%S+)"))
+    elseif msg == "hover" or msg:match("^hover%s") then
+        NS.DO.hover(msg:match("^hover%s+(%a+)"))
     elseif msg == "dim" or msg:match("^dim%s") then
         NS.DO.dim(msg:match("^dim%s+([%d%.]+)"))
     elseif msg == "clique" then

@@ -179,6 +179,7 @@ local function db()
                 -- the gold ring's cell and the out-of-range dim (7 Oct); the next paint shows both
                 if settings.ring then d.ring = settings.ring end
                 if settings.dim then d.dim = settings.dim end
+                if settings.hover ~= nil then d.hover = settings.hover end
                 -- the three a player asked for on 23 Sep, all of them the layout's business
                 if settings.layout then d.layout = settings.layout end
                 if settings.target == true then

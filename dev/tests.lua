@@ -6144,6 +6144,69 @@ do
        "a targeted healer keeps the yellow ring under the gold one")
     ok(NS.DO.ring() == "me", "/bish ring with nothing after it flips it back")
 
+    -- A CROSSHAIR, NOT A HAIRLINE (Arn, 7 Oct: "this gold ring is honestly too small can we make it
+    -- like a cross hair looking thing?"): four corner brackets and four side ticks, every stroke
+    -- at least 2 px
+    local bars = other.targetRing.cross or {}
+    ok(#bars == 12, "the gold mark is a crosshair: 8 corner strokes and 4 side ticks", #bars)
+    local thin = 0
+    for _, t in ipairs(bars) do if math.min(t.__w or 0, t.__h or 0) < 2 then thin = thin + 1 end end
+    ok(thin == 0, "no stroke of it is a 1 px hairline")
+    -- and on YOU too, in the "me" mode: the thin gold edge alone was the complaint
+    cell.__me = nil
+    FG.PaintEdge(cell, "player")
+    ok(cell.targetRing.__shown and cell.targetRing.__alpha == 1, "in 'me' mode your own cell wears the gold crosshair")
+    FG.PaintEdge(other, "party1")
+    ok(not other.targetRing.__shown, "and nobody else does")
+
+    -- WHO YOUR MOUSE IS ON (Arn's cousin: "when he mouse hovers over someone's character ... light up
+    -- their frame with an indicator ... this is who it is on the frames"). Asked like the target:
+    -- plain yes/no, a secret handed to the client, no answer hidden.
+    local hoverIs, hoverSecret, hoverNil = nil, false, false
+    local keepUE = _G.UnitExists
+    _G.UnitExists = function(u) if u == "mouseover" then return hoverIs ~= nil end return keepUE(u) end
+    _G.UnitIsUnit = function(a, b)
+        if b == "mouseover" then
+            if hoverNil then return nil end
+            if hoverSecret then return secret() end
+            return a == hoverIs
+        end
+        if b == "target" then return a == targetIs or a == "target" end
+        return a == b
+    end
+    ok(other.hoverMark and #(other.hoverMark.cross or {}) == 12, "every cell carries a white crosshair for the mouse")
+    hoverIs = "party1"
+    ok(FG.PaintHover(other, "party1") == true and other.hoverMark.__shown, "mouse on party1: party1's cell lights up")
+    ok(FG.PaintHover(cell, "player") == false and not cell.hoverMark.__shown, "and nobody else's")
+    hoverSecret = true
+    ok(FG.PaintHover(other, "party1") == "secret" and other.hoverMark.__shown and other.hoverMark.__alphaFromSecret,
+       "a secret answer (inside an instance) is handed to the client, which picks the alpha")
+    hoverSecret, hoverNil = false, true
+    ok(FG.PaintHover(other, "party1") == false and not other.hoverMark.__shown,
+       "no answer at all: no crosshair, never a guessed one")
+    hoverNil = false
+    hoverIs = nil
+    FG.PaintHover(other, "party1")
+    ok(not other.hoverMark.__shown, "the mouse leaves everyone: the crosshair goes")
+    -- the mouse has a frame of its own: the grid's frame relays out on EVERY event it hears
+    ok(FG.hoverEvents and FG.hoverEvents.__events and FG.hoverEvents.__events.UPDATE_MOUSEOVER_UNIT,
+       "UPDATE_MOUSEOVER_UNIT is heard")
+    ok(not (FG.events.__events and FG.events.__events.UPDATE_MOUSEOVER_UNIT),
+       "and NOT by the frame that relays the whole grid out on every event")
+    -- off, and it stays off across a login (the macro, row J)
+    hoverIs = "party1"
+    ok(NS.DO.hover("off") == false and d.hover == false, "/bish hover off")
+    ok(FG.PaintHover(other, "party1") == false and not other.hoverMark.__shown, "then no crosshair at all")
+    local body = NS.FK.Encode({}, { hover = false })
+    local _, back = NS.FK.Decode(body)
+    ok(body:find("J=0") and type(back) == "table" and back.hover == false,
+       "off is written into the macro and read back - it survives a login", body)
+    ok(not NS.FK.Encode({}, {}):find("J="), "on is the default and writes nothing")
+    ok(NS.DO.hover("on") == true and d.hover == nil, "/bish hover on")
+    hoverIs = nil
+    _G.UnitExists = keepUE
+    _G.UnitIsUnit = keepIsUnit
+
     -- THE DIM: the plain answer and the fight's ternary both take the player's number
     NS.DO.dim(30)
     ok(math.abs(d.dim - 0.30) < 0.001, "/bish dim 30 keeps 0.30", d.dim)

@@ -117,6 +117,9 @@ local function settingRows(settings)
     -- how bright an out-of-range cell stays (D, for Dim, as a whole percentage). The defaults - the
     -- ring on you, 45% - write nothing.
     if settings.ring == "target" then out[#out + 1] = "E=1" end
+    -- 7 Oct: the white crosshair on whoever your mouse is on is ON by default; only "off" is a
+    -- row (J, one of the letters left)
+    if settings.hover == false then out[#out + 1] = "J=0" end
     local dim = tonumber(settings.dim)
     if dim and math.floor(dim * 100 + 0.5) ~= 45 then
         out[#out + 1] = ("D=%d"):format(math.floor(dim * 100 + 0.5))
@@ -346,6 +349,8 @@ function FK.Decode(body)
             settings.hots = tonumber(idx) ~= 0
         elseif code == "E" then
             settings.ring = tonumber(idx) == 1 and "target" or "me"
+        elseif code == "J" then
+            settings.hover = tonumber(idx) ~= 0
         elseif code == "D" and tonumber(idx) then
             settings.dim = tonumber(idx) / 100
         elseif code == "U" then
@@ -469,7 +474,7 @@ function FK.Save(binds)
     end
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
-                                             ring = t.ring, dim = t.dim,
+                                             ring = t.ring, dim = t.dim, hover = t.hover,
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers, tot = t.tot,
                                              me = t.me, meAt = t.meAt, mePos = t.mePos,

@@ -284,6 +284,45 @@ end
 
 --------------------------------------------------------------------- frames --
 
+-- THE CROSSHAIR (7 Oct 2026). Arn: "this gold ring is honestly too small can we make it like a
+-- cross hair looking thing?" The ring was four 1 px lines round the edge - on an 84 x 34 cell, next
+-- to the role ring, it read as nothing. A reticle reads at a glance: a thick bracket in each corner
+-- and a short tick pointing in from the middle of each side.
+--
+--   +--          --+          ARM   how long each corner bracket runs
+--   |      |       |          THICK how thick every stroke is
+--        --+--                TICK  how far a side tick reaches in
+--   |      |       |
+--   +--          --+
+FG.CROSS = { ARM = 10, THICK = 2, TICK = 6 }
+FG.HOVER = { 0.95, 0.97, 1.00 }        -- the mouseover crosshair: near-white, apart from the gold
+
+--- Draw the crosshair on `frame` (it fills the frame) in colour `c`. Textures only, no art: they
+--- take a colour, they take any size, and a half-width pyramid cell gets the same reticle.
+function FG.Crosshair(frame, c)
+    local X = FG.CROSS
+    frame.cross = {}
+    local function bar(point, w, h, x, y)
+        local t = frame:CreateTexture(nil, "OVERLAY")
+        t:SetColorTexture(c[1], c[2], c[3], 1)
+        t:SetSize(w, h)
+        t:SetPoint(point, x or 0, y or 0)
+        frame.cross[#frame.cross + 1] = t
+        return t
+    end
+    -- the four corners, two strokes each
+    for _, p in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
+        bar(p, X.ARM, X.THICK)
+        bar(p, X.THICK, X.ARM)
+    end
+    -- the four side ticks, pointing in
+    bar("TOP", X.THICK, X.TICK)
+    bar("BOTTOM", X.THICK, X.TICK)
+    bar("LEFT", X.TICK, X.THICK)
+    bar("RIGHT", X.TICK, X.THICK)
+    return frame
+end
+
 --- One cell. A secure button so the click reaches Blizzard's own code (an addon may not cast),
 --- with a StatusBar for health because the client has to do the maths.
 function FG.Make(i, parent)
@@ -326,18 +365,21 @@ function FG.Make(i, parent)
         local lvl = f:GetFrameLevel()
         if type(lvl) == "number" then f.targetRing:SetFrameLevel(lvl + 2) end
     end
-    do
-        local c, ring = FG.EDGE.me, f.targetRing
-        local function line(p1, p2, w, h)
-            local t = ring:CreateTexture(nil, "OVERLAY")
-            t:SetColorTexture(c[1], c[2], c[3], 1)
-            t:SetPoint(p1) t:SetPoint(p2)
-            if w then t:SetWidth(w) else t:SetHeight(h) end
-        end
-        line("TOPLEFT", "TOPRIGHT", nil, 1)       line("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
-        line("TOPLEFT", "BOTTOMLEFT", 1, nil)     line("TOPRIGHT", "BOTTOMRIGHT", 1, nil)
-    end
+    FG.Crosshair(f.targetRing, FG.EDGE.me)
     f.targetRing:Hide()
+
+    -- WHO YOUR MOUSE IS ON (7 Oct 2026). Arn's cousin's idea: "when he mouse hovers over someone's
+    -- character if we can light up their frame with an indicator ... this is who it is on the
+    -- frames". The same crosshair in white, a level above the gold one, asked about "mouseover" the
+    -- way the gold one asks about "target" (FG.PaintHover) - so a secret answer still works.
+    f.hoverMark = CreateFrame("Frame", nil, f)
+    f.hoverMark:SetAllPoints()
+    if f.hoverMark.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.hoverMark:SetFrameLevel(lvl + 3) end
+    end
+    FG.Crosshair(f.hoverMark, FG.HOVER)
+    f.hoverMark:Hide()
 
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
@@ -1676,6 +1718,51 @@ function FG.PaintTarget(f, unit, on)
     return false
 end
 
+--- THE WHITE CROSSHAIR ON WHOEVER YOUR MOUSE IS ON (7 Oct 2026, Arn's cousin's idea). The same
+--- three answers as the gold one on your target: plain yes/no shown/hidden; a SECRET answer handed
+--- to the client, which picks the alpha (SetAlphaFromBoolean), so it still works inside an
+--- instance; no answer at all -> hidden. Off with `/bish hover off`. Returns true, false or "secret".
+function FG.PaintHover(f, unit)
+    local mark = f and f.hoverMark
+    if not mark then return false end
+    local d = NS.DB and NS.DB()
+    if (type(d) == "table" and d.hover == false) or not unit or not UnitIsUnit
+       or not (UnitExists and UnitExists("mouseover")) then
+        mark:Hide() return false
+    end
+    local ok, same = pcall(UnitIsUnit, unit, "mouseover")
+    if not ok or same == nil then mark:Hide() return false end
+    if NS.Secret and NS.Secret(same) then
+        mark:Show()
+        local drew = pcall(function() mark:SetAlphaFromBoolean(same, 1, 0) end)
+        if not drew then mark:Hide() return false end
+        return "secret"
+    end
+    mark:SetAlpha(1)
+    if same == true or same == 1 then mark:Show() return true end
+    mark:Hide()
+    return false
+end
+
+--- Every cell, after the mouse lands on somebody or leaves them.
+function FG.HoverAll()
+    for unit, f in pairs(FG.byUnit or {}) do FG.PaintHover(f, unit) end
+end
+
+-- The client says when the mouse LANDS on a unit (UPDATE_MOUSEOVER_UNIT) and never when it leaves,
+-- so a tenth-of-a-second ticker lives exactly as long as there is a mouseover, and clears the
+-- crosshair the moment there is not (EllesmereUI's nameplates do the same, for the same reason).
+function FG.HoverWatch()
+    FG.HoverAll()
+    if FG.hoverTicker or not (C_Timer and C_Timer.NewTicker) then return end
+    FG.hoverTicker = C_Timer.NewTicker(0.1, function()
+        if not (UnitExists and UnitExists("mouseover")) then
+            if FG.hoverTicker then FG.hoverTicker:Cancel() FG.hoverTicker = nil end
+            FG.HoverAll()
+        end
+    end)
+end
+
 function FG.PaintEdge(f, unit)
     if not (f and f.bg and unit) then return nil end
     -- THE GOLD RING, on you or on your target (a player's ask, 7 Oct: "a toggle highlight self or
@@ -1694,6 +1781,11 @@ function FG.PaintEdge(f, unit)
         local me = NS.IsPlayer and NS.IsPlayer(unit)
         if me ~= nil then f.__me = me == true end
         gold = f.__me == true
+        -- and the gold CROSSHAIR on you as well (7 Oct): the thin gold edge alone "is honestly too
+        -- small". Who you are is a plain fact here, so the crosshair is simply shown at full alpha.
+        if f.targetRing then
+            if gold then f.targetRing:SetAlpha(1) f.targetRing:Show() else f.targetRing:Hide() end
+        end
     end
     -- THE ROLE, sticky the same way: a role we can read replaces the last one, an unreadable one
     -- keeps it
@@ -2215,6 +2307,12 @@ function FG.Start()
         if event == "UPDATE_MACROS" and NS.FM and NS.FM.Reconsider then NS.FM.Reconsider() end
     end)
     FG.events = ev
+    -- THE MOUSE, on a frame of its own: the one above relays the whole grid out on every event it
+    -- hears, and the mouse lands on somebody many times a second
+    local hv = CreateFrame("Frame")
+    pcall(hv.RegisterEvent, hv, "UPDATE_MOUSEOVER_UNIT")
+    hv:SetScript("OnEvent", function() FG.HoverWatch() end)
+    FG.hoverEvents = hv
     if NS.FB and NS.FB.Start then NS.FB.Start() end   -- the between-pulls brain, step 2
     if NS.FR and NS.FR.Start then NS.FR.Start() end   -- the five second rule, on the header
     if NS.FS and NS.FS.Start then NS.FS.Start() end   -- and the buff you keep forgetting

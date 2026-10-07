@@ -6200,6 +6200,9 @@ do
     local win = NS.CFG.Build()
     local W = BiSTheme.OPTIONS.W
     ok(win and win.__w == 2 * W, "the options window is two columns wide", win and win.__w)
+    -- 25% bigger (Arn, 7 Oct: "too small ... too hard to read"): the whole window scales, so the
+    -- layout - and the fit check, which measures in the window's own units - is unchanged
+    ok(win and win:GetScale() == 1.25, "the options window is drawn 25% larger", win and win:GetScale())
     local left, right = 0, 0
     for _, r in ipairs(win and win.rows or {}) do
         local p = r.points and r.points[#r.points]

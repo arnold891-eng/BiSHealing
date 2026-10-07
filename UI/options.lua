@@ -22,6 +22,7 @@ NS = NS or {}
 
 local CFG = {}
 NS.CFG = CFG
+CFG.SCALE = 1.25          -- the options window is drawn 25% larger than the shared kit's size
 
 --- The rows. A function, not a table: `get` is asked every time the window
 --- paints, so a switch shows what is true now rather than what was true at
@@ -345,6 +346,11 @@ function CFG.Build()
     local W = BiSTheme.OPTIONS.W
     local f = BiSTheme.Options("BiSHealingOptions", W, "Heal")
     CFG.frame = f
+    -- 25% BIGGER (Arn, 7 Oct: "this is honestly too small ... bring up the size of the option
+    -- window 25% its too hard to read"). The whole window scales - text, boxes, spacing - so the
+    -- layout is the shared kit's, just larger. Here and not in the kit: the kit is embedded in six
+    -- addons, and a bigger window everywhere is a lib change of its own.
+    f:SetScale(CFG.SCALE)
     f:Recenter(60)
     -- TWO COLUMNS (Arn, 7 Oct: "can we make two colums"). The shared window stacks every row down
     -- one 230 px column. Rather than teach the shared lib columns - a change copied into six

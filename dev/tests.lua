@@ -127,6 +127,19 @@ local function newFrame(kind, name, parent)
         self.__alpha = a
     end
     function f:GetAlpha() return self.__alpha end
+    -- THE CLIENT'S OWN TERNARY ON A FRAME (ClickMend 0.16.1's target border, and a dozen
+    -- EllesmereUI modules, on this client): the alpha is picked from a boolean the addon may not
+    -- test. An auto no-op here would answer "drawn" for a ring nobody ever showed. A plain boolean
+    -- picks; a secret stays the client's choice (recorded, so a test can tell it was handed over);
+    -- anything else is refused like the curve call.
+    function f:SetAlphaFromBoolean(b, whenTrue, whenFalse)
+        if getmetatable(b) == secretMeta then
+            self.__alpha, self.__alphaFromSecret = secret(), true
+            return
+        end
+        if type(b) ~= "boolean" then error("SetAlphaFromBoolean needs a boolean", 2) end
+        self.__alpha, self.__alphaFromSecret = b and whenTrue or whenFalse, false
+    end
     function f:SetFrameStrata(v) self.__strata = v end
     function f:SetScale(v) self.__scale = v end
     function f:GetScale() return self.__scale or 1 end
@@ -6076,14 +6089,20 @@ do
     _G.UnitIsUnit = function(a, b)
         if b == "target" then
             if targetSecret then return secret() end
-            return a == targetIs
+            -- "target" IS the target, as the client says: answering false here let a mutant that
+            -- ringed the target's own cell pass
+            return a == targetIs or a == "target"
         end
         return a == b
     end
+    -- gold on the EDGE (the "me" ring) or the TARGET RING drawn at full alpha
     local function gold(c)
         local t = c.edge and c.edge.top
         local col = t and t.__shown and t.__color
-        return col and math.abs(col[1] - FG.EDGE.me[1]) < 0.01 and math.abs(col[2] - FG.EDGE.me[2]) < 0.01
+        local edge = col and math.abs(col[1] - FG.EDGE.me[1]) < 0.01 and math.abs(col[2] - FG.EDGE.me[2]) < 0.01
+        local r = c.targetRing
+        local ring = r and r.__shown and r.__alpha == 1
+        return (edge or ring) and true or false
     end
 
     -- ON YOU, the way it always was
@@ -6102,14 +6121,27 @@ do
     FG.PaintEdge(other, "party1")
     ok(not gold(other), "target someone else and it leaves - asked fresh, never kept")
     -- the cell for the target itself never wears it: it is always "the target"
-    ok(FG.IsTarget("target") == false, "the target's own cell is not ringed for being the target")
-    -- A SECRET ANSWER IS NO, not "keep what it was" (EllesmereUI's frames read it the same way)
-    targetIs, targetSecret = "party1", false
-    FG.PaintEdge(other, "party1")
-    targetSecret = true
-    FG.PaintEdge(other, "party1")
-    ok(not gold(other), "a target the client will not name gets no ring rather than a stale one")
+    ok(FG.PaintTarget(other, "target", true) == false and not other.targetRing.__shown,
+       "the target's own cell is not ringed for being the target")
+    -- A SECRET ANSWER IS HANDED TO THE CLIENT, which picks the alpha (ClickMend's way) - so the
+    -- ring still works inside an instance, and nothing here ever tests who it is
+    targetIs, targetSecret = "party1", true
+    ok(FG.PaintEdge(other, "party1") and other.targetRing.__shown and other.targetRing.__alphaFromSecret,
+       "a secret answer is shown, its alpha chosen by the client from that answer")
     targetSecret = false
+    -- NO ANSWER AT ALL (an identity restriction says nil for every pair but "is this me"): hidden
+    local keepIsUnit = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) if b == "target" then return nil end return a == b end
+    FG.PaintEdge(other, "party1")
+    ok(not other.targetRing.__shown, "a client that will not answer gets no ring, never a guessed one")
+    _G.UnitIsUnit = keepIsUnit
+    -- the role ring underneath is left alone: a healer target is gold on top of yellow
+    STATE.roles = { player = "HEALER", party1 = "HEALER" }
+    other.__role = nil
+    FG.PaintEdge(other, "party1")
+    local e = other.edge.top.__color
+    ok(e and math.abs(e[1] - FG.EDGE.healer[1]) < 0.01 and other.targetRing.__shown,
+       "a targeted healer keeps the yellow ring under the gold one")
     ok(NS.DO.ring() == "me", "/bish ring with nothing after it flips it back")
 
     -- THE DIM: the plain answer and the fight's ternary both take the player's number

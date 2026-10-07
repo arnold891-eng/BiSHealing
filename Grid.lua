@@ -316,6 +316,29 @@ function FG.Make(i, parent)
     f.edge.left:SetPoint("TOPLEFT")     f.edge.left:SetPoint("BOTTOMLEFT")   f.edge.left:SetWidth(1)
     f.edge.right:SetPoint("TOPRIGHT")   f.edge.right:SetPoint("BOTTOMRIGHT") f.edge.right:SetWidth(1)
 
+    -- THE TARGET RING, a frame of its own over the role ring (7 Oct 2026). A frame, so ONE call
+    -- can hand it a boolean nobody may test: ClickMend 0.16.1 draws its target border exactly
+    -- this way, `SetAlphaFromBoolean(UnitIsUnit(unit, "target"), 1, 0)`, and so it keeps working
+    -- inside an instance where the answer is secret. Gold, the colour that was "you".
+    f.targetRing = CreateFrame("Frame", nil, f)
+    f.targetRing:SetAllPoints()
+    if f.targetRing.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.targetRing:SetFrameLevel(lvl + 2) end
+    end
+    do
+        local c, ring = FG.EDGE.me, f.targetRing
+        local function line(p1, p2, w, h)
+            local t = ring:CreateTexture(nil, "OVERLAY")
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+            t:SetPoint(p1) t:SetPoint(p2)
+            if w then t:SetWidth(w) else t:SetHeight(h) end
+        end
+        line("TOPLEFT", "TOPRIGHT", nil, 1)       line("BOTTOMLEFT", "BOTTOMRIGHT", nil, 1)
+        line("TOPLEFT", "BOTTOMLEFT", 1, nil)     line("TOPRIGHT", "BOTTOMRIGHT", 1, nil)
+    end
+    f.targetRing:Hide()
+
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
     f.bar:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -1626,16 +1649,31 @@ FG.EDGE = {
 --- Which ring this cell wears. Role and identity both go secret in a fight, so each cell keeps
 --- the last answer it got rather than flickering between gold and nothing every time the client
 --- stops talking - the ring is about who someone IS, and that does not change mid-pull.
---- IS THIS CELL YOUR TARGET? EllesmereUI's raid frames ask it the same way: UnitIsUnit against
---- "target", and a secret or missing answer is NO. Never sticky - a target changes - so a client
---- that will not say (an identity restriction answers nil for every pair but "is this me") simply
---- shows no gold ring until it will. The target's own cell is skipped: it is always "the target",
---- and a ring that never moves says nothing.
-function FG.IsTarget(unit)
-    if unit == "target" or not UnitIsUnit then return false end
+--- THE RING ON YOUR TARGET. Asked fresh every paint - a target changes - and never kept.
+---   plain yes / no  -> shown / hidden
+---   a SECRET answer -> shown, and the CLIENT picks its alpha from that answer (ClickMend 0.16.1:
+---                      `SetAlphaFromBoolean(UnitIsUnit(unit, "target"), 1, 0)`), so the ring
+---                      keeps working inside an instance where nobody may read who it is
+---   no answer at all (an identity restriction answers nil for every pair but "is this me"), or a
+---   client that refuses the hand-over -> hidden: no ring beats a ring on the wrong person
+--- The target's own cell is skipped: it is always "the target", and a ring that never moves says
+--- nothing (ClickMend skips it too). Returns true, false or "secret".
+function FG.PaintTarget(f, unit, on)
+    local ring = f and f.targetRing
+    if not ring then return false end
+    if not on or unit == "target" or not UnitIsUnit then ring:Hide() return false end
     local ok, same = pcall(UnitIsUnit, unit, "target")
-    if not ok or (NS.Secret and NS.Secret(same)) then return false end
-    return same == true or same == 1
+    if not ok or same == nil then ring:Hide() return false end
+    if NS.Secret and NS.Secret(same) then
+        ring:Show()
+        local drew = pcall(function() ring:SetAlphaFromBoolean(same, 1, 0) end)
+        if not drew then ring:Hide() return false end
+        return "secret"
+    end
+    ring:SetAlpha(1)
+    if same == true or same == 1 then ring:Show() return true end
+    ring:Hide()
+    return false
 end
 
 function FG.PaintEdge(f, unit)
@@ -1645,8 +1683,10 @@ function FG.PaintEdge(f, unit)
     -- you have TARGETED is asked fresh every paint, because it changes.
     local d = NS.DB and NS.DB()
     local gold
-    if type(d) == "table" and d.ring == "target" then
-        gold = FG.IsTarget(unit)
+    local toTarget = type(d) == "table" and d.ring == "target"
+    FG.PaintTarget(f, unit, toTarget)               -- its own frame; hidden when the ring is "me"
+    if toTarget then
+        gold = false                                -- the edge is left to the role ring
     else
         -- UnitIsUnit first, then the string compare, and the string compare only when the client
         -- says unit tokens may be compared at all - NS.IsPlayer is those three steps in one place

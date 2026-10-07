@@ -4,8 +4,9 @@
 
 - **The gold ring can follow your target.** It has always marked your own cell; now
   `gold ring: me / target` in the options (or `/bish ring target`) puts it on whoever you have
-  targeted instead. In a dungeon or raid the game may refuse to say who that is, and then no cell
-  wears it until it will - never a ring on the wrong person.
+  targeted instead - the way ClickMend marks the one you have selected. It keeps working in
+  dungeons and raids: where the game will not tell the addon who your target is, the addon hands
+  the question to the game and the game draws the ring.
 - **How far out-of-range cells dim is yours to set.** `out of range` in the options, 20% to 90%
   (`/bish dim 40`); 45% as before until you change it. It works in a fight too.
 - **The options window has two columns**, so it stays short with room for both.

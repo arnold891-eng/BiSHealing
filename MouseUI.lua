@@ -324,9 +324,13 @@ function FM.Window()
 
     -- under the tabs, not beside the header: the console's rotating word lives up there and the
     -- two of them were printing on top of each other
+    -- ONE SHORT LINE. It said "drag a spell onto a button - or click a ping, then a button": 287 px
+    -- in a 250 px window, both ends cut off (the fit check, 6 Oct 2026). How a ping is put down is
+    -- in each ping's own tooltip, where there is room for it.
     local hint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOP", 0, -62)
-    hint:SetText("drag a spell onto a button - or click a ping, then a button")
+    hint:SetText("drop a spell or a ping on a button")
+    w.hint = hint
 
     -- the modifier tabs
     w.tabs = {}
@@ -399,10 +403,12 @@ function FM.Window()
     pingHint:SetPoint("BOTTOMLEFT", 8, 36)
     pingHint:SetText("pings:")
     pingHint:SetTextColor(rgb("muted"))
+    -- FOUR ACROSS, INSIDE THE WINDOW. They were 52 wide on a 52 step from x=44, so the fourth ended
+    -- at 252 in a 250 window - two pixels hanging off the edge (the fit check, 6 Oct 2026).
     for i, p in ipairs(FM.PINGS or {}) do
         local b = CreateFrame("Button", nil, w)
-        b:SetSize(52, 16)
-        b:SetPoint("BOTTOMLEFT", 44 + ((i - 1) % 4) * 52, 36)
+        b:SetSize(50, 16)
+        b:SetPoint("BOTTOMLEFT", 44 + ((i - 1) % 4) * 51, 36)
         b.bg = texture(b, "BACKGROUND", SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.9)
         b.bg:SetAllPoints()
         b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -513,8 +519,9 @@ function FM.Window()
                 if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
             end
         end
+        -- 241 px of words in a 230 px line wrapped onto the note above it (the fit check, 6 Oct)
         foot:SetText((InCombatLockdown and InCombatLockdown())
-            and "in combat: binds are queued until the fight ends"
+            and "in combat: binds wait for the fight to end"
             or "binds are written out of combat")
     end
 

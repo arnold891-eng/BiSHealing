@@ -1,5 +1,13 @@
 # BiS Healing
 
+## Unreleased
+
+- **The bind window's words fit inside it.** The hint under the tabs ran off both edges; it is
+  one short line now ("drop a spell or a ping on a button"), and how a ping is put down stays in
+  each ping's tooltip. In a fight the bottom line said more than its line could hold and wrapped;
+  it now reads "in combat: binds wait for the fight to end". The fourth ping button no longer
+  hangs two pixels past the right edge.
+
 ## 0.8.2
 
 - **Fixed: on some PCs the frames stopped at the first cell and threw an error every frame.** The

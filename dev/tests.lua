@@ -148,6 +148,13 @@ local function newFrame(kind, name, parent)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    -- CLIPPING AND REVERSE FILL, RECORDED (6 Oct 2026). Both were auto no-ops, so "the heal bar
+    -- stops at the cell's edge" had no answer - and on Arn's screen it ran straight across the
+    -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
+    function f:SetClipsChildren(v) self.__clips = v and true or false end
+    function f:DoesClipChildren() return self.__clips == true end
+    function f:SetReverseFill(v) self.__reverse = v and true or false end
+    function f:GetReverseFill() return self.__reverse == true end
     -- A TEXTURE REMEMBERS WHAT IT WAS GIVEN. autoMethods answers every call with nil, which is
     -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
     -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
@@ -801,6 +808,60 @@ do
     STATE.absorbSecret = false
     FG.Paint(f)
     ok(f.absorb.__value == 0, "a shield that broke empties the bar rather than leaving it")
+end
+
+-- INSIDE THE CELL, AND THE OVERHEAL AS A FEATURE (6 Oct 2026). Arn's screenshot: a Chain Heal on
+-- its way ran the green bar straight out of the cell and over the next one - and he used that spill
+-- to hold a cast until the heal would not be wasted. So the heal and the shield are clipped to the
+-- EMPTY part of the bar, and the overheal is drawn inside the FILLED part: a bar filling from the
+-- right edge by the incoming amount, clipped to the fill, shows only where incoming is more than
+-- missing. The client does that geometry - nothing here compares a heal with a health.
+do
+    local function clips(fr) return fr and fr.__clips == true end
+    local function anchoredTo(fr, point, rel, relPoint)
+        for _, p in ipairs(fr.points or {}) do
+            if p[1] == point and p[2] == rel and p[3] == relPoint then return true end
+        end
+        return false
+    end
+    local tex = f.bar:GetStatusBarTexture()
+
+    ok(f.incoming.__parent == f.missClip and clips(f.missClip),
+       "the heals on their way sit inside a frame that clips - they stop at the cell's edge")
+    ok(f.absorb.__parent == f.missClip, "so does the shield, which spilled the same way")
+    ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
+       "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
+
+    ok(f.overheal ~= nil, "a cell has an overheal bar")
+    ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
+    ok(f.overheal.__parent == f.curClip and clips(f.curClip),
+       "inside a frame that clips")
+    ok(anchoredTo(f.curClip, "TOPLEFT", f.bar, "TOPLEFT") and anchoredTo(f.curClip, "BOTTOMRIGHT", tex, "BOTTOMRIGHT"),
+       "and that frame is the FILLED part: from the left edge to the end of the fill")
+    ok(f.overheal.__reverse == true, "it fills from the RIGHT")
+    ok(anchoredTo(f.overheal, "TOPRIGHT", f.bar, "TOPRIGHT"), "starting at the cell's right edge")
+    ok(f.overheal.__w == f.incoming.__w, "as wide as the heal bar, so the two are on one scale")
+
+    STATE.incoming.party1 = 700
+    STATE.incomingSecret = true
+    ok(pcall(FG.Paint, f), "a secret heal paints the overheal without throwing")
+    ok(getmetatable(f.overheal.__value) == secretMeta,
+       "the overheal bar is handed the same secret, untouched - the client works out the overlap")
+    -- two secrets are never ==, each UnitHealthMax call is its own; same KIND of max is the claim
+    ok(f.overheal.__max ~= nil and getmetatable(f.overheal.__max) == getmetatable(f.incoming.__max)
+       and (getmetatable(f.incoming.__max) == secretMeta or f.overheal.__max == f.incoming.__max),
+       "on the same scale as the heal bar")
+    STATE.incoming.party1 = nil
+    STATE.incomingSecret = false
+    FG.Paint(f)
+    ok(f.overheal.__value == 0, "nothing coming, no overheal drawn")
+
+    -- the half-width pyramid cells resize every bar, the shield included (it was left out)
+    local sized = true
+    for _, b in ipairs({ "incoming", "absorb", "overheal" }) do
+        if f[b].__w ~= f.incoming.__w then sized = false end
+    end
+    ok(sized, "after a layout every bar in the cell is the same width")
 end
 
 -- A SECRET BOOLEAN, AND A SECRET STRING, both of which go into a test in Paint: one sits in an
@@ -5577,6 +5638,68 @@ do
         ok(FN.seenHolds.FEAR.units.player == 1, "counted against the player")
         held.player = nil
         NS.FG.Roster = function() return { "player", "party1" } end
+
+        -- THE ONE BIT SURVIVES A LOGIN (6 Oct 2026). On 5 Oct the button lit after a party fear and
+        -- the proof died at the next reload, because seenHolds is one session. The first sighting
+        -- on somebody else goes into the saved variables, which this client hands back again.
+        do
+            local db = NS.DB()
+            db.holds = nil
+            FN.seenHolds = {}
+            held.player = "FEAR"
+            NS.FG.Roster = function() return { "player" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds and db.holds.FEAR and db.holds.FEAR.firstAt ~= nil,
+               "the first fear is kept in the saved table")
+            ok(db.holds.FEAR.otherAt == nil, "but on the player alone it proves nothing, and says so")
+            held.player = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+            held.party1 = "FEAR"
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt ~= nil and db.holds.FEAR.otherUnit == "party1",
+               "a fear on party1 is kept as the sighting on somebody else, with who")
+            local first = db.holds.FEAR.otherAt
+            held.party1 = nil
+            FN.PaintNeed(btn, "tremor")
+            held.party2 = "FEAR"
+            NS.FG.Roster = function() return { "player", "party1", "party2" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt == first and db.holds.FEAR.otherUnit == "party1",
+               "the FIRST sighting is the one kept - a later one does not move it")
+            held.party2 = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+
+            -- logout, then a login: the table comes back, the session record does not
+            local fireEv = NS.events.__scripts.OnEvent
+            fireEv(NS.events, "PLAYER_LOGOUT")
+            ok(type(_G.BiSHealingCharDB) == "table" and type(_G.BiSHealingCharDB.holds) == "table"
+               and _G.BiSHealingCharDB.holds.FEAR.otherUnit == "party1",
+               "the per-character copy carries it too")
+            FN.seenHolds = {}
+            fireEv(NS.events, "ADDON_LOADED", "BiSHealing")
+            local heard = {}
+            local realChat = _G.DEFAULT_CHAT_FRAME
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            local all = table.concat(heard, "\n")
+            ok(all:find("kept across logins") and all:find("READ ON SOMEBODY ELSE"),
+               "after the login, with nothing held this session, /bish holds still says it was seen", all)
+            ok(not all:find("did not come back"), "and does not cry wolf when the file DID come back")
+
+            -- a login where the client omitted the file: say the record started fresh
+            local realLoaded = NS.loaded
+            NS.loaded = { found = false }
+            heard = {}
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            ok(table.concat(heard, "\n"):find("did not come back"),
+               "a login that got no saved file says the kept record started fresh")
+            NS.loaded = realLoaded
+            db.holds = nil
+            FN.seenHolds = {}
+        end
 
         -- THE FIGHT ENDING IS WHAT MAKES THE BUTTON (3 Oct 2026). Arn: "people have been slept and
         -- the tremor button has not popped up". It was seeing them - Watch asked, Note counted -

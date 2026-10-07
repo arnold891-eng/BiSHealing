@@ -334,7 +334,18 @@ function FG.Make(i, parent)
     -- Anchored to the health bar's TEXTURE rather than the bar frame, which is what makes it
     -- start at the end of the fill and move with it. (Read off Healium's own Forever build,
     -- which does exactly this and was right to.)
-    f.incoming = CreateFrame("StatusBar", nil, f)
+    --
+    -- INSIDE THE CELL (6 Oct 2026). Arn's screenshot: a big Chain Heal coming in ran the green bar
+    -- straight out of the cell and across the next one. The bar is as wide as the cell so it can
+    -- show any heal, and nothing stopped it at the edge. `missClip` is the empty part of the bar -
+    -- from the end of the fill to the right edge - and clips what it holds, so the heal fills the
+    -- cell and stops. Read off EllesmereUIRaidFrames, which does exactly this on Forever.
+    f.missClip = CreateFrame("Frame", nil, f)
+    f.missClip:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.missClip:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0, 0)
+    if f.missClip.SetClipsChildren then f.missClip:SetClipsChildren(true) end
+
+    f.incoming = CreateFrame("StatusBar", nil, f.missClip)
     f.incoming:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2)
     f.incoming:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -352,7 +363,7 @@ function FG.Make(i, parent)
     --
     -- ABOVE the incoming bar, because an absorb is already there and a heal is not yet: when both
     -- are showing, the thing that has actually happened should be the thing you see.
-    f.absorb = CreateFrame("StatusBar", nil, f)
+    f.absorb = CreateFrame("StatusBar", nil, f.missClip)
     f.absorb:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2)
     f.absorb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -364,6 +375,40 @@ function FG.Make(i, parent)
     if f.absorb.SetFrameLevel and f.GetFrameLevel then
         local lvl = f:GetFrameLevel()
         if type(lvl) == "number" then f.absorb:SetFrameLevel(lvl + 2) end
+    end
+
+    -- THE OVERHEAL, DRAWN BY THE CLIENT (6 Oct 2026). Arn, about that spill: "that actually helps
+    -- to stop cancel casting until their health drops and the heal will not overheal ... let's
+    -- clean it up and make it a feature". The spill WAS the overheal - the part of the heal past
+    -- the edge is the part that lands on nobody. Clipping it away would lose that, so it is drawn
+    -- inside the cell instead, without the addon ever learning a number:
+    --
+    --   * `curClip` is the FILLED part of the bar, from the left edge to the end of the fill.
+    --   * `overheal` is a bar as wide as the cell, filling from the RIGHT edge leftwards by the
+    --     incoming amount, inside curClip.
+    --
+    -- The two overlap exactly where (incoming) is more than (missing): from (right - incoming) to
+    -- the end of the fill, which is the overheal and nothing else. No overheal, no overlap, nothing
+    -- drawn. The client does the geometry; health and heals are never compared here, which on
+    -- this client they may not be. EllesmereUI draws its over-shield the same way (backfillBar).
+    --
+    -- Amber, on top of the fill: wasted healing is a warning, and it must read as a different
+    -- thing from both the green heal and the gold shield.
+    f.curClip = CreateFrame("Frame", nil, f)
+    f.curClip:SetPoint("TOPLEFT", f.bar, "TOPLEFT", 0, 0)
+    f.curClip:SetPoint("BOTTOMRIGHT", f.bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
+    if f.curClip.SetClipsChildren then f.curClip:SetClipsChildren(true) end
+    f.overheal = CreateFrame("StatusBar", nil, f.curClip)
+    f.overheal:SetPoint("TOPRIGHT", f.bar, "TOPRIGHT", 0, 0)
+    f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2)
+    f.overheal:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    f.overheal:SetStatusBarColor(1.00, 0.55, 0.15, 0.70)
+    if f.overheal.SetReverseFill then f.overheal:SetReverseFill(true) end
+    f.overheal:SetMinMaxValues(0, 1)
+    f.overheal:SetValue(0)
+    if f.overheal.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.overheal:SetFrameLevel(lvl + 3) end
     end
 
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
@@ -444,6 +489,7 @@ function FG.LayoutTarget(anchor)
     FG.PlaceTarget(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
         if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
@@ -486,6 +532,7 @@ function FG.LayoutToT(parent)
     FG.PlaceToT(f, parent)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
         if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "targettarget")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "targettarget") end
@@ -564,6 +611,7 @@ function FG.LayoutSelf(anchor)
     FG.PlaceSelf(f, anchor)
     f:SetSize(FRAME_W, FRAME_H)
     if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
         if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
     FG.Bind(f, "player")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "player") end
@@ -677,6 +725,7 @@ function FG.LayoutPets(anchor)
         f:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -(i - 1) * (FRAME_H + PAD))
         f:SetSize(FRAME_W, FRAME_H)
         if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
         if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
         FG.Bind(f, unit)
         if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
@@ -1369,6 +1418,8 @@ function FG.Layout(anchor)
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
         -- halfway across, which reads as "only half of this is coming".
         if f.incoming and f.incoming.SetSize then f.incoming:SetSize(w - 2, FRAME_H - 2) end
+        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(w - 2, FRAME_H - 2) end
+        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(w - 2, FRAME_H - 2) end
         FG.Bind(f, unit)
         -- the aura markers ride the same out-of-combat moment as the secure attributes: the
         -- container is told its unit here and then draws by itself for the whole fight
@@ -1546,6 +1597,12 @@ function FG.Paint(f)
         if ok then
             if FG.maxOK then pcall(f.incoming.SetMinMaxValues, f.incoming, 0, UnitHealthMax(unit)) end
             f.incoming:SetValue(NS.Secret(inc) and inc or (inc or 0))
+            -- the overheal is the SAME value on the same scale, filling from the other end; where
+            -- it overlaps the fill is the part that lands on nobody (see Make)
+            if f.overheal then
+                if FG.maxOK then pcall(f.overheal.SetMinMaxValues, f.overheal, 0, UnitHealthMax(unit)) end
+                f.overheal:SetValue(NS.Secret(inc) and inc or (inc or 0))
+            end
         end
     end
 

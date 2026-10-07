@@ -95,17 +95,47 @@ FN.seenHolds = {}
 function FN.SawHold(kind, unit)
     FN.seenHolds = FN.seenHolds or {}
     local rec = FN.seenHolds[kind]
+    local fresh = not rec
     if not rec then
         rec = { n = 0, units = {}, other = false, fight = false }
         FN.seenHolds[kind] = rec
     end
+    local wasOther = rec.other
     rec.n = rec.n + 1
     if type(unit) == "string" then
         rec.units[unit] = (rec.units[unit] or 0) + 1
         if unit ~= "player" then rec.other = true end
     end
     if InCombatLockdown and InCombatLockdown() then rec.fight = true end
+    -- only on something NEW: the paint asks several times a second
+    if fresh or (rec.other and not wasOther) then FN.KeepHold(kind, unit) end
     return rec
+end
+
+--- THE ONE BIT, KEPT (6 Oct 2026). On 5 Oct the Tremor button lit for Arn after a party fear -
+--- the first sighting of a hold on SOMEBODY ELSE, the one claim the whole Tremor design rests on -
+--- and the record died at the next reload, because FN.seenHolds lives for one session. So the
+--- first sighting of each kind, and the first time it is read on somebody other than the player,
+--- go into the saved variables, which this client hands back again (`/bish db`, 6 Oct: "saved 112
+--- time(s) before"). Only first times, never counts: a count would be frames, not fears.
+---
+--- Overlord measured that this beta can still OMIT a saved file at login, so `/bish holds` says
+--- when the record it shows started fresh this session rather than trusting it blind.
+function FN.KeepHold(kind, unit)
+    local db = NS.DB and NS.DB()
+    if type(db) ~= "table" or type(kind) ~= "string" then return end
+    db.holds = type(db.holds) == "table" and db.holds or {}
+    local k = db.holds[kind]
+    if type(k) ~= "table" then
+        k = { firstAt = (time and time()) or 0 }
+        db.holds[kind] = k
+    end
+    if type(unit) == "string" and unit ~= "player" and not k.otherAt then
+        k.otherAt    = (time and time()) or 0
+        k.otherUnit  = unit
+        k.otherFight = (InCombatLockdown and InCombatLockdown()) and true or false
+    end
+    return k
 end
 
 --- What is holding a unit, as a plain string, or nil. Loss of control is NOT secret on this client

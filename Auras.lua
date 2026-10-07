@@ -262,6 +262,29 @@ local function signature()
     return FA.sig
 end
 
+--- SIZE AND PLACE A SLOT, OR LEAVE IT BE. On a player's own PC, 6 Oct 2026, 0.8.1 threw 442 times:
+--- "calling 'SetSize' on bad self (Attempt to access forbidden object from code tainted by an
+--- AddOn)". The container took SetSize; the slot it handed back did not - and because that was a
+--- plain Lua error inside the layout, the grid stopped at the first cell, and the layout's retry
+--- threw it again every frame. Why that client and not ours is not known. So it is not guessed at:
+--- the first refusal is remembered (FA.slotRefused, shown by /bish auras) and no slot is touched
+--- again. A marker the client will not let us place is a marker we do without.
+local function place(slot, px, point, cell, x, y)
+    if not slot or FA.slotRefused then return false end
+    -- the LOOKUP inside the pcall too: on a forbidden object even reading a method may refuse
+    local ok, why = pcall(function()
+        slot:SetSize(px, px)
+        slot:SetPoint(point, cell, point, x, y)
+    end)
+    if not ok then
+        FA.slotRefused = tostring(why)
+        if NS.Print then NS.Print("aura markers are off: this client will not let them be placed (/bish auras)") end
+        return false
+    end
+    return true
+end
+FA.Place = place
+
 --- Take a cell's container down before a new one is built: the old one would otherwise go on
 --- drawing underneath it.
 local function release(cell)
@@ -275,7 +298,21 @@ end
 --- Give one grid cell its markers. Returns false when this client has no containers, which is the
 --- TBC case and any future client that drops them - the grid then simply has no dispel marker,
 --- rather than erroring every frame.
+local attach
 function FA.Attach(cell, unit)
+    -- A MARKER NEVER TAKES THE GRID DOWN. Layout calls this for every cell and re-raises any error,
+    -- and its retry runs every frame until a layout succeeds - so one throw in here was a grid
+    -- stuck at its first cell and an error 60 times a second (0.8.1, 6 Oct). Whatever fails in
+    -- here next costs the markers, said once, and the cells still get laid out.
+    local ok, r = pcall(attach, cell, unit)
+    if ok then return r end
+    if not FA.attachError and NS.Print then
+        NS.Print("aura markers stopped on an error: |cfff08cb0%s|r", tostring(r))
+    end
+    FA.attachError = tostring(r)
+    return false
+end
+function attach(cell, unit)
     if not FA.Available() or not cell or not unit then return false end
     local sig = signature()
     if cell.auras and cell.aurasSig == sig then
@@ -312,11 +349,7 @@ function FA.Attach(cell, unit)
     local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
         initializeFrame = dispelPip(DISPEL_TINT),
     })
-    if dispel and dispel.SetPoint then
-        local px = FA.MarkerSize()
-        dispel:SetSize(px, px)
-        dispel:SetPoint("LEFT", cell, "LEFT", 2, 0)      -- a pip at the edge, never over the bar
-    end
+    place(dispel, FA.MarkerSize(), "LEFT", cell, 2, 0)      -- a pip at the edge, never over the bar
 
     -- 2. a pip for any buff we are watching. Nothing is watched by default, so no slot is built
     --    and the cell stays as clean as the grid was before.
@@ -331,11 +364,7 @@ function FA.Attach(cell, unit)
             candidateFilters = { includeSpellIDs = watch },
             initializeFrame = pip(ES_TINT),
         })
-        if es and es.SetPoint then
-            local px = math.max(6, FA.MarkerSize() - 2)
-            es:SetSize(px, px)
-            es:SetPoint("TOPRIGHT", cell, "TOPRIGHT", -2, -2)
-        end
+        place(es, math.max(6, FA.MarkerSize() - 2), "TOPRIGHT", cell, -2, -2)
     end
 
     -- the debug marker, when someone is asking "does this draw at all?"
@@ -343,11 +372,7 @@ function FA.Attach(cell, unit)
         local any = addSlot(container, "BiSHealAnyDebuff", "HARMFUL", {
             initializeFrame = pip({ 1.00, 0.45, 0.10, 0.95 }),
         })
-        if any and any.SetPoint then
-            local px = FA.MarkerSize()
-            any:SetSize(px, px)
-            any:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 2, 2)
-        end
+        place(any, FA.MarkerSize(), "BOTTOMLEFT", cell, 2, 2)
         cell.anySlot = any
     end
 
@@ -368,11 +393,8 @@ function FA.Attach(cell, unit)
             candidateFilters = { includeSpellIDs = ids },
             initializeFrame = hotIcon,
         })
-        if slot and slot.SetPoint then
-            local px = FA.MarkerSize()
-            slot:SetSize(px, px)
-            slot:SetPoint("BOTTOMLEFT", cell, "BOTTOMLEFT", 3 + (i - 1) * (px + HOT_GAP), 3)
-        end
+        local px = FA.MarkerSize()
+        place(slot, px, "BOTTOMLEFT", cell, 3 + (i - 1) * (px + HOT_GAP), 3)
         hots[fam.key] = slot
         end
     end

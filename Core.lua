@@ -96,6 +96,11 @@ local DEFAULTS = {
     targetAt = "top",    -- where it sits: top / left / right / under, or "free" once dragged
     targetPos = nil,     -- where it was dragged to, from the middle of the screen
     markers = 10,        -- how big the dispel marker and the heal-over-time icons are, in pixels
+    -- THE GOLD RING: on your own cell ("me", 30 Sep) or on whoever you have targeted ("target").
+    -- A player's ask, 7 Oct: "a toggle highlight self or highlight target".
+    ring    = "me",
+    -- how far an out-of-range cell fades: the alpha it is drawn at, 0.2 to 0.9 (same ask)
+    dim     = 0.45,
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
@@ -1495,6 +1500,35 @@ function NS.DO.colour(byHealth)
     return d.color
 end
 
+--- /bish ring me | target - which cell wears the gold ring. No argument flips it.
+function NS.DO.ring(how)
+    local d = DB()
+    if how ~= "me" and how ~= "target" then how = (d.ring == "target") and "me" or "target" end
+    d.ring = how
+    repaint()
+    remember()
+    Print(how == "target" and "the gold ring is on your target" or "the gold ring is on your own cell")
+    return d.ring
+end
+
+--- /bish dim 40 - how bright an out-of-range cell stays, as a percentage, 20 to 90.
+function NS.DO.dim(pct)
+    local d = DB()
+    local n = tonumber(pct)
+    if not n then
+        Print(("out of range cells are drawn at %d%% - /bish dim 20 to 90"):format(
+            math.floor((d.dim or 0.45) * 100 + 0.5)))
+        return d.dim or 0.45
+    end
+    if n > 1 then n = n / 100 end                       -- 40 and 0.4 both mean 40%
+    if n < 0.2 then n = 0.2 elseif n > 0.9 then n = 0.9 end
+    d.dim = math.floor(n * 100 + 0.5) / 100
+    repaint()
+    remember()
+    Print(("out of range cells are drawn at %d%%"):format(math.floor(d.dim * 100 + 0.5)))
+    return d.dim
+end
+
 --- /bish scale 90 - a percentage, because nobody thinks of a frame as being 0.9 big.
 function NS.DO.scale(pct)
     local n = tonumber(pct)
@@ -1527,6 +1561,8 @@ function NS.DO.help()
     Print("  |cffb980ffmissing|r |cffb980ffpercent|r |cffb980ffnumber off|r  the number on the cells")
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
+    Print("  |cffb980ffring|r  the gold ring on |cffb980ffring me|r or on |cffb980ffring target|r")
+    Print("  |cffb980ffdim|r  how bright an out of range cell stays - |cffb980ffdim 40|r (20 to 90)")
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
     Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
@@ -1648,6 +1684,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
+    elseif msg == "ring" or msg:match("^ring%s") then
+        NS.DO.ring(msg:match("^ring%s+(%S+)"))
+    elseif msg == "dim" or msg:match("^dim%s") then
+        NS.DO.dim(msg:match("^dim%s+([%d%.]+)"))
     elseif msg == "clique" then
         NS.DO.clique()
     elseif msg == "text" or msg:match("^text%s") then

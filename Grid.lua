@@ -1626,21 +1626,44 @@ FG.EDGE = {
 --- Which ring this cell wears. Role and identity both go secret in a fight, so each cell keeps
 --- the last answer it got rather than flickering between gold and nothing every time the client
 --- stops talking - the ring is about who someone IS, and that does not change mid-pull.
+--- IS THIS CELL YOUR TARGET? EllesmereUI's raid frames ask it the same way: UnitIsUnit against
+--- "target", and a secret or missing answer is NO. Never sticky - a target changes - so a client
+--- that will not say (an identity restriction answers nil for every pair but "is this me") simply
+--- shows no gold ring until it will. The target's own cell is skipped: it is always "the target",
+--- and a ring that never moves says nothing.
+function FG.IsTarget(unit)
+    if unit == "target" or not UnitIsUnit then return false end
+    local ok, same = pcall(UnitIsUnit, unit, "target")
+    if not ok or (NS.Secret and NS.Secret(same)) then return false end
+    return same == true or same == 1
+end
+
 function FG.PaintEdge(f, unit)
     if not (f and f.bg and unit) then return nil end
-    local kind
-    -- UnitIsUnit first, then the string compare, and the string compare only when the client says
-    -- unit tokens may be compared at all - NS.IsPlayer is those three steps in one place now
-    -- (1 Oct 2026). nil from it means "could not tell", which falls through to f.__edge below and
-    -- keeps whatever ring the cell last had, rather than taking one away on a shrug.
-    if NS.IsPlayer and NS.IsPlayer(unit) == true then kind = "me" end
-    if not kind and UnitGroupRolesAssigned then
+    -- THE GOLD RING, on you or on your target (a player's ask, 7 Oct: "a toggle highlight self or
+    -- highlight target"). Who you ARE is kept when the client will not say, as it always was; who
+    -- you have TARGETED is asked fresh every paint, because it changes.
+    local d = NS.DB and NS.DB()
+    local gold
+    if type(d) == "table" and d.ring == "target" then
+        gold = FG.IsTarget(unit)
+    else
+        -- UnitIsUnit first, then the string compare, and the string compare only when the client
+        -- says unit tokens may be compared at all - NS.IsPlayer is those three steps in one place
+        -- (1 Oct 2026). nil means "could not tell": keep what this cell last knew.
+        local me = NS.IsPlayer and NS.IsPlayer(unit)
+        if me ~= nil then f.__me = me == true end
+        gold = f.__me == true
+    end
+    -- THE ROLE, sticky the same way: a role we can read replaces the last one, an unreadable one
+    -- keeps it
+    if UnitGroupRolesAssigned then
         local ok, role = pcall(UnitGroupRolesAssigned, unit)
         local plain = ok and NS.Plain(role)
-        if plain == "HEALER" then kind = "healer"
-        elseif plain then kind = "none" end            -- a role we CAN read and it is not a healer
+        if plain == "HEALER" then f.__role = "healer"
+        elseif plain then f.__role = "none" end        -- a role we CAN read and it is not a healer
     end
-    kind = kind or f.__edge                            -- unreadable: keep what it last was
+    local kind = gold and "me" or f.__role
     if not kind then return nil end
     f.__edge = kind
     if not f.edge then return kind end
@@ -1694,6 +1717,15 @@ end
 -- How far down an unreachable cell goes. Not hidden: out of range is a thing to notice, not a
 -- thing to lose.
 FG.DIM = 0.45
+
+--- THE PLAYER'S DIM, 0.2 to 0.9 (a player's ask, 7 Oct: "a slider for how much it dims out of
+--- range"). Read per paint, so a change shows on the next tick; anything odd is the default.
+function FG.Dim()
+    local d = NS.DB and NS.DB()
+    local v = type(d) == "table" and tonumber(d.dim) or nil
+    if not v or v < 0.2 or v > 0.9 then return FG.DIM end
+    return v
+end
 
 --- AND IN A FIGHT, WHERE THE ANSWER IS A SECRET. Read off ForeverAuras 0.8.6 (28 Sep 2026):
 --- `C_CurveUtil.EvaluateColorValueFromBoolean(bool, whenTrue, whenFalse)` hands back one of two
@@ -1753,7 +1785,7 @@ function FG.PaintRange(f, unit)
             f:SetAlpha(1)
             return 1, "secret, no curve"
         end
-        local made, alpha = pcall(curve, answer, 1, FG.DIM)
+        local made, alpha = pcall(curve, answer, 1, FG.Dim())
         if not made then
             FG.rangeSeen = "curve refused"
             f:SetAlpha(1)
@@ -1766,7 +1798,7 @@ function FG.PaintRange(f, unit)
     end
     -- the plain answer: the modern call says true/false, the old one 1/0, and anything that is
     -- not a clear "no" leaves the cell bright rather than dimming someone who is reachable
-    local reach = (answer == 0 or answer == false) and FG.DIM or 1
+    local reach = (answer == 0 or answer == false) and FG.Dim() or 1
     -- nil from everything that could answer: nobody is dimmed, and /bish range says which it was
     if answer == nil then FG.rangeSeen = "no answer" else FG.rangeSeen = FG.rangeSeen == "unit" and "unit" or "plain" end
     f:SetAlpha(reach)

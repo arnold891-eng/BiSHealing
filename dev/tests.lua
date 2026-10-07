@@ -5040,7 +5040,20 @@ do
     -- `seg` is for. Fourteen, two fewer than the fifteen this window was at when the day started.
     --
     -- The rule was never about the number; it is about a window you can read in one look.
-    ok(#NS.UI.Rows() <= 14, "the window stays short: " .. #NS.UI.Rows())
+    --
+    -- ON 7 OCT IT GREW SIDEWAYS. A player asked for two more (the gold ring on your target, and
+    -- how far out-of-range cells dim) with the window at its cap, and Arn: "can we make two
+    -- colums". So the rule is now per COLUMN: each column, section bars included, stays as short
+    -- as one column ever was - fourteen rows - and there are two of them.
+    do
+        local tall = { 0, 0 }
+        for _, sec in ipairs(NS.UI.Sections()) do
+            local c = sec.column or 1
+            tall[c] = tall[c] + 1 + #sec.options
+        end
+        ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        ok(#NS.UI.Rows() <= 20, "and the whole window has no more than twenty settings: " .. #NS.UI.Rows())
+    end
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no
     -- free-text field, and it is a COPY under Libs\ that the harness compares byte for byte to the
@@ -6047,6 +6060,133 @@ do
     for _, f in ipairs(FG.frames or {}) do f.auras = nil end
     d.shown = wasShown
     FG.Layout(FG.anchor)
+end
+
+-- ---------------------------------------------------------------- the gold ring, the dim, two columns
+-- (7 Oct 2026) A player's two asks: "a toggle highlight self or highlight target" and "a slider
+-- for how much it dims out of range". Arn, with the options window at its cap: "can we make two
+-- colums".
+do
+    local d = NS.DB()
+    local was = { ring = d.ring, dim = d.dim }
+    local cell, other = FG.frames[1], FG.frames[2]
+    local realIsUnit = _G.UnitIsUnit
+    local targetIs = "party1"
+    local targetSecret = false
+    _G.UnitIsUnit = function(a, b)
+        if b == "target" then
+            if targetSecret then return secret() end
+            return a == targetIs
+        end
+        return a == b
+    end
+    local function gold(c)
+        local t = c.edge and c.edge.top
+        local col = t and t.__shown and t.__color
+        return col and math.abs(col[1] - FG.EDGE.me[1]) < 0.01 and math.abs(col[2] - FG.EDGE.me[2]) < 0.01
+    end
+
+    -- ON YOU, the way it always was
+    d.ring = nil
+    cell.__me, cell.__role, other.__me, other.__role = nil, nil, nil, nil
+    FG.PaintEdge(cell, "player")
+    FG.PaintEdge(other, "party1")
+    ok(gold(cell) and not gold(other), "by default the gold ring is on your own cell")
+
+    -- ON YOUR TARGET
+    ok(NS.DO.ring("target") == "target", "/bish ring target")
+    FG.PaintEdge(cell, "player")
+    FG.PaintEdge(other, "party1")
+    ok(gold(other) and not gold(cell), "the ring moves to whoever you have targeted, and off you")
+    targetIs = "party2"
+    FG.PaintEdge(other, "party1")
+    ok(not gold(other), "target someone else and it leaves - asked fresh, never kept")
+    -- the cell for the target itself never wears it: it is always "the target"
+    ok(FG.IsTarget("target") == false, "the target's own cell is not ringed for being the target")
+    -- A SECRET ANSWER IS NO, not "keep what it was" (EllesmereUI's frames read it the same way)
+    targetIs, targetSecret = "party1", false
+    FG.PaintEdge(other, "party1")
+    targetSecret = true
+    FG.PaintEdge(other, "party1")
+    ok(not gold(other), "a target the client will not name gets no ring rather than a stale one")
+    targetSecret = false
+    ok(NS.DO.ring() == "me", "/bish ring with nothing after it flips it back")
+
+    -- THE DIM: the plain answer and the fight's ternary both take the player's number
+    NS.DO.dim(30)
+    ok(math.abs(d.dim - 0.30) < 0.001, "/bish dim 30 keeps 0.30", d.dim)
+    ok(NS.DO.dim(5) == 0.2 and NS.DO.dim(95) == 0.9, "and it stays between 20 and 90")
+    NS.DO.dim(30)
+    STATE.range.party1 = 0
+    other.unit = "party1"
+    FG.PaintRange(other, "party1")
+    ok(math.abs(other:GetAlpha() - 0.30) < 0.001, "out of range is drawn at the player's 30%", other:GetAlpha())
+    local realCurve, handed = C_CurveUtil.EvaluateColorValueFromBoolean, nil
+    C_CurveUtil.EvaluateColorValueFromBoolean = function(b, t, f) handed = f return realCurve(b, t, f) end
+    STATE.rangeSecret = true
+    FG.PaintRange(other, "party1")
+    STATE.rangeSecret = false
+    C_CurveUtil.EvaluateColorValueFromBoolean = realCurve
+    ok(handed and math.abs(handed - 0.30) < 0.001,
+       "and in a fight the client is handed the same number to choose between", tostring(handed))
+    STATE.range.party1 = nil
+
+    -- IN THE MACRO, because this client hands back no saved variables: written only when not the
+    -- default, read back through the newline the client adds
+    local FK = NS.FK
+    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "target", dim = 0.3 })
+    ok(body:find("E=1", 1, true) and body:find("D=30", 1, true), "both ride in the macro", body)
+    local _, back = FK.Decode(body .. "\n")
+    ok(back.ring == "target" and math.abs((back.dim or 0) - 0.3) < 0.001, "and come back out of it",
+       tostring(back.ring) .. " / " .. tostring(back.dim))
+    local plain = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.45 })
+    ok(not plain:find("E=", 1, true) and not plain:find("D=", 1, true), "the defaults write nothing", plain)
+
+    -- THE COLD START: a login with no clicks has the ring where it was left, and the dim
+    local FM = NS.FM
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = { ["wheelup"] = "Healing Wave(Rank 2)" }, true, false, nil
+    NS.DO.ring("target")
+    NS.DO.dim(35)
+    d.binds, d.bindsSeeded, FM.asked = {}, nil, false                       -- the restart
+    d.ring, d.dim = nil, nil
+    FM.Get("", "wheelup")
+    ok(d.ring == "target" and math.abs((d.dim or 0) - 0.35) < 0.001,
+       "after a restart the ring and the dim are what the macro said",
+       tostring(d.ring) .. " / " .. tostring(d.dim))
+    FG.PaintEdge(other, "party1")
+    ok(gold(other), "and live: the target is ringed with nothing clicked")
+    MACROS = {}
+    d.binds, d.bindsSeeded, FM.asked, FM.touched = {}, nil, false, nil
+    FM.Get("", "left")
+
+    -- TWO COLUMNS: the window is two of the old width, and the look / cells half sits on the right
+    if not (BiSTheme and BiSTheme.Options) then
+        assert(loadfile("Libs/BiSTheme/Options.lua"))()
+    end
+    NS.CFG.built, NS.CFG.frame = nil, nil
+    local win = NS.CFG.Build()
+    local W = BiSTheme.OPTIONS.W
+    ok(win and win.__w == 2 * W, "the options window is two columns wide", win and win.__w)
+    local left, right = 0, 0
+    for _, r in ipairs(win and win.rows or {}) do
+        local p = r.points and r.points[#r.points]
+        if p and p[4] == 0 then left = left + 1 elseif p and p[4] == W then right = right + 1 end
+        ok(r.__w == W, "every row is one column wide, not the whole window")
+    end
+    ok(left >= 8 and right >= 8, ("the rows are shared out: %d left, %d right"):format(left, right))
+    ok(left + right == #(win and win.rows or {}), "and every row is in one column or the other")
+    ok(NS.UI.Rows()[1].key == "mouse", "the binds are still the first thing in it")
+    local keys = {}
+    for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = o end
+    ok(keys.ring and keys.dim, "both new settings have a row")
+    keys.ring.set(nil, "target")
+    ok(d.ring == "target", "pressing 'target' on the row moves the ring")
+    keys.dim.set(nil, 0.6)
+    ok(math.abs(d.dim - 0.6) < 0.001 and keys.dim.show(d) == "60%", "the dim row sets it and says it")
+
+    _G.UnitIsUnit = realIsUnit
+    d.ring, d.dim = was.ring, was.dim
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

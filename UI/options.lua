@@ -53,6 +53,27 @@ function CFG.Sections()
               get = function(db) return db.scale or 1 end,
               set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
               show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
+            { key = "center", kind = "button", label = "centre on screen", button = "centre",
+              action = function() if DO.center then DO.center() end end },
+        } },
+        -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
+        -- The header names it out of combat; the client makes a NOISE when it drops, which is the
+        -- only half that works mid-fight, where your own buffs are secret. Two rows, because a
+        -- switch and a number are two questions: whether, and which.
+        { title = "reminders", options = {
+            { key = "buffsound", kind = "toggle", label = "sound when it drops",
+              get = function(db) return db.buffQuiet ~= true end,
+              set = function(_, on) if DO.buffsound then DO.buffsound(on and "on" or "off") end end },
+            -- the shared lib has four control kinds and no free-text field, on purpose ("230 px
+            -- has no room"). So the number lives in a drawer that unrolls under the window, built
+            -- here out of the lib's own primitives - the copy under Libs\ is never edited.
+            { key = "buffsoundid", kind = "button", label = "sound id", button = "change",
+              action = function() CFG.Drawer() end },
+        } },
+        -- THE RIGHT-HAND COLUMN (7 Oct 2026). The window was at its fourteen-row cap and a player
+        -- asked for two more settings; Arn: "can we make two colums". How the cells LOOK, and
+        -- which cells there ARE, sit beside the rest instead of under it.
+        { title = "look", column = 2, options = {
             -- three answers, so segments rather than a switch: "lost" is what they still need
             -- after incoming heals, blank at full
             { key = "number", kind = "seg", label = "number",
@@ -67,6 +88,24 @@ function CFG.Sections()
             { key = "colour", kind = "toggle", label = "bar colour by health",
               get = function(db) return db.color == "health" end,
               set = function(_, on) if DO.colour then DO.colour(on) end end },
+            -- a player's two asks, 7 Oct: "a toggle highlight self or highlight target", and "a
+            -- slider for how much it dims out of range" - a stepper, like the cell size
+            { key = "ring", kind = "seg", label = "gold ring",
+              values = { "me", "target" },
+              get = function(db) return db.ring == "target" and "target" or "me" end,
+              set = function(_, v) if DO.ring then DO.ring(v) end end },
+            { key = "dim", kind = "step", label = "out of range",
+              min = 0.2, max = 0.9, step = 0.05,
+              get = function(db) return db.dim or 0.45 end,
+              set = function(_, v) if DO.dim then DO.dim(v) end end,
+              show = function(db) return ("%d%%"):format(math.floor((db.dim or 0.45) * 100 + 0.5)) end },
+            { key = "markers", kind = "step", label = "marker size",
+              min = 6, max = 20, step = 2,
+              get = function(db) return db.markers or 10 end,
+              set = function(_, v) if DO.markers then DO.markers(v) end end,
+              show = function(db) return ("%dpx"):format(db.markers or 10) end },
+        } },
+        { title = "cells", column = 2, options = {
             -- FOUR SWITCHES, ONE ROW. Three of these had a row each and a fourth was asked for
             -- (paszczyszyn, 25 Sep: a cell for yourself), which would have been sixteen rows in a
             -- window whose own rule says thirteen was the last one. They are one question -
@@ -106,27 +145,6 @@ function CFG.Sections()
                       DO.layout((v == "across" and "rows") or (v == "tanks" and "pyramid") or "columns")
                   end
               end },
-            { key = "markers", kind = "step", label = "marker size",
-              min = 6, max = 20, step = 2,
-              get = function(db) return db.markers or 10 end,
-              set = function(_, v) if DO.markers then DO.markers(v) end end,
-              show = function(db) return ("%dpx"):format(db.markers or 10) end },
-            { key = "center", kind = "button", label = "centre on screen", button = "centre",
-              action = function() if DO.center then DO.center() end end },
-        } },
-        -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
-        -- The header names it out of combat; the client makes a NOISE when it drops, which is the
-        -- only half that works mid-fight, where your own buffs are secret. Two rows, because a
-        -- switch and a number are two questions: whether, and which.
-        { title = "reminders", options = {
-            { key = "buffsound", kind = "toggle", label = "sound when it drops",
-              get = function(db) return db.buffQuiet ~= true end,
-              set = function(_, on) if DO.buffsound then DO.buffsound(on and "on" or "off") end end },
-            -- the shared lib has four control kinds and no free-text field, on purpose ("230 px
-            -- has no room"). So the number lives in a drawer that unrolls under the window, built
-            -- here out of the lib's own primitives - the copy under Libs\ is never edited.
-            { key = "buffsoundid", kind = "button", label = "sound id", button = "change",
-              action = function() CFG.Drawer() end },
         } },
         -- "this client" held two diagnostics. "test the debuff marker" gave way to a setting on
         -- 22 Sep and "what can I see?" on the 23rd, when a player's three requests arrived at once.
@@ -324,14 +342,45 @@ function CFG.Build()
         return nil
     end
     CFG.built = true
-    local f = BiSTheme.Options("BiSHealingOptions", BiSTheme.OPTIONS.W, "Heal")
+    local W = BiSTheme.OPTIONS.W
+    local f = BiSTheme.Options("BiSHealingOptions", W, "Heal")
     CFG.frame = f
     f:Recenter(60)
-    for _, section in ipairs(CFG.Sections()) do
-        f:Section(section.title)
-        for _, opt in ipairs(section.options) do
-            if opt.kind == "cells" then CFG.CellsRow(f, opt) else f:Row(opt, NS.DB()) end
+    -- TWO COLUMNS (Arn, 7 Oct: "can we make two colums"). The shared window stacks every row down
+    -- one 230 px column. Rather than teach the shared lib columns - a change copied into six
+    -- addons - each column is built as the lib builds it, from the top, and each row is then
+    -- pinned into its own column. It leans on the lib's own fields (rows, _y, body); if those
+    -- ever change, the window falls back to one column and the suite says so.
+    local columns = f.rows and f.body and type(f._y) == "number"
+    local col = {}                                   -- row -> its column
+    local heights = {}
+    for c = 1, 2 do
+        if columns then f._y = 0 end
+        for _, section in ipairs(CFG.Sections()) do
+            if (section.column or 1) == c then
+                local first = #f.rows + 1
+                f:Section(section.title)
+                for _, opt in ipairs(section.options) do
+                    if opt.kind == "cells" then CFG.CellsRow(f, opt) else f:Row(opt, NS.DB()) end
+                end
+                for i = first, #f.rows do col[f.rows[i]] = c end
+            end
         end
+        heights[c] = f._y
+    end
+    if columns then
+        local ROW = BiSTheme.OPTIONS.ROW
+        local y = { 0, 0 }
+        for _, r in ipairs(f.rows) do
+            local c = col[r] or 1
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", f.body, "TOPLEFT", (c - 1) * W, -y[c])
+            r:SetWidth(W)
+            y[c] = y[c] + ROW
+        end
+        f:SetWidth(2 * W)
+        f._y = math.max(heights[1] or 0, heights[2] or 0)
+        CFG.columns = 2
     end
     f:Fit()
     return f
@@ -356,6 +405,7 @@ NS.UI = {
     Toggle = CFG.Toggle,
     Open   = CFG.Open,
     Drawer = function(want) return CFG.Drawer(want) end,
+    Sections = function() return CFG.Sections() end,
     Rows   = function()
         local out = {}
         for _, sec in ipairs(CFG.Sections()) do

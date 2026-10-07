@@ -473,6 +473,22 @@ _G.CreateFrame = function(kind, name, parent, template)
                 function slot:AddDispelTypeTexture(tex, o) self.dispelTex, self.dispelOpts = tex, o end
                 function slot:SetDurationCooldown(cd) self.durationCooldown = cd end
             end
+            -- A SLOT THE CLIENT WILL NOT LET US TOUCH (6 Oct 2026, 0.8.1 on a player's own PC):
+            -- "Auras.lua:317: calling 'SetSize' on bad self (Attempt to access forbidden object
+            -- from code tainted by an AddOn)", 442 times - the container took SetSize, the slot it
+            -- handed back did not. The mock let us size and place it every time, so the throw
+            -- that stopped the whole grid's layout at the first cell never ran here.
+            -- STATE.slotForbidden = that client.
+            if STATE.slotForbidden then
+                for _, m in ipairs({ "SetSize", "SetWidth", "SetHeight", "SetPoint", "ClearAllPoints",
+                                     "SetAllPoints", "Show", "Hide", "SetAlpha", "SetFrameLevel" }) do
+                    slot[m] = function()
+                        STATE.slotTouched = (STATE.slotTouched or 0) + 1
+                        error("calling '" .. m .. "' on bad self (Attempt to access forbidden object"
+                              .. " from code tainted by an AddOn - Usage: self:" .. m .. "(x, y))", 2)
+                    end
+                end
+            end
             self.slots[key] = slot
             if opts and opts.initializeFrame then opts.initializeFrame(slot) end
             return slot
@@ -6367,6 +6383,49 @@ do
         ok(win ~= nil, "the options window is there to measure")
         if win then win:Show() fitsIn(win, "the options window") end
     end
+end
+
+-- ---------------------------------------------------------------- a slot the client will not let us touch
+-- (6 Oct 2026) 0.8.1 on a player's own PC: "Auras.lua:317: calling 'SetSize' on bad self (Attempt
+-- to access forbidden object from code tainted by an AddOn)", Count 442 - every frame, because the
+-- layout's retry ran it again, and the grid stopped at the first cell each time.
+do
+    local FA = NS.FA
+    local d = NS.DB()
+    local wasShown = d.shown
+    d.shown = true                       -- the grid ON: a hidden grid lays out no cell at all
+    STATE.slotForbidden, STATE.slotTouched = true, 0
+    FA.slotRefused, FA.sig = nil, nil
+    for _, f in ipairs(FG.frames or {}) do f.auras = nil end
+    local laid, why = pcall(FG.Layout, FG.anchor)
+    ok(laid, "a slot the client refuses does not stop the layout", tostring(why))
+    local shown = 0
+    for _, f in ipairs(FG.frames or {}) do if f.unit and f:IsShown() then shown = shown + 1 end end
+    ok(shown >= 2, "every cell is laid out, not only the first", shown)
+    ok(type(FA.slotRefused) == "string" and FA.slotRefused:find("forbidden", 1, true) ~= nil,
+       "the refusal is remembered, in the client's own words", tostring(FA.slotRefused))
+    local touched = STATE.slotTouched
+    ok(touched == 1, "it was asked ONCE, not once per cell", touched)
+    FA.sig = nil
+    for _, f in ipairs(FG.frames or {}) do f.auras = nil end
+    ok(pcall(FG.Layout, FG.anchor), "and the next layout is clean")
+    ok(STATE.slotTouched == touched, "without touching a slot again", STATE.slotTouched)
+    STATE.slotForbidden = false
+    FA.slotRefused, FA.sig = nil, nil
+
+    -- AND WHATEVER BREAKS IN THERE NEXT costs the markers, never the grid
+    local realSize = FA.MarkerSize
+    FA.MarkerSize = function() error("something new the client refuses", 2) end
+    FA.attachError = nil
+    for _, f in ipairs(FG.frames or {}) do f.auras = nil end
+    ok(pcall(FG.Layout, FG.anchor), "an error inside a marker does not stop the layout")
+    ok(type(FA.attachError) == "string" and FA.attachError:find("something new", 1, true) ~= nil,
+       "and it is kept, to be said", tostring(FA.attachError))
+    FA.MarkerSize, FA.attachError, FA.sig = realSize, nil, nil
+
+    for _, f in ipairs(FG.frames or {}) do f.auras = nil end
+    d.shown = wasShown
+    FG.Layout(FG.anchor)
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

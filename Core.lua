@@ -275,6 +275,9 @@ function NS.DO.auras()
     local on = NS.FA.Debug(not NS.FA.debug)
     Print(("debug aura marker %s"):format(
         on and "ON -- take any debuff and watch the cells" or "off"))
+    if NS.FA.slotRefused then
+        Print("the client will not let markers be placed, so none are: |cfff08cb0%s|r", NS.FA.slotRefused)
+    end
 end
 
 --- Your heals over time on the cells (Renew, Rejuvenation, Regrowth), on or off. No argument flips.

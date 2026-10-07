@@ -8,6 +8,15 @@
   it now reads "in combat: binds wait for the fight to end". The fourth ping button no longer
   hangs two pixels past the right edge.
 
+## 0.8.2
+
+- **Fixed: on some PCs the frames stopped at the first cell and threw an error every frame.** The
+  game refused to let the addon size the small aura markers on a cell ("Attempt to access forbidden
+  object"), and that one refusal stopped the whole layout - over and over. Now the first refusal is
+  remembered, the markers are left out on that PC (said once in chat; `/bish auras` says why), and
+  every cell is laid out as normal. Any other error inside the markers costs the markers, never
+  the frames.
+
 ## 0.8.1
 
 Everything since 0.7.6, which is the last version that reached CurseForge.

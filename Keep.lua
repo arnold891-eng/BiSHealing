@@ -113,6 +113,17 @@ local function settingRows(settings)
     if settings.hidden then out[#out + 1] = "H=1" end
     -- heals over time on the cells are on by default; only "off" is worth a row (O for "over time")
     if settings.hots == false then out[#out + 1] = "O=0" end
+    -- 7 Oct, a player's two asks: the gold ring on your target instead of you (E, for Edge), and
+    -- how bright an out-of-range cell stays (D, for Dim, as a whole percentage). The defaults - the
+    -- ring on you, 45% - write nothing.
+    if settings.ring == "target" then out[#out + 1] = "E=1" end
+    -- 7 Oct: the white crosshair on whoever your mouse is on is ON by default; only "off" is a
+    -- row (J, one of the letters left)
+    if settings.hover == false then out[#out + 1] = "J=0" end
+    local dim = tonumber(settings.dim)
+    if dim and math.floor(dim * 100 + 0.5) ~= 45 then
+        out[#out + 1] = ("D=%d"):format(math.floor(dim * 100 + 0.5))
+    end
     -- clicks handed to Clique (K for clicK); off is the default and is not written
     if settings.clique == true then out[#out + 1] = "K=1" end
     -- 23 Sep, a player's three requests: the layout (L), a cell for your target (G, for tarGet),
@@ -336,6 +347,12 @@ function FK.Decode(body)
             settings.quiet = tonumber(rank) == 1
         elseif code == "O" then
             settings.hots = tonumber(idx) ~= 0
+        elseif code == "E" then
+            settings.ring = tonumber(idx) == 1 and "target" or "me"
+        elseif code == "J" then
+            settings.hover = tonumber(idx) ~= 0
+        elseif code == "D" and tonumber(idx) then
+            settings.dim = tonumber(idx) / 100
         elseif code == "U" then
             -- THE BUFF WATCHED ON THE GROUP (U for "up on anyone"), and the only setting row that
             -- carries a NAME. It cannot carry one directly - a row holds digits - so it rides the
@@ -457,6 +474,7 @@ function FK.Save(binds)
     end
     local body, dropped = FK.Encode(binds, { scale = t.scale, text = t.text, color = t.color,
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
+                                             ring = t.ring, dim = t.dim, hover = t.hover,
                                              clique = t.clique, layout = t.layout,
                                              target = t.target, markers = t.markers, tot = t.tot,
                                              me = t.me, meAt = t.meAt, mePos = t.mePos,

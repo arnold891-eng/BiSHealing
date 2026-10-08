@@ -1,7 +1,29 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.3-beta2
 
+A beta: everything since 0.8.2, for players who take betas.
+
+- **A crosshair on you or your target, instead of a thin ring.** Thick corner brackets and a tick
+  in from each side, in gold - easy to spot at a glance.
+- **A white crosshair on whoever your mouse is on.** Hover a party or raid member's character in
+  the world and their cell lights up, so you can see who that is on your frames. Works in dungeons
+  and raids too. `/bish hover off`, or "mouse crosshair" in the options, turns it off.
+- **Heals on their way stay inside the cell, and the overheal is shown.** The green bar no longer
+  runs across the next cell; the part of a heal that would land on nobody is an amber band at the
+  end of their health, so you can see when a heal will be wasted.
+- **The options window is 25% bigger** and easier to read.
+- **The Tremor button remembers.** The first time somebody else is feared, charmed or slept is kept
+  across logins; `/bish holds` shows it.
+- **The gold ring can follow your target.** It has always marked your own cell; now
+  `gold ring: me / target` in the options (or `/bish ring target`) puts it on whoever you have
+  targeted instead - the way ClickMend marks the one you have selected. It keeps working in
+  dungeons and raids: where the game will not tell the addon who your target is, the addon hands
+  the question to the game and the game draws the ring.
+- **How far out-of-range cells dim is yours to set.** `out of range` in the options, 20% to 90%
+  (`/bish dim 40`); 45% as before until you change it. It works in a fight too.
+- **The options window has two columns**, so it stays short with room for both.
+- Both settings are kept in your `BiSHealing` macro and come back at login.
 - **The bind window's words fit inside it.** The hint under the tabs ran off both edges; it is
   one short line now ("drop a spell or a ping on a button"), and how a ping is put down stays in
   each ping's tooltip. In a fight the bottom line said more than its line could hold and wrapped;

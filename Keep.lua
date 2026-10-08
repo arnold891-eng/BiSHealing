@@ -115,13 +115,13 @@ local function settingRows(settings)
     if settings.hots == false then out[#out + 1] = "O=0" end
     -- 7 Oct, a player's two asks: the gold ring on your target instead of you (E, for Edge), and
     -- how bright an out-of-range cell stays (D, for Dim, as a whole percentage). The defaults - the
-    -- ring on you, 45% - write nothing.
+    -- ring on you, 30% - write nothing (the default was 45% until 7 Oct; a saved 45 now writes D=45).
     if settings.ring == "target" then out[#out + 1] = "E=1" end
     -- 7 Oct: the white crosshair on whoever your mouse is on is ON by default; only "off" is a
     -- row (J, one of the letters left)
     if settings.hover == false then out[#out + 1] = "J=0" end
     local dim = tonumber(settings.dim)
-    if dim and math.floor(dim * 100 + 0.5) ~= 45 then
+    if dim and math.floor(dim * 100 + 0.5) ~= 30 then
         out[#out + 1] = ("D=%d"):format(math.floor(dim * 100 + 0.5))
     end
     -- clicks handed to Clique (K for clicK); off is the default and is not written

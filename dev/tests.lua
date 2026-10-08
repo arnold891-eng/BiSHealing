@@ -134,6 +134,22 @@ local function newFrame(kind, name, parent)
         self.__alpha = a
     end
     function f:GetAlpha() return self.__alpha end
+    -- ALPHA MULTIPLIES DOWN TO THE CHILDREN, as in the client: a header on a cell dimmed to 20%
+    -- draws at 20% too (Arn, 7 Oct: dimming out-of-range cells "also dimmed the header of target
+    -- and tot"). The mock kept each frame's own alpha and nothing else, so it could not see that.
+    -- SetIgnoreParentAlpha(true) stops the chain at that frame, as the client's does.
+    function f:SetIgnoreParentAlpha(v) self.__ignoreParentAlpha = v and true or false end
+    function f:IsIgnoringParentAlpha() return self.__ignoreParentAlpha == true end
+    function f:GetEffectiveAlpha()
+        local a = type(self.__alpha) == "number" and self.__alpha or 1
+        local p = (not self.__ignoreParentAlpha) and self.__parent
+        while p do
+            a = a * (type(p.__alpha) == "number" and p.__alpha or 1)
+            if p.__ignoreParentAlpha then break end
+            p = p.__parent
+        end
+        return a
+    end
     -- THE CLIENT'S OWN TERNARY ON A FRAME (ClickMend 0.16.1's target border, and a dozen
     -- EllesmereUI modules, on this client): the alpha is picked from a boolean the addon may not
     -- test. An auto no-op here would answer "drawn" for a ring nobody ever showed. A plain boolean
@@ -988,7 +1004,7 @@ STATE.dead.party1 = nil
 -- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
 STATE.range.party1 = 0
 FG.Paint(f)
-ok(f:GetAlpha() == 0.45, "out of range dims the cell")
+ok(f:GetAlpha() == 0.30, "out of range dims the cell - to 30% on a fresh install (Arn, 7 Oct)")
 ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls", FG.rangeSeen)
 STATE.range.party1 = nil
 FG.Paint(f)
@@ -6531,6 +6547,20 @@ do
     local thin = 0
     for _, t in ipairs(bars) do if math.min(t.__w or 0, t.__h or 0) < 2 then thin = thin + 1 end end
     ok(thin == 0, "no stroke of it is a 1 px hairline")
+    -- AND IT READS ON ANY CLASS COLOUR (Arn, 7 Oct: "yellow cross hairs too blended on warriors"):
+    -- every stroke has a dark outline behind it, a pixel bigger on each side
+    local outl = other.targetRing.outline or {}
+    ok(#outl == #bars, "every stroke has an outline", #outl)
+    local dark, bigger = true, true
+    for i, o in ipairs(outl) do
+        local col = o.__color
+        if not (col and col[1] < 0.2 and col[2] < 0.2 and col[3] < 0.2 and (col[4] or 1) >= 0.8) then dark = false end
+        local t = bars[i]
+        if not (t and o.__w == t.__w + 2 and o.__h == t.__h + 2) then bigger = false end
+    end
+    ok(dark, "the outline is near-black and solid, so gold reads on a warrior's tan")
+    ok(bigger, "and one pixel bigger than its stroke on every side")
+    ok(#(other.hoverMark.outline or {}) == 12, "the white mouseover crosshair is outlined too (a priest's cell is white)")
     -- and on YOU too, in the "me" mode: the thin gold edge alone was the complaint
     cell.__me = nil
     FG.PaintEdge(cell, "player")
@@ -6595,6 +6625,20 @@ do
     other.unit = "party1"
     FG.PaintRange(other, "party1")
     ok(math.abs(other:GetAlpha() - 0.30) < 0.001, "out of range is drawn at the player's 30%", other:GetAlpha())
+    -- THE HEADER ON A CELL IS NOT DIMMED WITH IT (Arn, 7 Oct, at 20%: "it also dimmed the header
+    -- of target and tot"). The header is the cell's child - so it shows and hides with the cell -
+    -- but it ignores the cell's alpha: "BiS> target" says which cell this is, and that does not
+    -- fade because the person did.
+    do
+        local hadHandle = other.handle
+        other.handle = nil
+        local h = FG.CellHeader(other, "dimtest", other)
+        ok(h and h.__parent == other, "the header is still the cell's child (shows and hides with it)")
+        ok(math.abs(h:GetEffectiveAlpha() - 1) < 0.001,
+           "and draws at full strength while its cell is dimmed to 30%", h:GetEffectiveAlpha())
+        if h then h:Hide() end
+        other.handle = hadHandle
+    end
     local realCurve, handed = C_CurveUtil.EvaluateColorValueFromBoolean, nil
     C_CurveUtil.EvaluateColorValueFromBoolean = function(b, t, f) handed = f return realCurve(b, t, f) end
     STATE.rangeSecret = true
@@ -6608,13 +6652,17 @@ do
     -- IN THE MACRO, because this client hands back no saved variables: written only when not the
     -- default, read back through the newline the client adds
     local FK = NS.FK
-    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "target", dim = 0.3 })
-    ok(body:find("E=1", 1, true) and body:find("D=30", 1, true), "both ride in the macro", body)
+    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "target", dim = 0.35 })
+    ok(body:find("E=1", 1, true) and body:find("D=35", 1, true), "both ride in the macro", body)
     local _, back = FK.Decode(body .. "\n")
-    ok(back.ring == "target" and math.abs((back.dim or 0) - 0.3) < 0.001, "and come back out of it",
+    ok(back.ring == "target" and math.abs((back.dim or 0) - 0.35) < 0.001, "and come back out of it",
        tostring(back.ring) .. " / " .. tostring(back.dim))
-    local plain = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.45 })
+    -- the default is 30% since 7 Oct (Arn: "for fresh installs we set the default dim to 30% grey
+    -- them out almost") - so 30 writes nothing, and a player's 45 (the old default) is a choice now
+    local plain = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.30 })
     ok(not plain:find("E=", 1, true) and not plain:find("D=", 1, true), "the defaults write nothing", plain)
+    local old = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.45 })
+    ok(old:find("D=45", 1, true), "a player who has 45% (the old default) keeps it: it is written now", old)
 
     -- THE COLD START: a login with no clicks has the ring where it was left, and the dim
     local FM = NS.FM

@@ -100,7 +100,7 @@ local DEFAULTS = {
     -- A player's ask, 7 Oct: "a toggle highlight self or highlight target".
     ring    = "me",
     -- how far an out-of-range cell fades: the alpha it is drawn at, 0.2 to 0.9 (same ask)
-    dim     = 0.45,
+    dim     = 0.30,      -- fresh installs: 30% (Arn, 7 Oct); a saved 0.45 is kept
     -- the number on a cell's right: "missing" (what they still need after incoming heals, short,
     -- blank at full), "percent", or "off". Replaced `missing = true/false` on 21 Sep.
     text    = "missing",
@@ -1574,8 +1574,8 @@ function NS.DO.dim(pct)
     local n = tonumber(pct)
     if not n then
         Print(("out of range cells are drawn at %d%% - /bish dim 20 to 90"):format(
-            math.floor((d.dim or 0.45) * 100 + 0.5)))
-        return d.dim or 0.45
+            math.floor((d.dim or 0.30) * 100 + 0.5)))
+        return d.dim or 0.30
     end
     if n > 1 then n = n / 100 end                       -- 40 and 0.4 both mean 40%
     if n < 0.2 then n = 0.2 elseif n > 0.9 then n = 0.9 end

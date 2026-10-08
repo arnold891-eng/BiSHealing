@@ -296,6 +296,20 @@ end
 --   +--          --+
 FG.CROSS = { ARM = 10, THICK = 2, TICK = 6 }
 FG.HOVER = { 0.95, 0.97, 1.00 }        -- the mouseover crosshair: near-white, apart from the gold
+-- THE TARGET CROSSHAIR IS RED (7 Oct 2026). Arn: "this is the current target cross hair, lets do it
+-- red". Gold stays the colour of YOU (the "me" mode); a target is a different thing to point at.
+FG.TARGET = { 1.00, 0.18, 0.18 }
+-- TARGET AND MOUSE ON THE SAME PERSON (7 Oct 2026). Arn: "for the bullseye purpose if you target
+-- someone with mouseover its more active". First try nested a white crosshair 4 px inside the red;
+-- his answer, the same evening: the white should take "the empty space of the red part" when they
+-- are the same person, and look exactly like the red when they are not. So:
+--   target only      -> the red crosshair
+--   mouse only       -> the white crosshair, same shape, same place
+--   target AND mouse -> red corners, the four mid-edge ticks white (third look: white in every gap
+--                       of the red was "a little bit to noise")
+-- With no "is this the same person" test: the white gaps are a CHILD of the red crosshair (alpha
+-- multiplies down, so they show only where both say yes), and the white crosshair sits in a frame
+-- whose alpha is NOT-target. Two client booleans, never read, combined by the frame tree.
 -- px a heal may spill past a cell's right edge. 12 for one beta (7 Oct); 0 the same day, Arn:
 -- "i liked the overflow thing but in the bar of different color" - the overheal lives INSIDE the
 -- bar now, as the band over the health, and nothing crosses the edge
@@ -330,6 +344,7 @@ function FG.Crosshair(frame, c)
         frame.cross[#frame.cross + 1] = t
         return t
     end
+    frame.tint = c
     -- the four corners, two strokes each
     for _, p in ipairs({ "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT" }) do
         bar(p, X.ARM, X.THICK)
@@ -341,6 +356,43 @@ function FG.Crosshair(frame, c)
     bar("LEFT", X.TICK, X.THICK)
     bar("RIGHT", X.TICK, X.THICK)
     return frame
+end
+
+--- THE FOUR TICKS, in a second colour (7 Oct 2026). Target and mouse on the same person: the
+--- corners stay red and the four mid-edge ticks turn white. Arn's third look: the white filling
+--- every gap of the red was "a little bit to noise ... what if we just make the 4 little stubs not
+--- in the corners white if its the same person instead". Drawn exactly over the crosshair's own
+--- ticks (same points, same sizes, outlined), so it changes their colour and nothing else.
+function FG.CrossTicks(frame, c)
+    local X, O = FG.CROSS, FG.CROSS_OUTLINE
+    frame.tick, frame.tickOutline = {}, {}
+    local function bar(point, w, h)
+        local dx = point:find("LEFT") and -1 or (point:find("RIGHT") and 1 or 0)
+        local dy = point:find("TOP") and 1 or (point:find("BOTTOM") and -1 or 0)
+        local o = frame:CreateTexture(nil, "OVERLAY", nil, 1)
+        o:SetColorTexture(O[1], O[2], O[3], O[4])
+        o:SetSize(w + 2, h + 2)
+        o:SetPoint(point, dx, dy)
+        frame.tickOutline[#frame.tickOutline + 1] = o
+        local t = frame:CreateTexture(nil, "OVERLAY", nil, 2)
+        t:SetColorTexture(c[1], c[2], c[3], 1)
+        t:SetSize(w, h)
+        t:SetPoint(point, 0, 0)
+        frame.tick[#frame.tick + 1] = t
+    end
+    bar("TOP", X.THICK, X.TICK)
+    bar("BOTTOM", X.THICK, X.TICK)
+    bar("LEFT", X.TICK, X.THICK)
+    bar("RIGHT", X.TICK, X.THICK)
+    return frame
+end
+
+--- Recolour a crosshair's strokes - only when the colour actually changes, since this is asked on
+--- every paint and twelve SetColorTexture calls a cell a tick is exactly the cost we hunt.
+function FG.TintCross(frame, c)
+    if not (frame and frame.cross and c) or frame.tint == c then return end
+    frame.tint = c
+    for _, t in ipairs(frame.cross) do t:SetColorTexture(c[1], c[2], c[3], 1) end
 end
 
 --- One cell. A secure button so the click reaches Blizzard's own code (an addon may not cast),
@@ -392,14 +444,24 @@ function FG.Make(i, parent)
     -- character if we can light up their frame with an indicator ... this is who it is on the
     -- frames". The same crosshair in white, a level above the gold one, asked about "mouseover" the
     -- way the gold one asks about "target" (FG.PaintHover) - so a secret answer still works.
-    f.hoverMark = CreateFrame("Frame", nil, f)
-    f.hoverMark:SetAllPoints()
-    if f.hoverMark.SetFrameLevel and f.GetFrameLevel then
+    -- (see FG.TARGET) the white crosshair lives in `notTarget`, whose alpha is "NOT your target" -
+    -- so on your target it gives way to the white gaps below instead of covering the red
+    f.notTarget = CreateFrame("Frame", nil, f)
+    f.notTarget:SetAllPoints()
+    if f.notTarget.SetFrameLevel and f.GetFrameLevel then
         local lvl = f:GetFrameLevel()
-        if type(lvl) == "number" then f.hoverMark:SetFrameLevel(lvl + 3) end
+        if type(lvl) == "number" then f.notTarget:SetFrameLevel(lvl + 3) end
     end
+    f.hoverMark = CreateFrame("Frame", nil, f.notTarget)
+    f.hoverMark:SetAllPoints()
     FG.Crosshair(f.hoverMark, FG.HOVER)
     f.hoverMark:Hide()
+    -- and the four white TICKS, a child of the red crosshair: shown only where it is, lit only by
+    -- the mouse - same person targeted and moused = red corners, white ticks
+    f.tickMark = CreateFrame("Frame", nil, f.targetRing)
+    f.tickMark:SetAllPoints()
+    FG.CrossTicks(f.tickMark, FG.HOVER)
+    f.tickMark:Hide()
 
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
@@ -1817,24 +1879,40 @@ FG.EDGE = {
 ---                      keeps working inside an instance where nobody may read who it is
 ---   no answer at all (an identity restriction answers nil for every pair but "is this me"), or a
 ---   client that refuses the hand-over -> hidden: no ring beats a ring on the wrong person
---- The target's own cell is skipped: it is always "the target", and a ring that never moves says
---- nothing (ClickMend skips it too). Returns true, false or "secret".
+--- THE TARGET'S OWN CELL WEARS IT TOO (7 Oct 2026). It was skipped - "always the target, a ring
+--- that never moves says nothing" (ClickMend's choice). Arn: "it should be 3 on the cells on the
+--- target window and tot because its all the same people" - the mark says WHO, on every cell that
+--- is them. Red (FG.TARGET). Returns true, false or "secret".
+--- The white crosshair's holder is the ring's opposite: where the ring shows, the white crosshair
+--- steps aside for the white gaps (see FG.TARGET). `shown` true/false, or a secret boolean.
+function FG.NotTarget(f, shown)
+    local nt = f and f.notTarget
+    if not nt then return end
+    if NS.Secret and NS.Secret(shown) then
+        if pcall(function() nt:SetAlphaFromBoolean(shown, 0, 1) end) then return end
+        shown = false                       -- refused: the white crosshair stays, as it always did
+    end
+    nt:SetAlpha(shown and 0 or 1)
+end
+
 function FG.PaintTarget(f, unit, on)
     local ring = f and f.targetRing
     if not ring then return false end
-    if not on or unit == "target" or not UnitIsUnit then ring:Hide() return false end
+    local function off() ring:Hide() FG.NotTarget(f, false) return false end
+    if not on or not UnitIsUnit then return off() end
+    FG.TintCross(ring, FG.TARGET)
     local ok, same = pcall(UnitIsUnit, unit, "target")
-    if not ok or same == nil then ring:Hide() return false end
+    if not ok or same == nil then return off() end
     if NS.Secret and NS.Secret(same) then
         ring:Show()
         local drew = pcall(function() ring:SetAlphaFromBoolean(same, 1, 0) end)
-        if not drew then ring:Hide() return false end
+        if not drew then return off() end
+        FG.NotTarget(f, same)
         return "secret"
     end
     ring:SetAlpha(1)
-    if same == true or same == 1 then ring:Show() return true end
-    ring:Hide()
-    return false
+    if same == true or same == 1 then ring:Show() FG.NotTarget(f, true) return true end
+    return off()
 end
 
 --- THE WHITE CROSSHAIR ON WHOEVER YOUR MOUSE IS ON (7 Oct 2026, Arn's cousin's idea). The same
@@ -1844,28 +1922,39 @@ end
 function FG.PaintHover(f, unit)
     local mark = f and f.hoverMark
     if not mark then return false end
+    -- one answer, two marks: the white crosshair (shown where this is NOT your target) and the
+    -- white gaps (shown where it IS) - the frame tree decides which one you see
+    local marks = { mark, f.tickMark or false }
+    local function each(fn) for _, m in ipairs(marks) do if m then fn(m) end end end
+    local function off() each(function(m) m:Hide() end) return false end
     local d = NS.DB and NS.DB()
     if (type(d) == "table" and d.hover == false) or not unit or not UnitIsUnit
        or not (UnitExists and UnitExists("mouseover")) then
-        mark:Hide() return false
+        return off()
     end
     local ok, same = pcall(UnitIsUnit, unit, "mouseover")
-    if not ok or same == nil then mark:Hide() return false end
+    if not ok or same == nil then return off() end
     if NS.Secret and NS.Secret(same) then
-        mark:Show()
-        local drew = pcall(function() mark:SetAlphaFromBoolean(same, 1, 0) end)
-        if not drew then mark:Hide() return false end
+        local drew = true
+        each(function(m)
+            m:Show()
+            if not pcall(function() m:SetAlphaFromBoolean(same, 1, 0) end) then drew = false end
+        end)
+        if not drew then return off() end
         return "secret"
     end
-    mark:SetAlpha(1)
-    if same == true or same == 1 then mark:Show() return true end
-    mark:Hide()
-    return false
+    if same == true or same == 1 then each(function(m) m:SetAlpha(1) m:Show() end) return true end
+    return off()
 end
 
 --- Every cell, after the mouse lands on somebody or leaves them.
 function FG.HoverAll()
     for unit, f in pairs(FG.byUnit or {}) do FG.PaintHover(f, unit) end
+    -- AND THE TARGET AND TOT CELLS (7 Oct 2026). Arn: "if i hover the white should be on all 3".
+    -- They are not in byUnit (that is the roster), so the mouse never lit them.
+    for _, f in ipairs({ FG.target or false, FG.tot or false }) do
+        if f and f.unit then FG.PaintHover(f, f.unit) end
+    end
 end
 
 -- The client says when the mouse LANDS on a unit (UPDATE_MOUSEOVER_UNIT) and never when it leaves,
@@ -1903,7 +1992,9 @@ function FG.PaintEdge(f, unit)
         -- and the gold CROSSHAIR on you as well (7 Oct): the thin gold edge alone "is honestly too
         -- small". Who you are is a plain fact here, so the crosshair is simply shown at full alpha.
         if f.targetRing then
+            FG.TintCross(f.targetRing, FG.EDGE.me)      -- gold here: this mode marks YOU
             if gold then f.targetRing:SetAlpha(1) f.targetRing:Show() else f.targetRing:Hide() end
+            FG.NotTarget(f, gold)                       -- the mouse on you fills the gold's gaps
         end
     end
     -- THE ROLE, sticky the same way: a role we can read replaces the last one, an unreadable one

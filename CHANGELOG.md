@@ -4,8 +4,9 @@
 
 - **The target crosshair is red, and it is on every cell that is your target** - the raid cell,
   the target window and the tot when they are the same person. Gold stays the colour of you.
-- **The white mouse crosshair is on all three cells too**, and it sits a little inside the red
-  one: on someone you have targeted AND have your mouse on, the two nest into a bullseye.
+- **The white mouse crosshair is on all three cells too**, the same shape as the red. On someone
+  you have targeted AND have your mouse on, the white fills the gaps of the red crosshair: one
+  red-and-white frame around them.
 
 - **Much lighter on your computer, most of all in a raid.** The addon was re-reading your whole
   spellbook for every cell, ten times a second, to decide which heal measures range - and once

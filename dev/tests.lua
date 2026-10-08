@@ -6754,15 +6754,60 @@ do
     FG.PaintHover(other, "party1")
     ok(not other.hoverMark.__shown, "the mouse leaves everyone: the crosshair goes")
 
-    -- A BULLSEYE (Arn, 7 Oct: "for the bullseye purpose if you target someone with mouseover its
-    -- more active"). The white sits INSIDE the red, so on someone both targeted and moused the two
-    -- nest instead of the white covering the red.
+    -- TARGET AND MOUSE ON THE SAME PERSON (Arn, 7 Oct, second look: "can we make it white takes the
+    -- empty space of the red part? if both target and mouse over are the same person and if its
+    -- different people it white should look like red"). What is SEEN: shown all the way up, and
+    -- an effective alpha above nothing - the frame tree, not a flag, decides it.
+    -- (up to the cell: whether the cell itself is on screen is a different test's business)
+    local function seen(fr)
+        local p = fr
+        while p and p ~= other do
+            if p.__shown == false then return false end
+            p = p.__parent
+        end
+        local a = fr:GetEffectiveAlpha()
+        return type(a) == "number" and a > 0
+    end
+    ok(other.gapMark and #(other.gapMark.gap or {}) == 8 and #(other.gapMark.gapOutline or {}) == 8,
+       "the white gaps are eight outlined stretches - the edge between the red corners and ticks")
+    local g1 = other.gapMark.gap[1].__color
+    ok(g1 and g1[1] > 0.9 and g1[2] > 0.9 and g1[3] > 0.9, "and they are white")
+    ok(other.gapMark.__parent == other.targetRing, "the gaps are a child of the red crosshair")
+    ok(other.hoverMark.__parent == other.notTarget, "the white crosshair sits in the not-target frame")
     local tl
     for _, p in ipairs(other.hoverMark.points or {}) do if p[1] == "TOPLEFT" then tl = p end end
-    ok(tl and (tl[4] or 0) >= 3 and (tl[5] or 0) <= -3,
-       "the mouse crosshair is inset from the cell's edge, inside the target's", tl and (tl[4] .. "," .. tl[5]))
-    ok(FG.HOVER_INSET + FG.CROSS.THICK + 1 < FG.CROSS.ARM,
-       "and close enough that the two read as one bullseye, not two marks")
+    ok(not tl or ((tl[4] or 0) == 0 and (tl[5] or 0) == 0),
+       "and fills the cell like the red one - same shape, same place")
+
+    NS.DO.ring("target")
+    local function paint(targeted, moused)
+        targetIs = targeted and "party1" or "party2"
+        hoverIs = moused and "party1" or "party3"
+        FG.PaintEdge(other, "party1")
+        FG.PaintHover(other, "party1")
+    end
+    paint(true, false)
+    ok(seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.gapMark),
+       "target only: the red crosshair alone")
+    paint(false, true)
+    ok(not seen(other.targetRing) and seen(other.hoverMark) and not seen(other.gapMark),
+       "mouse only (a different person from the target): the white crosshair, like the red")
+    paint(true, true)
+    ok(seen(other.targetRing) and seen(other.gapMark) and not seen(other.hoverMark),
+       "target AND mouse: red crosshair with white in its gaps - the white crosshair steps aside")
+    paint(false, false)
+    ok(not seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.gapMark), "neither: nothing")
+    -- AND WITH SECRET ANSWERS, which is the point of doing it with frames: both handed to the client
+    targetSecret = true
+    hoverSecret = true
+    FG.PaintEdge(other, "party1")
+    FG.PaintHover(other, "party1")
+    ok(other.notTarget.__alphaFromSecret and other.targetRing.__alphaFromSecret
+       and other.hoverMark.__alphaFromSecret and other.gapMark.__alphaFromSecret,
+       "secret answers: all four alphas are the client's to pick, nothing here tests who it is")
+    targetSecret, hoverSecret = false, false
+    targetIs, hoverIs = "party1", nil          -- as the tests below expect to find them
+    NS.DO.ring("me")
 
     -- ON ALL THREE (Arn: "if i hover the white should be on all 3"): the target and tot cells are
     -- not in the roster table, and the mouse never lit them

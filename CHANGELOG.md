@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.3-beta3
 
 - **The crosshairs have a dark outline**, so the gold one reads on a warrior's tan cell and the
   white one on a priest's.

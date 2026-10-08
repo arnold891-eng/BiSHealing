@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.3-beta4
 
 - **The target crosshair is red, and it is on every cell that is your target** - the raid cell,
   the target window and the tot when they are the same person. Gold stays the colour of you.

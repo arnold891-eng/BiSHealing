@@ -938,10 +938,12 @@ do
     end
     ok(f.incoming.__parent == f.healClip and clips(f.healClip),
        "the heals on their way sit inside a frame that clips")
-    ok(FG.LANE and FG.LANE > 0 and FG.LANE <= 16 and anchoredAt(f.healClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", FG.LANE),
-       "which reaches a short lane past the right edge - an overheal sticks out, and stops", FG.LANE)
+    -- (Arn, same evening: "in the bar of different color" - the lane went to 0; the overheal is
+    -- the band over the health, below, and nothing leaves the cell)
+    ok(FG.LANE == 0 and anchoredAt(f.healClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0),
+       "which stops at the cell's right edge - the overheal is shown inside the bar", FG.LANE)
     ok(f.absorb.__parent == f.missClip and anchoredAt(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0),
-       "the shield keeps the cell's own edge - only a heal spills")
+       "the shield keeps the cell's own edge too")
     ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
        "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
 

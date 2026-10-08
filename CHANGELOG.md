@@ -6,9 +6,10 @@
   dimmed by the range of your heal (which cannot be cast on an enemy), and the tot cell - often
   you - was dimmed by a check the game never actually made. You are never dimmed now.
 - The "drag to move" tip no longer says "the the".
-- **An overheal shows twice now.** The heal may stick out a short way past the right edge again
-  (about 12 px - never across the next cell), and the part that lands on nobody is a bold
-  orange-red band over the end of their health, with a white tick where the waste begins.
+- **The overheal shows inside the bar.** The heal fills the missing health in green and stops at
+  the cell's edge. The part that would land on nobody is a bold orange-red band over the end of
+  their health, with a white tick where it starts: that is how much damage they can take before
+  your heal stops overhealing.
 - **Range is measured with your longest-reaching heal.** Every heal you have bound, plus your
   class's own heals even unbound, is asked how far it reaches; the longest wins. A damage spell
   on a bind is never used.

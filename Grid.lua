@@ -296,7 +296,10 @@ end
 --   +--          --+
 FG.CROSS = { ARM = 10, THICK = 2, TICK = 6 }
 FG.HOVER = { 0.95, 0.97, 1.00 }        -- the mouseover crosshair: near-white, apart from the gold
-FG.LANE = 12                           -- px a heal may spill past a cell's right edge (7 Oct)
+-- px a heal may spill past a cell's right edge. 12 for one beta (7 Oct); 0 the same day, Arn:
+-- "i liked the overflow thing but in the bar of different color" - the overheal lives INSIDE the
+-- bar now, as the band over the health, and nothing crosses the edge
+FG.LANE = 0
 FG.OVERHEAL = { 1.00, 0.35, 0.10, 0.95 } -- the overheal band: bold orange-red (was a 70% amber)
 
 --- Draw the crosshair on `frame` (it fills the frame) in colour `c`. Textures only, no art: they
@@ -431,6 +434,8 @@ function FG.Make(i, parent)
     -- to read ("i could see how much was spilling over") was gone; unclipped, it ran across the
     -- next cell. Middle ground, his pick: the HEAL's own clip reaches FG.LANE pixels past the right
     -- edge, so an overheal visibly sticks out - and stops there. The shield keeps the cell's edge.
+    -- Same day, the lane went to 0 (see FG.LANE): he wanted the spill shown IN the bar, which the
+    -- band below already does. The clip stays, so a lane is one number away if he wants it back.
     f.healClip = CreateFrame("Frame", nil, f)
     f.healClip:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     f.healClip:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", FG.LANE, 0)

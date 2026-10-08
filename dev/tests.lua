@@ -6531,6 +6531,20 @@ do
     local thin = 0
     for _, t in ipairs(bars) do if math.min(t.__w or 0, t.__h or 0) < 2 then thin = thin + 1 end end
     ok(thin == 0, "no stroke of it is a 1 px hairline")
+    -- AND IT READS ON ANY CLASS COLOUR (Arn, 7 Oct: "yellow cross hairs too blended on warriors"):
+    -- every stroke has a dark outline behind it, a pixel bigger on each side
+    local outl = other.targetRing.outline or {}
+    ok(#outl == #bars, "every stroke has an outline", #outl)
+    local dark, bigger = true, true
+    for i, o in ipairs(outl) do
+        local col = o.__color
+        if not (col and col[1] < 0.2 and col[2] < 0.2 and col[3] < 0.2 and (col[4] or 1) >= 0.8) then dark = false end
+        local t = bars[i]
+        if not (t and o.__w == t.__w + 2 and o.__h == t.__h + 2) then bigger = false end
+    end
+    ok(dark, "the outline is near-black and solid, so gold reads on a warrior's tan")
+    ok(bigger, "and one pixel bigger than its stroke on every side")
+    ok(#(other.hoverMark.outline or {}) == 12, "the white mouseover crosshair is outlined too (a priest's cell is white)")
     -- and on YOU too, in the "me" mode: the thin gold edge alone was the complaint
     cell.__me = nil
     FG.PaintEdge(cell, "player")

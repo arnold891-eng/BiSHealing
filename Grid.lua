@@ -299,11 +299,26 @@ FG.HOVER = { 0.95, 0.97, 1.00 }        -- the mouseover crosshair: near-white, a
 
 --- Draw the crosshair on `frame` (it fills the frame) in colour `c`. Textures only, no art: they
 --- take a colour, they take any size, and a half-width pyramid cell gets the same reticle.
+--- A DARK OUTLINE BEHIND EVERY STROKE (7 Oct 2026). Arn: "yellow cross hairs too blended on
+--- warriors" - gold on a warrior's tan cell all but vanished, and no single colour reads on every
+--- class (rogue yellow, priest white, warrior tan). A 1 px near-black edge, like outlined text,
+--- makes the stroke read on any of them; the white mouseover crosshair needs it on a priest the same.
+FG.CROSS_OUTLINE = { 0.05, 0.05, 0.05, 0.9 }
+
 function FG.Crosshair(frame, c)
-    local X = FG.CROSS
-    frame.cross = {}
+    local X, O = FG.CROSS, FG.CROSS_OUTLINE
+    frame.cross, frame.outline = {}, {}
     local function bar(point, w, h, x, y)
-        local t = frame:CreateTexture(nil, "OVERLAY")
+        -- the outline first, a sublevel below, one pixel bigger on every side and nudged outward
+        -- along the point's own edges so it frames the stroke instead of shifting it
+        local dx = point:find("LEFT") and -1 or (point:find("RIGHT") and 1 or 0)
+        local dy = point:find("TOP") and 1 or (point:find("BOTTOM") and -1 or 0)
+        local o = frame:CreateTexture(nil, "OVERLAY", nil, 1)
+        o:SetColorTexture(O[1], O[2], O[3], O[4])
+        o:SetSize(w + 2, h + 2)
+        o:SetPoint(point, (x or 0) + dx, (y or 0) + dy)
+        frame.outline[#frame.outline + 1] = o
+        local t = frame:CreateTexture(nil, "OVERLAY", nil, 2)
         t:SetColorTexture(c[1], c[2], c[3], 1)
         t:SetSize(w, h)
         t:SetPoint(point, x or 0, y or 0)

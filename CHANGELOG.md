@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Much lighter on your computer, most of all in a raid.** The addon was re-reading your whole
+  spellbook for every cell, ten times a second, to decide which heal measures range - and once
+  more for the BiS> now block. It reads the book once now, and again only when you learn
+  something. In a 25-player raid that was about 630,000 questions a second to the game; it is
+  now none while nothing changes. `/bish range` shows how many times the book has been read.
 - **Your target and target-of-target are no longer dimmed for no reason.** A hostile target was
   dimmed by the range of your heal (which cannot be cast on an enemy), and the tot cell - often
   you - was dimmed by a check the game never actually made. You are never dimmed now.

@@ -2006,8 +2006,18 @@ function FG.PaintRange(f, unit)
             return 1, "hostile"
         end
     end
+    -- ONE ANSWER FOR THE WHOLE TICK (8 Oct 2026). Which spell measures the range is the same for
+    -- every cell, and working it out means every bind on the mouse and a question or two to the
+    -- client about each - so the update loop asks once before it paints and leaves the answer in
+    -- FG.tickRange, and takes it away again when it has finished. Anything painting outside the
+    -- loop finds nothing there and asks for itself, as this always did.
     local spell, spellID
-    if NS.FM and NS.FM.RangeSpell then spell, spellID = NS.FM.RangeSpell() end
+    local kept = FG.tickRange
+    if kept then
+        spell, spellID = kept[1], kept[2]
+    elseif NS.FM and NS.FM.RangeSpell then
+        spell, spellID = NS.FM.RangeSpell()
+    end
     local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
     if not (range and spell) then
         FG.rangeSeen = "no spell"
@@ -2365,6 +2375,13 @@ function FG.Start()
         if since < THROTTLE then return end
         since = 0
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
+        -- the range spell, once, for every cell painted below (see FG.PaintRange). Set fresh at
+        -- the top of every tick, so a paint that threw last time cannot leave a stale one behind.
+        FG.tickRange = nil
+        if NS.FM and NS.FM.RangeSpell then
+            local spell, spellID = NS.FM.RangeSpell()
+            FG.tickRange = { spell, spellID }
+        end
         for _, f in ipairs(FG.frames) do
             if f.unit and f:IsShown() then FG.Paint(f) end
         end
@@ -2401,6 +2418,7 @@ function FG.Start()
             if tt.name then tt.name:SetText(FG.ShortName("targettarget")) end
             FG.Paint(tt)
         end
+        FG.tickRange = nil              -- the tick is over; the next asker asks for itself
     end)
 
     local ev = CreateFrame("Frame")

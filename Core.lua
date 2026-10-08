@@ -1074,6 +1074,10 @@ function NS.DO.range()
     Print("  the client's boolean-to-value call: %s",
         curve and "|cff4fd0cfthere|r" or "|cfff08cb0missing|r")
     Print("  last paint: |cffb980ff%s|r", tostring(FG and FG.rangeSeen or "nothing painted yet"))
+    -- HOW OFTEN THE BOOK HAS BEEN WALKED. It used to be once per cell per spell per tick, which
+    -- nothing on screen could show; a number that climbs by thousands a minute is the old bug back.
+    Print("  the spellbook has been read |cffb980ff%d|r times since login (it is kept between reads)",
+        (NS.FM and NS.FM.bookReads) or 0)
     Print("  %s", "|cff968eadplain = read normally · secret = the client chose the dimming for us"
         .. " · alpha refused = it would not take it|r")
 end

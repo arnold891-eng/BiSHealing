@@ -1,7 +1,13 @@
-# BiS Healing — CurseForge page text (0.8.2)
+# BiS Healing — CurseForge page text (0.8.3-beta4)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.2 text (7 Oct): a new "Who is who" section (the crosshairs: gold you, red
+target, white mouse, white ticks for both); the heals-on-their-way line now says the heal stops at
+the cell's edge and the overheal is a band over their health; the dimming line says it uses your
+longest-reaching heal, never dims you or your target, and how far it dims is yours; the options
+window line; four new command rows; one line on being light on your computer.
 
 Changed since the 0.8.1 text: "Quiet by default" names its one exception - on a PC where the game
 will not let the aura markers be placed, 0.8.2 leaves them out and says so once.
@@ -50,14 +56,25 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 
 - **The first name on the top line** — "Kumlust", not "Kumlust Surname".
 - **A number on the bottom line: what they still need.** It counts heals already on their way, so two healers stop filling the same gap. Shortened (`3.2K`), and **blank at full health**. Prefer a **percentage**? Or nothing? Your choice.
+- **Heals on their way, and the overheal.** Incoming heals fill the missing health in green and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold orange-red band over the end of their health, with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Wait for the band to shrink, then cast.
 - **Bars in class colour — or coloured by health**: green, amber below 70%, red below 35%.
 - **The dispel marker shows what it is**: magic, curse, poison or disease, in the game's own icon, when there's something on them *you* can remove.
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
 - **Marker size**, 6 to 20 pixels.
-- **Dimmed when they're out of range** of what your mouse would cast — **including during a fight**, which is when you need it. The game keeps "can you reach them" secret in combat, so it is handed back to the game to pick the brightness from; the addon never learns who is reachable.
+- **Dimmed when they're out of range** of your longest-reaching heal — every heal you have bound, plus your class's own — **including during a fight**, which is when you need it. The game keeps "can you reach them" secret in combat, so it is handed back to the game to pick the brightness from; the addon never learns who is reachable. You and your target are never dimmed. **How far it dims is yours**: `out of range` in the options, 20% to 90% (30% on a fresh install).
 - **Role icons**, and the raid's Main Tank counts as a tank.
 - **A pyramid** (`/bish pyramid`): tanks on top, then damage, healers at the bottom. Melee sit above casters inside each band, and the bottom rows go half-width so a 40-man still reads as a pyramid.
 - **Size**: 60% to 160%. **Put it anywhere** — drag the header above the cells.
+
+## Who is who: the crosshairs
+
+Thick corner brackets with a tick in from each side, outlined so they read on any class colour.
+
+- **Gold on you** — or, with `/bish ring target` (**gold ring: me / target** in the options), **red on whoever you have targeted**: their raid cell, the target cell and the tot cell when they are the same person.
+- **White on whoever your mouse is on** — hover a party or raid member's character in the world and their cell lights up, so you can see who that is on your frames.
+- **Target and mouse on the same person**: the corners stay red and the four ticks turn white.
+
+All of it keeps working inside dungeons and raids, where the game will not tell an addon who anyone is: the question is handed to the game and the game draws the mark. `/bish hover off` turns the mouse crosshair off.
 
 ## Cells you can add
 
@@ -104,7 +121,7 @@ One exception, and it is there so you are never left guessing: on some PCs the g
 
 ## Settings
 
-Any click on the minimap button opens one small window with everything in it. Or type:
+Any click on the minimap button opens the options window — two columns, everything in it. Or type:
 
 | command | does |
 |---|---|
@@ -120,6 +137,9 @@ Any click on the minimap button opens one small window with everything in it. Or
 | `/bish across` · `/bish grid` · `/bish pyramid` | groups across, down, or by role |
 | `/bish missing` · `/bish percent` · `/bish number off` | the number on the cells |
 | `/bish colour` · `/bish hots` · `/bish markers 14` · `/bish scale 90` | how it looks |
+| `/bish ring me` · `/bish ring target` | the crosshair on you, or red on your target |
+| `/bish hover on` · `off` | the white crosshair on whoever your mouse is on |
+| `/bish dim 40` | how far out-of-range cells dim, 20 to 90 |
 | `/bish center` · `/bish hide` · `/bish show` | where it is |
 | `/bish scan` · `/bish range` · `/bish regen` | what this client will tell me right now |
 | `/bish byid` · `/bish ping` · `/bish curve` · `/bish control` · `/bish hits` | the same, in detail — for bug reports |
@@ -132,6 +152,8 @@ On WoW Forever, addons aren't allowed to read other players' health, auras, mana
 That's why it keeps working in every fight — and why it doesn't rank people by damage taken: ranking would mean reading what the game keeps hidden.
 
 It is also why, when this addon cannot tell, it says so instead of guessing.
+
+And it is built to be light: what does not change — your spellbook, your binds — is read once and kept, not asked again every frame, so a 40-man costs little more than a party.
 
 ## TBC
 

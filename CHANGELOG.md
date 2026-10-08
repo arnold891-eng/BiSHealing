@@ -1,5 +1,11 @@
 # BiS Healing
 
+## Unreleased
+
+- **An overheal shows twice now.** The heal may stick out a short way past the right edge again
+  (about 12 px - never across the next cell), and the part that lands on nobody is a bold
+  orange-red band over the end of their health, with a white tick where the waste begins.
+
 ## 0.8.3-beta3
 
 - **The crosshairs have a dark outline**, so the gold one reads on a warrior's tan cell and the

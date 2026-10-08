@@ -296,6 +296,8 @@ end
 --   +--          --+
 FG.CROSS = { ARM = 10, THICK = 2, TICK = 6 }
 FG.HOVER = { 0.95, 0.97, 1.00 }        -- the mouseover crosshair: near-white, apart from the gold
+FG.LANE = 12                           -- px a heal may spill past a cell's right edge (7 Oct)
+FG.OVERHEAL = { 1.00, 0.35, 0.10, 0.95 } -- the overheal band: bold orange-red (was a 70% amber)
 
 --- Draw the crosshair on `frame` (it fills the frame) in colour `c`. Textures only, no art: they
 --- take a colour, they take any size, and a half-width pyramid cell gets the same reticle.
@@ -425,7 +427,16 @@ function FG.Make(i, parent)
     f.missClip:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0, 0)
     if f.missClip.SetClipsChildren then f.missClip:SetClipsChildren(true) end
 
-    f.incoming = CreateFrame("StatusBar", nil, f.missClip)
+    -- A SHORT SPILL LANE FOR THE HEAL (7 Oct 2026). Clipped at the cell's edge, the spill Arn used
+    -- to read ("i could see how much was spilling over") was gone; unclipped, it ran across the
+    -- next cell. Middle ground, his pick: the HEAL's own clip reaches FG.LANE pixels past the right
+    -- edge, so an overheal visibly sticks out - and stops there. The shield keeps the cell's edge.
+    f.healClip = CreateFrame("Frame", nil, f)
+    f.healClip:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.healClip:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", FG.LANE, 0)
+    if f.healClip.SetClipsChildren then f.healClip:SetClipsChildren(true) end
+
+    f.incoming = CreateFrame("StatusBar", nil, f.healClip)
     f.incoming:SetPoint("TOPLEFT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
     f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2)
     f.incoming:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -482,13 +493,26 @@ function FG.Make(i, parent)
     f.overheal:SetPoint("TOPRIGHT", f.bar, "TOPRIGHT", 0, 0)
     f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2)
     f.overheal:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    f.overheal:SetStatusBarColor(1.00, 0.55, 0.15, 0.70)
+    -- BOLD, NOT FAINT (7 Oct 2026). The first amber at 70% read as "a little line" on Arn's screen;
+    -- a solid orange-red stands off every class colour, and wasted healing is a warning.
+    f.overheal:SetStatusBarColor(FG.OVERHEAL[1], FG.OVERHEAL[2], FG.OVERHEAL[3], FG.OVERHEAL[4])
     if f.overheal.SetReverseFill then f.overheal:SetReverseFill(true) end
     f.overheal:SetMinMaxValues(0, 1)
     f.overheal:SetValue(0)
     if f.overheal.SetFrameLevel and f.GetFrameLevel then
         local lvl = f:GetFrameLevel()
         if type(lvl) == "number" then f.overheal:SetFrameLevel(lvl + 3) end
+    end
+    -- AND A WHITE TICK WHERE THE WASTE BEGINS: pinned to the left edge of the overheal's own fill,
+    -- inside the same clip - so it is drawn only when there IS an overheal, and marks exactly where
+    -- "this much of the heal lands on nobody" starts. Still no number read: the client places it.
+    local fillTex = f.overheal.GetStatusBarTexture and f.overheal:GetStatusBarTexture()
+    if fillTex then
+        f.overTick = f.overheal:CreateTexture(nil, "OVERLAY")
+        f.overTick:SetColorTexture(1, 1, 1, 0.95)
+        f.overTick:SetWidth(2)
+        f.overTick:SetPoint("TOPLEFT", fillTex, "TOPLEFT", 0, 0)
+        f.overTick:SetPoint("BOTTOMLEFT", fillTex, "BOTTOMLEFT", 0, 0)
     end
 
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on

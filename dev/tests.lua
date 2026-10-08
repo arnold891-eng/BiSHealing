@@ -184,6 +184,14 @@ local function newFrame(kind, name, parent)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    -- A STATUS BAR HAS A FILL TEXTURE, and hands back the same one every time (7 Oct 2026). This was
+    -- an auto no-op answering nil, so every "anchored to the end of the fill" in the suite was
+    -- anchored to nil - and the overheal's tick, which is built only when the fill answers, was
+    -- never built at all.
+    function f:GetStatusBarTexture()
+        if not self.__fill then self.__fill = self:CreateTexture() end
+        return self.__fill
+    end
     -- CLIPPING AND REVERSE FILL, RECORDED (6 Oct 2026). Both were auto no-ops, so "the heal bar
     -- stops at the cell's edge" had no answer - and on Arn's screen it ran straight across the
     -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
@@ -888,13 +896,31 @@ do
     end
     local tex = f.bar:GetStatusBarTexture()
 
-    ok(f.incoming.__parent == f.missClip and clips(f.missClip),
-       "the heals on their way sit inside a frame that clips - they stop at the cell's edge")
-    ok(f.absorb.__parent == f.missClip, "so does the shield, which spilled the same way")
+    -- THE SHORT SPILL LANE (Arn, 7 Oct, picking "both": the heal may stick out past the edge so an
+    -- overheal is SEEN, but only FG.LANE pixels - never across the next cell)
+    local function anchoredAt(fr, point, rel, relPoint, x)
+        for _, p in ipairs(fr.points or {}) do
+            if p[1] == point and p[2] == rel and p[3] == relPoint and (p[4] or 0) == x then return true end
+        end
+        return false
+    end
+    ok(f.incoming.__parent == f.healClip and clips(f.healClip),
+       "the heals on their way sit inside a frame that clips")
+    ok(FG.LANE and FG.LANE > 0 and FG.LANE <= 16 and anchoredAt(f.healClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", FG.LANE),
+       "which reaches a short lane past the right edge - an overheal sticks out, and stops", FG.LANE)
+    ok(f.absorb.__parent == f.missClip and anchoredAt(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0),
+       "the shield keeps the cell's own edge - only a heal spills")
     ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
        "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
 
     ok(f.overheal ~= nil, "a cell has an overheal bar")
+    -- BOLD, AND TICKED (Arn: the 70% amber read as "a little line"): solid orange-red, and a white
+    -- tick on the left edge of the overheal's own fill - where the wasted part begins
+    local oc = f.overheal.__color
+    ok(oc and oc[1] >= 0.9 and oc[2] <= 0.5 and oc[3] <= 0.3, "the overheal band is a bold orange-red")
+    ok(f.overTick ~= nil, "a white tick marks where the overheal begins")
+    ok(f.overTick and f.overTick.__color and f.overTick.__color[1] == 1 and f.overTick.__w == 2,
+       "white, 2 px")
     ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
     ok(f.overheal.__parent == f.curClip and clips(f.curClip),
        "inside a frame that clips")

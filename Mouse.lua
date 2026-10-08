@@ -501,7 +501,8 @@ function FM.RangeSpell()
             end
         end
     end
-    if best then return best, bestID end
+    -- the reach rides along third, so /bish range can show its working
+    if best then return best, bestID, bestRange end
     -- the book has not answered yet (login): the first bound spell by name is all there is to try
     return order[1]
 end

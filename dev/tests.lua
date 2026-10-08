@@ -1229,6 +1229,19 @@ do
     ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
 end
 ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
+-- AND SHOWS ITS WORKING (7 Oct). Arn read "Healing Wave" and could not tell if that was the
+-- longest or just the left click - the line still said "left click first". The yards settle it.
+do
+    local keptChat, keptRange = _G.DEFAULT_CHAT_FRAME, STATE.spellRange
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    STATE.spellRange = { ["Healing Wave"] = 40 }
+    NS.DO.range()
+    _G.DEFAULT_CHAT_FRAME, STATE.spellRange = keptChat, keptRange
+    local first = heard[1] or ""
+    ok(first:find("40 yd", 1, true) ~= nil, "/bish range names the yards of the heal it picked", first)
+    ok(first:find("left click first", 1, true) == nil, "and no longer claims the old left-click rule", first)
+end
 
 -- a client that refuses a secret max must not take the addon down with it; whether Forever does
 -- is not yet measured, so the grid asks once and remembers the answer

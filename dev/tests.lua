@@ -134,6 +134,22 @@ local function newFrame(kind, name, parent)
         self.__alpha = a
     end
     function f:GetAlpha() return self.__alpha end
+    -- ALPHA MULTIPLIES DOWN TO THE CHILDREN, as in the client: a header on a cell dimmed to 20%
+    -- draws at 20% too (Arn, 7 Oct: dimming out-of-range cells "also dimmed the header of target
+    -- and tot"). The mock kept each frame's own alpha and nothing else, so it could not see that.
+    -- SetIgnoreParentAlpha(true) stops the chain at that frame, as the client's does.
+    function f:SetIgnoreParentAlpha(v) self.__ignoreParentAlpha = v and true or false end
+    function f:IsIgnoringParentAlpha() return self.__ignoreParentAlpha == true end
+    function f:GetEffectiveAlpha()
+        local a = type(self.__alpha) == "number" and self.__alpha or 1
+        local p = (not self.__ignoreParentAlpha) and self.__parent
+        while p do
+            a = a * (type(p.__alpha) == "number" and p.__alpha or 1)
+            if p.__ignoreParentAlpha then break end
+            p = p.__parent
+        end
+        return a
+    end
     -- THE CLIENT'S OWN TERNARY ON A FRAME (ClickMend 0.16.1's target border, and a dozen
     -- EllesmereUI modules, on this client): the alpha is picked from a boolean the addon may not
     -- test. An auto no-op here would answer "drawn" for a ring nobody ever showed. A plain boolean
@@ -6609,6 +6625,20 @@ do
     other.unit = "party1"
     FG.PaintRange(other, "party1")
     ok(math.abs(other:GetAlpha() - 0.30) < 0.001, "out of range is drawn at the player's 30%", other:GetAlpha())
+    -- THE HEADER ON A CELL IS NOT DIMMED WITH IT (Arn, 7 Oct, at 20%: "it also dimmed the header
+    -- of target and tot"). The header is the cell's child - so it shows and hides with the cell -
+    -- but it ignores the cell's alpha: "BiS> target" says which cell this is, and that does not
+    -- fade because the person did.
+    do
+        local hadHandle = other.handle
+        other.handle = nil
+        local h = FG.CellHeader(other, "dimtest", other)
+        ok(h and h.__parent == other, "the header is still the cell's child (shows and hides with it)")
+        ok(math.abs(h:GetEffectiveAlpha() - 1) < 0.001,
+           "and draws at full strength while its cell is dimmed to 30%", h:GetEffectiveAlpha())
+        if h then h:Hide() end
+        other.handle = hadHandle
+    end
     local realCurve, handed = C_CurveUtil.EvaluateColorValueFromBoolean, nil
     C_CurveUtil.EvaluateColorValueFromBoolean = function(b, t, f) handed = f return realCurve(b, t, f) end
     STATE.rangeSecret = true

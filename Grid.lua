@@ -1103,6 +1103,11 @@ function FG.CellHeader(f, word, moves, keys)
     moves = moves or f
     keys = keys or FG.TARGET_KEYS
     local h = CreateFrame("Frame", "BiSHealingForeverHeader" .. tostring(word), f)
+    -- NOT DIMMED WITH ITS CELL (7 Oct 2026). Arn, with out-of-range at 20%: "it also dimmed the
+    -- header of target and tot". The header stays the cell's child - it shows and hides with it -
+    -- but ignores the cell's alpha: the bar says WHICH cell this is, and that does not fade because
+    -- the person walked out of range. EllesmereUI uses the same call on Forever.
+    if h.SetIgnoreParentAlpha then h:SetIgnoreParentAlpha(true) end
     h:SetHeight(HEADER_H)
     h:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, HEADER_LIFT)
     h:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, HEADER_LIFT)

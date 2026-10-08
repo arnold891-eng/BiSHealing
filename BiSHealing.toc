@@ -1,8 +1,9 @@
 ## Interface: 20506, 16001
 ## Title: BiS Healing
+## Category: |cffb980ffBiS>|rAddons
 ## Notes: Click-cast healing cells for any healer. The client draws what it will not let an addon read.
 ## Author: Kumlust
-## Version: 0.8.3-beta1
+## Version: 0.8.3-beta2
 ## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
 ## SavedVariablesPerCharacter: BiSHealingCharDB

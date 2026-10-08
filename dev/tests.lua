@@ -56,6 +56,13 @@ local STATE = {
 }
 
 local frames = {}
+-- EVERY LABEL EVER MADE, walked by fitsIn() (6 Oct 2026, ported from BiSTools).
+local LABELS = {}
+-- the client's own font templates, in points. A label made from one of these was 12 pt to the
+-- mock whatever it said, and GameFontNormalSmall is 10 on every client we have measured.
+local FONT_SIZE = { GameFontNormal = 12, GameFontHighlight = 12, GameFontDisable = 12,
+                    GameFontNormalSmall = 10, GameFontHighlightSmall = 10, GameFontDisableSmall = 10,
+                    GameFontNormalLarge = 16, GameFontHighlightLarge = 16, NumberFontNormal = 14 }
 local function autoMethods(t)
     return setmetatable(t, { __index = function(_, k)
         if type(k) == "string" and k:match("^%u") then return function() end end
@@ -161,6 +168,13 @@ local function newFrame(kind, name, parent)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    -- CLIPPING AND REVERSE FILL, RECORDED (6 Oct 2026). Both were auto no-ops, so "the heal bar
+    -- stops at the cell's edge" had no answer - and on Arn's screen it ran straight across the
+    -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
+    function f:SetClipsChildren(v) self.__clips = v and true or false end
+    function f:DoesClipChildren() return self.__clips == true end
+    function f:SetReverseFill(v) self.__reverse = v and true or false end
+    function f:GetReverseFill() return self.__reverse == true end
     -- A TEXTURE REMEMBERS WHAT IT WAS GIVEN. autoMethods answers every call with nil, which is
     -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
     -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
@@ -194,10 +208,19 @@ local function newFrame(kind, name, parent)
             GetAlpha    = function(t) return t.__alpha end,
             SetBlendMode = function(t, m) t.__blend = m end,
             SetAllPoints = function(t) t.__allpoints = true end,
-            SetPoint    = function(t, p, x, y) t.__point = { p, x or 0, y or 0 } end,
+            -- AND WHAT IT IS PINNED TO (6 Oct 2026). __point kept only the offsets, so a label hung
+            -- off an icon could not say where it STARTS; the fit check below follows `points`.
+            SetPoint    = function(t, p, a, b, c, d)
+                t.points = t.points or {}
+                t.points[#t.points + 1] = { p, a, b, c, d }
+                if type(a) == "table" then t.__point = { p, c or 0, d or 0 }
+                else t.__point = { p, a or 0, b or 0 } end
+            end,
+            ClearAllPoints = function(t) t.points = {} end,
+            __parent = self,
         })
     end
-    function f:CreateFontString()
+    function f:CreateFontString(_, _, template)
         -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
         -- mock remembers: two labels in one 84px header printed through each other in game, twice
         -- (the mouse window in the morning, the grid header in the afternoon).
@@ -237,9 +260,26 @@ local function newFrame(kind, name, parent)
             end,
             SetPoint = function(self2, ...) self2.points = self2.points or {}
                                             self2.points[#self2.points + 1] = { ... } end,
+            ClearAllPoints = function(self2) self2.points = {} end,
+            -- A LABEL KNOWS ITS SIZE, ITS BOX AND WHETHER IT IS SHOWN (6 Oct 2026). Show and Hide
+            -- were auto no-ops, so a hidden label still read as drawn; the font template and
+            -- SetFont were dropped, so nothing knew how big the letters are. The fit check needs
+            -- all of it: Arn's "a check for cut offs or overflows that happens often".
+            __shown  = true,
+            Show     = function(self2) self2.__shown = true end,
+            Hide     = function(self2) self2.__shown = false end,
+            IsShown  = function(self2) return self2.__shown end,
+            __parent = self,
+            GetParent = function(self2) return self2.__parent end,
+            __size   = FONT_SIZE[template or ""] or 12,
+            SetFont  = function(self2, _, size) if type(size) == "number" then self2.__size = size end end,
+            SetFontObject = function(self2, o) self2.__size = FONT_SIZE[o] or (type(o) == "table" and o.__size) or self2.__size end,
+            SetWidth = function(self2, w) self2.__w = w end,
+            SetWordWrap = function(self2, v) self2.__wrap = v and true or false end,
         })
         self.__fontstrings = self.__fontstrings or {}
         self.__fontstrings[#self.__fontstrings + 1] = fs
+        LABELS[#LABELS + 1] = fs
         return fs
     end
     -- AN EDIT BOX HOLDS WHAT WAS TYPED IN IT. Every method not written down here answers nil,
@@ -814,6 +854,60 @@ do
     STATE.absorbSecret = false
     FG.Paint(f)
     ok(f.absorb.__value == 0, "a shield that broke empties the bar rather than leaving it")
+end
+
+-- INSIDE THE CELL, AND THE OVERHEAL AS A FEATURE (6 Oct 2026). Arn's screenshot: a Chain Heal on
+-- its way ran the green bar straight out of the cell and over the next one - and he used that spill
+-- to hold a cast until the heal would not be wasted. So the heal and the shield are clipped to the
+-- EMPTY part of the bar, and the overheal is drawn inside the FILLED part: a bar filling from the
+-- right edge by the incoming amount, clipped to the fill, shows only where incoming is more than
+-- missing. The client does that geometry - nothing here compares a heal with a health.
+do
+    local function clips(fr) return fr and fr.__clips == true end
+    local function anchoredTo(fr, point, rel, relPoint)
+        for _, p in ipairs(fr.points or {}) do
+            if p[1] == point and p[2] == rel and p[3] == relPoint then return true end
+        end
+        return false
+    end
+    local tex = f.bar:GetStatusBarTexture()
+
+    ok(f.incoming.__parent == f.missClip and clips(f.missClip),
+       "the heals on their way sit inside a frame that clips - they stop at the cell's edge")
+    ok(f.absorb.__parent == f.missClip, "so does the shield, which spilled the same way")
+    ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
+       "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
+
+    ok(f.overheal ~= nil, "a cell has an overheal bar")
+    ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
+    ok(f.overheal.__parent == f.curClip and clips(f.curClip),
+       "inside a frame that clips")
+    ok(anchoredTo(f.curClip, "TOPLEFT", f.bar, "TOPLEFT") and anchoredTo(f.curClip, "BOTTOMRIGHT", tex, "BOTTOMRIGHT"),
+       "and that frame is the FILLED part: from the left edge to the end of the fill")
+    ok(f.overheal.__reverse == true, "it fills from the RIGHT")
+    ok(anchoredTo(f.overheal, "TOPRIGHT", f.bar, "TOPRIGHT"), "starting at the cell's right edge")
+    ok(f.overheal.__w == f.incoming.__w, "as wide as the heal bar, so the two are on one scale")
+
+    STATE.incoming.party1 = 700
+    STATE.incomingSecret = true
+    ok(pcall(FG.Paint, f), "a secret heal paints the overheal without throwing")
+    ok(getmetatable(f.overheal.__value) == secretMeta,
+       "the overheal bar is handed the same secret, untouched - the client works out the overlap")
+    -- two secrets are never ==, each UnitHealthMax call is its own; same KIND of max is the claim
+    ok(f.overheal.__max ~= nil and getmetatable(f.overheal.__max) == getmetatable(f.incoming.__max)
+       and (getmetatable(f.incoming.__max) == secretMeta or f.overheal.__max == f.incoming.__max),
+       "on the same scale as the heal bar")
+    STATE.incoming.party1 = nil
+    STATE.incomingSecret = false
+    FG.Paint(f)
+    ok(f.overheal.__value == 0, "nothing coming, no overheal drawn")
+
+    -- the half-width pyramid cells resize every bar, the shield included (it was left out)
+    local sized = true
+    for _, b in ipairs({ "incoming", "absorb", "overheal" }) do
+        if f[b].__w ~= f.incoming.__w then sized = false end
+    end
+    ok(sized, "after a layout every bar in the cell is the same width")
 end
 
 -- A SECRET BOOLEAN, AND A SECRET STRING, both of which go into a test in Paint: one sits in an
@@ -5604,6 +5698,68 @@ do
         held.player = nil
         NS.FG.Roster = function() return { "player", "party1" } end
 
+        -- THE ONE BIT SURVIVES A LOGIN (6 Oct 2026). On 5 Oct the button lit after a party fear and
+        -- the proof died at the next reload, because seenHolds is one session. The first sighting
+        -- on somebody else goes into the saved variables, which this client hands back again.
+        do
+            local db = NS.DB()
+            db.holds = nil
+            FN.seenHolds = {}
+            held.player = "FEAR"
+            NS.FG.Roster = function() return { "player" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds and db.holds.FEAR and db.holds.FEAR.firstAt ~= nil,
+               "the first fear is kept in the saved table")
+            ok(db.holds.FEAR.otherAt == nil, "but on the player alone it proves nothing, and says so")
+            held.player = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+            held.party1 = "FEAR"
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt ~= nil and db.holds.FEAR.otherUnit == "party1",
+               "a fear on party1 is kept as the sighting on somebody else, with who")
+            local first = db.holds.FEAR.otherAt
+            held.party1 = nil
+            FN.PaintNeed(btn, "tremor")
+            held.party2 = "FEAR"
+            NS.FG.Roster = function() return { "player", "party1", "party2" } end
+            FN.PaintNeed(btn, "tremor")
+            ok(db.holds.FEAR.otherAt == first and db.holds.FEAR.otherUnit == "party1",
+               "the FIRST sighting is the one kept - a later one does not move it")
+            held.party2 = nil
+            NS.FG.Roster = function() return { "player", "party1" } end
+
+            -- logout, then a login: the table comes back, the session record does not
+            local fireEv = NS.events.__scripts.OnEvent
+            fireEv(NS.events, "PLAYER_LOGOUT")
+            ok(type(_G.BiSHealingCharDB) == "table" and type(_G.BiSHealingCharDB.holds) == "table"
+               and _G.BiSHealingCharDB.holds.FEAR.otherUnit == "party1",
+               "the per-character copy carries it too")
+            FN.seenHolds = {}
+            fireEv(NS.events, "ADDON_LOADED", "BiSHealing")
+            local heard = {}
+            local realChat = _G.DEFAULT_CHAT_FRAME
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            local all = table.concat(heard, "\n")
+            ok(all:find("kept across logins") and all:find("READ ON SOMEBODY ELSE"),
+               "after the login, with nothing held this session, /bish holds still says it was seen", all)
+            ok(not all:find("did not come back"), "and does not cry wolf when the file DID come back")
+
+            -- a login where the client omitted the file: say the record started fresh
+            local realLoaded = NS.loaded
+            NS.loaded = { found = false }
+            heard = {}
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.holds()
+            _G.DEFAULT_CHAT_FRAME = realChat
+            ok(table.concat(heard, "\n"):find("did not come back"),
+               "a login that got no saved file says the kept record started fresh")
+            NS.loaded = realLoaded
+            db.holds = nil
+            FN.seenHolds = {}
+        end
+
         -- THE FIGHT ENDING IS WHAT MAKES THE BUTTON (3 Oct 2026). Arn: "people have been slept and
         -- the tremor button has not popped up". It was seeing them - Watch asked, Note counted -
         -- and FN.Settle, the one thing that turns a count into a button, WAS CALLED BY NOTHING BUT
@@ -6030,6 +6186,229 @@ do
     ok(FB.TotemSlot(1) == nil, "so is a refusal to answer it")
 
     _G.C_Secrets, _G.GetTotemInfo = realSecrets, realTotem
+end
+
+-- ---------------------------------------------------------------- does every label FIT its window
+-- (6 Oct 2026, ported from BiSTools) Arn, on BiSTools' Spawns window: "make a check for cut offs or
+-- overflows that happens often". Every shown label inside a window is measured where it actually
+-- starts - following what it is pinned to, through buttons, icons and other labels - and must end
+-- inside the window.
+--
+-- WIDTH, CALIBRATED ON THE CLIENT, NOT GUESSED: capitals and digits 0.75 px per point ("NEED MATS",
+-- BiSCraft, 11 Sep), lowercase 0.55, spaces and punctuation 0.3 (Arn's screenshot: "click a mob to
+-- see its spawns" at 9 pt ran ~10 px past a 124 px window). The mock's own GetStringWidth stays as
+-- it is: addon code trims by it, and changing it changes what the addon draws.
+--
+-- A label pinned on BOTH sides (the cell's name, LEFT and RIGHT) is a box: the client cuts the text
+-- at the box with "..." - which the cell name does on purpose, up to the role icon - so its BOX is
+-- what must fit. A label given a width is a box too, and text wider than it WRAPS onto a line
+-- nobody drew room for: that is a failure.
+local FIT = {}
+function FIT.textW(fs)
+    local t, tex = tostring(fs.__text or ""), 0
+    t = t:gsub("|T[^|]-:(%d+):%d+[^|]*|t", function(w) tex = tex + tonumber(w) return "" end)
+    t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local px = 0
+    for ch in t:gmatch(".") do
+        if ch:match("[%u%d]") then px = px + 0.75 elseif ch:match("%l") then px = px + 0.55 else px = px + 0.3 end
+    end
+    return px * (fs.__size or 12) + tex
+end
+function FIT.isLabel(r) return r.__size ~= nil end
+-- one anchor as { point, rel, relPoint, x }: the short form SetPoint("LEFT", 4, 0) is the parent
+function FIT.norm(r, p)
+    if type(p[2]) == "table" then return p[1], p[2], p[3] or p[1], p[4] or 0 end
+    if type(p[2]) == "number" then return p[1], r.__parent, p[1], p[2] end
+    return p[1], r.__parent, p[1], 0
+end
+function FIT.ax(relL, relW, rp)
+    if rp:find("LEFT") then return relL elseif rp:find("RIGHT") then return relL + relW end
+    return relL + relW / 2
+end
+-- left edge and width, in px from the window's left; nil when the chain cannot be followed honestly
+function FIT.box(r, root, rootW, depth)
+    if r == root then return 0, rootW end
+    if (depth or 0) > 12 or r == nil then return nil end
+    local d = (depth or 0) + 1
+    if r.__allpoints then return FIT.box(r.__parent, root, rootW, d) end
+    local pts = r.points or {}
+    local lp, rpnt                       -- the point holding the left edge, the one holding the right
+    for _, p in ipairs(pts) do
+        if p[1]:find("LEFT") then lp = p elseif p[1]:find("RIGHT") then rpnt = p end
+    end
+    if lp and rpnt then                  -- pinned on both sides: a box between them
+        local a, rel, rp, x = FIT.norm(r, lp)
+        local l1, w1 = FIT.box(rel, root, rootW, d)
+        local _, rel2, rp2, x2 = FIT.norm(r, rpnt)
+        local l2, w2 = FIT.box(rel2, root, rootW, d)
+        if not (l1 and l2) then return nil end
+        local left = FIT.ax(l1, w1, rp) + x
+        return left, FIT.ax(l2, w2, rp2) + x2 - left
+    end
+    local p = lp or rpnt or pts[#pts]
+    if not p then return nil end
+    local w
+    if FIT.isLabel(r) then w = r.__w or FIT.textW(r) else w = r.__w end
+    if not w then return nil end
+    local point, rel, rp, x = FIT.norm(r, p)
+    local relL, relW = FIT.box(rel, root, rootW, d)
+    if not relL then return nil end
+    local a = FIT.ax(relL, relW, rp) + x
+    if point:find("LEFT") then return a, w elseif point:find("RIGHT") then return a - w, w end
+    return a - w / 2, w
+end
+function FIT.shownIn(r, root)
+    if r.__shown == false then return false end
+    local p = r.__parent
+    while p do
+        if p.__shown == false then return false end
+        if p == root then return true end
+        p = p.__parent
+    end
+    return false
+end
+-- the window's own width: SetWidth, or what its two anchors span
+function FIT.width(root, depth)
+    if root.__w then return root.__w end
+    if (depth or 0) > 8 then return nil end
+    local lp, rpnt
+    for _, p in ipairs(root.points or {}) do
+        if p[1]:find("LEFT") then lp = p elseif p[1]:find("RIGHT") then rpnt = p end
+    end
+    if not (lp and rpnt) then return nil end
+    local _, rel, rp, x = FIT.norm(root, lp)
+    local _, rel2, rp2, x2 = FIT.norm(root, rpnt)
+    if rel ~= rel2 or not rel then return nil end
+    local rw = FIT.width(rel, (depth or 0) + 1)
+    return rw and (FIT.ax(0, rw, rp2) + x2 - FIT.ax(0, rw, rp) - x)
+end
+local function plainText(t) return (tostring(t):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+local function fitsIn(root, what)
+    local width, bad, measured = FIT.width(root), {}, 0
+    ok(type(width) == "number", what .. ": the window has a width to measure against", tostring(width))
+    if type(width) ~= "number" then return end
+    for _, fs in ipairs(LABELS) do
+        if type(fs.__text) == "string" and fs.__text ~= "" and FIT.shownIn(fs, root) then
+            local l, w = FIT.box(fs, root, width)
+            if l then
+                measured = measured + 1
+                local tw = FIT.textW(fs)
+                if l < -1 or l + w > width + 1 then
+                    bad[#bad + 1] = ("%q needs %d px from %d, the window is %d"):format(plainText(fs.__text), w, l, width)
+                elseif fs.__w and tw > fs.__w + 1 then
+                    bad[#bad + 1] = ("%q needs %d px in a %d px line - it wraps"):format(plainText(fs.__text), tw, fs.__w)
+                end
+            end
+        end
+    end
+    ok(measured > 0, what .. ": the fit check measured something (a check that sees nothing proves nothing)")
+    ok(#bad == 0, what .. ": every label fits - " .. table.concat(bad, "; "))
+    if os.getenv("FIT_SAY") then print(("fit: %-45s %2d label(s) in %d px"):format(what, measured, width)) end
+    return measured
+end
+
+do
+    local FM = NS.FM
+    local d = NS.DB()
+
+    -- THE MOUSE WINDOW, empty and then with the longest names it can hold: every tab, every ping
+    FM.win = nil
+    local w = FM.Window()
+    w:Show()
+    for i, m in ipairs(FM.MODS) do
+        w.mod = m.key
+        w:Refresh()
+        fitsIn(w, "the mouse window, " .. m.label .. " tab")
+    end
+    -- and IN A FIGHT, when the foot line changes its words
+    STATE.inCombat = true
+    w:Refresh()
+    fitsIn(w, "the mouse window, in combat")
+    STATE.inCombat = false
+    w:Refresh()
+    for _, t in ipairs(w.tabs) do fitsIn(t, "the " .. tostring(t.text.__text) .. " tab's own button") end
+    for _, b in ipairs(w.pings or {}) do
+        if b.text.__shown ~= false then fitsIn(b, "the " .. tostring(b.text.__text) .. " ping button") end
+    end
+    w:Hide()
+
+    -- THE GRID'S HEADER and the cell headers, with the longest words they carry
+    -- the grid header is one group wide for a party (84) and two for a small raid: measured at
+    -- both, saying the longest things it says - a missing shield, and the mana in a fight
+    local h = FG.header
+    if h then
+        local keepW, keepKnown = h.__w, NS.FS and NS.FS.known
+        for _, width in ipairs({ 84, 168, 200 }) do
+            h.__w = width
+            if NS.FS then NS.FS.known = { "Lightning Shield" } end
+            h.__word = nil
+            FG.PaintRegen(h)
+            fitsIn(h, ("the grid header at %d px, %s"):format(width, tostring(h.title.__text)))
+            STATE.inCombat = true
+            NS.FR.spentAt = nil
+            h.__word = nil
+            FG.PaintRegen(h)
+            fitsIn(h, ("the grid header at %d px in a fight, %s"):format(width, tostring(h.title.__text)))
+            STATE.inCombat = false
+        end
+        h.__w = keepW
+        if NS.FS then NS.FS.known = keepKnown end
+        h.__word = nil
+        FG.PaintRegen(h)
+    end
+    local was = { me = d.me, target = d.target, tot = d.tot, pets = d.pets }
+    NS.DO.me(true) NS.DO.target(true) NS.DO.tot(true) NS.DO.pets("solo")
+    local headers = 0
+    for _, cell in ipairs({ FG.me, FG.target, FG.tot, FG.petAnchor }) do
+        if cell and cell.handle then
+            cell:Show() cell.handle:Show()
+            fitsIn(cell.handle, "the " .. tostring(cell.handle.word) .. " cell's header")
+            headers = headers + 1
+        end
+    end
+    ok(headers >= 3, "the cell headers were there to measure", headers)
+
+    -- A CELL, with a Forever name - a surname and all - and its number
+    local realName = _G.UnitName
+    _G.UnitName = function() return "Kumlustandrew Surname" end
+    local cell = FG.frames and FG.frames[1]
+    if cell then
+        cell:Show()
+        FG.Bind(cell, "party1")
+        FG.Paint(cell)
+        cell.htext:SetText("100%")
+        fitsIn(cell, "a raid cell, with the longest name")
+    end
+
+    -- THE MANA ROWS, with a long first name and a full percentage
+    STATE.roles = { player = "HEALER", party1 = "HEALER" }
+    NS.DO.mana(true)
+    STATE.power.player = 100
+    for _, row in ipairs(FG.manaRows or {}) do
+        if row:IsShown() then
+            FG.PaintMana(row, row.unit)
+            row.pct:SetText("100%")
+            fitsIn(row, "a mana row, " .. tostring(row.who.__text))
+        end
+    end
+    NS.DO.mana(false)
+    _G.UnitName = realName
+    NS.DO.me(was.me == true) NS.DO.target(was.target == true) NS.DO.tot(was.tot == true)
+    d.pets = was.pets
+    FG.Layout(FG.anchor)
+
+    -- THE /bish text PANEL, asked about the longest unit word it is given
+    STATE.units.focustarget = true
+    NS.DO.text("focustarget")
+    if NS.textPanel then fitsIn(NS.textPanel, "the /bish text panel") NS.textPanel:Hide() end
+    STATE.units.focustarget = nil
+
+    -- THE OPTIONS WINDOW, every row
+    if NS.CFG and NS.CFG.Build then
+        local win = NS.CFG.Build() or NS.CFG.frame
+        ok(win ~= nil, "the options window is there to measure")
+        if win then win:Show() fitsIn(win, "the options window") end
+    end
 end
 
 -- ---------------------------------------------------------------- a slot the client will not let us touch

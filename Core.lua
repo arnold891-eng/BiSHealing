@@ -117,7 +117,7 @@ local DEFAULTS = {
 -- `buffSound` is a file id where nil means ours. Without this list the migration below would set
 -- them aside in the attic as if they belonged to another addon - a setting that quietly moves
 -- house looks exactly like one that was never saved.
-local CARRY = { "selfBuffs", "buffSound" }
+local CARRY = { "selfBuffs", "buffSound", "holds" }
 
 NS.DBVER = 1
 
@@ -652,10 +652,47 @@ function NS.DO.holds()
     for kind in pairs(seen) do kinds[#kinds + 1] = kind end
     table.sort(kinds)
 
+    -- WHAT WAS KEPT ACROSS LOGINS (6 Oct 2026): first sightings only, see FN.KeepHold
+    local kept = type(DB().holds) == "table" and DB().holds or {}
+    local keptKinds, keptOther = {}, nil
+    for kind, k in pairs(kept) do
+        if type(k) == "table" then
+            keptKinds[#keptKinds + 1] = kind
+            if k.otherAt and (not keptOther or k.otherAt < keptOther.otherAt) then
+                keptOther = { kind = kind, otherAt = k.otherAt, otherUnit = k.otherUnit,
+                              otherFight = k.otherFight }
+            end
+        end
+    end
+    table.sort(keptKinds)
+    local function when(t) return (date and t and date("%d %b %H:%M", t)) or tostring(t) end
+
+    if #keptKinds > 0 then
+        Print("kept across logins:")
+        for _, kind in ipairs(keptKinds) do
+            local k = kept[kind]
+            Print("  |cffb980ff%s|r  first %s%s", kind, when(k.firstAt),
+                k.otherAt and ("  |cff4fd0cfon somebody else|r: " .. tostring(k.otherUnit) .. ", "
+                    .. when(k.otherAt) .. (k.otherFight and " (in a fight)" or ""))
+                or "  |cff968eadonly ever on you|r")
+        end
+    end
+    -- Overlord (6 Oct): this beta can still OMIT a saved file at login. Say so rather than show a
+    -- record that quietly started again today.
+    local L = NS.loaded or {}
+    if not L.found or L.savedAt == nil then
+        Print("  |cfff08cb0the saved file did not come back this login|r - anything kept above started"
+            .. " fresh this session")
+    end
+
     if #kinds == 0 then
         Print("nothing has held anybody since login.")
         Print("  %s", "|cff968eadThe block has to be ON and drawn for this to be watching at all -"
             .. " it is the Tremor button's own paint that asks. |cffb980ff/bish now on|r|r")
+        if keptOther then
+            Print("  |cff4fd0cfREAD ON SOMEBODY ELSE|r - %s on %s, %s. The shaman alone needs the addon.",
+                keptOther.kind, tostring(keptOther.otherUnit), when(keptOther.otherAt))
+        end
         return true
     end
 
@@ -687,6 +724,9 @@ function NS.DO.holds()
     Print("  in a fight: |cffb980ff%s|r", tostring(inFight))
     if other then
         Print("  |cff4fd0cfREAD ON SOMEBODY ELSE - the shaman alone needs the addon.|r")
+    elseif keptOther then
+        Print("  |cff4fd0cfREAD ON SOMEBODY ELSE|r - not this session, but kept: %s on %s, %s.",
+            keptOther.kind, tostring(keptOther.otherUnit), when(keptOther.otherAt))
     else
         Print("  |cffe5c04aevery one of these was on YOU.|r %s",
             "|cff968eadLoss of control reading for another unit is still unproven;"
@@ -1747,7 +1787,7 @@ NS.loaded = { found = false }
 --
 -- These are SEPARATE TABLES, never aliases: two globals pointing at one table is one file saved
 -- and one lost, which would look exactly like the bug we are working around.
-local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves" }
+local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves", "holds" }
 
 local function copy(v)
     if type(v) ~= "table" then return v end

@@ -1,5 +1,14 @@
 # BiS Healing
 
+## Unreleased
+
+- **The crosshairs have a dark outline**, so the gold one reads on a warrior's tan cell and the
+  white one on a priest's.
+- **The "BiS> target" and "BiS> tot" bars no longer fade** when that person is out of range - only
+  the cell does.
+- **A fresh install dims out-of-range cells to 30%**, almost greyed out. If you already play with
+  the setting, yours is kept.
+
 ## 0.8.3-beta2
 
 A beta: everything since 0.8.2, for players who take betas.

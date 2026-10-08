@@ -1925,7 +1925,7 @@ end
 
 -- How far down an unreachable cell goes. Not hidden: out of range is a thing to notice, not a
 -- thing to lose.
-FG.DIM = 0.45
+FG.DIM = 0.30          -- a fresh install greys an out-of-range cell almost out (Arn, 7 Oct); was 0.45
 
 --- THE PLAYER'S DIM, 0.2 to 0.9 (a player's ask, 7 Oct: "a slider for how much it dims out of
 --- range"). Read per paint, so a change shows on the next tick; anything odd is the default.

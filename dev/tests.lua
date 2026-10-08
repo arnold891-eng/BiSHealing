@@ -1004,7 +1004,7 @@ STATE.dead.party1 = nil
 -- RANGE, PLAINLY: out of combat the client answers 1 or 0 and the addon reads it
 STATE.range.party1 = 0
 FG.Paint(f)
-ok(f:GetAlpha() == 0.45, "out of range dims the cell")
+ok(f:GetAlpha() == 0.30, "out of range dims the cell - to 30% on a fresh install (Arn, 7 Oct)")
 ok(FG.rangeSeen == "plain", "read plainly, which is what happens between pulls", FG.rangeSeen)
 STATE.range.party1 = nil
 FG.Paint(f)
@@ -6652,13 +6652,17 @@ do
     -- IN THE MACRO, because this client hands back no saved variables: written only when not the
     -- default, read back through the newline the client adds
     local FK = NS.FK
-    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "target", dim = 0.3 })
-    ok(body:find("E=1", 1, true) and body:find("D=30", 1, true), "both ride in the macro", body)
+    local body = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "target", dim = 0.35 })
+    ok(body:find("E=1", 1, true) and body:find("D=35", 1, true), "both ride in the macro", body)
     local _, back = FK.Decode(body .. "\n")
-    ok(back.ring == "target" and math.abs((back.dim or 0) - 0.3) < 0.001, "and come back out of it",
+    ok(back.ring == "target" and math.abs((back.dim or 0) - 0.35) < 0.001, "and come back out of it",
        tostring(back.ring) .. " / " .. tostring(back.dim))
-    local plain = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.45 })
+    -- the default is 30% since 7 Oct (Arn: "for fresh installs we set the default dim to 30% grey
+    -- them out almost") - so 30 writes nothing, and a player's 45 (the old default) is a choice now
+    local plain = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.30 })
     ok(not plain:find("E=", 1, true) and not plain:find("D=", 1, true), "the defaults write nothing", plain)
+    local old = FK.Encode({ ["wheelup"] = "Healing Wave(Rank 2)" }, { ring = "me", dim = 0.45 })
+    ok(old:find("D=45", 1, true), "a player who has 45% (the old default) keeps it: it is written now", old)
 
     -- THE COLD START: a login with no clicks has the ring where it was left, and the dim
     local FM = NS.FM

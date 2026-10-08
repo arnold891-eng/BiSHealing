@@ -308,21 +308,14 @@ function FS.Play(file)
 end
 
 --- Every spell id this character has for a name: a buff is a different id at every rank.
+---
+--- FROM THE ONE READ THE MOUSE KEEPS (8 Oct 2026). This walked all 500 book slots itself, and
+--- FS.Check asks it for every watched buff on every UNIT_AURA about you - which in a fight is
+--- every proc, every debuff and every tick of anything. Mouse.lua loads after this file, so the
+--- book is looked up here, when asked, and a fresh list comes back each time as it always did.
 function FS.SpellIds(name)
-    local ids = {}
-    local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
-    if not (C_SpellBook and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemInfo) then
-        return ids
-    end
-    for i = 1, 500 do
-        local got, nm = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
-        if got and nm == name then
-            local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
-            local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
-            if type(id) == "number" then ids[#ids + 1] = id end
-        end
-    end
-    return ids
+    if NS.FM and NS.FM.BookIds then return NS.FM.BookIds(name) end
+    return {}
 end
 
 --- Ask the client to make a noise when one of these leaves you. Answers how many it registered,
@@ -366,7 +359,17 @@ function FS.Start()
     f:SetScript("OnEvent", function(_, event, unit)
         -- nil unit = an event about nobody in particular (SPELLS_CHANGED), which we want. A unit
         -- that is somebody, or that the client will not let us identify, is not our business.
+        -- (7 Oct 2026) a raid aura is answered with ONE question, not IsPlayer's two-plus: the
+        -- client always sends "player" for your own auras, so anything else is somebody else's
+        if event == "UNIT_AURA" and (NS.Secret(unit) or unit ~= "player") then return end
         if unit ~= nil and (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return end
+        -- THE BOOK IS KEPT NOW (Mouse.lua), and its own listener hears these two events too - but
+        -- which frame the client tells FIRST is not ours to say. If it were this one, the check
+        -- below would be about the book as it was, and nothing would ask again. So the kept book
+        -- is dropped here before it is read, whoever was told first.
+        if (event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD") and NS.FM and NS.FM.BookChanged then
+            NS.FM.BookChanged()
+        end
         FS.Check()
         -- the book fills in late at login, and a rank learned later is a new spell id
         if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then FS.Sounds() end

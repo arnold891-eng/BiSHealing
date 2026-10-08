@@ -199,16 +199,12 @@ function FA.HotIds(family)
         name = select(2, pcall(C_Spell.GetSpellName, family.ids[1]))
     end
     if type(name) ~= "string" or name == "" or NS.Secret(name) then return ids end
-    local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
-    if C_SpellBook and C_SpellBook.GetSpellBookItemName and C_SpellBook.GetSpellBookItemInfo then
-        for i = 1, 500 do
-            local got, nm = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
-            if got and nm == name then
-                local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
-                local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
-                if type(id) == "number" then ids[id] = true end
-            end
-        end
+    -- FROM THE ONE READ THE MOUSE KEEPS (8 Oct 2026). This walked all 500 book slots itself, for
+    -- every family, for every cell, at every layout - a raid filling up relays the grid out once
+    -- a join. FM.BookIds answers from a book read once and re-read when the client says it changed.
+    -- Mouse.lua loads after this file, so it is looked up here, at the moment of asking.
+    if NS.FM and NS.FM.BookIds then
+        for _, id in ipairs(NS.FM.BookIds(name)) do ids[id] = true end
     end
     return ids
 end

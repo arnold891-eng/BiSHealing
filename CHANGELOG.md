@@ -1,5 +1,29 @@
 # BiS Healing
 
+## Unreleased
+
+- **Much lighter on your computer, most of all in a raid.** The addon was re-reading your whole
+  spellbook for every cell, ten times a second, to decide which heal measures range - and once
+  more for the BiS> now block. It reads the book once now, and again only when you learn
+  something. In a 25-player raid that was about 630,000 questions a second to the game; it is
+  now none while nothing changes. `/bish range` shows how many times the book has been read.
+- **Lighter in raid fights too.** The mana-regen line and the self-buff watch reacted to every
+  buff and debuff on every raid member; they now only look at yours. Each frame's repaint asks
+  the game for max health once instead of four times.
+- **Your target and target-of-target are no longer dimmed for no reason.** A hostile target was
+  dimmed by the range of your heal (which cannot be cast on an enemy), and the tot cell - often
+  you - was dimmed by a check the game never actually made. You are never dimmed now.
+- The "drag to move" tip no longer says "the the".
+- **The overheal shows inside the bar.** The heal fills the missing health in green and stops at
+  the cell's edge. The part that would land on nobody is a bold orange-red band over the end of
+  their health, with a white tick where it starts: that is how much damage they can take before
+  your heal stops overhealing.
+- **Range is measured with your longest-reaching heal.** Every heal you have bound, plus your
+  class's own heals even unbound, is asked how far it reaches; the longest wins. A damage spell
+  on a bind is never used.
+- Fixed a Lua error out of a party ("attempt to compare local 'checked' (a secret boolean
+  value)") - the game's secret answer is now asked about before it is ever compared.
+
 ## 0.8.3-beta3
 
 - **The crosshairs have a dark outline**, so the gold one reads on a warrior's tan cell and the

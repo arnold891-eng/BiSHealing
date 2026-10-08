@@ -465,23 +465,72 @@ function FM.RangeSpell()
         if c and FM.PingOf(c) then return nil end
         return c
     end
-    local cast = spellAt("", "left") or spellAt("", "right")
-    if not cast then
-        for _, slot in ipairs(FM.SLOTS) do
-            for _, m in ipairs(FM.MODS) do
-                cast = cast or spellAt(m.key, slot.key)
+    -- THE LONGEST REACH OF EVERY HEAL YOU KNOW (7 Oct 2026). Arn: "now that we know more about
+    -- the client can we check all the healing spells and use that range the biggest one". Every
+    -- spell bound (left and right first, then the rest), then the class's own heals, each asked
+    -- for its maximum range; the longest wins, and a tie keeps the earlier - the one the hand
+    -- reaches for. A spell the client calls NOT helpful is skipped: a damage spell on a bind has
+    -- a range too, and it answers nil about a friend, which is "no answer" for the whole raid.
+    local order, seen = {}, {}
+    local function add(cast)
+        if not cast then return end
+        local name = FM.Split(cast)
+        if name and not seen[name] then seen[name] = true order[#order + 1] = name end
+    end
+    add(spellAt("", "left")) add(spellAt("", "right"))
+    for _, slot in ipairs(FM.SLOTS) do
+        for _, m in ipairs(FM.MODS) do add(spellAt(m.key, slot.key)) end
+    end
+    -- select(2, ...), not `local _, class = UnitClass and UnitClass(...)`: `x and f()` keeps only
+    -- f's FIRST return, so that line left `class` nil and no class heal was ever asked (7 Oct -
+    -- the truncated-returns landmine, which the suite caught and bislint did not)
+    local class = UnitClass and select(2, UnitClass("player"))
+    -- in a FIXED order: `pairs` has none, and between two equal heals the winner would be chance
+    local defaults = FM.CLASS_DEFAULTS[class or ""] or {}
+    for _, k in ipairs({ "left", "right", "shift-left" }) do add(defaults[k]) end
+
+    local best, bestID, bestRange
+    for _, name in ipairs(order) do
+        local id
+        for _, r in ipairs(FM.Ranks(name) or {}) do if r.spell then id = r.spell break end end
+        if id then
+            local helpful = FM.Helpful(id)
+            if helpful ~= false then
+                local reach = FM.MaxRange(id) or 0
+                if not bestRange or reach > bestRange then best, bestID, bestRange = name, id, reach end
             end
         end
     end
-    if not cast then return nil end
-    local name = FM.Split(cast)
-    for _, r in ipairs(FM.Ranks(name) or {}) do
-        if r.spell then return name, r.spell end
-    end
-    return name
+    -- the reach rides along third, so /bish range can show its working
+    if best then return best, bestID, bestRange end
+    -- the book has not answered yet (login): the first bound spell by name is all there is to try
+    return order[1]
 end
 
---- EVERY RANK OF A SPELL THIS CHARACTER KNOWS, oldest first, by walking the spellbook.
+--- Is this spell one you cast on a friend? true / false, or nil when the client will not say.
+function FM.Helpful(id)
+    local f = C_Spell and C_Spell.IsSpellHelpful
+    if not f then return nil end
+    local ok, v = pcall(f, id)
+    if not ok or (NS.Secret and NS.Secret(v)) then return nil end
+    if v == true or v == 1 then return true end
+    if v == false or v == 0 then return false end
+    return nil
+end
+
+--- A spell's maximum range in yards, or nil. C_Spell.GetSpellInfo answers a TABLE (`maxRange`);
+--- the old global answered it as the 6th return - both shapes, as RezComm learned on 17 Sep.
+function FM.MaxRange(id)
+    local get = (C_Spell and C_Spell.GetSpellInfo) or GetSpellInfo
+    if not get then return nil end
+    local ok, a, _, _, _, _, six = pcall(get, id)
+    if not ok then return nil end
+    local r = (type(a) == "table") and a.maxRange or six
+    if NS.Secret and NS.Secret(r) then return nil end
+    return type(r) == "number" and r or nil
+end
+
+--- EVERY RANK OF A SPELL THIS CHARACTER KNOWS, oldest first, out of the spellbook.
 ---
 --- Arn, 19 Sep: "did not let me do different rank on modifier and shift modifier". Dropping a
 --- lower rank assumes the spellbook is showing you one to drag, and that is a setting - on a
@@ -489,35 +538,62 @@ end
 ---
 --- So the window stops depending on the drag for this: bind the spell once, then click the rank.
 --- The list comes from the book itself, so it is exactly what this character has trained.
-function FM.Ranks(name)
-    if not name or name == "" then return {} end
-    local out, seen = {}, {}
-    -- `index` IS A BOOK SLOT AND `spell` IS A SPELL ID, and they are not the same number (1 Oct
-    -- 2026). This field was called `id` and held the slot, which read like a spell id to everything
-    -- that touched it - so three callers asked the client about the wrong thing entirely, and the
-    -- only reason it was ever noticed is that `/bish byid` printed the number: Arn's Water Shield
-    -- came back as "id 35", which is a row in his spellbook.
-    --
-    -- The one that had been wrong longest is the range check (0.7.2), which has been asking
-    -- IsSpellInRange about slot numbers ever since and quietly working off its name fallback - a
-    -- bug hidden by its own safety net. A field named for what it is cannot be misread that way.
-    local function add(nm, rank, index, spell)
-        if nm ~= name then return end
-        local key = tostring(rank or "")
-        if seen[key] then return end
-        seen[key] = true
-        out[#out + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil,
-                          index = index, spell = spell }
-    end
+---
+--- THE BOOK IS READ ONCE AND KEPT (8 Oct 2026). This used to walk all 500 slots on every call,
+--- and it is called a great deal: the grid asks FM.RangeSpell for every cell on every tick, which
+--- asks here about every spell on the mouse; BiS> now asks FB.Knows on every tick as well. Arn's
+--- own mouse in a 25-man came to 126 walks a tick - 630,000 questions a second about a book that
+--- had not changed since login. His addon list said so before anything else did: "Current CPU
+--- 6%" with the addon off or the cells hidden, "63%" with them shown.
+---
+--- So one walk fills `book.names` for every spell at once, and it is thrown away when:
+---   * the client says the book changed (SPELLS_CHANGED, PLAYER_ENTERING_WORLD - FM.BookChanged)
+---   * it is FM.BOOK_TTL seconds old, in case there is a way to learn a spell that fires neither
+---   * it came back EMPTY, which is never kept: at login the client has not filled the book in
+---     yet, and an empty answer remembered is a mouse with no defaults for the whole session
+local book = {}
+FM.BOOK_TTL = 5
+FM.bookReads = 0          -- how many times the book has been walked; /bish range prints it
 
-    --- The real spell id behind a book slot, or nil. The same read SelfBuff.lua has always done.
-    local function idAt(i, bank)
-        if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo) then return nil end
-        local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
-        local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
-        return type(id) == "number" and id or nil
-    end
+--- The real spell id behind a book slot, or nil. The same read SelfBuff.lua has always done.
+function book.idAt(i, bank)
+    if not (C_SpellBook and C_SpellBook.GetSpellBookItemInfo) then return nil end
+    local ok, info = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
+    local id = ok and type(info) == "table" and NS.Plain(info.spellID) or nil
+    return type(id) == "number" and id or nil
+end
 
+-- `index` IS A BOOK SLOT AND `spell` IS A SPELL ID, and they are not the same number (1 Oct
+-- 2026). This field was called `id` and held the slot, which read like a spell id to everything
+-- that touched it - so three callers asked the client about the wrong thing entirely, and the
+-- only reason it was ever noticed is that `/bish byid` printed the number: Arn's Water Shield
+-- came back as "id 35", which is a row in his spellbook.
+--
+-- The one that had been wrong longest is the range check (0.7.2), which has been asking
+-- IsSpellInRange about slot numbers ever since and quietly working off its name fallback - a
+-- bug hidden by its own safety net. A field named for what it is cannot be misread that way.
+function book.add(into, nm, rank, index, spell)
+    -- a secret string refuses to be a table key, and a name we may not read is not one we can
+    -- be asked about by name either
+    if type(nm) ~= "string" or nm == "" or NS.Secret(nm) then return false end
+    local e = into[nm]
+    if not e then
+        e = { ranks = {}, seen = {}, ids = {} }
+        into[nm] = e
+    end
+    -- every id under the name, rank or no rank: a buff is a different id at every rank
+    if type(spell) == "number" then e.ids[#e.ids + 1] = spell end
+    local key = tostring(rank or "")
+    if e.seen[key] then return true end
+    e.seen[key] = true
+    e.ranks[#e.ranks + 1] = { rank = (type(rank) == "string" and rank ~= "") and rank or nil,
+                              index = index, spell = spell }
+    return true
+end
+
+--- Walk the modern book once, every slot, into a table keyed by spell name.
+function book.readModern()
+    local names, n = {}, 0
     -- THE MODERN BOOK TAKES TWO ARGUMENTS: the slot, and which bank it is in. Measured in game
     -- on 1.60.1.69913, 19 Sep 2026, after this function had been answering "no ranks" forever:
     --
@@ -536,18 +612,104 @@ function FM.Ranks(name)
     -- the one-argument call - it refuses it now.
     local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
     if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+        -- cost: once per SPELLS_CHANGED / PLAYER_ENTERING_WORLD, or every FM.BOOK_TTL s - kept between
         for i = 1, 500 do
             local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, idAt(i, bank)) end
+            if got and type(nm) == "string" and nm ~= "" then
+                if book.add(names, nm, sub, i, book.idAt(i, bank)) then n = n + 1 end
+            end
         end
     end
-    -- the old book: (index, bookType), and a count per tab
-    if #out == 0 and GetSpellBookItemName and GetNumSpellTabs then
+    return names, n
+end
+
+--- The old book: (index, bookType), and a count per tab. Only ever asked about a name the modern
+--- book did not have, which is what the walk-per-call did too.
+function book.readOld()
+    local names, n = {}, 0
+    if GetSpellBookItemName and GetNumSpellTabs then
+        -- cost: only when the modern book came back empty, and kept with it (book.get)
         for i = 1, 500 do
             local got, nm, sub = pcall(GetSpellBookItemName, i, "spell")
-            if got and type(nm) == "string" and nm ~= "" then add(nm, sub, i, nil) end
+            if got and type(nm) == "string" and nm ~= "" then
+                if book.add(names, nm, sub, i, nil) then n = n + 1 end
+            end
         end
     end
+    return names, n
+end
+
+--- The book as last read, or read now. Second return: the old book's table, filled only when a
+--- caller needs it (pass true).
+function book.get(wantOld)
+    local now = GetTime and GetTime()
+    local fresh = book.names and now and book.at and (now - book.at) >= 0 and (now - book.at) < FM.BOOK_TTL
+    if not fresh then
+        local names, n = book.readModern()
+        local old, m = nil, 0
+        if n == 0 then old, m = book.readOld() end      -- a client with only the old book
+        FM.bookReads = FM.bookReads + 1
+        if (n + m) > 0 and now then
+            book.names, book.old, book.at = names, old, now
+        elseif book.names and now then
+            -- IT ONLY GOT OLD, AND NOW THE CLIENT ANSWERS NOTHING. Nobody said the book changed
+            -- (FM.BookChanged empties book.names, and then this branch is not reached) - the kept
+            -- one just reached its age, and the re-read came back empty. A character does not
+            -- unlearn every spell in silence; a client that has gone quiet mid-fight is the
+            -- likelier story, and this addon keeps what it last knew when that happens. Asked
+            -- again in another FM.BOOK_TTL, not on every call: that would be the old cost back
+            -- at exactly the moment the client is busiest.
+            book.at = now
+        else
+            -- empty with nothing kept, or no clock to age it by: never kept
+            book.names, book.old, book.at = nil, nil, nil
+            return names, old
+        end
+    end
+    if wantOld and not book.old then book.old = (book.readOld()) end
+    return book.names, book.old
+end
+
+--- The client said the book changed, or something that knows it did is telling us. Cheap: the
+--- next question walks it again, and a hundred of these in a row cost one walk.
+function FM.BookChanged()
+    book.names, book.at, book.old = nil, nil, nil
+end
+
+do
+    local okF, f = pcall(CreateFrame, "Frame")
+    if okF and f then
+        for _, e in ipairs({ "SPELLS_CHANGED", "PLAYER_ENTERING_WORLD" }) do
+            pcall(f.RegisterEvent, f, e)        -- an event this client does not know must not abort the file
+        end
+        f:SetScript("OnEvent", function() FM.BookChanged() end)
+        FM.bookEvents = f
+    end
+end
+
+--- A fresh list every time, never the kept one: a caller that sorted or trimmed it in place
+--- would be rewriting the memory every other caller reads.
+function FM.Ranks(name)
+    if not name or name == "" then return {} end
+    local names = book.get()
+    local e = names and names[name]
+    if not e and GetSpellBookItemName and GetNumSpellTabs then
+        local _, old = book.get(true)
+        e = old and old[name]
+    end
+    local out = {}
+    if e then for i, r in ipairs(e.ranks) do out[i] = r end end
+    return out
+end
+
+--- Every spell id this character has under a name, one per rank, from the same single read.
+--- SelfBuff's FS.SpellIds and the HoT markers' FA.HotIds each walked the book for this themselves.
+function FM.BookIds(name)
+    local out = {}
+    if not name or name == "" then return out end
+    local names = book.get()
+    local e = names and names[name]
+    if e then for i, id in ipairs(e.ids) do out[i] = id end end
     return out
 end
 

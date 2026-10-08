@@ -178,6 +178,11 @@ function FR.Start()
         pcall(f.RegisterEvent, f, e)
     end
     f:SetScript("OnEvent", function(_, event, unit, _, spellID)
+        -- ONLY YOUR OWN AURAS (7 Oct 2026). UNIT_AURA fires for every buff, debuff and tick on
+        -- every raid member - hundreds a second in a fight - and each one tried four regen sources
+        -- here. Your regen moves with YOUR buffs; the client always sends "player" for those.
+        -- Asked secret first: a value we may not read refuses the comparison itself.
+        if event == "UNIT_AURA" and (NS.Secret(unit) or unit ~= "player") then return end
         if event == "UNIT_SPELLCAST_SUCCEEDED" then
             FR.OnCast(unit, spellID)
         else

@@ -184,6 +184,14 @@ local function newFrame(kind, name, parent)
         self.__min, self.__max = lo, hi
     end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    -- A STATUS BAR HAS A FILL TEXTURE, and hands back the same one every time (7 Oct 2026). This was
+    -- an auto no-op answering nil, so every "anchored to the end of the fill" in the suite was
+    -- anchored to nil - and the overheal's tick, which is built only when the fill answers, was
+    -- never built at all.
+    function f:GetStatusBarTexture()
+        if not self.__fill then self.__fill = self:CreateTexture() end
+        return self.__fill
+    end
     -- CLIPPING AND REVERSE FILL, RECORDED (6 Oct 2026). Both were auto no-ops, so "the heal bar
     -- stops at the cell's edge" had no answer - and on Arn's screen it ran straight across the
     -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
@@ -398,15 +406,29 @@ _G.IsSpellInRange = function(ident, u)
     STATE.rangeAsked[#STATE.rangeAsked + 1] = ident
     if STATE.rangeSecret then return secret() end
     if STATE.rangeNil then return nil end
+    -- a spell that cannot be used on that unit answers NIL, not "in range" - a heal on a mob
+    -- (7 Oct 2026: Arn's hostile target was dimmed; the mock had answered 1 for anyone at all)
+    if STATE.hostile[u] then return nil end
     return STATE.range[u] == 0 and 0 or 1
 end
 -- THE OTHER QUESTION: about the unit rather than the spell. On this client it is the secret
 -- boolean, which is the whole reason the grid can use it at all now.
 STATE.unitRange = {}
+-- TWO ANSWERS, AS THE CLIENT GIVES THEM: inRange, and whether it CHECKED at all (7 Oct 2026). It
+-- only checks party and raid members; for a token like "targettarget" it says false, false - "not
+-- in range", but only because it never looked. The mock answered the one value, so the grid read
+-- that false as "out of range" and dimmed Arn's tot cell - which was Arn himself.
 _G.UnitInRange = function(u)
-    if STATE.unitRangeSecret then return secret() end
+    -- in combat BOTH answers are secret (Arn's BugGrabber, 7 Oct: checked=<secret boolean>)
+    if STATE.unitRangeBothSecret then
+        STATE.lastChecked = secret()
+        return secret(), STATE.lastChecked
+    end
+    if STATE.unitRangeSecret then return secret(), true end
+    local grouped = u == "player" or tostring(u):match("^party%d") or tostring(u):match("^raid%d")
+    if not grouped then return false, false end
     if STATE.unitRange[u] == nil then return nil end
-    return STATE.unitRange[u] and true or false
+    return STATE.unitRange[u] and true or false, true
 end
 -- the client's ternary: it picks one of two values from a boolean nobody else may test
 _G.C_CurveUtil = _G.C_CurveUtil or {}
@@ -534,7 +556,7 @@ local CURSOR = {}
 _G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c end
 _G.ClearCursor = function() CURSOR = {} end
 _G.C_Spell = _G.C_Spell or {}
-_G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end
+_G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end   -- see BOOK
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
@@ -646,13 +668,64 @@ local RANKS = {}                       -- id -> the rank the client would report
 -- The book this fake shaman has actually trained. It is stocked rather than empty because an
 -- empty book is not a character anyone plays, and the defaults now come out of the book: a spell
 -- you have not learned is not put on your mouse. Slots 10+ are free for tests to fill.
-local BOOK = {
+local PAGES = {
     [1] = { name = "Healing Wave",        rank = "Rank 1" },
     [2] = { name = "Healing Wave",        rank = "Rank 2" },
     [3] = { name = "Healing Wave",        rank = "Rank 3" },
     [4] = { name = "Lesser Healing Wave", rank = "Rank 1" },
     [5] = { name = "Chain Heal",          rank = "Rank 1" },
 }
+-- THE CLIENT SAYS SO WHEN THE BOOK CHANGES (8 Oct 2026). The addon keeps what it read now, so a
+-- book that changed in silence would be a mock kinder than the client in a new way: every test
+-- that trains or forgets a spell would be testing a re-read the client never gets for free.
+--
+-- So BOOK is the door and PAGES is the paper. Writing through BOOK is "the character learned or
+-- lost a spell", and the client fires SPELLS_CHANGED for that - delivered here through fire(),
+-- which only reaches a frame that REGISTERED for it. Take the registration out of Mouse.lua and
+-- every test below that changes the book goes red, which is the point.
+--
+-- ONLY TO THE BOOK'S OWN LISTENER, on purpose. The grid, the self-buff watch and the regen bar
+-- listen for the same event, and the cold-start test further down exists to prove each of them
+-- asked for it: it lets the book arrive, shows that nothing happens, and only then fires the
+-- event at the grid by hand. Delivering it to everybody from here would make that test pass
+-- with the grid's registration removed.
+--
+-- rawset(PAGES, ...) is a book that changed and did NOT say so. One test wants exactly that.
+local BOOK = setmetatable({}, {
+    __index = PAGES,
+    __newindex = function(_, slot, page)
+        PAGES[slot] = page
+        local FM = NS.FM
+        if FM and FM.bookEvents then fire(FM.bookEvents, "SPELLS_CHANGED") end
+    end,
+})
+-- AND WHEN A TEST SWAPS THE CALL RATHER THAN THE PAGE. Several blocks below replace
+-- C_SpellBook.GetSpellBookItemInfo to give a spell a different id, or none - which stands for the
+-- book filling in its ids at login, or a rank being learned. The client fires the same event for
+-- that; a swapped function is silent, so the test says it out loud. Same door, same limit.
+local function bookSaid()
+    local FM = NS.FM
+    return FM and FM.bookEvents and fire(FM.bookEvents, "SPELLS_CHANGED") or false
+end
+-- A SPELL HAS A RANGE, and the client says whether it is cast on a friend (7 Oct 2026: the grid
+-- now measures range with the longest-reaching heal you know). STATE.spellRange[name] overrides
+-- the 40 yards most heals have; STATE.harmful[name] marks a damage spell. Defined HERE, below
+-- BOOK, so the lookup sees this local and not an empty global.
+STATE.spellRange, STATE.harmful = {}, {}
+local function bookName(id)
+    local e = type(id) == "number" and BOOK[id - 1000]
+    return e and e.name or nil
+end
+_G.C_Spell.GetSpellInfo = function(id)
+    STATE.spellAsks = (STATE.spellAsks or 0) + 1      -- counted, for the same reason the book is
+    local n = bookName(id)
+    return { name = n or ("Spell" .. tostring(id)), maxRange = (n and STATE.spellRange[n]) or 40 }
+end
+_G.C_Spell.IsSpellHelpful = function(id)
+    local n = bookName(id)
+    if not n then return nil end
+    return not STATE.harmful[n]
+end
 _G.C_SpellBook = _G.C_SpellBook or {}
 _G.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
 -- TWO ARGUMENTS, because the client wants two. Measured in game, 19 Sep 2026:
@@ -674,6 +747,11 @@ _G.C_SpellBook.GetSpellBookItemName = function(n, bank)
         error("bad argument #1 to '?' (not a numerical value - Usage: local name, subName ="
               .. " C_SpellBook.GetSpellBookItemName(spellBookItem))", 2)
     end
+    -- EVERY QUESTION IS COUNTED (8 Oct 2026). The addon walked all 500 slots for every spell on
+    -- the mouse, for every cell, ten times a second - and nothing here could see it, because a
+    -- mock answers in no time at all. The client does not: Arn's addon list read 63% with the
+    -- grid up and 6% with it hidden. A cost the suite cannot measure is a cost it cannot hold.
+    STATE.bookAsks = (STATE.bookAsks or 0) + 1
     local e = BOOK[n]
     if e then return e.name, e.rank end
     return nil
@@ -888,13 +966,33 @@ do
     end
     local tex = f.bar:GetStatusBarTexture()
 
-    ok(f.incoming.__parent == f.missClip and clips(f.missClip),
-       "the heals on their way sit inside a frame that clips - they stop at the cell's edge")
-    ok(f.absorb.__parent == f.missClip, "so does the shield, which spilled the same way")
+    -- THE SHORT SPILL LANE (Arn, 7 Oct, picking "both": the heal may stick out past the edge so an
+    -- overheal is SEEN, but only FG.LANE pixels - never across the next cell)
+    local function anchoredAt(fr, point, rel, relPoint, x)
+        for _, p in ipairs(fr.points or {}) do
+            if p[1] == point and p[2] == rel and p[3] == relPoint and (p[4] or 0) == x then return true end
+        end
+        return false
+    end
+    ok(f.incoming.__parent == f.healClip and clips(f.healClip),
+       "the heals on their way sit inside a frame that clips")
+    -- (Arn, same evening: "in the bar of different color" - the lane went to 0; the overheal is
+    -- the band over the health, below, and nothing leaves the cell)
+    ok(FG.LANE == 0 and anchoredAt(f.healClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0),
+       "which stops at the cell's right edge - the overheal is shown inside the bar", FG.LANE)
+    ok(f.absorb.__parent == f.missClip and anchoredAt(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 0),
+       "the shield keeps the cell's own edge too")
     ok(anchoredTo(f.missClip, "TOPLEFT", tex, "TOPRIGHT") and anchoredTo(f.missClip, "BOTTOMRIGHT", f.bar, "BOTTOMRIGHT"),
        "and that frame is the EMPTY part of the bar: from the end of the fill to the right edge")
 
     ok(f.overheal ~= nil, "a cell has an overheal bar")
+    -- BOLD, AND TICKED (Arn: the 70% amber read as "a little line"): solid orange-red, and a white
+    -- tick on the left edge of the overheal's own fill - where the wasted part begins
+    local oc = f.overheal.__color
+    ok(oc and oc[1] >= 0.9 and oc[2] <= 0.5 and oc[3] <= 0.3, "the overheal band is a bold orange-red")
+    ok(f.overTick ~= nil, "a white tick marks where the overheal begins")
+    ok(f.overTick and f.overTick.__color and f.overTick.__color[1] == 1 and f.overTick.__w == 2,
+       "white, 2 px")
     ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
     ok(f.overheal.__parent == f.curClip and clips(f.curClip),
        "inside a frame that clips")
@@ -1040,9 +1138,36 @@ do
        "a bare right click is preferred over a modifier on the left",
        tostring(NS.FM.RangeSpell()))
 
-    -- and a mouse with nothing on it at all says so, rather than naming something
+    -- THE LONGEST REACH WINS (Arn, 7 Oct: "check all the healing spells and use that range the
+    -- biggest one"). Ties keep the hand's order (above); a longer heal anywhere beats it.
+    STATE.spellRange["Lesser Healing Wave"] = 30
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)", ["shift-button5"] = "Chain Heal(Rank 1)" }
+    ok(NS.FM.RangeSpell() == "Chain Heal", "a 40 yd heal on a thumb beats a 30 yd one on left click",
+       tostring(NS.FM.RangeSpell()))
+    -- not even bound: the class's own heals are asked too, if trained (shaman: Healing Wave)
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)" }
+    -- (the shaman's own heals in their fixed order: Healing Wave, Lesser Healing Wave, Chain Heal -
+    -- the first 40 yd one wins every time, never by chance)
+    ok(NS.FM.RangeSpell() == "Healing Wave", "a trained class heal that is not bound still counts",
+       tostring(NS.FM.RangeSpell()))
+    -- a DAMAGE spell has a range too, and answers nil about a friend: never chosen, however long
+    STATE.spellRange["Chain Heal"] = 50
+    STATE.harmful["Chain Heal"] = true
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)", ["wheelup"] = "Chain Heal(Rank 1)" }
+    ok(NS.FM.RangeSpell() ~= "Chain Heal", "a spell the client says is not helpful is never the range spell",
+       tostring(NS.FM.RangeSpell()))
+    STATE.spellRange, STATE.harmful = {}, {}
+
+    -- an empty mouse on a healer still measures, with the class heal it has trained...
     d.binds = {}
-    ok(NS.FM.RangeSpell() == nil, "an empty mouse measures nothing", tostring(NS.FM.RangeSpell()))
+    ok(NS.FM.RangeSpell() == "Healing Wave", "an empty mouse on a healer measures with a trained heal",
+       tostring(NS.FM.RangeSpell()))
+    -- ...and a class with no heal of its own says "nothing", rather than naming something
+    local realClass = UnitClass
+    UnitClass = function() return "Warrior", "WARRIOR", 1 end
+    ok(NS.FM.RangeSpell() == nil, "an empty mouse on a class with no heals measures nothing",
+       tostring(NS.FM.RangeSpell()))
+    UnitClass = realClass
     d.binds = kept
 end
 
@@ -1144,6 +1269,19 @@ do
     ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
 end
 ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
+-- AND SHOWS ITS WORKING (7 Oct). Arn read "Healing Wave" and could not tell if that was the
+-- longest or just the left click - the line still said "left click first". The yards settle it.
+do
+    local keptChat, keptRange = _G.DEFAULT_CHAT_FRAME, STATE.spellRange
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    STATE.spellRange = { ["Healing Wave"] = 40 }
+    NS.DO.range()
+    _G.DEFAULT_CHAT_FRAME, STATE.spellRange = keptChat, keptRange
+    local first = heard[1] or ""
+    ok(first:find("40 yd", 1, true) ~= nil, "/bish range names the yards of the heal it picked", first)
+    ok(first:find("left click first", 1, true) == nil, "and no longer claims the old left-click rule", first)
+end
 
 -- a client that refuses a secret max must not take the addon down with it; whether Forever does
 -- is not yet measured, so the grid asks once and remembers the answer
@@ -3723,6 +3861,7 @@ do
             if type(bank) ~= "number" then error("bad argument", 2) end
             return n == 21 and { spellID = 24398 } or nil
         end
+        bookSaid()
 
         FS.state, FS.known = {}, nil
         FS.Check()
@@ -3785,6 +3924,7 @@ do
             if type(bank) ~= "number" then error("bad argument", 2) end
             return nil                                    -- named, but no id
         end
+        bookSaid()
         -- ON you, so the two answers differ: the walk says "up", and skipping the walk entirely
         -- says "missing" - which is the lie this is here to catch. A test with the buff OFF gets
         -- the same word out of both and proves nothing.
@@ -3802,6 +3942,7 @@ do
             if type(bank) ~= "number" then error("bad argument", 2) end
             return n == 21 and { spellID = 24398 } or nil
         end
+        bookSaid()
 
         -- a secret ANSWER to "is it secret?" is itself an unknown, not a no
         _G.C_Secrets.ShouldSpellAuraBeSecret = function() return secret() end
@@ -3812,6 +3953,7 @@ do
 
         _G.C_Secrets = realSecrets
         _G.C_SpellBook.GetSpellBookItemInfo = realInfo
+        bookSaid()
         auras.GetPlayerAuraBySpellID = nil
         FS.state, FS.known = {}, nil
         FS.Check()
@@ -3885,6 +4027,7 @@ do
         if n == 22 then return { spellID = 24399 } end
         return nil
     end
+    bookSaid()
 
     local howMany = FS.Sounds()
     ok(howMany == 2, "both ranks of the buff are registered", tostring(howMany))
@@ -3949,6 +4092,7 @@ do
     _G.Enum = realEnum
     BOOK[22] = nil
     _G.C_SpellBook.GetSpellBookItemInfo = realInfo2
+    bookSaid()
     _G.C_UnitAuras, _G.UnitClass = realAuras, realClass
     d.selfBuffs, d.buffSound, d.buffQuiet = nil, nil, false
     FS.known, FS.soundIDs = nil, {}
@@ -4417,6 +4561,7 @@ do
         if type(bank) ~= "number" then error("bad argument", 2) end
         return n == 6 and { spellID = 99011 } or nil
     end
+    bookSaid()
     FA.sig = nil
     ok(pcall(FA.Attach, cell, "party1"), "a priest's cell attaches")
     local renew = cell.auras.slots["BiSHealHotRenew"]
@@ -4466,6 +4611,7 @@ do
 
     BOOK[6] = nil
     _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName = realClass, realInfo, realName
+    bookSaid()
     FA.sig = nil
     MACROS = {}
     d.binds = keptBinds
@@ -5544,8 +5690,10 @@ do
         for _, m in ipairs(FM.MODS) do FM.Clear(m.key, slot.key) end
     end
     FM.Set("alt-", "left", FM.PingBind("assist"))
-    ok(FM.RangeSpell() == nil,
-       "with only a ping bound, range is measured with nothing - never with the ping",
+    -- since 7 Oct a trained class heal counts even unbound, so the answer is that heal - and
+    -- never, ever the ping
+    ok(FM.RangeSpell() ~= nil and not FM.PingOf(FM.RangeSpell()),
+       "with only a ping bound, range is measured with a trained heal - never with the ping",
        tostring(FM.RangeSpell()))
     FM.Set("", "left", "Healing Wave(Rank 3)")
     ok(FM.RangeSpell() == "Healing Wave", "and a real spell is still found", tostring(FM.RangeSpell()))
@@ -6625,6 +6773,39 @@ do
     other.unit = "party1"
     FG.PaintRange(other, "party1")
     ok(math.abs(other:GetAlpha() - 0.30) < 0.001, "out of range is drawn at the player's 30%", other:GetAlpha())
+    -- WHO IS NEVER DIMMED (Arn, 7 Oct, with a mob right next to him: "i target these and they are
+    -- right next to me why are they dimmed" - his target a hostile Thistlefur, his tot himself)
+    do
+        -- a HOSTILE target: a heal's range means nothing for an enemy (the client answers nil)
+        STATE.hostile.target = true
+        FG.PaintRange(other, "target")
+        ok(other:GetAlpha() == 1, "a hostile target is not dimmed by the range of a heal", other:GetAlpha())
+        STATE.hostile.target = nil
+        -- the TOT, when the spell gives no answer: UnitInRange only checks party and raid, and for
+        -- "targettarget" says false-but-did-not-check - which is no answer, not "out of range"
+        STATE.rangeNil = true
+        FG.PaintRange(other, "targettarget")
+        ok(other:GetAlpha() == 1, "a unit UnitInRange did not check is not dimmed (Arn's tot was himself)", other:GetAlpha())
+        STATE.rangeNil = false
+        -- IN COMBAT BOTH OF UnitInRange's ANSWERS ARE SECRET, and `checked == false` on a secret
+        -- threw (BugGrabber, 7 Oct). Lua 5.1 cannot make a table == false throw, so the promise is
+        -- tested: `checked` is ASKED ABOUT before anything compares it. In the wrong order the
+        -- comparison is just false here, short-circuits, and the question is never asked.
+        STATE.rangeNil, STATE.unitRangeBothSecret = true, true
+        local askedAbout = false
+        local realSecret = NS.Secret
+        NS.Secret = function(v) if v == STATE.lastChecked and v ~= nil then askedAbout = true end return realSecret(v) end
+        ok(pcall(FG.PaintRange, other, "party1"), "both answers secret: the range paint does not throw")
+        NS.Secret = realSecret
+        ok(askedAbout, "and the 'did it check' answer was asked about before it was compared")
+        STATE.rangeNil, STATE.unitRangeBothSecret, STATE.lastChecked = false, false, nil
+        -- and YOU, always: nobody is out of range of themselves
+        STATE.range.player = 0
+        FG.PaintRange(other, "player")
+        ok(other:GetAlpha() == 1, "your own cell is never dimmed", other:GetAlpha())
+        STATE.range.player = nil
+        FG.PaintRange(other, "party1")
+    end
     -- THE HEADER ON A CELL IS NOT DIMMED WITH IT (Arn, 7 Oct, at 20%: "it also dimmed the header
     -- of target and tot"). The header is the cell's child - so it shows and hides with the cell -
     -- but it ignores the cell's alpha: "BiS> target" says which cell this is, and that does not
@@ -6712,6 +6893,181 @@ do
 
     _G.UnitIsUnit = realIsUnit
     d.ring, d.dim = was.ring, was.dim
+end
+
+-- THE BOOK IS READ WHEN IT CHANGES, NOT TEN TIMES A SECOND FOR EVERY CELL (8 Oct 2026).
+--
+-- Arn, with his addon list open: "Current CPU 6%" with BiS Healing off, "63%" with it on, and 6%
+-- again with it loaded and the cells hidden. So the cost was the paint - and the paint asks
+-- FM.RangeSpell for every cell, which since 7 Oct asks FM.Ranks about every spell on the mouse,
+-- which walked all 500 book slots each time. BiS> now did the same once a tick on its own
+-- (FN.Watch -> FB.Knows), and had since 3 Oct.
+--
+-- This is HIS mouse, read off his saved variables that evening, in a 25-man. One second of a
+-- quiet raid - nothing learned, nothing bound, nobody moving - is ten ticks.
+do
+    local d = NS.DB()
+    local was = { binds = d.binds, now = d.now, shown = d.shown }
+    -- SHOWN, AND CHECKED TO BE. Whatever ran before this left the grid hidden, and a hidden grid
+    -- paints nothing: the first draft of this test passed with zero questions asked and no fix
+    -- written. A cost test with nothing on screen is a test of an empty room.
+    d.shown = true
+    d.binds = { wheelup = "Healing Wave(Rank 3)", ["shift-wheelup"] = "Healing Wave(Rank 5)",
+                wheeldown = "Lesser Healing Wave(Rank 1)", ["shift-wheeldown"] = "Lesser Healing Wave(Rank 1)",
+                button4 = "Cure Poison", button5 = "Cure Disease",
+                ["alt-left"] = "!ping:attack", ["alt-right"] = "!ping:warning" }
+    d.now = true
+    for i = 1, 25 do STATE.units["raid" .. i] = true end
+    local realRaid, realHP = _G.IsInRaid, _G.UnitHealthPercent
+    _G.IsInRaid = function() return true end
+    -- handed a curve, the client answers with a COLOUR; the help button paints from it every tick
+    _G.UnitHealthPercent = function()
+        return { GetRGB = function() return 1, 1, 1 end, GetRGBA = function() return 1, 1, 1, 1 end }
+    end
+    FG.Layout(FG.anchor)
+    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    tick()                                              -- settle: any pending layout is done
+    local painted = 0
+    for _, f in ipairs(FG.frames) do if f.unit and f:IsShown() then painted = painted + 1 end end
+    ok(painted == 25, "the raid is on screen, so the ticks below have cells to paint", painted)
+
+    STATE.bookAsks, STATE.spellAsks = 0, 0
+    for _ = 1, 10 do tick() end
+    local quiet = STATE.bookAsks
+    -- it was 630,000: 25 cells x 5 spells x 500 slots, and one more walk for BiS> now, ten times
+    ok(quiet <= 500, "a quiet second in a 25-man reads the spellbook at most once, not once per"
+       .. " cell per spell per tick: " .. quiet .. " questions in ten ticks")
+    -- AND THE RANGE SPELL IS CHOSEN ONCE A TICK, NOT ONCE A CELL. Five spells to ask about (four
+    -- on the mouse and Chain Heal, the class's own), each asked its reach once: 5 a tick, 50 in
+    -- ten. Per cell it was 1,250.
+    ok(STATE.spellAsks <= 100, "and which spell measures the range is worked out once a tick,"
+       .. " not once for every cell: " .. STATE.spellAsks .. " questions in ten ticks")
+    ok(FG.tickRange == nil, "the tick's answer is taken away when the tick is over, so a paint"
+       .. " outside the loop asks for itself")
+
+    -- THE SAME ANSWERS AS BEFORE, which is the half a cost test forgets. Kept or not, the book
+    -- says what it said: three ranks of Healing Wave, in order, with real spell ids.
+    local hw = NS.FM.Ranks("Healing Wave")
+    ok(#hw == 3 and hw[1].rank == "Rank 1" and hw[3].rank == "Rank 3" and hw[1].spell == 1001
+       and hw[1].index == 1, "the kept book still answers every rank, slot and id")
+    ok(#NS.FM.Ranks("Tremor Totem") == 0, "and a spell that is not in it is still not in it")
+    -- A FRESH LIST EVERY TIME. A caller that emptied its copy must not have emptied the memory.
+    for i = #hw, 1, -1 do hw[i] = nil end
+    ok(#NS.FM.Ranks("Healing Wave") == 3, "a caller that empties its list has not emptied the book")
+    local ids = NS.FM.BookIds("Healing Wave")
+    ok(#ids == 3 and ids[1] == 1001 and ids[3] == 1003, "every id under a name, one per rank")
+
+    -- A BOOK THAT CHANGED AND DID NOT SAY SO IS NOT RE-READ... The client does say so; this is
+    -- what proves the addon is LISTENING rather than walking the book anyway and calling it kept.
+    rawset(PAGES, 40, { name = "Tremor Totem", rank = "" })
+    ok(#NS.FM.Ranks("Tremor Totem") == 0, "a silent change is not seen: the book really is kept")
+    -- ...UNTIL THE CLIENT SAYS SO, through a frame that asked to be told
+    ok(NS.FM.bookEvents and NS.FM.bookEvents.__events and NS.FM.bookEvents.__events.SPELLS_CHANGED,
+       "the book's listener registered for SPELLS_CHANGED")
+    ok(fire(NS.FM.bookEvents, "SPELLS_CHANGED") and #NS.FM.Ranks("Tremor Totem") == 1,
+       "and SPELLS_CHANGED has it read again: a spell learned mid-session is known at once")
+    ok(NS.FM.bookEvents.__events.PLAYER_ENTERING_WORLD, "it asked for PLAYER_ENTERING_WORLD too")
+
+    -- OR UNTIL IT IS OLD. If there is a way to learn a spell that fires neither event, the book
+    -- is wrong for FM.BOOK_TTL seconds and not for the rest of the session.
+    rawset(PAGES, 40, nil)
+    ok(#NS.FM.Ranks("Tremor Totem") == 1, "silently forgotten, it is still believed for a moment")
+    TICK(NS.FM.BOOK_TTL + 0.1)
+    ok(#NS.FM.Ranks("Tremor Totem") == 0, "and not once the kept book has aged out")
+
+    -- WHOEVER THE CLIENT TELLS FIRST. The self-buff watch checks the book inside its own handler
+    -- for the same event; told before the book's listener, it would check a book that is about to
+    -- be thrown away. So it throws it away itself.
+    rawset(PAGES, 41, { name = "Tremor Totem", rank = "" })
+    ok(not NS.FS.Knows("Tremor Totem"), "(not known yet: the change was silent)")
+    ok(fire(NS.FS.frame, "SPELLS_CHANGED") and NS.FS.Knows("Tremor Totem"),
+       "the self-buff watch, told first and alone, still reads the new book")
+    rawset(PAGES, 41, nil)
+    bookSaid()
+
+    -- AN EMPTY BOOK IS NEVER KEPT. At login the client has not filled it in; remembering that
+    -- answer would be a mouse with no defaults until the event - or for good, if it never came.
+    -- EVERY page, not the first five: an earlier block leaves a spell in slot 20, and a book
+    -- with one spell in it is not an empty book - it is kept, and this would test nothing.
+    local stash = {}
+    for slot, page in pairs(PAGES) do stash[slot] = page end
+    for slot in pairs(stash) do rawset(PAGES, slot, nil) end
+    bookSaid()                                          -- a fresh login: nothing kept, book empty
+    ok(#NS.FM.Ranks("Healing Wave") == 0, "an empty book answers nothing")
+    for slot, page in pairs(stash) do rawset(PAGES, slot, page) end   -- it fills in, and nobody says
+    ok(#NS.FM.Ranks("Healing Wave") == 3, "and is asked again the very next time, event or no event")
+
+    -- BUT A KEPT BOOK IS NOT THROWN AWAY FOR AN EMPTY ONE NOBODY ANNOUNCED. The kept book ages,
+    -- the re-read comes back with nothing, and no event said a thing: that is a client that has
+    -- gone quiet, not a shaman who forgot every spell at once. What was known stays known - and
+    -- it is not asked again on every call, which would be the old cost back mid-fight.
+    for slot in pairs(stash) do rawset(PAGES, slot, nil) end
+    TICK(NS.FM.BOOK_TTL + 0.1)
+    ok(#NS.FM.Ranks("Healing Wave") == 3, "a book that only aged, re-read as empty, keeps what it knew")
+    STATE.bookAsks = 0
+    for _ = 1, 20 do NS.FM.Ranks("Healing Wave") end
+    ok(STATE.bookAsks == 0, "and a quiet client is not asked again on every call: " .. STATE.bookAsks)
+    ok(bookSaid() and #NS.FM.Ranks("Healing Wave") == 0,
+       "the client SAYING the book changed is different: then empty is believed")
+    for slot, page in pairs(stash) do rawset(PAGES, slot, page) end
+    bookSaid()
+
+    _G.IsInRaid, _G.UnitHealthPercent = realRaid, realHP
+    for i = 1, 25 do STATE.units["raid" .. i] = nil end
+    d.binds, d.now, d.shown = was.binds, was.now, was.shown
+    FG.Layout(FG.anchor)
+end
+
+-- WHAT A QUIET SECOND COSTS, IN CLIENT CALLS (7 Oct 2026). Arn: "make sure stuff like this does
+-- not happen, this goes live and we have a lot of angry users". The block above counts the book;
+-- this one counts EVERYTHING the client is asked, with the family's own counter
+-- (_bisdev/dev/cost.lua), so a hog anywhere in the paint shows up here before it ships.
+-- check.sh holds every Forever addon with a timer to having one of these.
+do
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local d = NS.DB()
+    local was = { binds = d.binds, now = d.now, shown = d.shown }
+    d.shown, d.now = true, true
+    d.binds = { wheelup = "Healing Wave(Rank 3)", wheeldown = "Lesser Healing Wave(Rank 1)",
+                button4 = "Cure Poison", ["alt-left"] = "!ping:attack" }
+    for i = 1, 25 do STATE.units["raid" .. i] = true end
+    local realRaid, realHP = _G.IsInRaid, _G.UnitHealthPercent
+    _G.IsInRaid = function() return true end
+    _G.UnitHealthPercent = function()
+        return { GetRGB = function() return 1, 1, 1 end, GetRGBA = function() return 1, 1, 1, 1 end }
+    end
+    FG.Layout(FG.anchor)
+    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    tick() tick()
+
+    local n, by = Cost.Count(function() for _ = 1, 10 do tick() end end)
+    STATE.costQuiet = n
+    -- THE BUDGETS, set a little above what was measured on 7 Oct after the cost pass (8,300 and
+    -- 600; it was 9,530 and 1,800 before it, and ~630,000 with the book walk). Raising one is
+    -- allowed - with a line here saying what bought it. The book walk would read 600,000+.
+    local QUIET, AURAS = 9000, 650
+    ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
+       Cost.Top(by, 6))
+
+    -- A RAID'S AURAS. UNIT_AURA fires for every buff, debuff and tick on every member - hundreds a
+    -- second in a fight. Only YOURS mean anything to the regen pair and the self-buff watch.
+    local a, aby = Cost.Count(function()
+        for i = 1, 300 do
+            local u = "raid" .. ((i % 25) + 1)
+            if NS.FR and NS.FR.frame then fire(NS.FR.frame, "UNIT_AURA", u) end
+            if NS.FS and NS.FS.frame then fire(NS.FS.frame, "UNIT_AURA", u) end
+        end
+    end)
+    STATE.costAuras = a
+    ok(a <= AURAS, "300 aura changes on OTHER people ask the client at most " .. AURAS .. " things: "
+       .. a, Cost.Top(aby, 6))
+    print(("   cost: quiet 25-man second = %d calls (%s)"):format(n, Cost.Top(by, 4)))
+    print(("   cost: 300 raid auras      = %d calls (%s)"):format(a, Cost.Top(aby, 4)))
+
+    _G.IsInRaid, _G.UnitHealthPercent = realRaid, realHP
+    for i = 1, 25 do STATE.units["raid" .. i] = nil end
+    d.binds, d.now, d.shown = was.binds, was.now, was.shown
+    FG.Layout(FG.anchor)
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

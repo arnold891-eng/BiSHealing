@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Your target and target-of-target are no longer dimmed for no reason.** A hostile target was
+  dimmed by the range of your heal (which cannot be cast on an enemy), and the tot cell - often
+  you - was dimmed by a check the game never actually made. You are never dimmed now.
+- The "drag to move" tip no longer says "the the".
 - **An overheal shows twice now.** The heal may stick out a short way past the right edge again
   (about 12 px - never across the next cell), and the part that lands on nobody is a bold
   orange-red band over the end of their health, with a white tick where the waste begins.

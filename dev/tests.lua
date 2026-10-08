@@ -406,15 +406,24 @@ _G.IsSpellInRange = function(ident, u)
     STATE.rangeAsked[#STATE.rangeAsked + 1] = ident
     if STATE.rangeSecret then return secret() end
     if STATE.rangeNil then return nil end
+    -- a spell that cannot be used on that unit answers NIL, not "in range" - a heal on a mob
+    -- (7 Oct 2026: Arn's hostile target was dimmed; the mock had answered 1 for anyone at all)
+    if STATE.hostile[u] then return nil end
     return STATE.range[u] == 0 and 0 or 1
 end
 -- THE OTHER QUESTION: about the unit rather than the spell. On this client it is the secret
 -- boolean, which is the whole reason the grid can use it at all now.
 STATE.unitRange = {}
+-- TWO ANSWERS, AS THE CLIENT GIVES THEM: inRange, and whether it CHECKED at all (7 Oct 2026). It
+-- only checks party and raid members; for a token like "targettarget" it says false, false - "not
+-- in range", but only because it never looked. The mock answered the one value, so the grid read
+-- that false as "out of range" and dimmed Arn's tot cell - which was Arn himself.
 _G.UnitInRange = function(u)
-    if STATE.unitRangeSecret then return secret() end
+    if STATE.unitRangeSecret then return secret(), true end
+    local grouped = u == "player" or tostring(u):match("^party%d") or tostring(u):match("^raid%d")
+    if not grouped then return false, false end
     if STATE.unitRange[u] == nil then return nil end
-    return STATE.unitRange[u] and true or false
+    return STATE.unitRange[u] and true or false, true
 end
 -- the client's ternary: it picks one of two values from a boolean nobody else may test
 _G.C_CurveUtil = _G.C_CurveUtil or {}
@@ -6651,6 +6660,27 @@ do
     other.unit = "party1"
     FG.PaintRange(other, "party1")
     ok(math.abs(other:GetAlpha() - 0.30) < 0.001, "out of range is drawn at the player's 30%", other:GetAlpha())
+    -- WHO IS NEVER DIMMED (Arn, 7 Oct, with a mob right next to him: "i target these and they are
+    -- right next to me why are they dimmed" - his target a hostile Thistlefur, his tot himself)
+    do
+        -- a HOSTILE target: a heal's range means nothing for an enemy (the client answers nil)
+        STATE.hostile.target = true
+        FG.PaintRange(other, "target")
+        ok(other:GetAlpha() == 1, "a hostile target is not dimmed by the range of a heal", other:GetAlpha())
+        STATE.hostile.target = nil
+        -- the TOT, when the spell gives no answer: UnitInRange only checks party and raid, and for
+        -- "targettarget" says false-but-did-not-check - which is no answer, not "out of range"
+        STATE.rangeNil = true
+        FG.PaintRange(other, "targettarget")
+        ok(other:GetAlpha() == 1, "a unit UnitInRange did not check is not dimmed (Arn's tot was himself)", other:GetAlpha())
+        STATE.rangeNil = false
+        -- and YOU, always: nobody is out of range of themselves
+        STATE.range.player = 0
+        FG.PaintRange(other, "player")
+        ok(other:GetAlpha() == 1, "your own cell is never dimmed", other:GetAlpha())
+        STATE.range.player = nil
+        FG.PaintRange(other, "party1")
+    end
     -- THE HEADER ON A CELL IS NOT DIMMED WITH IT (Arn, 7 Oct, at 20%: "it also dimmed the header
     -- of target and tot"). The header is the cell's child - so it shows and hides with the cell -
     -- but it ignores the cell's alpha: "BiS> target" says which cell this is, and that does not

@@ -1189,7 +1189,10 @@ function FG.CellHeader(f, word, moves, keys)
         bg:SetColorTexture(0.13, 0.10, 0.19, 0.95)
         if not GameTooltip then return end
         GameTooltip:SetOwner(h, "ANCHOR_TOP")
-        GameTooltip:AddLine("drag to move the " .. keys.what)
+        -- "the" only when the name has not got one: three blocks are named "the ... block", and
+        -- the tooltip read "drag to move the the now block" (Arn's screenshot, 7 Oct)
+        local what = tostring(keys.what or "")
+        GameTooltip:AddLine("drag to move " .. (what:match("^the ") and what or ("the " .. what)))
         GameTooltip:AddLine("shift-click to send it round the grid", 0.6, 0.6, 0.6)
         GameTooltip:AddLine("/bish target under | left | right | top", 0.6, 0.6, 0.6)
         GameTooltip:Show()
@@ -1980,6 +1983,24 @@ end
 FG.rangeSeen = nil        -- what the last read was: "plain", "secret", "refused" or "no spell"
 
 function FG.PaintRange(f, unit)
+    -- WHO IS NEVER DIMMED (7 Oct 2026). Arn, with a mob beside him: "i target these and they are
+    -- right next to me why are they dimmed" - his target a hostile Thistlefur, his tot himself.
+    --   * YOU: nobody is out of range of themselves (the tot cell is often you)
+    --   * a HOSTILE unit: the range here is your HEAL's, and a heal cannot be cast on an enemy -
+    --     the client answers nil, which fell through to UnitInRange and its "false"
+    if unit == "player" or (NS.IsPlayer and NS.IsPlayer(unit) == true) then
+        FG.rangeSeen = "self"
+        f:SetAlpha(1)
+        return 1, "self"
+    end
+    if UnitCanAttack then
+        local okH, hostile = pcall(UnitCanAttack, "player", unit)
+        if okH and not (NS.Secret and NS.Secret(hostile)) and hostile then
+            FG.rangeSeen = "hostile"
+            f:SetAlpha(1)
+            return 1, "hostile"
+        end
+    end
     local spell, spellID
     if NS.FM and NS.FM.RangeSpell then spell, spellID = NS.FM.RangeSpell() end
     local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
@@ -2001,8 +2022,13 @@ function FG.PaintRange(f, unit)
     -- for a healer - and on this client it is the SECRET boolean, which is what the ternary below
     -- is for. Their frames fall back the same way.
     if asked and answer == nil and UnitInRange then
-        asked, answer = pcall(UnitInRange, unit)
+        local checked
+        asked, answer, checked = pcall(UnitInRange, unit)
         if asked then FG.rangeSeen = "unit" end
+        -- ITS SECOND ANSWER IS WHETHER IT CHECKED AT ALL. It only checks party and raid members;
+        -- for "targettarget" it says false, false - not "out of range", just "did not look". A
+        -- plain false there is no answer, and no answer leaves the cell bright (7 Oct 2026).
+        if asked and checked == false and not (NS.Secret and NS.Secret(checked)) then answer = nil end
     end
     if not asked then
         FG.rangeSeen = "refused"

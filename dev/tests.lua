@@ -6663,9 +6663,14 @@ do
     targetIs = "party2"
     FG.PaintEdge(other, "party1")
     ok(not gold(other), "target someone else and it leaves - asked fresh, never kept")
-    -- the cell for the target itself never wears it: it is always "the target"
-    ok(FG.PaintTarget(other, "target", true) == false and not other.targetRing.__shown,
-       "the target's own cell is not ringed for being the target")
+    -- THE TARGET'S OWN CELL WEARS IT TOO (Arn, 7 Oct: "it should be 3 on the cells on the target
+    -- window and tot because its all the same people"), and it is RED ("lets do it red")
+    ok(FG.PaintTarget(other, "target", true) == true and other.targetRing.__shown,
+       "the target window's own cell wears the target crosshair")
+    local stroke = other.targetRing.cross and other.targetRing.cross[1] and other.targetRing.cross[1].__color
+    ok(stroke and math.abs(stroke[1] - FG.TARGET[1]) < 0.01 and math.abs(stroke[2] - FG.TARGET[2]) < 0.01
+       and FG.TARGET[1] > 0.9 and FG.TARGET[2] < 0.3 and FG.TARGET[3] < 0.3,
+       "the target crosshair is red", stroke and table.concat(stroke, ","))
     -- A SECRET ANSWER IS HANDED TO THE CLIENT, which picks the alpha (ClickMend's way) - so the
     -- ring still works inside an instance, and nothing here ever tests who it is
     targetIs, targetSecret = "party1", true
@@ -6713,6 +6718,9 @@ do
     cell.__me = nil
     FG.PaintEdge(cell, "player")
     ok(cell.targetRing.__shown and cell.targetRing.__alpha == 1, "in 'me' mode your own cell wears the gold crosshair")
+    local meStroke = cell.targetRing.cross[1].__color
+    ok(meStroke and math.abs(meStroke[1] - FG.EDGE.me[1]) < 0.01 and math.abs(meStroke[2] - FG.EDGE.me[2]) < 0.01,
+       "and it is GOLD there - red is for a target, gold is you")
     FG.PaintEdge(other, "party1")
     ok(not other.targetRing.__shown, "and nobody else does")
 
@@ -6745,6 +6753,40 @@ do
     hoverIs = nil
     FG.PaintHover(other, "party1")
     ok(not other.hoverMark.__shown, "the mouse leaves everyone: the crosshair goes")
+
+    -- A BULLSEYE (Arn, 7 Oct: "for the bullseye purpose if you target someone with mouseover its
+    -- more active"). The white sits INSIDE the red, so on someone both targeted and moused the two
+    -- nest instead of the white covering the red.
+    local tl
+    for _, p in ipairs(other.hoverMark.points or {}) do if p[1] == "TOPLEFT" then tl = p end end
+    ok(tl and (tl[4] or 0) >= 3 and (tl[5] or 0) <= -3,
+       "the mouse crosshair is inset from the cell's edge, inside the target's", tl and (tl[4] .. "," .. tl[5]))
+    ok(FG.HOVER_INSET + FG.CROSS.THICK + 1 < FG.CROSS.ARM,
+       "and close enough that the two read as one bullseye, not two marks")
+
+    -- ON ALL THREE (Arn: "if i hover the white should be on all 3"): the target and tot cells are
+    -- not in the roster table, and the mouse never lit them
+    local fakeT = FG.Make("HoverT", FG.anchor) fakeT.unit = "target"
+    local fakeTT = FG.Make("HoverTT", FG.anchor) fakeTT.unit = "targettarget"
+    local keptT, keptTT = FG.target, FG.tot
+    FG.target, FG.tot = fakeT, fakeTT
+    local keepIU = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b)
+        if b == "mouseover" then return a == "party1" or a == "target" or a == "targettarget" end
+        return keepIU(a, b)
+    end
+    hoverIs = "party1"
+    FG.byUnit = FG.byUnit or {}
+    local keptP1 = FG.byUnit.party1
+    FG.byUnit.party1 = other
+    FG.HoverAll()
+    ok(other.hoverMark.__shown and fakeT.hoverMark.__shown and fakeTT.hoverMark.__shown,
+       "the mouse on someone who is also your target and tot lights all three cells")
+    FG.byUnit.party1 = keptP1
+    _G.UnitIsUnit = keepIU
+    FG.target, FG.tot = keptT, keptTT
+    fakeT:Hide() fakeTT:Hide()
+    hoverIs = nil
     -- the mouse has a frame of its own: the grid's frame relays out on EVERY event it hears
     ok(FG.hoverEvents and FG.hoverEvents.__events and FG.hoverEvents.__events.UPDATE_MOUSEOVER_UNIT,
        "UPDATE_MOUSEOVER_UNIT is heard")

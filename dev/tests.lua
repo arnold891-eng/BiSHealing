@@ -6768,11 +6768,21 @@ do
         local a = fr:GetEffectiveAlpha()
         return type(a) == "number" and a > 0
     end
-    ok(other.gapMark and #(other.gapMark.gap or {}) == 8 and #(other.gapMark.gapOutline or {}) == 8,
-       "the white gaps are eight outlined stretches - the edge between the red corners and ticks")
-    local g1 = other.gapMark.gap[1].__color
+    -- (third look, same evening: white in every gap was "a little bit to noise ... what if we just
+    -- make the 4 little stubs not in the corners white if its the same person instead")
+    ok(other.tickMark and #(other.tickMark.tick or {}) == 4 and #(other.tickMark.tickOutline or {}) == 4,
+       "same person: four outlined white ticks - the corners are left alone")
+    local g1 = other.tickMark.tick[1].__color
     ok(g1 and g1[1] > 0.9 and g1[2] > 0.9 and g1[3] > 0.9, "and they are white")
-    ok(other.gapMark.__parent == other.targetRing, "the gaps are a child of the red crosshair")
+    -- EXACTLY over the red ticks: the crosshair's last four strokes are its ticks
+    local exact = true
+    for i = 1, 4 do
+        local w, r = other.tickMark.tick[i], other.targetRing.cross[8 + i]
+        local wp, rp = w.points and w.points[1], r.points and r.points[1]
+        if not (w.__w == r.__w and w.__h == r.__h and wp and rp and wp[1] == rp[1]) then exact = false end
+    end
+    ok(exact, "each white tick sits exactly on a red one - same size, same anchor")
+    ok(other.tickMark.__parent == other.targetRing, "the white ticks are a child of the red crosshair")
     ok(other.hoverMark.__parent == other.notTarget, "the white crosshair sits in the not-target frame")
     local tl
     for _, p in ipairs(other.hoverMark.points or {}) do if p[1] == "TOPLEFT" then tl = p end end
@@ -6787,23 +6797,23 @@ do
         FG.PaintHover(other, "party1")
     end
     paint(true, false)
-    ok(seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.gapMark),
+    ok(seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.tickMark),
        "target only: the red crosshair alone")
     paint(false, true)
-    ok(not seen(other.targetRing) and seen(other.hoverMark) and not seen(other.gapMark),
+    ok(not seen(other.targetRing) and seen(other.hoverMark) and not seen(other.tickMark),
        "mouse only (a different person from the target): the white crosshair, like the red")
     paint(true, true)
-    ok(seen(other.targetRing) and seen(other.gapMark) and not seen(other.hoverMark),
-       "target AND mouse: red crosshair with white in its gaps - the white crosshair steps aside")
+    ok(seen(other.targetRing) and seen(other.tickMark) and not seen(other.hoverMark),
+       "target AND mouse: red corners, white ticks - the white crosshair steps aside")
     paint(false, false)
-    ok(not seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.gapMark), "neither: nothing")
+    ok(not seen(other.targetRing) and not seen(other.hoverMark) and not seen(other.tickMark), "neither: nothing")
     -- AND WITH SECRET ANSWERS, which is the point of doing it with frames: both handed to the client
     targetSecret = true
     hoverSecret = true
     FG.PaintEdge(other, "party1")
     FG.PaintHover(other, "party1")
     ok(other.notTarget.__alphaFromSecret and other.targetRing.__alphaFromSecret
-       and other.hoverMark.__alphaFromSecret and other.gapMark.__alphaFromSecret,
+       and other.hoverMark.__alphaFromSecret and other.tickMark.__alphaFromSecret,
        "secret answers: all four alphas are the client's to pick, nothing here tests who it is")
     targetSecret, hoverSecret = false, false
     targetIs, hoverIs = "party1", nil          -- as the tests below expect to find them

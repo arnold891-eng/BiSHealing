@@ -305,7 +305,8 @@ FG.TARGET = { 1.00, 0.18, 0.18 }
 -- are the same person, and look exactly like the red when they are not. So:
 --   target only      -> the red crosshair
 --   mouse only       -> the white crosshair, same shape, same place
---   target AND mouse -> red crosshair + white in its gaps: one red-and-white frame
+--   target AND mouse -> red corners, the four mid-edge ticks white (third look: white in every gap
+--                       of the red was "a little bit to noise")
 -- With no "is this the same person" test: the white gaps are a CHILD of the red crosshair (alpha
 -- multiplies down, so they show only where both say yes), and the white crosshair sits in a frame
 -- whose alpha is NOT-target. Two client booleans, never read, combined by the frame tree.
@@ -357,43 +358,32 @@ function FG.Crosshair(frame, c)
     return frame
 end
 
---- THE GAPS OF THE CROSSHAIR, drawn on their own (7 Oct 2026). Arn, on the first bullseye (white
---- nested inside red): "can we make it white takes the empty space of the red part? if both target
---- and mouse over are the same person". The crosshair is corner brackets and a tick mid-edge; these
---- are the eight stretches of edge between them, so red + these = one unbroken frame, red at the
---- corners and ticks, white in between. Anchored to the frame's edges and midpoints, not sized, so
---- a half-width pyramid cell gets the same fit. Outlined like every stroke.
-function FG.CrossGaps(frame, c)
+--- THE FOUR TICKS, in a second colour (7 Oct 2026). Target and mouse on the same person: the
+--- corners stay red and the four mid-edge ticks turn white. Arn's third look: the white filling
+--- every gap of the red was "a little bit to noise ... what if we just make the 4 little stubs not
+--- in the corners white if its the same person instead". Drawn exactly over the crosshair's own
+--- ticks (same points, same sizes, outlined), so it changes their colour and nothing else.
+function FG.CrossTicks(frame, c)
     local X, O = FG.CROSS, FG.CROSS_OUTLINE
-    local A, T, H = X.ARM, X.THICK, X.THICK / 2
-    frame.gap, frame.gapOutline = {}, {}
-    -- one stretch: from (p1 on rel1 + x1,y1) to (p2 on rel2 + x2,y2), THICK across; `flat` = along
-    -- a top/bottom edge. The outline is the same stretch a pixel bigger every way.
-    local function seg(p1, r1, x1, y1, p2, r2, x2, y2, flat)
+    frame.tick, frame.tickOutline = {}, {}
+    local function bar(point, w, h)
+        local dx = point:find("LEFT") and -1 or (point:find("RIGHT") and 1 or 0)
+        local dy = point:find("TOP") and 1 or (point:find("BOTTOM") and -1 or 0)
         local o = frame:CreateTexture(nil, "OVERLAY", nil, 1)
         o:SetColorTexture(O[1], O[2], O[3], O[4])
-        local ox, oy = flat and 1 or 0, flat and 0 or 1
-        o:SetPoint(p1, frame, r1, x1 - ox, y1 + oy)
-        o:SetPoint(p2, frame, r2, x2 + ox, y2 - oy)
-        if flat then o:SetHeight(T + 2) else o:SetWidth(T + 2) end
-        frame.gapOutline[#frame.gapOutline + 1] = o
+        o:SetSize(w + 2, h + 2)
+        o:SetPoint(point, dx, dy)
+        frame.tickOutline[#frame.tickOutline + 1] = o
         local t = frame:CreateTexture(nil, "OVERLAY", nil, 2)
         t:SetColorTexture(c[1], c[2], c[3], 1)
-        t:SetPoint(p1, frame, r1, x1, y1)
-        t:SetPoint(p2, frame, r2, x2, y2)
-        if flat then t:SetHeight(T) else t:SetWidth(T) end
-        frame.gap[#frame.gap + 1] = t
+        t:SetSize(w, h)
+        t:SetPoint(point, 0, 0)
+        frame.tick[#frame.tick + 1] = t
     end
-    -- top and bottom: corner arm -> the tick, the tick -> the other corner arm
-    seg("TOPLEFT", "TOPLEFT", A, 0, "TOPRIGHT", "TOP", -H, 0, true)
-    seg("TOPLEFT", "TOP", H, 0, "TOPRIGHT", "TOPRIGHT", -A, 0, true)
-    seg("BOTTOMLEFT", "BOTTOMLEFT", A, 0, "BOTTOMRIGHT", "BOTTOM", -H, 0, true)
-    seg("BOTTOMLEFT", "BOTTOM", H, 0, "BOTTOMRIGHT", "BOTTOMRIGHT", -A, 0, true)
-    -- left and right: corner arm -> the tick, the tick -> the other corner arm
-    seg("TOPLEFT", "TOPLEFT", 0, -A, "BOTTOMLEFT", "LEFT", 0, H, false)
-    seg("TOPLEFT", "LEFT", 0, -H, "BOTTOMLEFT", "BOTTOMLEFT", 0, A, false)
-    seg("TOPRIGHT", "TOPRIGHT", 0, -A, "BOTTOMRIGHT", "RIGHT", 0, H, false)
-    seg("TOPRIGHT", "RIGHT", 0, -H, "BOTTOMRIGHT", "BOTTOMRIGHT", 0, A, false)
+    bar("TOP", X.THICK, X.TICK)
+    bar("BOTTOM", X.THICK, X.TICK)
+    bar("LEFT", X.TICK, X.THICK)
+    bar("RIGHT", X.TICK, X.THICK)
     return frame
 end
 
@@ -466,11 +456,12 @@ function FG.Make(i, parent)
     f.hoverMark:SetAllPoints()
     FG.Crosshair(f.hoverMark, FG.HOVER)
     f.hoverMark:Hide()
-    -- and the white GAPS, a child of the red crosshair: shown only where it is, lit only by the mouse
-    f.gapMark = CreateFrame("Frame", nil, f.targetRing)
-    f.gapMark:SetAllPoints()
-    FG.CrossGaps(f.gapMark, FG.HOVER)
-    f.gapMark:Hide()
+    -- and the four white TICKS, a child of the red crosshair: shown only where it is, lit only by
+    -- the mouse - same person targeted and moused = red corners, white ticks
+    f.tickMark = CreateFrame("Frame", nil, f.targetRing)
+    f.tickMark:SetAllPoints()
+    FG.CrossTicks(f.tickMark, FG.HOVER)
+    f.tickMark:Hide()
 
     f.bar = CreateFrame("StatusBar", nil, f)
     f.bar:SetPoint("TOPLEFT", 1, -1)
@@ -1933,7 +1924,7 @@ function FG.PaintHover(f, unit)
     if not mark then return false end
     -- one answer, two marks: the white crosshair (shown where this is NOT your target) and the
     -- white gaps (shown where it IS) - the frame tree decides which one you see
-    local marks = { mark, f.gapMark or false }
+    local marks = { mark, f.tickMark or false }
     local function each(fn) for _, m in ipairs(marks) do if m then fn(m) end end end
     local function off() each(function(m) m:Hide() end) return false end
     local d = NS.DB and NS.DB()

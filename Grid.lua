@@ -2012,8 +2012,14 @@ function FG.PaintRange(f, unit)
     -- THE ID FIRST, THE NAME AFTER. EllesmereUI passes ids to this call, and a name it cannot
     -- resolve answers nil - which this code used to read as "not a clear no, so leave them bright".
     -- Arn, 30 Sep: a whole raid at full alpha.
+    -- SECRET FIRST, THEN COMPARE - ALWAYS (7 Oct 2026). Every answer below may be a secret, and a
+    -- secret refuses `==` (Arn's BugGrabber: "attempt to compare local 'checked' (a secret boolean
+    -- value)", from the line that read `checked == false and not NS.Secret(checked)` - the guard
+    -- was there, AFTER the comparison it was guarding). `none(v)` asks first.
+    local function secret(v) return NS.Secret and NS.Secret(v) end
+    local function none(v) return not secret(v) and v == nil end
     local asked, answer = pcall(range, spellID or spell, unit)
-    if asked and answer == nil and spellID then
+    if asked and none(answer) and spellID then
         asked, answer = pcall(range, spell, unit)        -- the name, in case the id was wrong
     end
     -- AND IF IT STILL WILL NOT SAY, ASK A DIFFERENT QUESTION. "Is this spell in range" is nil for
@@ -2021,14 +2027,15 @@ function FG.PaintRange(f, unit)
     -- odd). UnitInRange answers for the unit rather than the spell - about 40 yards, near enough
     -- for a healer - and on this client it is the SECRET boolean, which is what the ternary below
     -- is for. Their frames fall back the same way.
-    if asked and answer == nil and UnitInRange then
+    if asked and none(answer) and UnitInRange then
         local checked
         asked, answer, checked = pcall(UnitInRange, unit)
         if asked then FG.rangeSeen = "unit" end
         -- ITS SECOND ANSWER IS WHETHER IT CHECKED AT ALL. It only checks party and raid members;
         -- for "targettarget" it says false, false - not "out of range", just "did not look". A
         -- plain false there is no answer, and no answer leaves the cell bright (7 Oct 2026).
-        if asked and checked == false and not (NS.Secret and NS.Secret(checked)) then answer = nil end
+        -- A SECRET `checked` is left alone: the secret answer goes to the client's ternary below.
+        if asked and not secret(checked) and checked == false then answer = nil end
     end
     if not asked then
         FG.rangeSeen = "refused"

@@ -419,6 +419,11 @@ STATE.unitRange = {}
 -- in range", but only because it never looked. The mock answered the one value, so the grid read
 -- that false as "out of range" and dimmed Arn's tot cell - which was Arn himself.
 _G.UnitInRange = function(u)
+    -- in combat BOTH answers are secret (Arn's BugGrabber, 7 Oct: checked=<secret boolean>)
+    if STATE.unitRangeBothSecret then
+        STATE.lastChecked = secret()
+        return secret(), STATE.lastChecked
+    end
     if STATE.unitRangeSecret then return secret(), true end
     local grouped = u == "player" or tostring(u):match("^party%d") or tostring(u):match("^raid%d")
     if not grouped then return false, false end
@@ -551,7 +556,7 @@ local CURSOR = {}
 _G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c end
 _G.ClearCursor = function() CURSOR = {} end
 _G.C_Spell = _G.C_Spell or {}
-_G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end
+_G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end   -- see BOOK
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
 -- The stub spellbook. It answers a RANK for the spells this fake character has ranks of, and it
 -- refuses a non-number the way Forever's does - one argument, "bad argument #1" for the rest.
@@ -670,6 +675,24 @@ local BOOK = {
     [4] = { name = "Lesser Healing Wave", rank = "Rank 1" },
     [5] = { name = "Chain Heal",          rank = "Rank 1" },
 }
+-- A SPELL HAS A RANGE, and the client says whether it is cast on a friend (7 Oct 2026: the grid
+-- now measures range with the longest-reaching heal you know). STATE.spellRange[name] overrides
+-- the 40 yards most heals have; STATE.harmful[name] marks a damage spell. Defined HERE, below
+-- BOOK, so the lookup sees this local and not an empty global.
+STATE.spellRange, STATE.harmful = {}, {}
+local function bookName(id)
+    local e = type(id) == "number" and BOOK[id - 1000]
+    return e and e.name or nil
+end
+_G.C_Spell.GetSpellInfo = function(id)
+    local n = bookName(id)
+    return { name = n or ("Spell" .. tostring(id)), maxRange = (n and STATE.spellRange[n]) or 40 }
+end
+_G.C_Spell.IsSpellHelpful = function(id)
+    local n = bookName(id)
+    if not n then return nil end
+    return not STATE.harmful[n]
+end
 _G.C_SpellBook = _G.C_SpellBook or {}
 _G.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
 -- TWO ARGUMENTS, because the client wants two. Measured in game, 19 Sep 2026:
@@ -1075,9 +1098,36 @@ do
        "a bare right click is preferred over a modifier on the left",
        tostring(NS.FM.RangeSpell()))
 
-    -- and a mouse with nothing on it at all says so, rather than naming something
+    -- THE LONGEST REACH WINS (Arn, 7 Oct: "check all the healing spells and use that range the
+    -- biggest one"). Ties keep the hand's order (above); a longer heal anywhere beats it.
+    STATE.spellRange["Lesser Healing Wave"] = 30
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)", ["shift-button5"] = "Chain Heal(Rank 1)" }
+    ok(NS.FM.RangeSpell() == "Chain Heal", "a 40 yd heal on a thumb beats a 30 yd one on left click",
+       tostring(NS.FM.RangeSpell()))
+    -- not even bound: the class's own heals are asked too, if trained (shaman: Healing Wave)
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)" }
+    -- (the shaman's own heals in their fixed order: Healing Wave, Lesser Healing Wave, Chain Heal -
+    -- the first 40 yd one wins every time, never by chance)
+    ok(NS.FM.RangeSpell() == "Healing Wave", "a trained class heal that is not bound still counts",
+       tostring(NS.FM.RangeSpell()))
+    -- a DAMAGE spell has a range too, and answers nil about a friend: never chosen, however long
+    STATE.spellRange["Chain Heal"] = 50
+    STATE.harmful["Chain Heal"] = true
+    d.binds = { ["left"] = "Lesser Healing Wave(Rank 1)", ["wheelup"] = "Chain Heal(Rank 1)" }
+    ok(NS.FM.RangeSpell() ~= "Chain Heal", "a spell the client says is not helpful is never the range spell",
+       tostring(NS.FM.RangeSpell()))
+    STATE.spellRange, STATE.harmful = {}, {}
+
+    -- an empty mouse on a healer still measures, with the class heal it has trained...
     d.binds = {}
-    ok(NS.FM.RangeSpell() == nil, "an empty mouse measures nothing", tostring(NS.FM.RangeSpell()))
+    ok(NS.FM.RangeSpell() == "Healing Wave", "an empty mouse on a healer measures with a trained heal",
+       tostring(NS.FM.RangeSpell()))
+    -- ...and a class with no heal of its own says "nothing", rather than naming something
+    local realClass = UnitClass
+    UnitClass = function() return "Warrior", "WARRIOR", 1 end
+    ok(NS.FM.RangeSpell() == nil, "an empty mouse on a class with no heals measures nothing",
+       tostring(NS.FM.RangeSpell()))
+    UnitClass = realClass
     d.binds = kept
 end
 
@@ -5579,8 +5629,10 @@ do
         for _, m in ipairs(FM.MODS) do FM.Clear(m.key, slot.key) end
     end
     FM.Set("alt-", "left", FM.PingBind("assist"))
-    ok(FM.RangeSpell() == nil,
-       "with only a ping bound, range is measured with nothing - never with the ping",
+    -- since 7 Oct a trained class heal counts even unbound, so the answer is that heal - and
+    -- never, ever the ping
+    ok(FM.RangeSpell() ~= nil and not FM.PingOf(FM.RangeSpell()),
+       "with only a ping bound, range is measured with a trained heal - never with the ping",
        tostring(FM.RangeSpell()))
     FM.Set("", "left", "Healing Wave(Rank 3)")
     ok(FM.RangeSpell() == "Healing Wave", "and a real spell is still found", tostring(FM.RangeSpell()))
@@ -6674,6 +6726,18 @@ do
         FG.PaintRange(other, "targettarget")
         ok(other:GetAlpha() == 1, "a unit UnitInRange did not check is not dimmed (Arn's tot was himself)", other:GetAlpha())
         STATE.rangeNil = false
+        -- IN COMBAT BOTH OF UnitInRange's ANSWERS ARE SECRET, and `checked == false` on a secret
+        -- threw (BugGrabber, 7 Oct). Lua 5.1 cannot make a table == false throw, so the promise is
+        -- tested: `checked` is ASKED ABOUT before anything compares it. In the wrong order the
+        -- comparison is just false here, short-circuits, and the question is never asked.
+        STATE.rangeNil, STATE.unitRangeBothSecret = true, true
+        local askedAbout = false
+        local realSecret = NS.Secret
+        NS.Secret = function(v) if v == STATE.lastChecked and v ~= nil then askedAbout = true end return realSecret(v) end
+        ok(pcall(FG.PaintRange, other, "party1"), "both answers secret: the range paint does not throw")
+        NS.Secret = realSecret
+        ok(askedAbout, "and the 'did it check' answer was asked about before it was compared")
+        STATE.rangeNil, STATE.unitRangeBothSecret, STATE.lastChecked = false, false, nil
         -- and YOU, always: nobody is out of range of themselves
         STATE.range.player = 0
         FG.PaintRange(other, "player")

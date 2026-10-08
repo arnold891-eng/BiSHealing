@@ -465,20 +465,68 @@ function FM.RangeSpell()
         if c and FM.PingOf(c) then return nil end
         return c
     end
-    local cast = spellAt("", "left") or spellAt("", "right")
-    if not cast then
-        for _, slot in ipairs(FM.SLOTS) do
-            for _, m in ipairs(FM.MODS) do
-                cast = cast or spellAt(m.key, slot.key)
+    -- THE LONGEST REACH OF EVERY HEAL YOU KNOW (7 Oct 2026). Arn: "now that we know more about
+    -- the client can we check all the healing spells and use that range the biggest one". Every
+    -- spell bound (left and right first, then the rest), then the class's own heals, each asked
+    -- for its maximum range; the longest wins, and a tie keeps the earlier - the one the hand
+    -- reaches for. A spell the client calls NOT helpful is skipped: a damage spell on a bind has
+    -- a range too, and it answers nil about a friend, which is "no answer" for the whole raid.
+    local order, seen = {}, {}
+    local function add(cast)
+        if not cast then return end
+        local name = FM.Split(cast)
+        if name and not seen[name] then seen[name] = true order[#order + 1] = name end
+    end
+    add(spellAt("", "left")) add(spellAt("", "right"))
+    for _, slot in ipairs(FM.SLOTS) do
+        for _, m in ipairs(FM.MODS) do add(spellAt(m.key, slot.key)) end
+    end
+    -- select(2, ...), not `local _, class = UnitClass and UnitClass(...)`: `x and f()` keeps only
+    -- f's FIRST return, so that line left `class` nil and no class heal was ever asked (7 Oct -
+    -- the truncated-returns landmine, which the suite caught and bislint did not)
+    local class = UnitClass and select(2, UnitClass("player"))
+    -- in a FIXED order: `pairs` has none, and between two equal heals the winner would be chance
+    local defaults = FM.CLASS_DEFAULTS[class or ""] or {}
+    for _, k in ipairs({ "left", "right", "shift-left" }) do add(defaults[k]) end
+
+    local best, bestID, bestRange
+    for _, name in ipairs(order) do
+        local id
+        for _, r in ipairs(FM.Ranks(name) or {}) do if r.spell then id = r.spell break end end
+        if id then
+            local helpful = FM.Helpful(id)
+            if helpful ~= false then
+                local reach = FM.MaxRange(id) or 0
+                if not bestRange or reach > bestRange then best, bestID, bestRange = name, id, reach end
             end
         end
     end
-    if not cast then return nil end
-    local name = FM.Split(cast)
-    for _, r in ipairs(FM.Ranks(name) or {}) do
-        if r.spell then return name, r.spell end
-    end
-    return name
+    if best then return best, bestID end
+    -- the book has not answered yet (login): the first bound spell by name is all there is to try
+    return order[1]
+end
+
+--- Is this spell one you cast on a friend? true / false, or nil when the client will not say.
+function FM.Helpful(id)
+    local f = C_Spell and C_Spell.IsSpellHelpful
+    if not f then return nil end
+    local ok, v = pcall(f, id)
+    if not ok or (NS.Secret and NS.Secret(v)) then return nil end
+    if v == true or v == 1 then return true end
+    if v == false or v == 0 then return false end
+    return nil
+end
+
+--- A spell's maximum range in yards, or nil. C_Spell.GetSpellInfo answers a TABLE (`maxRange`);
+--- the old global answered it as the 6th return - both shapes, as RezComm learned on 17 Sep.
+function FM.MaxRange(id)
+    local get = (C_Spell and C_Spell.GetSpellInfo) or GetSpellInfo
+    if not get then return nil end
+    local ok, a, _, _, _, _, six = pcall(get, id)
+    if not ok then return nil end
+    local r = (type(a) == "table") and a.maxRange or six
+    if NS.Secret and NS.Secret(r) then return nil end
+    return type(r) == "number" and r or nil
 end
 
 --- EVERY RANK OF A SPELL THIS CHARACTER KNOWS, oldest first, by walking the spellbook.

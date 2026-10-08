@@ -9,6 +9,11 @@
 - **An overheal shows twice now.** The heal may stick out a short way past the right edge again
   (about 12 px - never across the next cell), and the part that lands on nobody is a bold
   orange-red band over the end of their health, with a white tick where the waste begins.
+- **Range is measured with your longest-reaching heal.** Every heal you have bound, plus your
+  class's own heals even unbound, is asked how far it reaches; the longest wins. A damage spell
+  on a bind is never used.
+- Fixed a Lua error out of a party ("attempt to compare local 'checked' (a secret boolean
+  value)") - the game's secret answer is now asked about before it is ever compared.
 
 ## 0.8.3-beta3
 

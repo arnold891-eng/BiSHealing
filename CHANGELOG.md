@@ -7,6 +7,9 @@
   more for the BiS> now block. It reads the book once now, and again only when you learn
   something. In a 25-player raid that was about 630,000 questions a second to the game; it is
   now none while nothing changes. `/bish range` shows how many times the book has been read.
+- **Lighter in raid fights too.** The mana-regen line and the self-buff watch reacted to every
+  buff and debuff on every raid member; they now only look at yours. Each frame's repaint asks
+  the game for max health once instead of four times.
 - **Your target and target-of-target are no longer dimmed for no reason.** A hostile target was
   dimmed by the range of your heal (which cannot be cast on an enemy), and the tot cell - often
   you - was dimmed by a check the game never actually made. You are never dimmed now.

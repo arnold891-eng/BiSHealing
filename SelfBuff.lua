@@ -359,6 +359,9 @@ function FS.Start()
     f:SetScript("OnEvent", function(_, event, unit)
         -- nil unit = an event about nobody in particular (SPELLS_CHANGED), which we want. A unit
         -- that is somebody, or that the client will not let us identify, is not our business.
+        -- (7 Oct 2026) a raid aura is answered with ONE question, not IsPlayer's two-plus: the
+        -- client always sends "player" for your own auras, so anything else is somebody else's
+        if event == "UNIT_AURA" and (NS.Secret(unit) or unit ~= "player") then return end
         if unit ~= nil and (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return end
         -- THE BOOK IS KEPT NOW (Mouse.lua), and its own listener hears these two events too - but
         -- which frame the client tells FIRST is not ours to say. If it were this one, the check

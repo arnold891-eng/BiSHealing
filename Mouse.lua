@@ -612,6 +612,7 @@ function book.readModern()
     -- the one-argument call - it refuses it now.
     local bank = (Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player) or 0
     if C_SpellBook and C_SpellBook.GetSpellBookItemName then
+        -- cost: once per SPELLS_CHANGED / PLAYER_ENTERING_WORLD, or every FM.BOOK_TTL s - kept between
         for i = 1, 500 do
             local got, nm, sub = pcall(C_SpellBook.GetSpellBookItemName, i, bank)
             if got and type(nm) == "string" and nm ~= "" then
@@ -627,6 +628,7 @@ end
 function book.readOld()
     local names, n = {}, 0
     if GetSpellBookItemName and GetNumSpellTabs then
+        -- cost: only when the modern book came back empty, and kept with it (book.get)
         for i = 1, 500 do
             local got, nm, sub = pcall(GetSpellBookItemName, i, "spell")
             if got and type(nm) == "string" and nm ~= "" then

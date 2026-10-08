@@ -7018,6 +7018,58 @@ do
     FG.Layout(FG.anchor)
 end
 
+-- WHAT A QUIET SECOND COSTS, IN CLIENT CALLS (7 Oct 2026). Arn: "make sure stuff like this does
+-- not happen, this goes live and we have a lot of angry users". The block above counts the book;
+-- this one counts EVERYTHING the client is asked, with the family's own counter
+-- (_bisdev/dev/cost.lua), so a hog anywhere in the paint shows up here before it ships.
+-- check.sh holds every Forever addon with a timer to having one of these.
+do
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local d = NS.DB()
+    local was = { binds = d.binds, now = d.now, shown = d.shown }
+    d.shown, d.now = true, true
+    d.binds = { wheelup = "Healing Wave(Rank 3)", wheeldown = "Lesser Healing Wave(Rank 1)",
+                button4 = "Cure Poison", ["alt-left"] = "!ping:attack" }
+    for i = 1, 25 do STATE.units["raid" .. i] = true end
+    local realRaid, realHP = _G.IsInRaid, _G.UnitHealthPercent
+    _G.IsInRaid = function() return true end
+    _G.UnitHealthPercent = function()
+        return { GetRGB = function() return 1, 1, 1 end, GetRGBA = function() return 1, 1, 1, 1 end }
+    end
+    FG.Layout(FG.anchor)
+    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    tick() tick()
+
+    local n, by = Cost.Count(function() for _ = 1, 10 do tick() end end)
+    STATE.costQuiet = n
+    -- THE BUDGETS, set a little above what was measured on 7 Oct after the cost pass (8,300 and
+    -- 600; it was 9,530 and 1,800 before it, and ~630,000 with the book walk). Raising one is
+    -- allowed - with a line here saying what bought it. The book walk would read 600,000+.
+    local QUIET, AURAS = 9000, 650
+    ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
+       Cost.Top(by, 6))
+
+    -- A RAID'S AURAS. UNIT_AURA fires for every buff, debuff and tick on every member - hundreds a
+    -- second in a fight. Only YOURS mean anything to the regen pair and the self-buff watch.
+    local a, aby = Cost.Count(function()
+        for i = 1, 300 do
+            local u = "raid" .. ((i % 25) + 1)
+            if NS.FR and NS.FR.frame then fire(NS.FR.frame, "UNIT_AURA", u) end
+            if NS.FS and NS.FS.frame then fire(NS.FS.frame, "UNIT_AURA", u) end
+        end
+    end)
+    STATE.costAuras = a
+    ok(a <= AURAS, "300 aura changes on OTHER people ask the client at most " .. AURAS .. " things: "
+       .. a, Cost.Top(aby, 6))
+    print(("   cost: quiet 25-man second = %d calls (%s)"):format(n, Cost.Top(by, 4)))
+    print(("   cost: 300 raid auras      = %d calls (%s)"):format(a, Cost.Top(aby, 4)))
+
+    _G.IsInRaid, _G.UnitHealthPercent = realRaid, realHP
+    for i = 1, 25 do STATE.units["raid" .. i] = nil end
+    d.binds, d.now, d.shown = was.binds, was.now, was.shown
+    FG.Layout(FG.anchor)
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

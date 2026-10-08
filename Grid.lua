@@ -1678,6 +1678,14 @@ end
 
 --- Everything a cell may change DURING a fight. Nothing here reads a number back: the health
 --- value goes from the client into the bar and is never touched on the way.
+--- Does the client hide everyone's max health? Asked through C_Secrets; a yes turns FG.maxOK off.
+function FG.AskMaxSecret()
+    if FG.maxOK and C_Secrets and C_Secrets.ShouldUnitHealthMaxBeSecret then
+        local asked, hidden = pcall(C_Secrets.ShouldUnitHealthMaxBeSecret)
+        if asked and NS.Plain(hidden) == true then FG.maxOK = false end
+    end
+end
+
 function FG.Paint(f)
     local unit = f.unit
     if not unit then return end
@@ -1694,12 +1702,14 @@ function FG.Paint(f)
     --
     -- The pcall stays as the floor: an API that answers "no" and then refuses anyway is still
     -- an error we must not take, and TBC has no C_Secrets to ask.
-    if FG.maxOK and C_Secrets and C_Secrets.ShouldUnitHealthMaxBeSecret then
-        local asked, hidden = pcall(C_Secrets.ShouldUnitHealthMaxBeSecret)
-        if asked and NS.Plain(hidden) == true then FG.maxOK = false end
-    end
+    -- (7 Oct 2026, the cost pass) the question takes no unit, so the update loop asks it ONCE a
+    -- tick and says so in FG.tickMaxAsked; a paint outside the loop still asks for itself
+    if FG.maxOK and not FG.tickMaxAsked then FG.AskMaxSecret() end
+    -- and the max is read ONCE a paint, not once per bar: four bars wanted the same number
+    local max
     if FG.maxOK then
-        local ok = pcall(f.bar.SetMinMaxValues, f.bar, 0, UnitHealthMax(unit))
+        max = UnitHealthMax(unit)
+        local ok = pcall(f.bar.SetMinMaxValues, f.bar, 0, max)
         if not ok then FG.maxOK = false end
     end
     f.bar:SetValue(UnitHealth(unit))     -- the one legal thing to do with a secret number
@@ -1712,12 +1722,12 @@ function FG.Paint(f)
     if f.incoming and UnitGetIncomingHeals then
         local ok, inc = pcall(UnitGetIncomingHeals, unit)
         if ok then
-            if FG.maxOK then pcall(f.incoming.SetMinMaxValues, f.incoming, 0, UnitHealthMax(unit)) end
+            if FG.maxOK then pcall(f.incoming.SetMinMaxValues, f.incoming, 0, max) end
             f.incoming:SetValue(NS.Secret(inc) and inc or (inc or 0))
             -- the overheal is the SAME value on the same scale, filling from the other end; where
             -- it overlaps the fill is the part that lands on nobody (see Make)
             if f.overheal then
-                if FG.maxOK then pcall(f.overheal.SetMinMaxValues, f.overheal, 0, UnitHealthMax(unit)) end
+                if FG.maxOK then pcall(f.overheal.SetMinMaxValues, f.overheal, 0, max) end
                 f.overheal:SetValue(NS.Secret(inc) and inc or (inc or 0))
             end
         end
@@ -1734,7 +1744,7 @@ function FG.Paint(f)
     if f.absorb and UnitGetTotalAbsorbs then
         local ok, abs = pcall(UnitGetTotalAbsorbs, unit)
         if ok then
-            if FG.maxOK then pcall(f.absorb.SetMinMaxValues, f.absorb, 0, UnitHealthMax(unit)) end
+            if FG.maxOK then pcall(f.absorb.SetMinMaxValues, f.absorb, 0, max) end
             f.absorb:SetValue(NS.Secret(abs) and abs or (abs or 0))
         end
     end
@@ -2382,6 +2392,9 @@ function FG.Start()
             local spell, spellID = NS.FM.RangeSpell()
             FG.tickRange = { spell, spellID }
         end
+        -- and "is max health secret", which is about nobody in particular: once, not per cell
+        FG.AskMaxSecret()
+        FG.tickMaxAsked = true
         for _, f in ipairs(FG.frames) do
             if f.unit and f:IsShown() then FG.Paint(f) end
         end
@@ -2419,6 +2432,7 @@ function FG.Start()
             FG.Paint(tt)
         end
         FG.tickRange = nil              -- the tick is over; the next asker asks for itself
+        FG.tickMaxAsked = nil
     end)
 
     local ev = CreateFrame("Frame")

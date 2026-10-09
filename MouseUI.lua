@@ -266,7 +266,7 @@ function FM.Window()
     if FM.win then return FM.win end
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
-    w:SetSize(250, 330)
+    w:SetSize(250, 356)             -- 330 + the heal palette's row (8 Oct 2026)
     FM.Restore(w)                   -- the last place it was put, or the middle on a first run
     w:SetMovable(true)
     w:EnableMouse(true)
@@ -472,6 +472,44 @@ function FM.Window()
         w.pings[i] = b
     end
 
+    -- YOUR HEALS, AT THEIR TOP RANK, READY TO DRAG (8 Oct 2026; FojjiCore's spell-rank rows). One
+    -- row above the pings: drag an icon onto a mouse button - or click it, then click the button.
+    -- Picked up by spell id at the highest trained rank, so the drop binds THAT rank (FM.Palette).
+    w.palette = {}
+    local PAL, PSTEP = 19, 21
+    for i = 1, FM.PALETTE_MAX do
+        local b = CreateFrame("Button", nil, w)
+        b:SetSize(PAL, PAL)
+        b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * PSTEP, 58)
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetAllPoints()
+        b:RegisterForDrag("LeftButton")
+        b:RegisterForClicks("LeftButtonUp")
+        local function pick(self)
+            if self.spell then FM.PickUp(self.spell.id) end
+        end
+        b:SetScript("OnDragStart", pick)
+        b:SetScript("OnClick", pick)
+        b:SetScript("OnEnter", function(self)
+            if not (GameTooltip and self.spell) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.spell.name, rgb("accent"))
+            if self.spell.rank then GameTooltip:AddLine(self.spell.rank .. " - your highest", rgb("ink")) end
+            if FM.BOOSTERS[self.spell.name] then
+                -- the one place a new player meets the trick (Arn: "how do we let the new people
+                -- know that they can drop ns ... on top of other spells")
+                GameTooltip:AddLine("drop it on a heal's button:", rgb("good"))
+                GameTooltip:AddLine("one press casts it, then the heal", rgb("good"))
+            else
+                GameTooltip:AddLine("drag it onto a mouse button", rgb("muted"))
+            end
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        b:Hide()
+        w.palette[i] = b
+    end
+
     local foot = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     foot:SetPoint("BOTTOM", 0, 8)
     foot:SetWidth(230)
@@ -555,6 +593,25 @@ function FM.Window()
             else
                 f.boost:Hide() f.seam:Hide()
             end
+        end
+        -- the heal palette: this character's trained heals, top rank each (FM.Palette)
+        local pal = FM.Palette()
+        -- AND THE TIP, ONLY WHILE IT IS NEWS (8 Oct 2026). Arn: "how do we let the new people know
+        -- that they can drop ns or other spells like that on top of other spells, when they learn
+        -- the spells or just in the window?" In the window - the addon is quiet in chat by promise -
+        -- and only while a booster is trained and no bind carries one yet. Use it once, it goes.
+        -- On the hint line under the tabs, which is always there (the header's console is not, on
+        -- a client without BiSTheme) and does not rotate away before it is read.
+        local tip = FM.BoostTip and FM.BoostTip(pal)
+        if self.hint then
+            self.hint:SetText(tip or "drop a spell or a ping on a button")
+            self.hint:SetTextColor(rgb(tip and "good" or "muted"))
+        end
+        for i, b in ipairs(self.palette or {}) do
+            local s = pal[i]
+            b.spell = s
+            local tex = s and spellIcon(s.name)
+            if s and tex then b.icon:SetTexture(tex) b:Show() else b:Hide() end
         end
         -- 241 px of words in a 230 px line wrapped onto the note above it (the fit check, 6 Oct)
         foot:SetText((InCombatLockdown and InCombatLockdown())

@@ -1019,7 +1019,20 @@ do
     -- BOLD, AND TICKED (Arn: the 70% amber read as "a little line"): solid orange-red, and a white
     -- tick on the left edge of the overheal's own fill - where the wasted part begins
     local oc = f.overheal.__color
-    ok(oc and oc[1] >= 0.9 and oc[2] <= 0.5 and oc[3] <= 0.3, "the overheal band is a bold orange-red")
+    ok(oc and oc[1] >= 0.9 and oc[2] <= 0.3 and oc[3] >= 0.7, "the overheal band is a bold magenta - never a damage red, and off every class colour")
+    -- AND IT STANDS OFF EVERY CLASS COLOUR, since it is drawn ON one (the classic nine)
+    do
+        local CLASSES = { WARRIOR = { 0.78, 0.61, 0.43 }, PALADIN = { 0.96, 0.55, 0.73 },
+            HUNTER = { 0.67, 0.83, 0.45 }, ROGUE = { 1.00, 0.96, 0.41 }, PRIEST = { 1.00, 1.00, 1.00 },
+            SHAMAN = { 0.00, 0.44, 0.87 }, MAGE = { 0.41, 0.80, 0.94 }, WARLOCK = { 0.58, 0.51, 0.79 },
+            DRUID = { 1.00, 0.49, 0.04 } }
+        local nearest, who = 9, nil
+        for k, c in pairs(CLASSES) do
+            local d = math.sqrt((oc[1] - c[1]) ^ 2 + (oc[2] - c[2]) ^ 2 + (oc[3] - c[3]) ^ 2)
+            if d < nearest then nearest, who = d, k end
+        end
+        ok(nearest >= 0.4, "the band is far from every class colour (nearest: " .. tostring(who) .. ")", nearest)
+    end
     ok(f.overTick ~= nil, "a white tick marks where the overheal begins")
     ok(f.overTick and f.overTick.__color and f.overTick.__color[1] == 1 and f.overTick.__w == 2,
        "white, 2 px")
@@ -1323,6 +1336,10 @@ do
     ok(all:find("fills from the right", 1, true) and all:find("widths:", 1, true),
        "and names the facts that decide whether it can show", all)
     ok(pcall(NS.DO.overheal, "test") and FG.overhealTest, "/bish overheal test arms the forced band")
+    -- what it SAYS: Arn's paste read "60%%" and "orange-red" after the band went magenta
+    local said = heard[#heard] or ""
+    ok(said:find("60% ", 1, true) and not said:find("%%", 1, true) and said:find("magenta", 1, true),
+       "and says 60% (not 60%%) and the band's real colour", said)
     local cell = FG.frames and FG.frames[1]
     if cell and cell.unit then
         FG.Paint(cell)

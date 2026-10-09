@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (0.8.3-beta4)
+# BiS Healing — CurseForge page text (0.8.3)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.3-beta4 text (8 Oct): the mouse section gains the heal row and "Nature's
+Swiftness first"; the overheal line says what to DO with the band (cancel until it is gone);
+`/bish overheal` in the command table.
 
 Changed since the 0.8.2 text (7 Oct): a new "Who is who" section (the crosshairs: gold you, red
 target, white mouse, white ticks for both); the heals-on-their-way line now says the heal stops at
@@ -32,7 +36,9 @@ Drag a spell onto a picture of a mouse. Click a name. That's the addon.
 
 **Use ours:** click the minimap button (mouse binds are the first row) or type `/bish mouse`. You get a drawn mouse: drop a spell on the button you want to press. Left, right, middle, two thumb buttons, wheel up and wheel down, each with no modifier, Shift, Ctrl or Alt: 28 places.
 
+- **Your heals, ready to drag.** A row of your trained healing spells sits in the window, each at your highest rank — drag one onto a button.
 - **Ranks are kept.** Drop Rank 4 and you get Rank 4, not the biggest one you know — the same bar for a third of the mana. Click the little number on a slot to step through your ranks.
+- **Nature's Swiftness first, in one press.** Drop Nature's Swiftness onto a button that already holds a heal: that button pops it, then casts the heal on whoever you clicked. The slot shows half of each icon. On cooldown you simply get the normal heal; drop the heal again to take it off. Inner Focus (priest) and Divine Favor (paladin) work the same way.
 - **Anything not bound targets the unit.** Leave a button empty and clicking a name selects them, like Blizzard's own frames.
 - **Right-click a slot** to clear it.
 
@@ -56,7 +62,7 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 
 - **The first name on the top line** — "Kumlust", not "Kumlust Surname".
 - **A number on the bottom line: what they still need.** It counts heals already on their way, so two healers stop filling the same gap. Shortened (`3.2K`), and **blank at full health**. Prefer a **percentage**? Or nothing? Your choice.
-- **Heals on their way, and the overheal.** Incoming heals fill the missing health in green and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold orange-red band over the end of their health, with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Wait for the band to shrink, then cast.
+- **Heals on their way, and the overheal.** Incoming heals fill the missing health in green and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold magenta band over the end of their health, with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Mid-cast, cancel and re-cast until there is no magenta left - then every point of it lands.
 - **Bars in class colour — or coloured by health**: green, amber below 70%, red below 35%.
 - **The dispel marker shows what it is**: magic, curse, poison or disease, in the game's own icon, when there's something on them *you* can remove.
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
@@ -141,7 +147,7 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish hover on` · `off` | the white crosshair on whoever your mouse is on |
 | `/bish dim 40` | how far out-of-range cells dim, 20 to 90 |
 | `/bish center` · `/bish hide` · `/bish show` | where it is |
-| `/bish scan` · `/bish range` · `/bish regen` | what this client will tell me right now |
+| `/bish scan` · `/bish range` · `/bish regen` · `/bish overheal` | what this client will tell me right now |
 | `/bish byid` · `/bish ping` · `/bish curve` · `/bish control` · `/bish hits` | the same, in detail — for bug reports |
 | `/bish keep` | what's saved in your `BiSHealing` macro |
 

@@ -1,25 +1,35 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.3
 
-- **The overheal band shows on everyone now, not just on you.** It was built inside a frame the
-  game will not draw when the health under it is hidden from addons (everyone but you) - so only
-  green ever showed. It is now trimmed by a mask instead, the way EllesmereUI draws its overshield.
-  `/bish overheal` says what the band is made of; `/bish overheal test` forces it on for 10 seconds.
+Everything since 0.8.2 (the betas below, plus the last fixes):
 
-- **Your heals, at their top rank, ready to drag.** The mouse bind window has a row of your
-  trained healing spells - each one your highest rank. Drag one onto a mouse button (or click
-  it, then click the button). Only spells you have trained show. Shaman, priest, druid, paladin.
+- **See your overheal before it happens.** While your heal is on its way, green fills what they
+  are missing and a bold magenta band covers the end of their health by the amount that would
+  be wasted, with a white tick where it starts - that is how much damage they can still take.
+  Cancel and re-cast until there is no magenta. Works on everyone (it only ever drew on you
+  before). `/bish overheal test` shows it for 10 seconds.
+- **Nature's Swiftness before your big heal, in one press.** In `/bish mouse`, drop Nature's
+  Swiftness onto a button that holds a heal: that button pops it, then casts the heal. The slot
+  shows half of each icon. Drop the heal again to take it off. Inner Focus (priest) and Divine
+  Favor (paladin) work the same way. A green line in the window tells you about it the first time.
+- **Your heals at their top rank, ready to drag** - a row of them in the mouse bind window.
+- **Crosshairs that say who is who:** gold on you (or red on your target with `/bish ring
+  target` - on every cell that is them), white on whoever your mouse is on, white ticks on red
+  when it is the same person. Outlined, so they read on any class colour. `/bish hover off`.
+- **Range is measured with your longest-reaching heal**, and you and your target are never dimmed.
+  How far out-of-range cells dim is yours (`/bish dim`, 30% on a fresh install).
+- **Much lighter on your computer, most of all in a raid** - the spellbook is read once and kept,
+  not re-asked for every cell ten times a second.
+- The options window is 25% bigger and in two columns; the target/tot bars no longer fade.
+- Fixed a Lua error out of a party ("attempt to compare local 'checked' (a secret boolean value)").
 
-- **Nature's Swiftness before your big heal, in one press.** Open the mouse binds and drop Nature's
-  Swiftness onto a button that already holds a heal: that button now pops it first, then casts
-  the heal on whoever you clicked. The slot shows its little icon in the corner. Drop the heal
-  again to take it off. Works on clicks, thumb buttons and the wheel, with any modifier; on
-  cooldown, you simply get the normal heal. Inner Focus (priest) and Divine Favor (paladin) work
-  the same way.
+## 0.8.3-beta5 (not uploaded - went straight to 0.8.3)
 
-- The spellbook is re-read at most once a minute when nothing has changed (was every 5 seconds).
-  Learning a spell still re-reads it at once.
+- The overheal band, rebuilt on a mask: it shows on everyone, not just on you. `/bish overheal`.
+- Your heals, at their top rank, ready to drag, in the mouse bind window.
+- Nature's Swiftness (Inner Focus, Divine Favor) in front of a heal, in one press.
+- The spellbook is re-read at most once a minute when nothing has changed.
 
 ## 0.8.3-beta4
 

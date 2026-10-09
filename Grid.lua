@@ -314,7 +314,11 @@ FG.TARGET = { 1.00, 0.18, 0.18 }
 -- "i liked the overflow thing but in the bar of different color" - the overheal lives INSIDE the
 -- bar now, as the band over the health, and nothing crosses the edge
 FG.LANE = 0
-FG.OVERHEAL = { 1.00, 0.35, 0.10, 0.95 } -- the overheal band: bold orange-red (was a 70% amber)
+-- the overheal band: MAGENTA (8 Oct 2026). Orange-red read as damage - Arn: "orange might be too
+-- close to red and people might think they are getting hit". It sits over the CLASS colour, so it
+-- must stand off all nine: magenta does (paladin's pale pink is the nearest, far less saturated);
+-- aqua vanished on a mage, white on a priest, violet on a warlock. (Was a 70% amber, then orange-red.)
+FG.OVERHEAL = { 1.00, 0.12, 0.85, 0.95 }
 
 --- Draw the crosshair on `frame` (it fills the frame) in colour `c`. Textures only, no art: they
 --- take a colour, they take any size, and a half-width pyramid cell gets the same reticle.

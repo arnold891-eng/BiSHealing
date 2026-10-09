@@ -552,7 +552,10 @@ end
 ---   * it came back EMPTY, which is never kept: at login the client has not filled the book in
 ---     yet, and an empty answer remembered is a mouse with no defaults for the whole session
 local book = {}
-FM.BOOK_TTL = 5
+-- 60, not 5 (8 Oct 2026). Arn's /bish range: "read 70 times since login" - the 5 s net was the
+-- only thing still reading it. Learning a spell fires SPELLS_CHANGED, which re-reads at once; the
+-- net is for a way nobody has seen, and "at level 60 you stop learning spells anyways".
+FM.BOOK_TTL = 60
 FM.bookReads = 0          -- how many times the book has been walked; /bish range prints it
 
 --- The real spell id behind a book slot, or nil. The same read SelfBuff.lua has always done.

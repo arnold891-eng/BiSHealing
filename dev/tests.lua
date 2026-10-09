@@ -7071,6 +7071,12 @@ do
     ok(#NS.FM.Ranks("Tremor Totem") == 1, "silently forgotten, it is still believed for a moment")
     TICK(NS.FM.BOOK_TTL + 0.1)
     ok(#NS.FM.Ranks("Tremor Totem") == 0, "and not once the kept book has aged out")
+    -- A QUIET MINUTE READS IT AT MOST ONCE (8 Oct: Arn's /bish range said 70 reads since login on
+    -- a 5 s net). Ten minutes of asking every second, nothing learned: ten reads at most.
+    local reads0 = NS.FM.bookReads
+    for _ = 1, 600 do TICK(1) NS.FM.Ranks("Healing Wave") end
+    ok(NS.FM.BOOK_TTL >= 60 and NS.FM.bookReads - reads0 <= 10,
+       "ten quiet minutes read the spellbook at most ten times: " .. (NS.FM.bookReads - reads0))
 
     -- WHOEVER THE CLIENT TELLS FIRST. The self-buff watch checks the book inside its own handler
     -- for the same event; told before the book's listener, it would check a book that is about to

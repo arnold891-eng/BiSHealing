@@ -552,11 +552,24 @@ function FG.Make(i, parent)
     --
     -- Amber, on top of the fill: wasted healing is a warning, and it must read as a different
     -- thing from both the green heal and the gold shield.
+    --
+    -- A MASK, NOT A CLIP (8 Oct 2026). Arn: only green ever showed; `/bish overheal test` forced the
+    -- band to 60% on every cell and he saw nothing - so it could not be DRAWN. EllesmereUI's own
+    -- notes say why: a clip frame whose edge is anchored to a secret-sized region (the health
+    -- fill, for anyone but you) "stops rendering its children entirely" - their overshield vanished
+    -- the same way, and their fix is ours. `curClip` is now only a SHAPE: a mask texture is laid
+    -- over it and put on the band's fill, and the band is a child of the health bar itself.
+    -- CLAMPTOBLACKADDITIVE makes the mask a bound (the default wrap smears its edge pixels past
+    -- the rect); NEAREST keeps the 8x8 white from blurring a shadow into the edges.
     f.curClip = CreateFrame("Frame", nil, f)
     f.curClip:SetPoint("TOPLEFT", f.bar, "TOPLEFT", 0, 0)
     f.curClip:SetPoint("BOTTOMRIGHT", f.bar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
-    if f.curClip.SetClipsChildren then f.curClip:SetClipsChildren(true) end
-    f.overheal = CreateFrame("StatusBar", nil, f.curClip)
+    if f.bar.CreateMaskTexture then
+        f.curMask = f.bar:CreateMaskTexture()
+        f.curMask:SetAllPoints(f.curClip)
+        f.curMask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+    end
+    f.overheal = CreateFrame("StatusBar", nil, f.bar)
     f.overheal:SetPoint("TOPRIGHT", f.bar, "TOPRIGHT", 0, 0)
     f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2)
     f.overheal:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -566,8 +579,8 @@ function FG.Make(i, parent)
     if f.overheal.SetReverseFill then f.overheal:SetReverseFill(true) end
     f.overheal:SetMinMaxValues(0, 1)
     f.overheal:SetValue(0)
-    if f.overheal.SetFrameLevel and f.GetFrameLevel then
-        local lvl = f:GetFrameLevel()
+    if f.overheal.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
         if type(lvl) == "number" then f.overheal:SetFrameLevel(lvl + 3) end
     end
     -- AND A WHITE TICK WHERE THE WASTE BEGINS: pinned to the left edge of the overheal's own fill,
@@ -580,6 +593,11 @@ function FG.Make(i, parent)
         f.overTick:SetWidth(2)
         f.overTick:SetPoint("TOPLEFT", fillTex, "TOPLEFT", 0, 0)
         f.overTick:SetPoint("BOTTOMLEFT", fillTex, "BOTTOMLEFT", 0, 0)
+        -- both trimmed to the filled health by the mask: only the part over their health shows
+        if f.curMask and fillTex.AddMaskTexture then
+            fillTex:AddMaskTexture(f.curMask)
+            f.overTick:AddMaskTexture(f.curMask)
+        end
     end
 
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
@@ -1793,6 +1811,12 @@ function FG.Paint(f)
                 f.overheal:SetValue(NS.Secret(inc) and inc or (inc or 0))
             end
         end
+    end
+    -- /bish overheal test: the band forced to 60% from the right, on every cell, heal or no heal,
+    -- to tell "it cannot be drawn" apart from "the numbers going in are wrong" (8 Oct 2026)
+    if f.overheal and FG.overhealTest and GetTime and GetTime() < FG.overhealTest then
+        f.overheal:SetMinMaxValues(0, 1)
+        f.overheal:SetValue(0.6)
     end
 
     -- THE SHIELD (5 Oct 2026). Arn: "ellesmear draws the shield on the frames can we do the same?"

@@ -619,13 +619,24 @@ function FG.Make(i, parent)
     -- the same line maybe we put them in different lines". They shared one line and the name was
     -- cut short to make room for the number. Now the name has the top line to itself (up to the
     -- role icon), and the number sits on the bottom line, right-aligned.
-    f.htext = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    --
+    -- ABOVE THE BANDS (8 Oct 2026). Arn, on 0.8.3: "magenta over laps the numbers". The words sat on
+    -- the health bar itself, and the overheal band is a frame three levels up - so it painted over
+    -- the number in the corner. A transparent layer on the bar, above every band, holds the words
+    -- and the role icon: same place, same dimming (a child of the bar), always on top.
+    f.ink = CreateFrame("Frame", nil, f.bar)
+    f.ink:SetAllPoints(f.bar)
+    if f.ink.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
+        if type(lvl) == "number" then f.ink:SetFrameLevel(lvl + 5) end
+    end
+    f.htext = f.ink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.htext:SetPoint("BOTTOMRIGHT", -3, 4)
     f.htext:SetJustifyH("RIGHT")
     if f.htext.SetTextColor then f.htext:SetTextColor(1, 0.55, 0.55) end
 
-    f.name = f.bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.__nameParent = f.bar        -- dev/forever.lua asserts the label belongs to the bar
+    f.name = f.ink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.__nameParent = f.ink        -- dev/forever.lua asserts the label rides on the bar (its ink layer)
     f.name:SetPoint("TOPLEFT", 3, -4)
     f.name:SetPoint("TOPRIGHT", -14, -4)    -- stops short of the role icon in the corner
     f.name:SetJustifyH("LEFT")
@@ -635,7 +646,7 @@ function FG.Make(i, parent)
     -- the icons on its frames and asked for them here. Two things worth copying from it: the
     -- role comes back as a SECRET VALUE like everything else on this client, and the atlas is
     -- fetched through a second call that can be secret too. Both are guarded.
-    f.role = f.bar:CreateTexture(nil, "OVERLAY")
+    f.role = f.ink:CreateTexture(nil, "OVERLAY")
     f.role:SetSize(11, 11)
     f.role:SetPoint("TOPRIGHT", -1, -1)
     f.role:Hide()

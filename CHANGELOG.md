@@ -1,5 +1,10 @@
 # BiS Healing
 
+## Unreleased
+
+- **The number in the corner is always readable.** The magenta overheal band painted over it (and
+  could over a long name); the words and the role icon now sit on a layer above every band.
+
 ## 0.8.3
 
 Everything since 0.8.2 (the betas below, plus the last fixes):

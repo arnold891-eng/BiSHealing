@@ -96,6 +96,9 @@ local function newFrame(kind, name, parent)
     -- answer nothing at all, which made "put the window back where it was" untestable - and a
     -- window that opens in the wrong place is the kind of thing only a person ever notices.
     function f:SetPoint(...) self.points[#self.points + 1] = { ... } end
+    -- a frame laid over another remembers which (8 Oct 2026): the cell's ink layer covers the bar,
+    -- and the fit check has to follow it there to measure the words on it
+    function f:SetAllPoints(rel) self.__allpoints = rel or true end
     function f:ClearAllPoints() self.points = {} end
     function f:GetNumPoints() return #self.points end
     function f:GetPoint(i)
@@ -164,6 +167,15 @@ local function newFrame(kind, name, parent)
         self.__alpha, self.__alphaFromSecret = b and whenTrue or whenFalse, false
     end
     function f:SetFrameStrata(v) self.__strata = v end
+    -- A FRAME HAS A LEVEL, and a child starts one above its parent, as in the client (8 Oct 2026).
+    -- Both were auto no-ops answering nil, so "does the overheal band paint over the number" had
+    -- no answer - and in 0.8.3 it did (Arn: "magenta over laps the numbers").
+    function f:SetFrameLevel(l) self.__level = l end
+    function f:GetFrameLevel()
+        if type(self.__level) == "number" then return self.__level end
+        local p = self.__parent
+        return ((p and p.GetFrameLevel and p:GetFrameLevel()) or 0) + 1
+    end
     function f:SetScale(v) self.__scale = v end
     function f:GetScale() return self.__scale or 1 end
     function f:SetSize(w, h) self.__w, self.__h = w, h end
@@ -1389,6 +1401,22 @@ _G.UnitName = function(u) return "Name-" .. tostring(u) end
 ok(FG.frames[1].name ~= nil, "a cell has a name label")
 ok(rawequal(FG.frames[1].__nameParent, FG.frames[1].bar) or FG.frames[1].name ~= nil,
    "the label belongs to the bar, so it draws over it")
+-- AND OVER EVERY BAND ON IT (Arn, 0.8.3: "magenta over laps the numbers"): the words and the role
+-- icon live on an ink layer above the overheal, the shield and the incoming heal
+do
+    local c = FG.frames[1]
+    local ink = c.ink
+    ok(ink and ink.__parent == c.bar, "the ink layer rides on the health bar (dims with it)")
+    ok(c.htext.__parent == ink and c.name.__parent == ink and c.role.__parent == ink,
+       "the number, the name and the role icon are on it")
+    local inkL = ink and ink:GetFrameLevel() or 0
+    local over = 0
+    for _, b in ipairs({ c.overheal, c.absorb, c.incoming }) do
+        if b and b:GetFrameLevel() > over then over = b:GetFrameLevel() end
+    end
+    ok(inkL > over, "and it is above every band - the overheal cannot paint over the number",
+       inkL .. " vs " .. over)
+end
 
 -- The grid runs on whatever client it finds. Until 19 Sep this began "if not NS.SECRET then
 -- return false" - stand aside, this client keeps the pyramid - and there is no pyramid now.
@@ -6631,7 +6659,7 @@ function FIT.box(r, root, rootW, depth)
     if r == root then return 0, rootW end
     if (depth or 0) > 12 or r == nil then return nil end
     local d = (depth or 0) + 1
-    if r.__allpoints then return FIT.box(r.__parent, root, rootW, d) end
+    if r.__allpoints then return FIT.box(type(r.__allpoints) == "table" and r.__allpoints or r.__parent, root, rootW, d) end
     local pts = r.points or {}
     local lp, rpnt                       -- the point holding the left edge, the one holding the right
     for _, p in ipairs(pts) do

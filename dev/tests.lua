@@ -5024,6 +5024,78 @@ do
         ok(pcall(slot.__scripts.OnReceiveDrag, slot), "and a spell can be dropped on it")
         ok(FM.Get("", "left") == "Spell331(Rank 4)", "which binds the spell WITH its rank")
 
+        -- NATURE'S SWIFTNESS IN FRONT OF THE HEAL (Arn, 8 Oct: "finally got nature's swiftness ...
+        -- when i press down a button it pops it before my big heal"). Dropped onto a slot that holds
+        -- a heal, it rides in front of it; one press casts both.
+        do
+            local realInfo = _G.C_Spell.GetSpellInfo
+            _G.C_Spell.GetSpellInfo = function(id)
+                if id == 16188 then return { name = "Nature's Swiftness" } end
+                return realInfo(id)
+            end
+            CURSOR = { kind = "spell", a = 40, b = "spell", c = 16188 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "Nature's Swiftness+Spell331(Rank 4)",
+               "Nature's Swiftness dropped on a heal goes IN FRONT of it, the heal and its rank kept",
+               tostring(FM.Get("", "left")))
+            local boost, heal = FM.Boost(FM.Get("", "left"))
+            ok(boost == "Nature's Swiftness" and heal == "Spell331(Rank 4)", "and splits back into the two")
+            local nm, rk = FM.Split(FM.Get("", "left"))
+            ok(nm == "Spell331" and rk == "Rank 4", "the slot's NAME is still the heal's - its icon, ranks and range")
+            w:Refresh()
+            ok(slot.boost.__shown, "the slot wears the booster's little icon in its corner")
+            TIP.lines = {}
+            slot.__scripts.OnEnter(slot)
+            local tip = table.concat(TIP.lines, "|")
+            ok(tip:find("Nature's Swiftness first", 1, true), "and its tooltip says it goes first", tip)
+
+            -- IT SURVIVES A RESTART: the macro that keeps the binds carries it as one name
+            local body = NS.FK.Encode({ left = FM.Get("", "left") }, {})
+            local back = NS.FK.Decode(body)
+            ok(back and back.left == "Nature's Swiftness+Spell331(Rank 4)",
+               "written into the macro and read back whole", body)
+
+            -- ONE PRESS, TWO CASTS: the guard, the booster, then the heal on whoever was clicked
+            local cell = CreateFrame("Button", "BoostCell", UIParent, "SecureUnitButtonTemplate")
+            FM.ApplyTo(cell)
+            local mt = cell.__attrs["*macrotext1"] or ""
+            ok(cell.__attrs["*type1"] == "macro"
+               and mt == "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+                      .. "/cast Nature's Swiftness\n/cast [@mouseover] Spell331(Rank 4)",
+               "a click casts Nature's Swiftness, then the heal on that cell - never on a dead or hostile one", mt)
+            ok(cell.__attrs["*spell1"] == nil, "and no stray spell attribute fights the macro")
+
+            -- THE WHEEL, where Arn's heals live: guard, booster, heal - in that order
+            FM.Set("", "wheelup", "Nature's Swiftness+Healing Wave(Rank 3)")
+            FM.ApplyWheel(FG.anchor)
+            local wb = _G["BiSHealWheelwheelup"]
+            local wt = wb and wb.__attrs and wb.__attrs["macrotext"] or ""
+            local g, b2, h = wt:find("/stopmacro", 1, true), wt:find("/cast Nature's Swiftness", 1, true),
+                             wt:find("/cast [@mouseover] Healing Wave(Rank 3)", 1, true)
+            ok(g and b2 and h and g < b2 and b2 < h, "on the wheel: the guard, then the booster, then the heal", wt)
+
+            -- STEPPING THE RANK KEEPS IT IN FRONT
+            FM.Set("", "right", "Nature's Swiftness+Healing Wave(Rank 1)")
+            ok(FM.CycleRank("", "right") == "Nature's Swiftness+Healing Wave(Rank 2)",
+               "the rank button steps the heal and keeps Nature's Swiftness", tostring(FM.Get("", "right")))
+            -- AND RANGE IS STILL THE HEAL'S
+            ok(FM.RangeSpell() ~= "Nature's Swiftness", "range is never measured with the booster")
+
+            -- THE WAYS BACK: the heal dropped again is a plain heal; a booster on an empty slot is
+            -- just the booster
+            RANKS[331] = "Rank 4"
+            CURSOR = { kind = "spell", a = 12, b = "spell", c = 331 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "Spell331(Rank 4)", "dropping the heal again takes the booster off")
+            FM.Clear("", "button4")
+            CURSOR = { kind = "spell", a = 40, b = "spell", c = 16188 }
+            w.slots["button4"].__scripts.OnReceiveDrag(w.slots["button4"])
+            ok(FM.Get("", "button4") == "Nature's Swiftness", "on an empty slot it is just itself")
+            FM.Clear("", "button4") FM.Clear("", "wheelup") FM.Clear("", "right")
+            FM.ApplyWheel(FG.anchor)
+            _G.C_Spell.GetSpellInfo = realInfo
+        end
+
         -- what the mouse-over says about it
         slot.__scripts.OnEnter(slot)
         local said = table.concat(TIP.lines, "|")

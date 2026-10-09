@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Nature's Swiftness before your big heal, in one press.** Open the mouse binds and drop Nature's
+  Swiftness onto a button that already holds a heal: that button now pops it first, then casts
+  the heal on whoever you clicked. The slot shows its little icon in the corner. Drop the heal
+  again to take it off. Works on clicks, thumb buttons and the wheel, with any modifier; on
+  cooldown, you simply get the normal heal. Inner Focus (priest) and Divine Favor (paladin) work
+  the same way.
+
 - The spellbook is re-read at most once a minute when nothing has changed (was every 5 seconds).
   Learning a spell still re-reads it at once.
 

@@ -151,6 +151,21 @@ local function makeSlot(parent, slot)
     f.empty = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     f.empty:SetPoint("CENTER")
     f.empty:SetText("--")
+    -- A BOOSTER RIDING IN FRONT (8 Oct 2026): its own little icon in the top-left corner, so a
+    -- slot reads "Nature's Swiftness, then this heal" at a glance
+    -- HALF AND HALF, not a corner badge: Arn, on the 10 px badge - "super tiny, maybe we make it
+    -- like half ns/half the other spell". The booster's icon covers the LEFT half of the heal's
+    -- (its own left half, cropped), with a thin dark seam between them.
+    f.boost = f:CreateTexture(nil, "OVERLAY")
+    f.boost:SetSize(9, 18)
+    f.boost:SetPoint("TOPLEFT", f.icon, "TOPLEFT", 0, 0)
+    f.boost:SetTexCoord(0, 0.5, 0, 1)
+    f.boost:Hide()
+    f.seam = f:CreateTexture(nil, "OVERLAY", nil, 1)
+    f.seam:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+    f.seam:SetSize(1, 18)
+    f.seam:SetPoint("TOP", f.icon, "TOP", 0, 0)
+    f.seam:Hide()
     -- THE RANK, and it is a BUTTON. Which Healing Wave this is matters more to a healer than
     -- which spell it is, and dropping a lower rank assumes your spellbook is set to show you one
     -- to drag. Click the little number instead: it walks the ranks this character has trained,
@@ -194,6 +209,17 @@ local function makeSlot(parent, slot)
         end
         local spell = FM.CursorSpell()
         if not spell then return false end
+        -- NATURE'S SWIFTNESS ON A HEAL GOES IN FRONT OF IT (8 Oct 2026), rather than replacing it:
+        -- the slot casts the booster, then the heal, in one press. A booster on an empty slot, a
+        -- ping, or another booster is an ordinary drop. A heal dropped on a boosted slot replaces
+        -- both - drop the heal again to go back to a plain heal.
+        local dropped = FM.Split(spell)
+        local had = FM.Get(parent.mod, slot.key)
+        local _, hadHeal = FM.Boost(had)
+        if FM.BOOSTERS[dropped] and hadHeal and not FM.PingOf(hadHeal)
+           and not FM.BOOSTERS[(FM.Split(hadHeal))] then
+            spell = FM.WithBoost(dropped, hadHeal)
+        end
         FM.Set(parent.mod, slot.key, spell)
         if ClearCursor then ClearCursor() end
         parent:Refresh()
@@ -217,8 +243,11 @@ local function makeSlot(parent, slot)
         local spell = FM.Get(parent.mod, slot.key)
         local name, rank = FM.Split(spell)
         -- an empty CLICK targets the person (FM.ApplyTo); an empty wheel does nothing of ours
+        local boost = FM.Boost(spell)
+        if boost then GameTooltip:AddLine(boost .. " first, then", rgb("good")) end
         GameTooltip:AddLine(name or (slot.attr and "empty - a click targets them" or "empty"), rgb("ink"))
         if rank then GameTooltip:AddLine(rank, rgb("muted")) end
+        if boost then GameTooltip:AddLine("drop the heal again to take " .. boost .. " off", rgb("muted")) end
         GameTooltip:AddLine(spell and "right-click to clear" or "drag a spell here",
                             rgb("muted"))
         if slot.bind then
@@ -517,6 +546,14 @@ function FM.Window()
                 f.rank:SetText(rank and (rank:match("%d+") or rank) or (spell and "-" or ""))
                 f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
                 if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
+            end
+            local boost = FM.Boost(spell)
+            local bicon = boost and spellIcon(boost) or nil
+            -- only over a drawn heal icon: half of nothing is a stray half-icon
+            if bicon and f.icon:IsShown() then
+                f.boost:SetTexture(bicon) f.boost:Show() f.seam:Show()
+            else
+                f.boost:Hide() f.seam:Hide()
             end
         end
         -- 241 px of words in a 230 px line wrapped onto the note above it (the fit check, 6 Oct)

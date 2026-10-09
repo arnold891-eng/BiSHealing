@@ -423,9 +423,36 @@ function FM.PingWord(key)
     return tostring(key)
 end
 
---- Split a stored bind back into its parts, for showing it.
+--- A SPELL THAT GOES OFF FIRST (8 Oct 2026). Arn: "finally got nature's swiftness ... when i press
+--- down a button it pops it before my big heal". Each of these makes the NEXT heal better and is
+--- off the global cooldown, so one press can cast it and then the heal - the classic two-line
+--- macro. Dropped onto a slot that already holds a heal, it rides IN FRONT of that heal:
+--- "Nature's Swiftness+Healing Wave(Rank 10)". Stored as one string, so the macro that keeps the
+--- binds, Set/Get/Clear and the trimmer all carry it untouched. On cooldown, the first line fails
+--- quietly and the heal still goes out.
+FM.BOOSTERS = { ["Nature's Swiftness"] = true, ["Inner Focus"] = true, ["Divine Favor"] = true }
+FM.BOOST_MARK = "+"
+
+--- The booster riding in front of a bind, and the bind without it. (nil, cast) when there is none.
+function FM.Boost(cast)
+    if type(cast) ~= "string" then return nil, cast end
+    local boost, rest = cast:match("^(.-)%+(.+)$")
+    if boost and FM.BOOSTERS[boost] then return boost, rest end
+    return nil, cast
+end
+
+--- A booster in front of a heal - or the heal alone when there is no booster.
+function FM.WithBoost(boost, cast)
+    if not boost or not cast then return cast end
+    return boost .. FM.BOOST_MARK .. cast
+end
+
+--- Split a stored bind back into its parts, for showing it. A booster in front is not part of the
+--- name: the name is the heal's, so its icon, its ranks and its range are the heal's.
 function FM.Split(cast)
     if type(cast) ~= "string" then return nil, nil end
+    local _, plain = FM.Boost(cast)
+    cast = plain
     local name, rank = cast:match("^(.-)%((.-)%)$")
     if name then return name, rank end
     return cast, nil
@@ -729,7 +756,8 @@ function FM.CycleRank(mod, slotKey)
         if r.rank == rank then at = i break end
     end
     local nextRank = ranks[(at % #ranks) + 1]
-    local new = FM.Cast(name, nextRank and nextRank.rank)
+    -- the booster in front stays in front: stepping the heal's rank must not drop Nature's Swiftness
+    local new = FM.WithBoost((FM.Boost(cast)), FM.Cast(name, nextRank and nextRank.rank))
     FM.Set(mod, slotKey, new)
     return new
 end
@@ -859,6 +887,14 @@ function FM.ApplyTo(cell)
                     -- button at all. The same condition the wheel binds have used all along:
                     -- "/target [@mouseover]". Arn confirmed by hand before a line of this changed.
                     kind, text, cast = "macro", "/ping [@mouseover] " .. ping, nil
+                elseif spell and FM.Boost(spell) then
+                    -- THE BOOSTER FIRST, THEN THE HEAL, in one press: a macro, aimed like the ping
+                    -- at the cell under the cursor (a click on a cell makes it the mouseover)
+                    -- the wheel's guard too, so the cooldown is never spent on a dead or hostile cell
+                    local boost, heal = FM.Boost(spell)
+                    kind, cast = "macro", nil
+                    text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+                        .. "/cast " .. boost .. "\n/cast [@mouseover] " .. heal
                 elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end
@@ -911,8 +947,12 @@ function FM.ApplyWheel(owner)
                     elseif spell then
                         -- [@mouseover] is what makes a wheel turn land on the cell under the
                         -- cursor; the stopmacro keeps it quiet when the cursor is over nothing
-                        -- healable.
-                        text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n/cast [@mouseover] " .. spell
+                        -- healable. A booster rides between the two: after the guard, so Nature's
+                        -- Swiftness is never spent on a wheel turn over nobody.
+                        local boost, heal = FM.Boost(spell)
+                        text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+                            .. (boost and ("/cast " .. boost .. "\n") or "")
+                            .. "/cast [@mouseover] " .. heal
                     end
                     b:SetAttribute("macrotext", text)
                 end

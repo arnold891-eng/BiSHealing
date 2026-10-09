@@ -201,6 +201,13 @@ local function newFrame(kind, name, parent)
     -- next cell. EllesmereUIRaidFrames uses both on Forever (healClip, missClip, backfillBar).
     function f:SetClipsChildren(v) self.__clips = v and true or false end
     function f:DoesClipChildren() return self.__clips == true end
+    -- A MASK TEXTURE is a texture that trims others (8 Oct 2026); it records what it covers through
+    -- SetAllPoints, and which textures carry it through their AddMaskTexture
+    function f:CreateMaskTexture()
+        local m = self:CreateTexture()
+        m.__isMask = true
+        return m
+    end
     function f:SetReverseFill(v) self.__reverse = v and true or false end
     function f:GetReverseFill() return self.__reverse == true end
     -- A TEXTURE REMEMBERS WHAT IT WAS GIVEN. autoMethods answers every call with nil, which is
@@ -235,7 +242,11 @@ local function newFrame(kind, name, parent)
             SetAlpha    = function(t, a) t.__alpha = a end,
             GetAlpha    = function(t) return t.__alpha end,
             SetBlendMode = function(t, m) t.__blend = m end,
-            SetAllPoints = function(t) t.__allpoints = true end,
+            -- WHAT it covers, not just that it does (8 Oct 2026): a mask laid over curClip must say so
+            SetAllPoints = function(t, rel) t.__allpoints = rel or true end,
+            -- A MASK ON A TEXTURE (8 Oct 2026, the overheal rebuilt on EllesmereUI's mask). An auto
+            -- no-op would answer "masked" for a band nobody ever trimmed.
+            AddMaskTexture = function(t, m) t.__masks = t.__masks or {} t.__masks[#t.__masks + 1] = m end,
             -- AND WHAT IT IS PINNED TO (6 Oct 2026). __point kept only the offsets, so a label hung
             -- off an icon could not say where it STARTS; the fit check below follows `points`.
             SetPoint    = function(t, p, a, b, c, d)
@@ -1013,10 +1024,23 @@ do
     ok(f.overTick and f.overTick.__color and f.overTick.__color[1] == 1 and f.overTick.__w == 2,
        "white, 2 px")
     ok(f.overheal ~= f.incoming, "its own bar, not the heal bar reused")
-    ok(f.overheal.__parent == f.curClip and clips(f.curClip),
-       "inside a frame that clips")
+    -- A MASK, NOT A CLIP (8 Oct 2026). `/bish overheal test` forced the band on and Arn saw nothing:
+    -- a clip frame anchored to a secret-sized fill draws no children (EllesmereUI's note; it only
+    -- ever showed on the tot, which was Arn - his own health is not secret). So: never under a
+    -- frame that clips, and trimmed by a mask laid over the filled part instead.
+    local p, underClip = f.overheal.__parent, false
+    while p do if clips(p) then underClip = true end p = p.__parent end
+    ok(not underClip, "the band is under NO clipping frame - that is what drew nothing in game")
+    ok(f.overheal.__parent == f.bar, "it is a child of the health bar, as EllesmereUI's backfill is")
     ok(anchoredTo(f.curClip, "TOPLEFT", f.bar, "TOPLEFT") and anchoredTo(f.curClip, "BOTTOMRIGHT", tex, "BOTTOMRIGHT"),
-       "and that frame is the FILLED part: from the left edge to the end of the fill")
+       "curClip is the FILLED part's shape: from the left edge to the end of the fill")
+    ok(f.curMask and f.curMask.__isMask and f.curMask.__allpoints == f.curClip,
+       "a mask texture covers exactly that shape")
+    ok(f.curMask and f.curMask.__texture == "Interface\\Buttons\\WHITE8X8",
+       "a plain white mask (clamped, so it bounds instead of smearing)")
+    local bandFill = f.overheal:GetStatusBarTexture()
+    local function masked(t) for _, m in ipairs(t and t.__masks or {}) do if m == f.curMask then return true end end end
+    ok(masked(bandFill) and masked(f.overTick), "the band's fill and its tick both carry the mask")
     ok(f.overheal.__reverse == true, "it fills from the RIGHT")
     ok(anchoredTo(f.overheal, "TOPRIGHT", f.bar, "TOPRIGHT"), "starting at the cell's right edge")
     ok(f.overheal.__w == f.incoming.__w, "as wide as the heal bar, so the two are on one scale")

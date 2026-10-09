@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **The overheal band shows on everyone now, not just on you.** It was built inside a frame the
+  game will not draw when the health under it is hidden from addons (everyone but you) - so only
+  green ever showed. It is now trimmed by a mask instead, the way EllesmereUI draws its overshield.
+  `/bish overheal` says what the band is made of; `/bish overheal test` forces it on for 10 seconds.
+
 - **Your heals, at their top rank, ready to drag.** The mouse bind window has a row of your
   trained healing spells - each one your highest rank. Drag one onto a mouse button (or click
   it, then click the button). Only spells you have trained show. Shaman, priest, druid, paladin.

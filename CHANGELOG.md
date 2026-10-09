@@ -1,5 +1,10 @@
 # BiS Healing
 
+## Unreleased
+
+- The spellbook is re-read at most once a minute when nothing has changed (was every 5 seconds).
+  Learning a spell still re-reads it at once.
+
 ## 0.8.3-beta4
 
 - **The target crosshair is red, and it is on every cell that is your target** - the raid cell,

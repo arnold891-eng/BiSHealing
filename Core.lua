@@ -1090,8 +1090,9 @@ function NS.DO.overheal(test)
           ask(UnitGetIncomingHeals, f.unit))
     if test then
         FG.overhealTest = (GetTime and GetTime() or 0) + 10
-        Print("  |cff4fd0cftest:|r the band is forced to 60%% from the right on every cell for 10 seconds"
-              .. " - orange-red over the right of their health = the drawing works")
+        -- one `%`, not two: Print only formats when handed arguments, so "%%" printed as it stood
+        Print("  |cff4fd0cftest:|r the band is forced to 60% from the right on every cell for 10 seconds"
+              .. " - magenta over the right of their health = the drawing works")
     end
 end
 

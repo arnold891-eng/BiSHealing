@@ -1336,6 +1336,10 @@ do
     ok(all:find("fills from the right", 1, true) and all:find("widths:", 1, true),
        "and names the facts that decide whether it can show", all)
     ok(pcall(NS.DO.overheal, "test") and FG.overhealTest, "/bish overheal test arms the forced band")
+    -- what it SAYS: Arn's paste read "60%%" and "orange-red" after the band went magenta
+    local said = heard[#heard] or ""
+    ok(said:find("60% ", 1, true) and not said:find("%%", 1, true) and said:find("magenta", 1, true),
+       "and says 60% (not 60%%) and the band's real colour", said)
     local cell = FG.frames and FG.frames[1]
     if cell and cell.unit then
         FG.Paint(cell)

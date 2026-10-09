@@ -153,10 +153,19 @@ local function makeSlot(parent, slot)
     f.empty:SetText("--")
     -- A BOOSTER RIDING IN FRONT (8 Oct 2026): its own little icon in the top-left corner, so a
     -- slot reads "Nature's Swiftness, then this heal" at a glance
+    -- HALF AND HALF, not a corner badge: Arn, on the 10 px badge - "super tiny, maybe we make it
+    -- like half ns/half the other spell". The booster's icon covers the LEFT half of the heal's
+    -- (its own left half, cropped), with a thin dark seam between them.
     f.boost = f:CreateTexture(nil, "OVERLAY")
-    f.boost:SetSize(10, 10)
-    f.boost:SetPoint("TOPLEFT", -2, 2)
+    f.boost:SetSize(9, 18)
+    f.boost:SetPoint("TOPLEFT", f.icon, "TOPLEFT", 0, 0)
+    f.boost:SetTexCoord(0, 0.5, 0, 1)
     f.boost:Hide()
+    f.seam = f:CreateTexture(nil, "OVERLAY", nil, 1)
+    f.seam:SetColorTexture(0.05, 0.05, 0.05, 0.9)
+    f.seam:SetSize(1, 18)
+    f.seam:SetPoint("TOP", f.icon, "TOP", 0, 0)
+    f.seam:Hide()
     -- THE RANK, and it is a BUTTON. Which Healing Wave this is matters more to a healer than
     -- which spell it is, and dropping a lower rank assumes your spellbook is set to show you one
     -- to drag. Click the little number instead: it walks the ranks this character has trained,
@@ -540,7 +549,12 @@ function FM.Window()
             end
             local boost = FM.Boost(spell)
             local bicon = boost and spellIcon(boost) or nil
-            if bicon then f.boost:SetTexture(bicon) f.boost:Show() else f.boost:Hide() end
+            -- only over a drawn heal icon: half of nothing is a stray half-icon
+            if bicon and f.icon:IsShown() then
+                f.boost:SetTexture(bicon) f.boost:Show() f.seam:Show()
+            else
+                f.boost:Hide() f.seam:Hide()
+            end
         end
         -- 241 px of words in a 230 px line wrapped onto the note above it (the fit check, 6 Oct)
         foot:SetText((InCombatLockdown and InCombatLockdown())

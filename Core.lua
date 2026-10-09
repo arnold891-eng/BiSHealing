@@ -1051,6 +1051,50 @@ function NS.DO.byid()
         .. " say, and we never guess|r")
 end
 
+--- /bish overheal [test] - what the overheal band is made of, on your target's cell (or your own).
+--- Arn, 8 Oct: the band never shows - only green, "should turn another color of how much it
+--- overlaps". Every fact the band depends on, each asked safely: a number the client hides prints
+--- "secret", a call it refuses prints "refused". `test` forces the band to 60% from the right on
+--- every cell for 10 seconds: seen = the drawing works and the numbers are wrong; not seen = the
+--- drawing itself is broken. One line splits the problem in half.
+function NS.DO.overheal(test)
+    local FG = NS.FG
+    local f = (FG.target and FG.target.unit and FG.target:IsShown() and FG.target)
+        or (FG.byUnit and FG.byUnit.player) or (FG.frames and FG.frames[1])
+    if not (f and f.overheal) then Print("overheal: no cell to look at") return end
+    local function ask(fn, ...)
+        if type(fn) ~= "function" then return "missing" end
+        local res = { pcall(fn, ...) }
+        if not res[1] then return "refused" end
+        local out = {}
+        for i = 2, math.max(2, #res) do
+            local v = res[i]
+            out[#out + 1] = (NS.Secret and NS.Secret(v)) and "secret"
+                or (type(v) == "number" and ("%.1f"):format(v)) or tostring(v)
+        end
+        return table.concat(out, "..")
+    end
+    local o, clip, hp = f.overheal, f.curClip, f.bar
+    local fill = o.GetStatusBarTexture and o:GetStatusBarTexture()
+    local hpFill = hp.GetStatusBarTexture and hp:GetStatusBarTexture()
+    Print("overheal band on |cffb980ff%s|r", tostring(f.unit))
+    Print("  max health given to the bars: %s", tostring(FG.maxOK))
+    Print("  band shown %s, alpha %s, level %s (health bar %s)", ask(o.IsShown, o), ask(o.GetAlpha, o),
+          ask(o.GetFrameLevel, o), ask(hp.GetFrameLevel, hp))
+    Print("  fills from the right %s, clip on %s", ask(o.GetReverseFill, o),
+          ask(clip and clip.DoesClipChildren, clip))
+    Print("  widths: band %s, its fill %s, clip %s, health fill %s", ask(o.GetWidth, o),
+          ask(fill and fill.GetWidth, fill), ask(clip and clip.GetWidth, clip),
+          ask(hpFill and hpFill.GetWidth, hpFill))
+    Print("  band scale %s, value %s; incoming %s", ask(o.GetMinMaxValues, o), ask(o.GetValue, o),
+          ask(UnitGetIncomingHeals, f.unit))
+    if test then
+        FG.overhealTest = (GetTime and GetTime() or 0) + 10
+        Print("  |cff4fd0cftest:|r the band is forced to 60%% from the right on every cell for 10 seconds"
+              .. " - orange-red over the right of their health = the drawing works")
+    end
+end
+
 function NS.DO.range()
     local FG = NS.FG
     -- written out, not `NS.FM and NS.FM.RangeSpell()`: an `and` keeps only the first return
@@ -1710,6 +1754,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.regen()
     elseif msg == "range" then
         NS.DO.range()
+    elseif msg == "overheal" or msg == "overheal test" then
+        NS.DO.overheal(msg:match("test"))
     elseif msg == "byid" then
         NS.DO.byid()
     elseif msg == "curve" then

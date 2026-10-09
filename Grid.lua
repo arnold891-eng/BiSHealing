@@ -1794,6 +1794,12 @@ function FG.Paint(f)
             end
         end
     end
+    -- /bish overheal test: the band forced to 60% from the right, on every cell, heal or no heal,
+    -- to tell "it cannot be drawn" apart from "the numbers going in are wrong" (8 Oct 2026)
+    if f.overheal and FG.overhealTest and GetTime and GetTime() < FG.overhealTest then
+        f.overheal:SetMinMaxValues(0, 1)
+        f.overheal:SetValue(0.6)
+    end
 
     -- THE SHIELD (5 Oct 2026). Arn: "ellesmear draws the shield on the frames can we do the same?"
     -- Yes, and by the bargain this file is built on: the absorb is handed to a bar and never read.

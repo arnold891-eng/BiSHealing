@@ -183,6 +183,10 @@ local function newFrame(kind, name, parent)
         end
         self.__min, self.__max = lo, hi
     end
+    -- and the client's getters, which /bish overheal reads back (8 Oct 2026) - handed back as given,
+    -- a secret stays a secret
+    function f:GetValue() return self.__value end
+    function f:GetMinMaxValues() return self.__min, self.__max end
     function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
     -- A STATUS BAR HAS A FILL TEXTURE, and hands back the same one every time (7 Oct 2026). This was
     -- an auto no-op answering nil, so every "anchored to the end of the fill" in the suite was
@@ -1284,6 +1288,26 @@ do
     ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
 end
 ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
+-- /bish overheal (8 Oct: Arn sees only green, never the band). It must survive secrets, and its
+-- test mode must really force the band, or it diagnoses nothing.
+do
+    local keptChat = _G.DEFAULT_CHAT_FRAME
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    ok(pcall(NS.DO.overheal), "/bish overheal prints what the band is made of, without throwing")
+    local all = table.concat(heard, "\n")
+    ok(all:find("fills from the right", 1, true) and all:find("widths:", 1, true),
+       "and names the facts that decide whether it can show", all)
+    ok(pcall(NS.DO.overheal, "test") and FG.overhealTest, "/bish overheal test arms the forced band")
+    local cell = FG.frames and FG.frames[1]
+    if cell and cell.unit then
+        FG.Paint(cell)
+        ok(cell.overheal:GetValue() == 0.6 and select(2, cell.overheal:GetMinMaxValues()) == 1,
+           "and the next paint draws it at 60% from the right")
+    end
+    FG.overhealTest = nil
+    _G.DEFAULT_CHAT_FRAME = keptChat
+end
 -- AND SHOWS ITS WORKING (7 Oct). Arn read "Healing Wave" and could not tell if that was the
 -- longest or just the left click - the line still said "left click first". The yards settle it.
 do

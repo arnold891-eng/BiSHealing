@@ -5058,7 +5058,12 @@ do
             local nm, rk = FM.Split(FM.Get("", "left"))
             ok(nm == "Spell331" and rk == "Rank 4", "the slot's NAME is still the heal's - its icon, ranks and range")
             w:Refresh()
-            ok(slot.boost.__shown, "the slot wears the booster's little icon in its corner")
+            -- HALF AND HALF (Arn: the 10 px corner badge was "super tiny, maybe we make it like half
+            -- ns/half the other spell"): the booster's left half over the heal, full height, a seam
+            local bc = slot.boost.__coords
+            ok(slot.boost.__shown and slot.seam.__shown and slot.boost.__w * 2 == slot.icon.__w
+               and slot.boost.__h == slot.icon.__h and bc and bc[1] == 0 and bc[2] == 0.5,
+               "the slot shows the booster as the LEFT HALF of the icon, the heal the right, a seam between")
             TIP.lines = {}
             slot.__scripts.OnEnter(slot)
             local tip = table.concat(TIP.lines, "|")

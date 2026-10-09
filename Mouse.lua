@@ -468,6 +468,22 @@ function FM.Palette()
     return out
 end
 
+--- The bind window's tip about boosters, or nil: said only while one is trained and no bind, on
+--- any modifier, has one in front of it yet. Short enough for the header line.
+FM.BOOST_SHORT = { ["Nature's Swiftness"] = "NS", ["Inner Focus"] = "Inner Focus",
+                   ["Divine Favor"] = "Divine Favor" }
+function FM.BoostTip(palette)
+    local trained
+    for _, s in ipairs(palette or FM.Palette()) do
+        if FM.BOOSTERS[s.name] then trained = s.name break end
+    end
+    if not trained then return nil end
+    for _, cast in pairs(db().binds or {}) do
+        if FM.Boost(cast) then return nil end
+    end
+    return "drop " .. (FM.BOOST_SHORT[trained] or trained) .. " on a heal: it goes first"
+end
+
 --- Put a spell on the cursor, the way FojjiCore's rows do. Out of combat only, like every bind.
 function FM.PickUp(id)
     if not id or (InCombatLockdown and InCombatLockdown()) then return false end

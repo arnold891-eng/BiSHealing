@@ -495,7 +495,14 @@ function FM.Window()
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(self.spell.name, rgb("accent"))
             if self.spell.rank then GameTooltip:AddLine(self.spell.rank .. " - your highest", rgb("ink")) end
-            GameTooltip:AddLine("drag it onto a mouse button", rgb("muted"))
+            if FM.BOOSTERS[self.spell.name] then
+                -- the one place a new player meets the trick (Arn: "how do we let the new people
+                -- know that they can drop ns ... on top of other spells")
+                GameTooltip:AddLine("drop it on a heal's button:", rgb("good"))
+                GameTooltip:AddLine("one press casts it, then the heal", rgb("good"))
+            else
+                GameTooltip:AddLine("drag it onto a mouse button", rgb("muted"))
+            end
             GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
@@ -589,6 +596,17 @@ function FM.Window()
         end
         -- the heal palette: this character's trained heals, top rank each (FM.Palette)
         local pal = FM.Palette()
+        -- AND THE TIP, ONLY WHILE IT IS NEWS (8 Oct 2026). Arn: "how do we let the new people know
+        -- that they can drop ns or other spells like that on top of other spells, when they learn
+        -- the spells or just in the window?" In the window - the addon is quiet in chat by promise -
+        -- and only while a booster is trained and no bind carries one yet. Use it once, it goes.
+        -- On the hint line under the tabs, which is always there (the header's console is not, on
+        -- a client without BiSTheme) and does not rotate away before it is read.
+        local tip = FM.BoostTip and FM.BoostTip(pal)
+        if self.hint then
+            self.hint:SetText(tip or "drop a spell or a ping on a button")
+            self.hint:SetTextColor(rgb(tip and "good" or "muted"))
+        end
         for i, b in ipairs(self.palette or {}) do
             local s = pal[i]
             b.spell = s

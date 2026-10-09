@@ -5158,6 +5158,42 @@ do
             ok(x and x + lastB.__w <= w.__w - 4, "eleven icons fit across the window",
                tostring(x) .. "+" .. tostring(lastB.__w) .. " in " .. tostring(w.__w))
             FM.Clear("", "button5")
+
+            -- TELLING A NEW PLAYER (Arn: "how do we let the new people know that they can drop ns
+            -- ... on top of other spells"): in the window, only while it is news
+            BOOK[30] = { name = "Nature's Swiftness", rank = "" }          -- learned: the book says so
+            local kept = {}
+            for k, v in pairs(NS.DB().binds) do kept[k] = v end
+            for k in pairs(NS.DB().binds) do
+                if FM.Boost(NS.DB().binds[k]) then NS.DB().binds[k] = nil end
+            end
+            ok(FM.BoostTip() == "drop NS on a heal: it goes first", "trained and unused: the tip is said",
+               tostring(FM.BoostTip()))
+            w:Refresh()
+            ok(w.hint.__text == "drop NS on a heal: it goes first",
+               "on the hint line under the tabs, always there", tostring(w.hint.__text))
+            ok(w.hint:GetStringWidth() <= 234, "and it fits the window", w.hint:GetStringWidth())
+            -- the longest booster name fits that line too
+            local realShort = FM.BOOST_SHORT["Nature's Swiftness"]
+            FM.BOOST_SHORT["Nature's Swiftness"] = "Divine Favor"
+            w:Refresh()
+            ok(w.hint:GetStringWidth() <= 234, "the longest booster tip fits too", w.hint:GetStringWidth())
+            FM.BOOST_SHORT["Nature's Swiftness"] = realShort
+            local nsIcon
+            for _, pb in ipairs(w.palette) do if pb.spell and pb.spell.name == "Nature's Swiftness" then nsIcon = pb end end
+            TIP.lines = {}
+            if nsIcon then nsIcon.__scripts.OnEnter(nsIcon) end
+            local nsTip = table.concat(TIP.lines, "|")
+            ok(nsIcon and nsTip:find("drop it on a heal's button", 1, true) and nsTip:find("then the heal", 1, true),
+               "hovering Nature's Swiftness in the row explains the trick", nsTip)
+            FM.Set("shift-", "wheelup", "Nature's Swiftness+Healing Wave(Rank 3)")
+            ok(FM.BoostTip() == nil, "once a bind carries it, the tip is gone for good")
+            w:Refresh()
+            ok(w.hint.__text == "drop a spell or a ping on a button", "and the hint line is the usual one again")
+            BOOK[30] = nil
+            ok(FM.BoostTip() == nil, "and a class with no booster never sees it")
+            for k in pairs(NS.DB().binds) do NS.DB().binds[k] = nil end
+            for k, v in pairs(kept) do NS.DB().binds[k] = v end
         end
 
         -- what the mouse-over says about it

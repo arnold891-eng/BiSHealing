@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Your heals, at their top rank, ready to drag.** The mouse bind window has a row of your
+  trained healing spells - each one your highest rank. Drag one onto a mouse button (or click
+  it, then click the button). Only spells you have trained show. Shaman, priest, druid, paladin.
+
 - **Nature's Swiftness before your big heal, in one press.** Open the mouse binds and drop Nature's
   Swiftness onto a button that already holds a heal: that button now pops it first, then casts
   the heal on whoever you clicked. The slot shows its little icon in the corner. Drop the heal

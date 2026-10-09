@@ -257,7 +257,7 @@ function FM.Window()
     if FM.win then return FM.win end
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
-    w:SetSize(250, 330)
+    w:SetSize(250, 356)             -- 330 + the heal palette's row (8 Oct 2026)
     FM.Restore(w)                   -- the last place it was put, or the middle on a first run
     w:SetMovable(true)
     w:EnableMouse(true)
@@ -463,6 +463,37 @@ function FM.Window()
         w.pings[i] = b
     end
 
+    -- YOUR HEALS, AT THEIR TOP RANK, READY TO DRAG (8 Oct 2026; FojjiCore's spell-rank rows). One
+    -- row above the pings: drag an icon onto a mouse button - or click it, then click the button.
+    -- Picked up by spell id at the highest trained rank, so the drop binds THAT rank (FM.Palette).
+    w.palette = {}
+    local PAL, PSTEP = 19, 21
+    for i = 1, FM.PALETTE_MAX do
+        local b = CreateFrame("Button", nil, w)
+        b:SetSize(PAL, PAL)
+        b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * PSTEP, 58)
+        b.icon = b:CreateTexture(nil, "ARTWORK")
+        b.icon:SetAllPoints()
+        b:RegisterForDrag("LeftButton")
+        b:RegisterForClicks("LeftButtonUp")
+        local function pick(self)
+            if self.spell then FM.PickUp(self.spell.id) end
+        end
+        b:SetScript("OnDragStart", pick)
+        b:SetScript("OnClick", pick)
+        b:SetScript("OnEnter", function(self)
+            if not (GameTooltip and self.spell) then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(self.spell.name, rgb("accent"))
+            if self.spell.rank then GameTooltip:AddLine(self.spell.rank .. " - your highest", rgb("ink")) end
+            GameTooltip:AddLine("drag it onto a mouse button", rgb("muted"))
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        b:Hide()
+        w.palette[i] = b
+    end
+
     local foot = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     foot:SetPoint("BOTTOM", 0, 8)
     foot:SetWidth(230)
@@ -541,6 +572,14 @@ function FM.Window()
             local boost = FM.Boost(spell)
             local bicon = boost and spellIcon(boost) or nil
             if bicon then f.boost:SetTexture(bicon) f.boost:Show() else f.boost:Hide() end
+        end
+        -- the heal palette: this character's trained heals, top rank each (FM.Palette)
+        local pal = FM.Palette()
+        for i, b in ipairs(self.palette or {}) do
+            local s = pal[i]
+            b.spell = s
+            local tex = s and spellIcon(s.name)
+            if s and tex then b.icon:SetTexture(tex) b:Show() else b:Hide() end
         end
         -- 241 px of words in a 230 px line wrapped onto the note above it (the fit check, 6 Oct)
         foot:SetText((InCombatLockdown and InCombatLockdown())

@@ -555,6 +555,14 @@ local NS = {}
 local CURSOR = {}
 _G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c end
 _G.ClearCursor = function() CURSOR = {} end
+-- PICKING A SPELL UP BY ID puts it on the cursor in Forever's four-value shape (kind, book slot,
+-- "spell", id) - the shape FM.CursorSpell is built for. FojjiCore's rank rows drive it this way.
+_G.C_Spell = _G.C_Spell or {}
+_G.C_Spell.PickupSpell = function(id)
+    if type(id) ~= "number" then error("bad argument #1 to 'PickupSpell'", 2) end
+    STATE.pickedUp = id
+    CURSOR = { kind = "spell", a = 0, b = "spell", c = id }
+end
 _G.C_Spell = _G.C_Spell or {}
 _G.C_Spell.GetSpellInfo = function(id) return { name = "Spell" .. tostring(id) } end   -- see BOOK
 _G.C_Spell.GetSpellTexture = function() return "Interface\Icons\INV_Misc_QuestionMark" end
@@ -770,7 +778,14 @@ _G.C_SpellBook.GetSpellBookItemInfo = function(n, bank)
     return { spellID = 1000 + n }
 end
 
-_G.C_Spell.GetSpellSubtext = function(id) return RANKS[id] end
+-- and the book's own spells answer their rank by id too, as the client's do (8 Oct 2026): the
+-- heal palette picks a spell up BY ID, and only RANKS - filled by hand in a few tests - answered,
+-- so a book spell came off the cursor rankless. Kinder than nothing, less than the client.
+_G.C_Spell.GetSpellSubtext = function(id)
+    if RANKS[id] then return RANKS[id] end
+    local e = type(id) == "number" and BOOK[id - 1000]
+    return e and e.rank or nil
+end
 
 local BOUND = {}
 _G.SetOverrideBindingClick = function(_, _, key, button) BOUND[key] = button end
@@ -5096,6 +5111,50 @@ do
             _G.C_Spell.GetSpellInfo = realInfo
         end
 
+        -- YOUR HEALS AT THEIR TOP RANK, READY TO DRAG (Arn, 8 Oct: "look at how fojjicore made a
+        -- little box ... show all the healing spells max rank dragable to the binds")
+        do
+            local pal = FM.Palette()
+            local names = {}
+            for i, s in ipairs(pal) do names[i] = s.name end
+            ok(table.concat(names, ",") == "Healing Wave,Lesser Healing Wave,Chain Heal",
+               "the palette is this shaman's trained heals, in reaching order - nothing untrained",
+               table.concat(names, ","))
+            ok(pal[1].id == 1003 and pal[1].rank == "Rank 3",
+               "each at its HIGHEST trained rank (Healing Wave: rank 3 of 3)", tostring(pal[1].id))
+            w:Refresh()
+            local b1 = w.palette[1]
+            ok(b1.__shown and b1.spell and b1.spell.name == "Healing Wave", "the first icon is Healing Wave")
+            ok(not w.palette[4].__shown, "and an icon with nothing to carry is hidden")
+            -- DRAG IT ONTO A BUTTON: the spell goes on the cursor by id, and the slot binds that rank
+            FM.Clear("", "button5")
+            STATE.pickedUp = nil
+            b1.__scripts.OnDragStart(b1)
+            ok(STATE.pickedUp == 1003, "dragging the icon picks up the top rank's spell id")
+            local s5 = w.slots["button5"]
+            s5.__scripts.OnReceiveDrag(s5)
+            ok(FM.Get("", "button5") == "Healing Wave(Rank 3)",
+               "dropped on a button, it binds the heal at its top rank", tostring(FM.Get("", "button5")))
+            -- and a click does the same as a drag, for a mouse that is easier to click than drag
+            CURSOR = {}
+            w.palette[2].__scripts.OnClick(w.palette[2])
+            ok(CURSOR.kind == "spell" and CURSOR.c == 1004, "clicking an icon also puts it on the cursor")
+            CURSOR = {}
+            -- not in a fight: binds are written out of combat anyway
+            STATE.inCombat = true
+            STATE.pickedUp = nil
+            b1.__scripts.OnDragStart(b1)
+            ok(STATE.pickedUp == nil, "nothing is picked up in combat")
+            STATE.inCombat = false
+            -- INSIDE THE WINDOW: the last icon ends before the window's right edge
+            local lastB = w.palette[FM.PALETTE_MAX]
+            local p1 = lastB.points and lastB.points[1]
+            local x = p1 and (type(p1[2]) == "number" and p1[2] or p1[4])
+            ok(x and x + lastB.__w <= w.__w - 4, "eleven icons fit across the window",
+               tostring(x) .. "+" .. tostring(lastB.__w) .. " in " .. tostring(w.__w))
+            FM.Clear("", "button5")
+        end
+
         -- what the mouse-over says about it
         slot.__scripts.OnEnter(slot)
         local said = table.concat(TIP.lines, "|")
@@ -7220,7 +7279,7 @@ do
     -- THE BUDGETS, set a little above what was measured on 7 Oct after the cost pass (8,300 and
     -- 600; it was 9,530 and 1,800 before it, and ~630,000 with the book walk). Raising one is
     -- allowed - with a line here saying what bought it. The book walk would read 600,000+.
-    local QUIET, AURAS = 9000, 650
+    local QUIET, AURAS = 8500, 650       -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed
     ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
        Cost.Top(by, 6))
 

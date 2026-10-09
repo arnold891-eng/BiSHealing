@@ -433,6 +433,49 @@ end
 FM.BOOSTERS = { ["Nature's Swiftness"] = true, ["Inner Focus"] = true, ["Divine Favor"] = true }
 FM.BOOST_MARK = "+"
 
+--- THE HEALS, READY TO DRAG (8 Oct 2026). Arn: "look at how fojjicore made a little box that tells
+--- you these spells are not max rank, and you can drag and drop them on your bar ... show all the
+--- healing spells max rank dragable to the binds". FojjiCore's rows call C_Spell.PickupSpell(id)
+--- with the rank it wants, which puts that spell on the cursor; a bind slot already reads a spell
+--- off the cursor WITH its rank. So the palette is a row of this character's healing spells, each
+--- picked up at its highest trained rank. Per class, in the order a healer reaches for them; only
+--- what the spellbook has trained is shown. (No "not max rank" warning on the binds: a healer
+--- downranks on purpose, and the rank button is how.)
+FM.PALETTE = {
+    SHAMAN  = { "Healing Wave", "Lesser Healing Wave", "Chain Heal", "Nature's Swiftness",
+                "Cure Poison", "Cure Disease", "Ancestral Spirit" },
+    PRIEST  = { "Flash Heal", "Greater Heal", "Heal", "Lesser Heal", "Renew", "Prayer of Healing",
+                "Power Word: Shield", "Inner Focus", "Dispel Magic", "Abolish Disease", "Resurrection" },
+    DRUID   = { "Healing Touch", "Regrowth", "Rejuvenation", "Swiftmend", "Nature's Swiftness",
+                "Remove Curse", "Abolish Poison", "Rebirth" },
+    PALADIN = { "Holy Light", "Flash of Light", "Holy Shock", "Divine Favor", "Cleanse",
+                "Lay on Hands", "Blessing of Protection", "Redemption" },
+}
+FM.PALETTE_MAX = 11                 -- what fits across the bind window
+
+--- This character's palette: { name, id (the highest trained rank's), rank } in class order.
+function FM.Palette()
+    local class = UnitClass and select(2, UnitClass("player"))
+    local out = {}
+    for _, name in ipairs(FM.PALETTE[class or ""] or {}) do
+        local ranks = FM.Ranks(name)
+        local top = ranks[#ranks]
+        if top and top.spell then
+            out[#out + 1] = { name = name, id = top.spell, rank = top.rank }
+            if #out >= FM.PALETTE_MAX then break end
+        end
+    end
+    return out
+end
+
+--- Put a spell on the cursor, the way FojjiCore's rows do. Out of combat only, like every bind.
+function FM.PickUp(id)
+    if not id or (InCombatLockdown and InCombatLockdown()) then return false end
+    local pick = (C_Spell and C_Spell.PickupSpell) or PickupSpell
+    if not pick then return false end
+    return (pcall(pick, id))
+end
+
 --- The booster riding in front of a bind, and the bind without it. (nil, cast) when there is none.
 function FM.Boost(cast)
     if type(cast) ~= "string" then return nil, cast end

@@ -1884,11 +1884,13 @@ FG.EDGE = {
 --- target window and tot because its all the same people" - the mark says WHO, on every cell that
 --- is them. Red (FG.TARGET). Returns true, false or "secret".
 --- The white crosshair's holder is the ring's opposite: where the ring shows, the white crosshair
---- steps aside for the white gaps (see FG.TARGET). `shown` true/false, or a secret boolean.
-function FG.NotTarget(f, shown)
+--- steps aside for the white gaps (see FG.TARGET). `shown` true/false, or - with `secret` set by
+--- the caller, who already asked - a secret boolean. Not asked again here: every cell, every tick,
+--- that was 500 issecretvalue calls a second about answers already known to be plain (8 Oct).
+function FG.NotTarget(f, shown, secret)
     local nt = f and f.notTarget
     if not nt then return end
-    if NS.Secret and NS.Secret(shown) then
+    if secret then
         if pcall(function() nt:SetAlphaFromBoolean(shown, 0, 1) end) then return end
         shown = false                       -- refused: the white crosshair stays, as it always did
     end
@@ -1907,7 +1909,7 @@ function FG.PaintTarget(f, unit, on)
         ring:Show()
         local drew = pcall(function() ring:SetAlphaFromBoolean(same, 1, 0) end)
         if not drew then return off() end
-        FG.NotTarget(f, same)
+        FG.NotTarget(f, same, true)
         return "secret"
     end
     ring:SetAlpha(1)

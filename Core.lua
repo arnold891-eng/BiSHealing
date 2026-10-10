@@ -1051,6 +1051,61 @@ function NS.DO.byid()
         .. " say, and we never guess|r")
 end
 
+--- /bish cpu - which addons make the game hitch (10 Oct 2026). Arn, after pasting /run lines that
+--- the chat box cut at 255 characters: "make it /bish cpu so i dont paste". Read from the client's
+--- own profiler (C_AddOnProfiler): spikes over 100 ms since login - each one a frame you can feel -
+--- with how many are NEW since you last asked, the worst single spike, and the load right now.
+--- Then one line for the BiS family, so "is it us?" has an answer in the same breath.
+NS.cpuLast = {}
+function NS.DO.cpu()
+    local P = C_AddOnProfiler
+    local M = Enum and Enum.AddOnProfilerMetric
+    local A = C_AddOns
+    if not (P and P.GetAddOnMetric and M and A and A.GetNumAddOns and A.GetAddOnInfo) then
+        Print("cpu: this client has no addon profiler to ask")
+        return nil
+    end
+    local function metric(name, key)
+        if M[key] == nil then return nil end
+        local ok, v = pcall(P.GetAddOnMetric, name, M[key])
+        if not ok or (NS.Secret and NS.Secret(v)) or type(v) ~= "number" then return nil end
+        return v
+    end
+    local rows, ours = {}, { spikes = 0, peak = 0, now = 0 }
+    for i = 1, A.GetNumAddOns() do
+        local ok, name = pcall(A.GetAddOnInfo, i)
+        local loaded = ok and type(name) == "string" and A.IsAddOnLoaded and A.IsAddOnLoaded(i)
+        if loaded then
+            local r = { name = name, spikes = metric(name, "CountTimeOver100Ms") or 0,
+                        peak = metric(name, "PeakTime") or 0, now = metric(name, "RecentAverageTime") or 0 }
+            rows[#rows + 1] = r
+            if name:find("^BiS") or name == "Nebbinator" then
+                ours.spikes = ours.spikes + r.spikes
+                ours.peak = math.max(ours.peak, r.peak)
+                ours.now = ours.now + r.now
+            end
+        end
+    end
+    table.sort(rows, function(a, b)
+        if a.spikes ~= b.spikes then return a.spikes > b.spikes end
+        return a.peak > b.peak
+    end)
+    Print("heaviest addons since login (a spike = a frame over 100 ms, one you can feel):")
+    for i = 1, math.min(6, #rows) do
+        local r = rows[i]
+        local was = NS.cpuLast[r.name]
+        local new = was and (r.spikes - was) or nil
+        Print("  |cffb980ff%s|r  %d spike%s%s, worst %.0f ms, now %.2f ms", r.name, r.spikes,
+              r.spikes == 1 and "" or "s",
+              new and (new > 0 and ("  |cfff08cb0+%d since you last asked|r"):format(new) or "  (none new)") or "",
+              r.peak, r.now)
+    end
+    Print("  |cff4fd0cfBiS addons|r  %d spike%s, worst %.0f ms, now %.2f ms", ours.spikes,
+          ours.spikes == 1 and "" or "s", ours.peak, ours.now)
+    for _, r in ipairs(rows) do NS.cpuLast[r.name] = r.spikes end
+    return rows, ours
+end
+
 --- /bish overheal [test] - what the overheal band is made of, on your target's cell (or your own).
 --- Arn, 8 Oct: the band never shows - only green, "should turn another color of how much it
 --- overlaps". Every fact the band depends on, each asked safely: a number the client hides prints
@@ -1671,6 +1726,7 @@ function NS.DO.help()
     Print("  |cffb980ffcolour|r  bars by class, or by health")
     Print("  |cffb980ffhots|r  your heals over time on the cells, on or off")
     Print("  |cffb980ffring|r  the gold ring on |cffb980ffring me|r or on |cffb980ffring target|r")
+    Print("  |cffb980ffcpu|r  which addons make the game hitch, and whether it is us")
     Print("  |cffb980ffdim|r  how bright an out of range cell stays - |cffb980ffdim 40|r (20 to 90)")
     Print("  |cffb980ffclique|r  let Clique handle clicks on the cells, or take them back")
     Print("  |cffb980fftarget|r  a cell for your current target - |cffb980fftarget left|r |cffb980ffright|r"
@@ -1753,6 +1809,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.me(msg:match("^%a+%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then
         NS.DO.regen()
+    elseif msg == "cpu" then
+        NS.DO.cpu()
     elseif msg == "range" then
         NS.DO.range()
     elseif msg == "overheal" or msg == "overheal test" then

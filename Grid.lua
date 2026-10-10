@@ -2129,18 +2129,26 @@ end
 --- for `/bish range` to report. A refusal leaves the cell bright, which is where it is today.
 FG.rangeSeen = nil        -- what the last read was: "plain", "secret", "refused" or "no spell"
 
-function FG.PaintRange(f, unit)
+function FG.PaintRange(f, unit, cheap)
     -- WHO IS NEVER DIMMED (7 Oct 2026). Arn, with a mob beside him: "i target these and they are
     -- right next to me why are they dimmed" - his target a hostile Thistlefur, his tot himself.
     --   * YOU: nobody is out of range of themselves (the tot cell is often you)
     --   * a HOSTILE unit: the range here is your HEAL's, and a heal cannot be cast on an enemy -
     --     the client answers nil, which fell through to UnitInRange and its "false"
-    if unit == "player" or (NS.IsPlayer and NS.IsPlayer(unit) == true) then
+    -- (10 Oct, the lean pass) on the CHEAP range beat, "is this me" is the answer this cell got at
+    -- its last full paint - a cell's person only changes through a relayout, which repaints it;
+    -- and "is it hostile" is asked only on a cell that may be (target, tot): a raid cell is not
+    local me = cheap and f.__isMe
+    if me == nil or not cheap then
+        me = unit == "player" or (NS.IsPlayer and NS.IsPlayer(unit) == true) or false
+        f.__isMe = me
+    end
+    if me then
         FG.rangeSeen = "self"
         f:SetAlpha(1)
         return 1, "self"
     end
-    if UnitCanAttack then
+    if f.mayBeHostile and UnitCanAttack then
         local okH, hostile = pcall(UnitCanAttack, "player", unit)
         if okH and not (NS.Secret and NS.Secret(hostile)) and hostile then
             FG.rangeSeen = "hostile"
@@ -2494,6 +2502,47 @@ end
     return h
 end
 
+-- PAINT WHAT CHANGED, NOT EVERYTHING (10 Oct 2026). Arn: "the retooling thing we could do ...
+-- instead of redrawing every second we wait till the game tells us there is a change". Every cell
+-- was repainted ten times a second - ~30 client questions each, changed or not: ~8,300 a quiet
+-- 25-man second. Now:
+--   * the client's own events (health, heals on the way, shields, connection, death, flags) mark
+--     THAT person's cell dirty, and the next tick repaints only dirty cells;
+--   * range has no event, so it alone is asked on its own, slower beat (FG.RANGE_EVERY);
+--   * a SWEEP repaints everything every FG.SWEEP seconds, so a missed event can never leave a
+--     cell showing an old number for long - and settings changes show within that, at worst.
+-- FojjiCore's "mark dirty, do the work when needed" (Spec.lua), on a raid grid.
+FG.dirty, FG.dirtyAll = {}, true
+FG.SWEEP, FG.RANGE_EVERY = 1.0, 0.25
+FG.UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_HEAL_PREDICTION",
+                   "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_CONNECTION", "UNIT_FLAGS",
+                   "PLAYER_FLAGS_CHANGED", "UNIT_NAME_UPDATE" }
+FG.ALL_EVENTS = { "PLAYER_TARGET_CHANGED", "PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_DISABLED",
+                  "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }
+
+function FG.MarkAll() FG.dirtyAll = true end
+
+--- The cells showing this unit go on the next tick's list. A unit token the client hides cannot
+--- be looked up, so it marks everything rather than guessing which.
+function FG.MarkUnit(unit)
+    if type(unit) ~= "string" or (NS.Secret and NS.Secret(unit)) then FG.dirtyAll = true return end
+    local f = FG.byUnit and FG.byUnit[unit]
+    if f then FG.dirty[f] = true end
+    for _, c in ipairs({ FG.target or false, FG.me or false, FG.tot or false }) do
+        if c and c.unit == unit then FG.dirty[c] = true end
+    end
+    for _, c in ipairs(FG.petFrames or {}) do
+        if c.unit == unit then FG.dirty[c] = true end
+    end
+end
+
+--- One cell on this tick: all of it when dirty, only its range on the range beat, else nothing.
+local function tickCell(f, all, doRange)
+    if not (f and f.unit and f:IsShown()) then return end
+    if all or FG.dirty[f] then FG.Paint(f)
+    elseif doRange and FG.PaintRange then FG.PaintRange(f, f.unit, true) end
+end
+
 function FG.Start()
     if FG.anchor then return true end
 
@@ -2512,10 +2561,16 @@ function FG.Start()
     makeHeader(anchor)
 
     local since, pending = 0, true
+    local sweepIn, rangeIn = 0, 0
     anchor:SetScript("OnUpdate", function(_, dt)
         since = since + dt
         if since < THROTTLE then return end
+        local step = since
         since = 0
+        sweepIn, rangeIn = sweepIn + step, rangeIn + step
+        if sweepIn >= FG.SWEEP then sweepIn = 0 FG.dirtyAll = true end
+        local doRange = rangeIn >= FG.RANGE_EVERY
+        if doRange then rangeIn = 0 end
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
         -- the range spell, once, for every cell painted below (see FG.PaintRange). Set fresh at
         -- the top of every tick, so a paint that threw last time cannot leave a stale one behind.
@@ -2527,9 +2582,9 @@ function FG.Start()
         -- and "is max health secret", which is about nobody in particular: once, not per cell
         FG.AskMaxSecret()
         FG.tickMaxAsked = true
-        for _, f in ipairs(FG.frames) do
-            if f.unit and f:IsShown() then FG.Paint(f) end
-        end
+        local all = FG.dirtyAll
+        FG.dirtyAll = false
+        for _, f in ipairs(FG.frames) do tickCell(f, all, doRange) end
         -- the target's cell is not in that list (it belongs to no group), and its NAME changes
         -- under it every time you target someone else, so it is repainted here by name as well
         FG.PaintRegen(FG.header)        -- the five second rule, draining across the header
@@ -2543,9 +2598,7 @@ function FG.Start()
             if row.unit and row:IsShown() then FG.PaintMana(row, row.unit) end
         end
         -- the pet block's cells are not in FG.frames either
-        for _, f in ipairs(FG.petFrames or {}) do
-            if f.unit and f:IsShown() then FG.Paint(f) end
-        end
+        for _, f in ipairs(FG.petFrames or {}) do tickCell(f, all, doRange) end
         -- BiS> now. Its buttons never change in a fight; only the colour does, and the colour is
         -- the client's answer about a number we are not allowed to see.
         if NS.FN and NS.FN.Paint and NS.FN.block and NS.FN.block:IsShown() then
@@ -2554,8 +2607,10 @@ function FG.Start()
         -- your own cell is out of the roster, so the loop above never reaches it
         local me = FG.me
         if me and me.unit and me:IsShown() then
-            if me.name then me.name:SetText(FG.ShortName("player")) end
-            FG.Paint(me)
+            if all or FG.dirty[me] then
+                if me.name then me.name:SetText(FG.ShortName("player")) end
+                FG.Paint(me)
+            elseif doRange then FG.PaintRange(me, me.unit, true) end
         end
         -- and whoever they are targeting, whose name changes under it twice as often
         local tt = FG.tot
@@ -2565,7 +2620,20 @@ function FG.Start()
         end
         FG.tickRange = nil              -- the tick is over; the next asker asks for itself
         FG.tickMaxAsked = nil
+        -- painted: empty the list in place (no new table a tick)
+        for k in pairs(FG.dirty) do FG.dirty[k] = nil end
     end)
+
+    -- WHAT MARKS A CELL: the client's events about a person, and the few about everyone
+    local uev = CreateFrame("Frame")
+    for _, e in ipairs(FG.UNIT_EVENTS) do pcall(uev.RegisterEvent, uev, e) end
+    for _, e in ipairs(FG.ALL_EVENTS) do pcall(uev.RegisterEvent, uev, e) end
+    local isAll = {}
+    for _, e in ipairs(FG.ALL_EVENTS) do isAll[e] = true end
+    uev:SetScript("OnEvent", function(_, event, unit)
+        if isAll[event] then FG.dirtyAll = true else FG.MarkUnit(unit) end
+    end)
+    FG.unitEvents = uev
 
     local ev = CreateFrame("Frame")
     -- SPELLS_CHANGED sits in a list of roster events because of WHEN the book fills in. At login

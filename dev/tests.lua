@@ -1361,6 +1361,64 @@ do
     FG.overhealTest = nil
     _G.DEFAULT_CHAT_FRAME = keptChat
 end
+-- NO DOUBLE RES (10 Oct 2026, Rez.lua). RezComm puts every BiS user's res casts on BiSInnervate's
+-- pipe; BiS Healing now listens, and a dead cell says who is already ressing them.
+do
+    local FZ = NS.FZ
+    ok(FZ and FZ.frame and FZ.frame.__events and FZ.frame.__events.CHAT_MSG_ADDON,
+       "the res watch listens for addon messages")
+    local realName = _G.UnitName
+    -- names the way the client gives them: name, then realm as a SECOND return
+    local NAMES = { player = "Arn", party1 = "Kumlust", party2 = "Chain" }
+    _G.UnitName = function(u) return NAMES[u], nil end
+    FZ.claims = {}
+    STATE.dead.party1 = true
+    ok(FG.StatusWord("party1") == "DEAD", "a corpse nobody is ressing says DEAD")
+    ok(FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain-Dreamscythe"),
+       "a res claim from another healer is taken")
+    ok(FG.StatusWord("party1") == "rez: Chain", "and the dead cell says who is ressing them",
+       tostring(FG.StatusWord("party1")))
+    -- only the claimer can free it; anyone else's RFREE is not theirs to send
+    FZ.OnMessage("BiSInn", "4|RFREE|Kumlust", "PARTY", "Someoneelse")
+    ok(FG.StatusWord("party1") == "rez: Chain", "another player cannot clear Chain's claim")
+    FZ.OnMessage("BiSInn", "4|RDONE|Kumlust", "PARTY", "Chain")
+    ok(FG.StatusWord("party1") == "DEAD", "the res lands (RDONE): back to DEAD until they accept")
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    FZ.OnMessage("BiSInn", "4|RFREE|Kumlust", "PARTY", "Chain")
+    ok(FG.StatusWord("party1") == "DEAD", "a res that failed or was stopped (RFREE) clears it")
+    -- a claim that never hears back does not stick
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    TICK(FZ.HOLD + 1)
+    ok(FG.StatusWord("party1") == "DEAD", "a claim nobody followed up goes after " .. FZ.HOLD .. " s")
+    -- what it ignores
+    ok(not FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Arn"), "your own claim (you know)")
+    ok(not FZ.OnMessage("BiSInn", "5|RCLAIM|Kumlust", "PARTY", "Chain"), "another protocol's message")
+    ok(not FZ.OnMessage("DBM-Core", "4|RCLAIM|Kumlust", "PARTY", "Chain"), "another addon's message")
+    ok(not FZ.OnMessage("BiSInn", secret(), "PARTY", "Chain")
+       and not FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", secret()),
+       "a message or sender the client hides (chat lockdown) is dropped, never guessed")
+    -- a corpse whose NAME is hidden cannot be matched: it stays DEAD
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    _G.UnitName = function() return secret() end
+    ok(FG.StatusWord("party1") == "DEAD", "a hidden name is never matched to a claim")
+    _G.UnitName = function(u) return NAMES[u], nil end
+    -- LEAN: another addon's chatter costs one question each
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local n = Cost.Count(function()
+        for _ = 1, 500 do FZ.frame.__scripts.OnEvent(FZ.frame, "CHAT_MSG_ADDON", "DBM-Core", "x", "RAID", "Chain") end
+    end)
+    ok(n <= 500, "500 other addons' messages cost at most one client question each: " .. n)
+    -- BiS Healing CARRIES RezComm too, byte for byte the family's copy, so its own res casts are told
+    local function bytes(p) local fh = io.open(p, "rb") if not fh then return nil end local b = fh:read("*a") fh:close() return b end
+    local mine, canon = bytes("Libs/RezComm-1.0/RezComm-1.0.lua"), bytes("../_bisdev/RezComm-1.0/RezComm-1.0.lua")
+    ok(mine and (not canon or mine == canon), "the embedded RezComm is the canonical copy (run _bisdev/sync.ps1)")
+    -- (the suite skips Libs lines - each lib has its own suite - so this one is loaded by hand)
+    local loaded = pcall(function() assert(loadfile("Libs/RezComm-1.0/RezComm-1.0.lua"))() end)
+    ok(loaded and _G.BiSRezComm and _G.BiSRezComm.MINOR, "and it loads in this client's shape")
+    FZ.claims = {}
+    STATE.dead.party1 = nil
+    _G.UnitName = realName
+end
 -- AND SHOWS ITS WORKING (7 Oct). Arn read "Healing Wave" and could not tell if that was the
 -- longest or just the left click - the line still said "left click first". The yards settle it.
 do

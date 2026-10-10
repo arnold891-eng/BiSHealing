@@ -1337,6 +1337,40 @@ do
     ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
 end
 ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
+-- /bish cpu (10 Oct 2026, Arn: "make it /bish cpu so i dont paste"), against the client's profiler
+-- in its real shape: GetAddOnMetric(name, Enum.AddOnProfilerMetric.X) -> a number
+do
+    local keep = { P = _G.C_AddOnProfiler, E = _G.Enum, A = _G.C_AddOns, chat = _G.DEFAULT_CHAT_FRAME }
+    local ADDONS = { { "Ace3", 5, 581.7, 0.2 }, { "BiSHealing", 0, 12.0, 0.08 }, { "Questie", 9, 240.0, 0.5 } }
+    _G.Enum = setmetatable({ AddOnProfilerMetric = { PeakTime = 1, RecentAverageTime = 2, CountTimeOver100Ms = 3 } },
+                           { __index = keep.E })
+    _G.C_AddOnProfiler = { GetAddOnMetric = function(name, m)
+        for _, a in ipairs(ADDONS) do
+            if a[1] == name then return ({ [3] = a[2], [1] = a[3], [2] = a[4] })[m] end
+        end
+        return 0
+    end }
+    _G.C_AddOns = setmetatable({ GetNumAddOns = function() return #ADDONS end,
+                                 GetAddOnInfo = function(i) return ADDONS[i][1] end,
+                                 IsAddOnLoaded = function() return true end }, { __index = keep.A })
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local rows, ours = NS.DO.cpu()
+    ok(rows and rows[1].name == "Questie" and rows[2].name == "Ace3",
+       "/bish cpu ranks the addons by how often they hitch")
+    ok(ours and ours.spikes == 0 and ours.peak == 12.0, "and adds up the BiS family on a line of its own")
+    ADDONS[3][2] = 12
+    heard = {}
+    NS.DO.cpu()
+    local said = table.concat(heard, "\n")
+    ok(said:find("+3 since you last asked", 1, true) and said:find("(none new)", 1, true),
+       "asked again, it says which are still hitching and which have stopped", said)
+    _G.C_AddOnProfiler = nil
+    heard = {}
+    ok(pcall(NS.DO.cpu) and table.concat(heard):find("no addon profiler", 1, true),
+       "a client without the profiler gets a sentence, not an error")
+    _G.C_AddOnProfiler, _G.Enum, _G.C_AddOns, _G.DEFAULT_CHAT_FRAME = keep.P, keep.E, keep.A, keep.chat
+end
 -- /bish overheal (8 Oct: Arn sees only green, never the band). It must survive secrets, and its
 -- test mode must really force the band, or it diagnoses nothing.
 do

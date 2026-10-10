@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **`/bish cpu`**: which addons make your game hitch - spikes over 100 ms since login, how many are
+  new since you last asked, the worst one and the load right now - plus one line for the BiS addons.
+
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.
 

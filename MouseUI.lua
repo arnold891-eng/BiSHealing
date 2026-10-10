@@ -28,6 +28,8 @@ local function rgb(name)
 end
 local BODY, SLOT_BG, SLOT_ON = { 0.11, 0.09, 0.14 }, { 0.16, 0.14, 0.20 }, { 0.20, 0.16, 0.30 }
 
+FM.SCALE = 1.2                  -- the bind window, 20% bigger (10 Oct 2026)
+
 local function texture(parent, layer, r, g, b, a)
     local t = parent:CreateTexture(nil, layer or "ARTWORK")
     t:SetTexture("Interface\\Buttons\\WHITE8X8")
@@ -92,7 +94,10 @@ function FM.SavePos(w)
     if not ok or not point then return nil end
     local db = NS.DB and NS.DB()
     if type(db) ~= "table" then return nil end
-    db.mousePos = { point = point, rel = rel, x = x, y = y }
+    -- the scale it was saved AT: an offset is in the window's own units, so a position saved at
+    -- one scale lands somewhere else at another (FM.SCALE went 1 -> 1.2, 10 Oct 2026)
+    local sc = w.GetScale and w:GetScale() or 1
+    db.mousePos = { point = point, rel = rel, x = x, y = y, scale = sc }
     return db.mousePos
 end
 
@@ -104,7 +109,9 @@ function FM.Restore(w)
     local pos = type(db) == "table" and db.mousePos or nil
     w:ClearAllPoints()
     if type(pos) == "table" and pos.point then
-        w:SetPoint(pos.point, UIParent, pos.rel or pos.point, pos.x or 0, pos.y or 0)
+        local now = w.GetScale and w:GetScale() or 1
+        local k = (tonumber(pos.scale) or 1) / ((type(now) == "number" and now > 0) and now or 1)
+        w:SetPoint(pos.point, UIParent, pos.rel or pos.point, (pos.x or 0) * k, (pos.y or 0) * k)
     else
         w:SetPoint("CENTER")
     end
@@ -207,6 +214,20 @@ local function makeSlot(parent, slot)
             FM.Apply()
             return true
         end
+        -- A TRINKET YOU ARE WEARING, dropped on a heal (10 Oct 2026): its slot goes in front. On
+        -- anything that is not a heal it is not a bind at all, and the drop is refused.
+        local tslot = FM.CursorTrinket and FM.CursorTrinket()
+        if tslot then
+            local had = FM.Get(parent.mod, slot.key)
+            local slots, boost, heal = FM.Front(had)
+            if not heal or FM.PingOf(heal) then return false end
+            slots[#slots + 1] = tslot
+            FM.Set(parent.mod, slot.key, FM.Compose(slots, boost, heal))
+            if ClearCursor then ClearCursor() end
+            parent:Refresh()
+            FM.Apply()
+            return true
+        end
         local spell = FM.CursorSpell()
         if not spell then return false end
         -- NATURE'S SWIFTNESS ON A HEAL GOES IN FRONT OF IT (8 Oct 2026), rather than replacing it:
@@ -243,11 +264,18 @@ local function makeSlot(parent, slot)
         local spell = FM.Get(parent.mod, slot.key)
         local name, rank = FM.Split(spell)
         -- an empty CLICK targets the person (FM.ApplyTo); an empty wheel does nothing of ours
-        local boost = FM.Boost(spell)
+        local tslots, boost = FM.Front(spell)
+        for _, s in ipairs(tslots) do
+            GameTooltip:AddLine("trinket " .. (s == 13 and "1 (top)" or "2 (bottom)") .. " first", rgb("good"))
+        end
         if boost then GameTooltip:AddLine(boost .. " first, then", rgb("good")) end
         GameTooltip:AddLine(name or (slot.attr and "empty - a click targets them" or "empty"), rgb("ink"))
         if rank then GameTooltip:AddLine(rank, rgb("muted")) end
-        if boost then GameTooltip:AddLine("drop the heal again to take " .. boost .. " off", rgb("muted")) end
+        if boost or #tslots > 0 then
+            GameTooltip:AddLine("drop the heal again to take them off", rgb("muted"))
+        elseif spell and not FM.PingOf(spell) then
+            GameTooltip:AddLine("drop a trinket you wear here: it goes first", rgb("muted"))
+        end
         GameTooltip:AddLine(spell and "right-click to clear" or "drag a spell here",
                             rgb("muted"))
         if slot.bind then
@@ -266,7 +294,11 @@ function FM.Window()
     if FM.win then return FM.win end
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
-    w:SetSize(250, 356)             -- 330 + the heal palette's row (8 Oct 2026)
+    w:SetSize(250, 374)             -- 330 + the heal palette (8 Oct) + the trinket row (10 Oct)
+    -- 20% BIGGER, ALL OF IT (10 Oct 2026, Arn: "make the mouse bind window 20% bigger make sure
+    -- nothing get out of place"). A scale on the whole window, not 30 sizes changed by hand: every
+    -- piece grows together, so nothing moves against anything else. The options window did the same.
+    if w.SetScale then w:SetScale(FM.SCALE) end
     FM.Restore(w)                   -- the last place it was put, or the middle on a first run
     w:SetMovable(true)
     w:EnableMouse(true)
@@ -361,6 +393,50 @@ function FM.Window()
     hint:SetText("drop a spell or a ping on a button")
     w.hint = hint
 
+    -- TRINKETS FIRST, FOR THIS TAB (10 Oct 2026). Arn: "each tab no modifier shift alt cntrl has a
+    -- check make when this modifier is held down pop trinket 1 - 2 can check either or both maybe
+    -- even different for each modifier". Two ticks under the hint, for whichever tab is open;
+    -- every bind on that tab uses the ticked trinkets before its heal (FM.TabTrinkets).
+    local firstLabel = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    firstLabel:SetPoint("TOPLEFT", 12, -78)
+    firstLabel:SetText("first:")
+    firstLabel:SetTextColor(rgb("muted"))
+    w.trinketTicks = {}
+    for i, s in ipairs(FM.TRINKET_SLOTS) do
+        local b = CreateFrame("Button", nil, w)
+        b:SetSize(76, 14)
+        b:SetPoint("TOPLEFT", 48 + (i - 1) * 84, -76)
+        b.box = texture(b, "BACKGROUND", SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.95)
+        b.box:SetSize(11, 11)
+        b.box:SetPoint("LEFT", 0, 0)
+        b.tick = texture(b, "ARTWORK", 1, 1, 1, 1)
+        b.tick:SetSize(7, 7)
+        b.tick:SetPoint("CENTER", b.box, "CENTER", 0, 0)
+        b.tick:SetVertexColor(rgb("good"))
+        b.tick:Hide()
+        b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.text:SetPoint("LEFT", b.box, "RIGHT", 4, 0)
+        b.text:SetText("trinket " .. i)
+        b.slotId = s
+        b:SetScript("OnClick", function(self)
+            local on = false
+            for _, t in ipairs(FM.TabTrinkets(w.mod)) do if t == self.slotId then on = true end end
+            FM.SetTabTrinket(w.mod, self.slotId, not on)
+            FM.Apply()
+            w:Refresh()
+        end)
+        b:SetScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("trinket " .. i .. (i == 1 and " (top slot)" or " (bottom slot)"), rgb("accent"))
+            GameTooltip:AddLine("every button on this tab uses it before its heal", rgb("muted"))
+            GameTooltip:AddLine("a trinket with nothing to use is skipped", rgb("muted"))
+            GameTooltip:Show()
+        end)
+        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        w.trinketTicks[i] = b
+    end
+
     -- the modifier tabs
     w.tabs = {}
     for i, m in ipairs(FM.MODS) do
@@ -385,7 +461,7 @@ function FM.Window()
     -- you recognise beats a grid of icons you have to read.
     local mouse = CreateFrame("Frame", nil, w)
     mouse:SetSize(150, 190)
-    mouse:SetPoint("TOP", 0, -80)
+    mouse:SetPoint("TOP", 0, -98)          -- 18 px lower for the trinket row (10 Oct 2026)
     w.mouse = mouse
 
     local body = texture(mouse, "BACKGROUND", 0.24, 0.21, 0.31, 1)
@@ -585,14 +661,26 @@ function FM.Window()
                 f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
                 if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
             end
-            local boost = FM.Boost(spell)
+            -- the left half: the booster's icon, or - with no booster - the first trinket's
+            local tslots, boost = FM.Front(spell)
             local bicon = boost and spellIcon(boost) or nil
+            if not bicon and tslots[1] and GetInventoryItemTexture then
+                local okT, tex = pcall(GetInventoryItemTexture, "player", tslots[1])
+                bicon = okT and tex or nil
+            end
             -- only over a drawn heal icon: half of nothing is a stray half-icon
             if bicon and f.icon:IsShown() then
                 f.boost:SetTexture(bicon) f.boost:Show() f.seam:Show()
             else
                 f.boost:Hide() f.seam:Hide()
             end
+        end
+        -- the trinket ticks show THIS tab's choice
+        local onTab = {}
+        for _, s in ipairs(FM.TabTrinkets(self.mod)) do onTab[s] = true end
+        for _, b in ipairs(self.trinketTicks or {}) do
+            if onTab[b.slotId] then b.tick:Show() else b.tick:Hide() end
+            b.text:SetTextColor(rgb(onTab[b.slotId] and "good" or "muted"))
         end
         -- the heal palette: this character's trained heals, top rank each (FM.Palette)
         local pal = FM.Palette()

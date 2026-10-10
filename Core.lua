@@ -1605,6 +1605,41 @@ end
 
 --- /bish hover [on|off] - the white crosshair on whoever your mouse is on (7 Oct 2026, Arn's
 --- cousin's idea). On by default.
+--- /bish trinkets [none|shift|ctrl|alt] [1|2|both|off] - which trinkets every bind on that
+--- modifier tab uses before its heal (10 Oct 2026, Arn: "each tab ... has a check ... pop trinket
+--- 1 - 2 ... maybe even different for each modifier"). The same ticks as the mouse window's row.
+--- No arguments: says what is set.
+NS.TRINKET_TABS = { { key = "", word = "none" }, { key = "shift-", word = "shift" },
+                    { key = "ctrl-", word = "ctrl" }, { key = "alt-", word = "alt" } }
+function NS.DO.trinkets(tab, which)
+    local FM = NS.FM
+    if not (FM and FM.TabTrinkets) then return nil end
+    local function say()
+        for _, m in ipairs(NS.TRINKET_TABS) do
+            local s = FM.TabTrinkets(m.key)
+            local words = {}
+            for _, n in ipairs(s) do words[#words + 1] = "trinket " .. (n == 13 and 1 or 2) end
+            Print("  %s: %s", m.word, #words > 0 and table.concat(words, " + ") .. " first" or "-")
+        end
+    end
+    if not tab then Print("trinkets first, per modifier:") say() return end
+    local mod
+    for _, m in ipairs(NS.TRINKET_TABS) do if m.word == tab then mod = m.key end end
+    local want = ({ ["1"] = { 13 }, ["2"] = { 14 }, both = { 13, 14 }, off = {} })[which or ""]
+    if not mod or not want then
+        Print("trinkets: /bish trinkets shift both  (none|shift|ctrl|alt, then 1|2|both|off)")
+        return nil
+    end
+    local on = {}
+    for _, s in ipairs(want) do on[s] = true end
+    FM.SetTabTrinket(mod, 13, on[13])
+    FM.SetTabTrinket(mod, 14, on[14])
+    if FM.Apply then FM.Apply() end
+    if FM.win and FM.win.Refresh then FM.win:Refresh() end
+    say()
+    return FM.TabTrinkets(mod)
+end
+
 function NS.DO.hover(how)
     local d = DB()
     local on
@@ -1797,6 +1832,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.hots()
     elseif msg == "ring" or msg:match("^ring%s") then
         NS.DO.ring(msg:match("^ring%s+(%S+)"))
+    elseif msg == "trinkets" or msg:match("^trinkets%s") then
+        NS.DO.trinkets(msg:match("^trinkets%s+(%a+)"), msg:match("^trinkets%s+%a+%s+(%w+)"))
     elseif msg == "hover" or msg:match("^hover%s") then
         NS.DO.hover(msg:match("^hover%s+(%a+)"))
     elseif msg == "dim" or msg:match("^dim%s") then

@@ -584,6 +584,16 @@ _G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c e
 _G.ClearCursor = function() CURSOR = {} end
 -- PICKING A SPELL UP BY ID puts it on the cursor in Forever's four-value shape (kind, book slot,
 -- "spell", id) - the shape FM.CursorSpell is built for. FojjiCore's rank rows drive it this way.
+-- WHAT YOU WEAR (10 Oct 2026, trinkets first): the item id in an equipment slot, and its icon.
+-- 13 and 14 are the two trinket slots. A slot with nothing in it answers nil, as the client does.
+STATE.worn = { [13] = 19950, [14] = 11832 }      -- Zandalarian Hero Charm, Burst of Knowledge
+_G.GetInventoryItemID = function(unit, slot)
+    if unit ~= "player" then return nil end
+    return STATE.worn[slot]
+end
+_G.GetInventoryItemTexture = function(unit, slot)
+    return (unit == "player" and STATE.worn[slot]) and ("Interface\\Icons\\Trinket" .. slot) or nil
+end
 _G.C_Spell = _G.C_Spell or {}
 _G.C_Spell.PickupSpell = function(id)
     if type(id) ~= "number" then error("bad argument #1 to 'PickupSpell'", 2) end
@@ -5204,6 +5214,99 @@ do
             CURSOR = { kind = "spell", a = 40, b = "spell", c = 16188 }
             w.slots["button4"].__scripts.OnReceiveDrag(w.slots["button4"])
             ok(FM.Get("", "button4") == "Nature's Swiftness", "on an empty slot it is just itself")
+
+            -- TRINKETS FIRST (Arn, 10 Oct: "the old bis healing had ... popping trinkets before big
+            -- heals"). A trinket you WEAR dropped on a heal: its slot rides in front, by slot number.
+            FM.Set("", "left", "Nature's Swiftness+Healing Wave(Rank 3)")
+            CURSOR = { kind = "item", a = 19950 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "!use:13+Nature's Swiftness+Healing Wave(Rank 3)",
+               "a worn trinket dropped on a heal goes first, by SLOT, the booster kept behind it",
+               tostring(FM.Get("", "left")))
+            CURSOR = { kind = "item", a = 11832 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "!use:13+!use:14+Nature's Swiftness+Healing Wave(Rank 3)",
+               "and the other trinket too, in slot order")
+            -- an item you do not wear is not a trinket bind
+            CURSOR = { kind = "item", a = 4242 }
+            ok(not slot.__scripts.OnReceiveDrag(slot) and FM.Get("", "left"):find("^!use:13"),
+               "an item you are not wearing is refused")
+            CURSOR = {}
+            local cell2 = CreateFrame("Button", "TrinketCell", UIParent, "SecureUnitButtonTemplate")
+            FM.ApplyTo(cell2)
+            ok(cell2.__attrs["*macrotext1"] == "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+               .. "/use 13\n/use 14\n/cast Nature's Swiftness\n/cast [@mouseover] Healing Wave(Rank 3)",
+               "one press: the guard, both trinkets, the booster, the heal", cell2.__attrs["*macrotext1"])
+            ok(FM.CycleRank("", "left") == "!use:13+!use:14+Nature's Swiftness+Healing Wave(Rank 1)",
+               "the rank button keeps everything in front", tostring(FM.Get("", "left")))
+            local nm2 = FM.Split(FM.Get("", "left"))
+            ok(nm2 == "Healing Wave", "and the slot's name is still the heal")
+            local back2 = NS.FK.Decode(NS.FK.Encode({ left = FM.Get("", "left") }, {}))
+            ok(back2 and back2.left == FM.Get("", "left"), "it survives a restart in the macro")
+
+            -- PER MODIFIER TAB (Arn: "each tab ... has a check ... pop trinket 1 - 2 ... maybe even
+            -- different for each modifier")
+            FM.Set("", "left", "Healing Wave(Rank 3)")
+            FM.Set("shift-", "left", "Healing Wave(Rank 3)")
+            w.mod = "shift-"
+            w:Refresh()
+            ok(w.trinketTicks and #w.trinketTicks == 2 and not w.trinketTicks[1].tick.__shown,
+               "the mouse window has a trinket 1 and a trinket 2 tick, both off")
+            w.trinketTicks[1].__scripts.OnClick(w.trinketTicks[1])
+            w.trinketTicks[2].__scripts.OnClick(w.trinketTicks[2])
+            ok(w.trinketTicks[1].tick.__shown and w.trinketTicks[2].tick.__shown, "tick both on the shift tab")
+            FM.ApplyTo(cell2)
+            local sh = cell2.__attrs["shift-macrotext1"] or ""
+            ok(sh:find("/use 13\n/use 14\n/cast [@mouseover] Healing Wave(Rank 3)", 1, true),
+               "every shift bind now uses both trinkets first", sh)
+            ok(cell2.__attrs["*type1"] == "spell" and cell2.__attrs["*macrotext1"] == nil,
+               "and the no-modifier tab is untouched - a plain spell", tostring(cell2.__attrs["*type1"]))
+            w.mod = "alt-"
+            w:Refresh()
+            ok(not w.trinketTicks[1].tick.__shown, "each tab keeps its own ticks (alt: none)")
+            w.trinketTicks[2].__scripts.OnClick(w.trinketTicks[2])
+            -- the macro row: four digits, zeros kept - none 0, shift 3, ctrl 0, alt 2
+            local tb = NS.FK.Encode({}, { trinketTabs = NS.DB().trinketTabs })
+            ok(tb:find("F=0302", 1, true), "written as F=0302 in the macro", tb)
+            local _, st = NS.FK.Decode(tb)
+            ok(st and st.trinketTabs and st.trinketTabs["shift-"][13] and st.trinketTabs["shift-"][14]
+               and st.trinketTabs["alt-"][14] and not st.trinketTabs["alt-"][13] and not st.trinketTabs[""],
+               "and read back exactly")
+            ok(not NS.FK.Encode({}, {}):find("F="), "nothing ticked writes nothing")
+            -- /bish trinkets says it, and sets it
+            local keptChat = _G.DEFAULT_CHAT_FRAME
+            local heard = {}
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.trinkets("ctrl", "1")
+            _G.DEFAULT_CHAT_FRAME = keptChat
+            local said3 = table.concat(heard, "|")
+            ok(#FM.TabTrinkets("ctrl-") == 1 and FM.TabTrinkets("ctrl-")[1] == 13
+               and said3:find("ctrl: trinket 1 first", 1, true), "/bish trinkets ctrl 1", said3)
+            NS.DO.trinkets("shift", "off") NS.DO.trinkets("alt", "off") NS.DO.trinkets("ctrl", "off")
+            ok(NS.DB().trinketTabs == nil, "off everywhere stores nothing")
+            w.mod = ""
+            FM.Set("", "left", "Spell331(Rank 4)") FM.Clear("shift-", "left")    -- as the tests below expect
+
+            -- 20% BIGGER, NOTHING OUT OF PLACE (Arn, 10 Oct): one scale on the whole window, and a
+            -- remembered spot lands where it was ON SCREEN whatever scale it was saved at
+            ok(w:GetScale() == FM.SCALE and FM.SCALE == 1.2, "the bind window is drawn 20% bigger")
+            local dbm = NS.DB()
+            local keptPos = dbm.mousePos
+            dbm.mousePos = { point = "CENTER", rel = "CENTER", x = 120, y = -60 }      -- saved before (scale 1)
+            FM.Restore(w)
+            local p = w.points and w.points[#w.points]
+            ok(p and math.abs(p[4] * 1.2 - 120) < 0.01 and math.abs(p[5] * 1.2 + 60) < 0.01,
+               "an old spot (saved at scale 1) lands in the same place on screen at 1.2",
+               p and (tostring(p[4]) .. "," .. tostring(p[5])))
+            local realGetPoint = w.GetPoint
+            w.GetPoint = function() return "CENTER", UIParent, "CENTER", 100, -50 end
+            FM.SavePos(w)
+            ok(dbm.mousePos.scale == 1.2, "a spot is saved with the scale it was saved at")
+            FM.Restore(w)
+            p = w.points and w.points[#w.points]
+            ok(p and p[4] == 100 and p[5] == -50, "and comes back unchanged at the same scale")
+            w.GetPoint = realGetPoint
+            dbm.mousePos = keptPos
             FM.Clear("", "button4") FM.Clear("", "wheelup") FM.Clear("", "right")
             FM.ApplyWheel(FG.anchor)
             _G.C_Spell.GetSpellInfo = realInfo

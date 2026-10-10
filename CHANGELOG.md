@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Trinkets before your heal, in one press.** In `/bish mouse`, each tab (no modifier, shift,
+  ctrl, alt) has two ticks: **trinket 1** and **trinket 2**. Tick them and every button on that
+  tab uses those trinkets first, then the heal - different for each modifier if you like. Or drag
+  a trinket you are wearing onto one heal's button. It stacks with Nature's Swiftness. A trinket
+  with nothing to use, or on cooldown, is simply skipped. `/bish trinkets shift both` works too.
+- **The mouse bind window is 20% bigger.**
+
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.
 

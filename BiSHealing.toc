@@ -15,6 +15,7 @@
 Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua
 Libs\BiSTheme\Minimap.lua
+Libs\RezComm-1.0\RezComm-1.0.lua
 
 Lockdown.lua
 Core.lua
@@ -22,6 +23,7 @@ Auras.lua
 Regen.lua
 SelfBuff.lua
 Grid.lua
+Rez.lua
 Mouse.lua
 Keep.lua
 MouseUI.lua

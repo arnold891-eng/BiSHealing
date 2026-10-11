@@ -1,5 +1,9 @@
 # BiS Healing
 
+## Unreleased
+
+- Res claims (RezComm minor 4) are never sent into the chat lockdown, and a claim the game asks to retry is sent once more.
+
 ## 0.8.4
 
 - **Trinkets before your heal, in one press.** In `/bish mouse`, each tab (no modifier, shift,

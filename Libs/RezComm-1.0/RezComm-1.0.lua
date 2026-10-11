@@ -36,7 +36,8 @@
   embedder under Libs\, never edited in place.
 ]]
 
-local MAJOR, MINOR = "RezComm-1.0", 3
+-- minor 4 (12 Oct 2026, debt 37): lockdown + realm-block checks, the send answer read, one retry
+local MAJOR, MINOR = "RezComm-1.0", 4
 local RC = _G.BiSRezComm
 if RC and (RC.MINOR or 0) >= MINOR then return end
 RC = RC or {}
@@ -136,7 +137,16 @@ local function GroupChannel()
   if IsInGroup and LE_PARTY_CATEGORY_INSTANCE and IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then
     return "INSTANCE_CHAT"     -- dungeon-finder group: RAID/PARTY are dropped entirely
   end
-  if IsInRaid and IsInRaid() then return "RAID" end
+  -- RAID only when UnitInRaid("player") agrees (minor 4): IsInRaid() can stay true after leaving an
+  -- instance while RAID refuses - and a res claim that vanishes is the double res this exists to stop
+  if IsInRaid and IsInRaid() then
+    local sure = true
+    if UnitInRaid then
+      local ok, r = pcall(UnitInRaid, "player")
+      sure = ok and not (issecretvalue ~= nil and issecretvalue(r) == true) and r ~= nil and r ~= false
+    end
+    if sure then return "RAID" end
+  end
   if IsInGroup and IsInGroup() then return "PARTY" end
   return nil
 end
@@ -155,18 +165,71 @@ local function Send(cmd, name)
   -- FATAL here. A rez is decided in its first second, so a claim delayed 1-3s
   -- lands after everyone else already clicked - the exact collision this exists
   -- to prevent. Do not "fix" this into a scheduled send.
+  -- FOREVER'S RULES (minor 4, 12 Oct 2026, debt 37). It sent blind and never read the answer, so a
+  -- claim made in the chat lockdown - or throttled - simply vanished, and the next healer cast the
+  -- same res. Now: no send into a lockdown or a realm block (said in RC.lastError, answered false
+  -- so the caller knows); the client's answer is READ; a throttle is retried ONCE, 0.3 s later -
+  -- quick enough to still matter, and only while this claim is still the one we hold.
+  local ok, why = RC.MaySend()
+  if not ok then RC.lastError = why return false end
+  local r
   if C_ChatInfo and C_ChatInfo.SendAddonMessage then
-    C_ChatInfo.SendAddonMessage(PREFIX, msg, chan)
+    r = C_ChatInfo.SendAddonMessage(PREFIX, msg, chan)
   elseif SendAddonMessage then
-    SendAddonMessage(PREFIX, msg, chan)
+    r = SendAddonMessage(PREFIX, msg, chan)
   else
     return false
+  end
+  if RC.Again(r) then
+    RC.retried = (RC.retried or 0) + 1
+    local again = function()
+      if RC.last ~= msg then return end                 -- a newer claim replaced this one
+      local ok2 = RC.MaySend()
+      if not ok2 then return end
+      if C_ChatInfo and C_ChatInfo.SendAddonMessage then C_ChatInfo.SendAddonMessage(PREFIX, msg, chan)
+      elseif SendAddonMessage then SendAddonMessage(PREFIX, msg, chan) end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0.3, again) end
   end
   RC.sent[#RC.sent + 1] = msg
   RC.last = msg
   return true
 end
 RC._Send = Send
+
+local function hidden(v)
+  return issecretvalue ~= nil and issecretvalue(v) == true
+end
+
+--- May a claim go out right now? false + why in the lockdown, or when the realm blocks addon
+--- messages; a hidden answer to either question counts as "no" (never guessed open).
+function RC.MaySend()
+  local lock = C_ChatInfo and C_ChatInfo.InChatMessagingLockdown
+  if lock then
+    local ok, v = pcall(lock)
+    if ok and (hidden(v) or v) then return false, "chat lockdown" end
+  end
+  local block = C_ChatInfo and C_ChatInfo.AreOutgoingAddonChatMessagesRestricted
+  if block then
+    local ok, v = pcall(block)
+    if ok and (hidden(v) or v) then return false, "realm block" end
+  end
+  return true
+end
+
+--- Did the client say "try again"? Its answer by name where it has the enum, else retail's numbers;
+--- nothing / true / 0 (2.5.x answers nothing) is sent.
+function RC.Again(r)
+  if r == nil or r == true or r == 0 or hidden(r) then return false end
+  if r == false then return true end
+  local E = Enum and Enum.SendAddonMessageResult
+  local throttle, channel = 3, 8
+  if type(E) == "table" then
+    throttle = E.AddonMessageThrottle or throttle
+    channel = E.ChannelThrottle or channel
+  end
+  return r == throttle or r == channel
+end
 
 --------------------------------------------------------------------
 -- the one pending cast

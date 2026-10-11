@@ -823,6 +823,8 @@ local TIP = { lines = {} }
 _G.GameTooltip = autoMethods({
     SetOwner = function(self) TIP.lines = {} end,
     AddLine  = function(self, text) TIP.lines[#TIP.lines + 1] = text end,
+    -- the client's own item tooltip (11 Oct 2026, the oil button): records WHICH item it was asked for
+    SetItemByID = function(self, id) TIP.item = id TIP.lines[#TIP.lines + 1] = "item:" .. tostring(id) end,
 })
 _G.UISpecialFrames = {}        -- what the client closes on Escape
 _G.tinsert = table.insert
@@ -6411,6 +6413,22 @@ do
     _G.GetWeaponEnchantInfo = function() return secret() end
     ok(FN.PaintOil(b) == false, "a client that will not say: dimmed, never a guess")
     _G.GetWeaponEnchantInfo = function() return oiled end
+    -- THE BUFF ON A HOVER (Arn: "a small tooltip so we can see what oil it is maybe not the name but
+    -- the buff"): the game's own item tooltip - never numbers typed in - then where it stands
+    local realEnch = _G.GetWeaponEnchantInfo
+    _G.GetWeaponEnchantInfo = function() return true, 23 * 60000 end
+    TIP.item = nil
+    ok(FN.OilTip(b) and TIP.item == 20748, "hovering shows the client's own tooltip for the oil it will use")
+    local tipText = table.concat(TIP.lines, "|")
+    ok(tipText:find("on your main hand: 23 min left", 1, true) and tipText:find("2 left in your bags", 1, true),
+       "then how long it has left on the weapon, and how many are in the bags", tipText)
+    _G.GetWeaponEnchantInfo = function() return false end
+    FN.OilTip(b)
+    ok(table.concat(TIP.lines, "|"):find("not on your weapon - click to apply", 1, true),
+       "and says so when the weapon has none")
+    _G.GetWeaponEnchantInfo = function() return secret(), secret() end
+    ok(pcall(FN.OilTip, b), "a hidden answer does not break the tooltip")
+    _G.GetWeaponEnchantInfo = realEnch
     STATE.inCombat = true
     bags[20748] = nil
     ok(FN.ArmOil(b) == nil and b.attrs["*macrotext1"] == "/use item:20748\n/use 16",

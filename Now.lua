@@ -607,6 +607,41 @@ function FN.ArmOil(b)
     return o
 end
 
+--- WHAT THE OIL DOES, on a hover (11 Oct 2026). Arn: "maybe a small tooltip so we can see what oil it
+--- is maybe not the name but the buff". The game's OWN item tooltip, never numbers typed here - his
+--- screenshot showed why: on Forever Minor Mana Oil is "5 mana every 5 seconds ... healing by up to
+--- 10 ... 30 minutes", not the classic figures anyone would have remembered. Under it: whether it is
+--- on your main hand and for how long, and how many are left in your bags.
+function FN.OilTip(b)
+    if not (GameTooltip and b) then return false end
+    GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+    local o = b.oilItem
+    if o and GameTooltip.SetItemByID then
+        pcall(GameTooltip.SetItemByID, GameTooltip, o.id)
+    elseif o then
+        GameTooltip:AddLine(o.word)
+    end
+    local ok, has, msLeft = false, nil, nil
+    if GetWeaponEnchantInfo then ok, has, msLeft = pcall(GetWeaponEnchantInfo) end
+    if ok and not (NS.Secret and NS.Secret(has)) and (has == true or has == 1) then
+        local mins = (not (NS.Secret and NS.Secret(msLeft)) and type(msLeft) == "number")
+            and math.floor(msLeft / 60000 + 0.5) or nil
+        GameTooltip:AddLine(mins and ("on your main hand: " .. mins .. " min left") or "on your main hand",
+                            0.31, 0.82, 0.81)
+    else
+        GameTooltip:AddLine("not on your weapon - click to apply", 1, 0.82, 0.2)
+    end
+    local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+    if o and count then
+        local okC, n = pcall(count, o.id)
+        if okC and not (NS.Secret and NS.Secret(n)) and type(n) == "number" then
+            GameTooltip:AddLine(n .. " left in your bags", 0.6, 0.6, 0.65)
+        end
+    end
+    GameTooltip:Show()
+    return true
+end
+
 --- Bright while the main hand has no oil; dim when it has one, or when the client will not say.
 function FN.PaintOil(b)
     b = b or (FN.buttons and FN.buttons.oil)
@@ -704,7 +739,14 @@ local function makeButton(parent, key)
         end)
         if okT and icon and b.art.SetTexture then pcall(b.art.SetTexture, b.art, icon) end
     end
-    if def and def.oil then FN.ArmOil(b) end
+    if def and def.oil then
+        FN.ArmOil(b)
+        -- hooked, like the hover lift above: the secure template's own scripts stay intact
+        if b.HookScript then
+            b:HookScript("OnEnter", function(self) FN.OilTip(self) end)
+            b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        end
+    end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")

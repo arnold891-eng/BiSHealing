@@ -180,6 +180,7 @@ local function db()
                 if settings.ring then d.ring = settings.ring end
                 if settings.dim then d.dim = settings.dim end
                 if settings.hover ~= nil then d.hover = settings.hover end
+                if settings.trinketTabs ~= nil then d.trinketTabs = settings.trinketTabs or nil end
                 -- the three a player asked for on 23 Sep, all of them the layout's business
                 if settings.layout then d.layout = settings.layout end
                 if settings.target == true then
@@ -493,24 +494,123 @@ function FM.PickUp(id)
 end
 
 --- The booster riding in front of a bind, and the bind without it. (nil, cast) when there is none.
+--- TRINKETS FIRST (10 Oct 2026). Arn: "another thing that the old bis healing had was popping
+--- trinkets before big heals". The old addon put `/use 13` and `/use 14` in front of its shift
+--- binds; on-use trinkets are off the global cooldown, so the heal still goes out on the same
+--- press, and a trinket with nothing to use - or on cooldown - is simply skipped. Stored by SLOT,
+--- never by item: swap a trinket and the bind keeps working. A bind's front is now a CHAIN, in a
+--- fixed order: trinket slots, then a booster spell, then the heal -
+--- "!use:13+Nature's Swiftness+Healing Wave(Rank 10)".
+FM.TRINKET_MARK = "!use:"
+FM.TRINKET_SLOTS = { 13, 14 }
+
+local function trinketSlot(part)
+    local n = type(part) == "string" and tonumber(part:match("^!use:(%d+)$"))
+    return (n == 13 or n == 14) and n or nil
+end
+
+--- What goes first, and the heal: { 13, 14 } (trinket slots), "Nature's Swiftness" (or nil), heal.
+function FM.Front(cast)
+    local slots, boost, rest = {}, nil, cast
+    if type(cast) ~= "string" then return slots, nil, cast end
+    while true do
+        local head, tail = rest:match("^(.-)%+(.+)$")
+        if not head then break end
+        local s = trinketSlot(head)
+        if s then slots[#slots + 1] = s
+        elseif FM.BOOSTERS[head] then boost = head
+        else break end
+        rest = tail
+    end
+    return slots, boost, rest
+end
+
+--- A bind from its parts: trinket slots (sorted, once each), then the booster, then the heal.
+function FM.Compose(slots, boost, heal)
+    if not heal then return nil end
+    local parts, seen = {}, {}
+    local sorted = {}
+    for _, s in ipairs(slots or {}) do if not seen[s] then seen[s] = true sorted[#sorted + 1] = s end end
+    table.sort(sorted)
+    for _, s in ipairs(sorted) do parts[#parts + 1] = FM.TRINKET_MARK .. s end
+    if boost then parts[#parts + 1] = boost end
+    parts[#parts + 1] = heal
+    return table.concat(parts, FM.BOOST_MARK)
+end
+
+--- The booster spell riding in front of a bind, and the heal with nothing in front of it.
 function FM.Boost(cast)
     if type(cast) ~= "string" then return nil, cast end
-    local boost, rest = cast:match("^(.-)%+(.+)$")
-    if boost and FM.BOOSTERS[boost] then return boost, rest end
-    return nil, cast
+    local _, boost, heal = FM.Front(cast)
+    return boost, heal
 end
 
---- A booster in front of a heal - or the heal alone when there is no booster.
+--- A booster in front of a bind - its trinkets kept - or the bind as it was with no booster.
 function FM.WithBoost(boost, cast)
     if not boost or not cast then return cast end
-    return boost .. FM.BOOST_MARK .. cast
+    local slots, _, heal = FM.Front(cast)
+    return FM.Compose(slots, boost, heal)
 end
 
---- Split a stored bind back into its parts, for showing it. A booster in front is not part of the
---- name: the name is the heal's, so its icon, its ranks and its range are the heal's.
+--- The trinket slot of an item on the cursor - an EQUIPPED trinket (13 or 14), or nil. The item is
+--- matched to the slot wearing it, because it is the slot that gets stored, not the item.
+function FM.CursorTrinket()
+    if not (GetCursorInfo and GetInventoryItemID) then return nil end
+    local kind, id = GetCursorInfo()
+    if kind ~= "item" or type(id) ~= "number" then return nil end
+    for _, s in ipairs(FM.TRINKET_SLOTS) do
+        local ok, worn = pcall(GetInventoryItemID, "player", s)
+        if ok and worn == id then return s end
+    end
+    return nil
+end
+
+--- TRINKETS PER MODIFIER TAB (10 Oct 2026). Arn: "each tab no modifier shift alt cntrl has a check
+--- make when this modifier is held down pop trinket 1 - 2 can check either or both maybe even
+--- different for each modifier". `d.trinketTabs[mod]` = { [13] = true, [14] = true }; nil = none.
+function FM.TabTrinkets(mod)
+    local t = db().trinketTabs
+    local on = type(t) == "table" and t[mod or ""] or nil
+    local out = {}
+    for _, s in ipairs(FM.TRINKET_SLOTS) do if type(on) == "table" and on[s] then out[#out + 1] = s end end
+    return out
+end
+
+--- Tick or untick one trinket on one tab. Returns the new state.
+function FM.SetTabTrinket(mod, slot, on)
+    if slot ~= 13 and slot ~= 14 then return nil end
+    local d = db()
+    d.trinketTabs = type(d.trinketTabs) == "table" and d.trinketTabs or {}
+    local t = d.trinketTabs[mod or ""] or {}
+    t[slot] = on and true or nil
+    d.trinketTabs[mod or ""] = next(t) and t or nil
+    if not next(d.trinketTabs) then d.trinketTabs = nil end
+    -- written to the macro like any bind (keep() lives below; its two lines, inlined)
+    FM.touched = true
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds) end
+    return on and true or false
+end
+
+--- The lines a bind casts BEFORE its heal: its own trinket slots, plus the ones ticked on its
+--- modifier's tab, then its booster.
+function FM.FirstLines(cast, mod)
+    if type(cast) ~= "string" or FM.PingOf(cast) then return "" end
+    local slots, boost = FM.Front(cast)
+    for _, s in ipairs(FM.TabTrinkets(mod)) do slots[#slots + 1] = s end
+    local seen, lines = {}, {}
+    table.sort(slots)
+    for _, s in ipairs(slots) do
+        if not seen[s] then seen[s] = true lines[#lines + 1] = "/use " .. s end
+    end
+    if boost then lines[#lines + 1] = "/cast " .. boost end
+    return #lines > 0 and (table.concat(lines, "\n") .. "\n") or ""
+end
+
+--- Split a stored bind back into its parts, for showing it. Whatever goes first is not part of
+--- the name: the name is the heal's, so its icon, its ranks and its range are the heal's.
 function FM.Split(cast)
     if type(cast) ~= "string" then return nil, nil end
-    local _, plain = FM.Boost(cast)
+    local _, _, plain = FM.Front(cast)
     cast = plain
     local name, rank = cast:match("^(.-)%((.-)%)$")
     if name then return name, rank end
@@ -816,7 +916,9 @@ function FM.CycleRank(mod, slotKey)
     end
     local nextRank = ranks[(at % #ranks) + 1]
     -- the booster in front stays in front: stepping the heal's rank must not drop Nature's Swiftness
-    local new = FM.WithBoost((FM.Boost(cast)), FM.Cast(name, nextRank and nextRank.rank))
+    -- whatever goes first (trinkets, the booster) stays in front: stepping the heal's rank keeps it
+    local slots, boost = FM.Front(cast)
+    local new = FM.Compose(slots, boost, FM.Cast(name, nextRank and nextRank.rank))
     FM.Set(mod, slotKey, new)
     return new
 end
@@ -946,14 +1048,15 @@ function FM.ApplyTo(cell)
                     -- button at all. The same condition the wheel binds have used all along:
                     -- "/target [@mouseover]". Arn confirmed by hand before a line of this changed.
                     kind, text, cast = "macro", "/ping [@mouseover] " .. ping, nil
-                elseif spell and FM.Boost(spell) then
-                    -- THE BOOSTER FIRST, THEN THE HEAL, in one press: a macro, aimed like the ping
-                    -- at the cell under the cursor (a click on a cell makes it the mouseover)
-                    -- the wheel's guard too, so the cooldown is never spent on a dead or hostile cell
-                    local boost, heal = FM.Boost(spell)
+                elseif spell and FM.FirstLines(spell, m.key) ~= "" then
+                    -- WHAT GOES FIRST, THEN THE HEAL, in one press: trinkets, the booster, the
+                    -- heal - a macro, aimed like the ping at the cell under the cursor (a click on
+                    -- a cell makes it the mouseover). The wheel's guard too, so no cooldown is ever
+                    -- spent on a dead or hostile cell.
+                    local _, heal = FM.Boost(spell)
                     kind, cast = "macro", nil
                     text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
-                        .. "/cast " .. boost .. "\n/cast [@mouseover] " .. heal
+                        .. FM.FirstLines(spell, m.key) .. "/cast [@mouseover] " .. heal
                 elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end
@@ -1008,9 +1111,9 @@ function FM.ApplyWheel(owner)
                         -- cursor; the stopmacro keeps it quiet when the cursor is over nothing
                         -- healable. A booster rides between the two: after the guard, so Nature's
                         -- Swiftness is never spent on a wheel turn over nobody.
-                        local boost, heal = FM.Boost(spell)
+                        local _, heal = FM.Boost(spell)
                         text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
-                            .. (boost and ("/cast " .. boost .. "\n") or "")
+                            .. FM.FirstLines(spell, m.key)
                             .. "/cast [@mouseover] " .. heal
                     end
                     b:SetAttribute("macrotext", text)

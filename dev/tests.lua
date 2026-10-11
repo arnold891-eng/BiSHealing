@@ -584,6 +584,16 @@ _G.GetCursorInfo = function() return CURSOR.kind, CURSOR.a, CURSOR.b, CURSOR.c e
 _G.ClearCursor = function() CURSOR = {} end
 -- PICKING A SPELL UP BY ID puts it on the cursor in Forever's four-value shape (kind, book slot,
 -- "spell", id) - the shape FM.CursorSpell is built for. FojjiCore's rank rows drive it this way.
+-- WHAT YOU WEAR (10 Oct 2026, trinkets first): the item id in an equipment slot, and its icon.
+-- 13 and 14 are the two trinket slots. A slot with nothing in it answers nil, as the client does.
+STATE.worn = { [13] = 19950, [14] = 11832 }      -- Zandalarian Hero Charm, Burst of Knowledge
+_G.GetInventoryItemID = function(unit, slot)
+    if unit ~= "player" then return nil end
+    return STATE.worn[slot]
+end
+_G.GetInventoryItemTexture = function(unit, slot)
+    return (unit == "player" and STATE.worn[slot]) and ("Interface\\Icons\\Trinket" .. slot) or nil
+end
 _G.C_Spell = _G.C_Spell or {}
 _G.C_Spell.PickupSpell = function(id)
     if type(id) ~= "number" then error("bad argument #1 to 'PickupSpell'", 2) end
@@ -823,6 +833,8 @@ local TIP = { lines = {} }
 _G.GameTooltip = autoMethods({
     SetOwner = function(self) TIP.lines = {} end,
     AddLine  = function(self, text) TIP.lines[#TIP.lines + 1] = text end,
+    -- the client's own item tooltip (11 Oct 2026, the oil button): records WHICH item it was asked for
+    SetItemByID = function(self, id) TIP.item = id TIP.lines[#TIP.lines + 1] = "item:" .. tostring(id) end,
 })
 _G.UISpecialFrames = {}        -- what the client closes on Escape
 _G.tinsert = table.insert
@@ -1337,6 +1349,40 @@ do
     ok(f:GetAlpha() == 1, "and out of the fight it reads plainly again")
 end
 ok(pcall(NS.DO.range), "/bish range says what the client answered, without throwing")
+-- /bish cpu (10 Oct 2026, Arn: "make it /bish cpu so i dont paste"), against the client's profiler
+-- in its real shape: GetAddOnMetric(name, Enum.AddOnProfilerMetric.X) -> a number
+do
+    local keep = { P = _G.C_AddOnProfiler, E = _G.Enum, A = _G.C_AddOns, chat = _G.DEFAULT_CHAT_FRAME }
+    local ADDONS = { { "Ace3", 5, 581.7, 0.2 }, { "BiSHealing", 0, 12.0, 0.08 }, { "Questie", 9, 240.0, 0.5 } }
+    _G.Enum = setmetatable({ AddOnProfilerMetric = { PeakTime = 1, RecentAverageTime = 2, CountTimeOver100Ms = 3 } },
+                           { __index = keep.E })
+    _G.C_AddOnProfiler = { GetAddOnMetric = function(name, m)
+        for _, a in ipairs(ADDONS) do
+            if a[1] == name then return ({ [3] = a[2], [1] = a[3], [2] = a[4] })[m] end
+        end
+        return 0
+    end }
+    _G.C_AddOns = setmetatable({ GetNumAddOns = function() return #ADDONS end,
+                                 GetAddOnInfo = function(i) return ADDONS[i][1] end,
+                                 IsAddOnLoaded = function() return true end }, { __index = keep.A })
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local rows, ours = NS.DO.cpu()
+    ok(rows and rows[1].name == "Questie" and rows[2].name == "Ace3",
+       "/bish cpu ranks the addons by how often they hitch")
+    ok(ours and ours.spikes == 0 and ours.peak == 12.0, "and adds up the BiS family on a line of its own")
+    ADDONS[3][2] = 12
+    heard = {}
+    NS.DO.cpu()
+    local said = table.concat(heard, "\n")
+    ok(said:find("+3 since you last asked", 1, true) and said:find("(none new)", 1, true),
+       "asked again, it says which are still hitching and which have stopped", said)
+    _G.C_AddOnProfiler = nil
+    heard = {}
+    ok(pcall(NS.DO.cpu) and table.concat(heard):find("no addon profiler", 1, true),
+       "a client without the profiler gets a sentence, not an error")
+    _G.C_AddOnProfiler, _G.Enum, _G.C_AddOns, _G.DEFAULT_CHAT_FRAME = keep.P, keep.E, keep.A, keep.chat
+end
 -- /bish overheal (8 Oct: Arn sees only green, never the band). It must survive secrets, and its
 -- test mode must really force the band, or it diagnoses nothing.
 do
@@ -1360,6 +1406,64 @@ do
     end
     FG.overhealTest = nil
     _G.DEFAULT_CHAT_FRAME = keptChat
+end
+-- NO DOUBLE RES (10 Oct 2026, Rez.lua). RezComm puts every BiS user's res casts on BiSInnervate's
+-- pipe; BiS Healing now listens, and a dead cell says who is already ressing them.
+do
+    local FZ = NS.FZ
+    ok(FZ and FZ.frame and FZ.frame.__events and FZ.frame.__events.CHAT_MSG_ADDON,
+       "the res watch listens for addon messages")
+    local realName = _G.UnitName
+    -- names the way the client gives them: name, then realm as a SECOND return
+    local NAMES = { player = "Arn", party1 = "Kumlust", party2 = "Chain" }
+    _G.UnitName = function(u) return NAMES[u], nil end
+    FZ.claims = {}
+    STATE.dead.party1 = true
+    ok(FG.StatusWord("party1") == "DEAD", "a corpse nobody is ressing says DEAD")
+    ok(FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain-Dreamscythe"),
+       "a res claim from another healer is taken")
+    ok(FG.StatusWord("party1") == "rez: Chain", "and the dead cell says who is ressing them",
+       tostring(FG.StatusWord("party1")))
+    -- only the claimer can free it; anyone else's RFREE is not theirs to send
+    FZ.OnMessage("BiSInn", "4|RFREE|Kumlust", "PARTY", "Someoneelse")
+    ok(FG.StatusWord("party1") == "rez: Chain", "another player cannot clear Chain's claim")
+    FZ.OnMessage("BiSInn", "4|RDONE|Kumlust", "PARTY", "Chain")
+    ok(FG.StatusWord("party1") == "DEAD", "the res lands (RDONE): back to DEAD until they accept")
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    FZ.OnMessage("BiSInn", "4|RFREE|Kumlust", "PARTY", "Chain")
+    ok(FG.StatusWord("party1") == "DEAD", "a res that failed or was stopped (RFREE) clears it")
+    -- a claim that never hears back does not stick
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    TICK(FZ.HOLD + 1)
+    ok(FG.StatusWord("party1") == "DEAD", "a claim nobody followed up goes after " .. FZ.HOLD .. " s")
+    -- what it ignores
+    ok(not FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Arn"), "your own claim (you know)")
+    ok(not FZ.OnMessage("BiSInn", "5|RCLAIM|Kumlust", "PARTY", "Chain"), "another protocol's message")
+    ok(not FZ.OnMessage("DBM-Core", "4|RCLAIM|Kumlust", "PARTY", "Chain"), "another addon's message")
+    ok(not FZ.OnMessage("BiSInn", secret(), "PARTY", "Chain")
+       and not FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", secret()),
+       "a message or sender the client hides (chat lockdown) is dropped, never guessed")
+    -- a corpse whose NAME is hidden cannot be matched: it stays DEAD
+    FZ.OnMessage("BiSInn", "4|RCLAIM|Kumlust", "PARTY", "Chain")
+    _G.UnitName = function() return secret() end
+    ok(FG.StatusWord("party1") == "DEAD", "a hidden name is never matched to a claim")
+    _G.UnitName = function(u) return NAMES[u], nil end
+    -- LEAN: another addon's chatter costs one question each
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local n = Cost.Count(function()
+        for _ = 1, 500 do FZ.frame.__scripts.OnEvent(FZ.frame, "CHAT_MSG_ADDON", "DBM-Core", "x", "RAID", "Chain") end
+    end)
+    ok(n <= 500, "500 other addons' messages cost at most one client question each: " .. n)
+    -- BiS Healing CARRIES RezComm too, byte for byte the family's copy, so its own res casts are told
+    local function bytes(p) local fh = io.open(p, "rb") if not fh then return nil end local b = fh:read("*a") fh:close() return b end
+    local mine, canon = bytes("Libs/RezComm-1.0/RezComm-1.0.lua"), bytes("../_bisdev/RezComm-1.0/RezComm-1.0.lua")
+    ok(mine and (not canon or mine == canon), "the embedded RezComm is the canonical copy (run _bisdev/sync.ps1)")
+    -- (the suite skips Libs lines - each lib has its own suite - so this one is loaded by hand)
+    local loaded = pcall(function() assert(loadfile("Libs/RezComm-1.0/RezComm-1.0.lua"))() end)
+    ok(loaded and _G.BiSRezComm and _G.BiSRezComm.MINOR, "and it loads in this client's shape")
+    FZ.claims = {}
+    STATE.dead.party1 = nil
+    _G.UnitName = realName
 end
 -- AND SHOWS ITS WORKING (7 Oct). Arn read "Healing Wave" and could not tell if that was the
 -- longest or just the left click - the line still said "left click first". The yards settle it.
@@ -5204,6 +5308,99 @@ do
             CURSOR = { kind = "spell", a = 40, b = "spell", c = 16188 }
             w.slots["button4"].__scripts.OnReceiveDrag(w.slots["button4"])
             ok(FM.Get("", "button4") == "Nature's Swiftness", "on an empty slot it is just itself")
+
+            -- TRINKETS FIRST (Arn, 10 Oct: "the old bis healing had ... popping trinkets before big
+            -- heals"). A trinket you WEAR dropped on a heal: its slot rides in front, by slot number.
+            FM.Set("", "left", "Nature's Swiftness+Healing Wave(Rank 3)")
+            CURSOR = { kind = "item", a = 19950 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "!use:13+Nature's Swiftness+Healing Wave(Rank 3)",
+               "a worn trinket dropped on a heal goes first, by SLOT, the booster kept behind it",
+               tostring(FM.Get("", "left")))
+            CURSOR = { kind = "item", a = 11832 }
+            slot.__scripts.OnReceiveDrag(slot)
+            ok(FM.Get("", "left") == "!use:13+!use:14+Nature's Swiftness+Healing Wave(Rank 3)",
+               "and the other trinket too, in slot order")
+            -- an item you do not wear is not a trinket bind
+            CURSOR = { kind = "item", a = 4242 }
+            ok(not slot.__scripts.OnReceiveDrag(slot) and FM.Get("", "left"):find("^!use:13"),
+               "an item you are not wearing is refused")
+            CURSOR = {}
+            local cell2 = CreateFrame("Button", "TrinketCell", UIParent, "SecureUnitButtonTemplate")
+            FM.ApplyTo(cell2)
+            ok(cell2.__attrs["*macrotext1"] == "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+               .. "/use 13\n/use 14\n/cast Nature's Swiftness\n/cast [@mouseover] Healing Wave(Rank 3)",
+               "one press: the guard, both trinkets, the booster, the heal", cell2.__attrs["*macrotext1"])
+            ok(FM.CycleRank("", "left") == "!use:13+!use:14+Nature's Swiftness+Healing Wave(Rank 1)",
+               "the rank button keeps everything in front", tostring(FM.Get("", "left")))
+            local nm2 = FM.Split(FM.Get("", "left"))
+            ok(nm2 == "Healing Wave", "and the slot's name is still the heal")
+            local back2 = NS.FK.Decode(NS.FK.Encode({ left = FM.Get("", "left") }, {}))
+            ok(back2 and back2.left == FM.Get("", "left"), "it survives a restart in the macro")
+
+            -- PER MODIFIER TAB (Arn: "each tab ... has a check ... pop trinket 1 - 2 ... maybe even
+            -- different for each modifier")
+            FM.Set("", "left", "Healing Wave(Rank 3)")
+            FM.Set("shift-", "left", "Healing Wave(Rank 3)")
+            w.mod = "shift-"
+            w:Refresh()
+            ok(w.trinketTicks and #w.trinketTicks == 2 and not w.trinketTicks[1].tick.__shown,
+               "the mouse window has a trinket 1 and a trinket 2 tick, both off")
+            w.trinketTicks[1].__scripts.OnClick(w.trinketTicks[1])
+            w.trinketTicks[2].__scripts.OnClick(w.trinketTicks[2])
+            ok(w.trinketTicks[1].tick.__shown and w.trinketTicks[2].tick.__shown, "tick both on the shift tab")
+            FM.ApplyTo(cell2)
+            local sh = cell2.__attrs["shift-macrotext1"] or ""
+            ok(sh:find("/use 13\n/use 14\n/cast [@mouseover] Healing Wave(Rank 3)", 1, true),
+               "every shift bind now uses both trinkets first", sh)
+            ok(cell2.__attrs["*type1"] == "spell" and cell2.__attrs["*macrotext1"] == nil,
+               "and the no-modifier tab is untouched - a plain spell", tostring(cell2.__attrs["*type1"]))
+            w.mod = "alt-"
+            w:Refresh()
+            ok(not w.trinketTicks[1].tick.__shown, "each tab keeps its own ticks (alt: none)")
+            w.trinketTicks[2].__scripts.OnClick(w.trinketTicks[2])
+            -- the macro row: four digits, zeros kept - none 0, shift 3, ctrl 0, alt 2
+            local tb = NS.FK.Encode({}, { trinketTabs = NS.DB().trinketTabs })
+            ok(tb:find("F=0302", 1, true), "written as F=0302 in the macro", tb)
+            local _, st = NS.FK.Decode(tb)
+            ok(st and st.trinketTabs and st.trinketTabs["shift-"][13] and st.trinketTabs["shift-"][14]
+               and st.trinketTabs["alt-"][14] and not st.trinketTabs["alt-"][13] and not st.trinketTabs[""],
+               "and read back exactly")
+            ok(not NS.FK.Encode({}, {}):find("F="), "nothing ticked writes nothing")
+            -- /bish trinkets says it, and sets it
+            local keptChat = _G.DEFAULT_CHAT_FRAME
+            local heard = {}
+            _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+            NS.DO.trinkets("ctrl", "1")
+            _G.DEFAULT_CHAT_FRAME = keptChat
+            local said3 = table.concat(heard, "|")
+            ok(#FM.TabTrinkets("ctrl-") == 1 and FM.TabTrinkets("ctrl-")[1] == 13
+               and said3:find("ctrl: trinket 1 first", 1, true), "/bish trinkets ctrl 1", said3)
+            NS.DO.trinkets("shift", "off") NS.DO.trinkets("alt", "off") NS.DO.trinkets("ctrl", "off")
+            ok(NS.DB().trinketTabs == nil, "off everywhere stores nothing")
+            w.mod = ""
+            FM.Set("", "left", "Spell331(Rank 4)") FM.Clear("shift-", "left")    -- as the tests below expect
+
+            -- 20% BIGGER, NOTHING OUT OF PLACE (Arn, 10 Oct): one scale on the whole window, and a
+            -- remembered spot lands where it was ON SCREEN whatever scale it was saved at
+            ok(w:GetScale() == FM.SCALE and FM.SCALE == 1.2, "the bind window is drawn 20% bigger")
+            local dbm = NS.DB()
+            local keptPos = dbm.mousePos
+            dbm.mousePos = { point = "CENTER", rel = "CENTER", x = 120, y = -60 }      -- saved before (scale 1)
+            FM.Restore(w)
+            local p = w.points and w.points[#w.points]
+            ok(p and math.abs(p[4] * 1.2 - 120) < 0.01 and math.abs(p[5] * 1.2 + 60) < 0.01,
+               "an old spot (saved at scale 1) lands in the same place on screen at 1.2",
+               p and (tostring(p[4]) .. "," .. tostring(p[5])))
+            local realGetPoint = w.GetPoint
+            w.GetPoint = function() return "CENTER", UIParent, "CENTER", 100, -50 end
+            FM.SavePos(w)
+            ok(dbm.mousePos.scale == 1.2, "a spot is saved with the scale it was saved at")
+            FM.Restore(w)
+            p = w.points and w.points[#w.points]
+            ok(p and p[4] == 100 and p[5] == -50, "and comes back unchanged at the same scale")
+            w.GetPoint = realGetPoint
+            dbm.mousePos = keptPos
             FM.Clear("", "button4") FM.Clear("", "wheelup") FM.Clear("", "right")
             FM.ApplyWheel(FG.anchor)
             _G.C_Spell.GetSpellInfo = realInfo
@@ -6334,10 +6531,12 @@ do
     -- it (M16, 1 Oct). A fourth button is added here to give the order room to show the difference.
     FN.BUTTONS[#FN.BUTTONS + 1] = { id = 9, key = "testonly", word = "Test" }
     FN.Reset()
-    ok(FN.Place("testonly") == 4, "the extra button starts last")
+    -- (counted from the end, so a new button - the oil, 11 Oct - does not break the arithmetic)
+    local last = #FN.BUTTONS
+    ok(FN.Place("testonly") == last, "the extra button starts last")
     FN.Note("testonly") FN.Note("testonly")
     FN.Settle()
-    ok(FN.Place("testonly") == 2,
+    ok(FN.Place("testonly") == last - 2,
        "twice in one fight moves it TWO places, not one",
        tostring(FN.Place("testonly")))
     FN.BUTTONS[#FN.BUTTONS] = nil
@@ -6375,6 +6574,83 @@ do
     ok(FN.Decode(nil) == false, "and neither is nil")
     ok(FN.Note("nosuchbutton") == false, "a button we do not have is not noted")
 
+    FN.Reset()
+
+    -- WEAPON OIL (Arn, 11 Oct: "got the mana oil how do i bring it up in bis now, does it scan my
+    -- bags for oils?"). The client's shape: C_Item.GetItemCount(id) -> a count;
+    -- GetWeaponEnchantInfo() -> hasMainHandEnchant first.
+    local bags, oiled, asked = {}, false, 0
+    local keep = { count = C_Item and C_Item.GetItemCount, ench = _G.GetWeaponEnchantInfo,
+                   icon = C_Item and C_Item.GetItemIconByID }
+    _G.C_Item = _G.C_Item or {}
+    _G.C_Item.GetItemCount = function(id) asked = asked + 1 return bags[id] or 0 end
+    _G.C_Item.GetItemIconByID = function(id) return "Interface\\Icons\\Oil" .. id end
+    _G.GetWeaponEnchantInfo = function() return oiled end
+    ok(FN.Oil() == nil, "no oil in your bags: no oil")
+    local function mineHas(k) for _, x in ipairs(FN.Mine()) do if x == k then return true end end end
+    ok(not mineHas("oil"), "and no oil button")
+    bags[20747] = 3                                   -- Lesser Mana Oil
+    bags[20749] = 1                                   -- Brilliant Wizard Oil
+    ok(FN.Oil() and FN.Oil().id == 20747, "the best oil for a healer is chosen: mana before wizard")
+    bags[20748] = 2                                   -- Brilliant Mana Oil
+    ok(FN.Oil().id == 20748, "and Brilliant before Lesser")
+    ok(mineHas("oil"), "with an oil in your bags, the oil button is yours")
+    local b = { art = CreateFrame("Frame"):CreateTexture(), attrs = {} }
+    function b:SetAttribute(k, v) self.attrs[k] = v end
+    FN.ArmOil(b)
+    ok(b.attrs["*type1"] == "macro" and b.attrs["*macrotext1"] == "/use item:20748\n/use 16",
+       "one click: the oil, then the main hand (the macro Arn saw, without the stone)", b.attrs["*macrotext1"])
+    ok(b.art.__texture == "Interface\\Icons\\Oil20748", "wearing the oil's own icon")
+    oiled = false
+    ok(FN.PaintOil(b) == true, "the weapon has no oil: lit")
+    oiled = true
+    ok(FN.PaintOil(b) == false, "oiled: dimmed")
+    _G.GetWeaponEnchantInfo = function() return secret() end
+    ok(FN.PaintOil(b) == false, "a client that will not say: dimmed, never a guess")
+    _G.GetWeaponEnchantInfo = function() return oiled end
+    -- THE BUFF ON A HOVER (Arn: "a small tooltip so we can see what oil it is maybe not the name but
+    -- the buff"): the game's own item tooltip - never numbers typed in - then where it stands
+    local realEnch = _G.GetWeaponEnchantInfo
+    _G.GetWeaponEnchantInfo = function() return true, 23 * 60000 end
+    -- CONCISE (Arn: "dont need to repeat while applied to target weapon it ... restores 5 mana ... every
+    -- 5 seconds ... increases healing ... up to 10 ... lasts 30"): the numbers out of the client's own
+    -- text - his screenshot's wording, Forever's values
+    local MINOR = "When applied to target weapon it restores 5 mana to the caster every 5 seconds and "
+        .. "increases healing done by up to 10. Lasts for 30 minutes."
+    ok(FN.OilEffect(MINOR) == "+5 mana / 5 sec · +10 healing · 30 min",
+       "the effect, short: just the numbers", tostring(FN.OilEffect(MINOR)))
+    ok(FN.OilEffect("When applied to target weapon it increases spell damage and healing by up to 36 "
+        .. "and spell critical strike chance by 1%. Lasts for 30 minutes.")
+       == "+36 spell damage & healing · +1% spell crit · 30 min", "a wizard oil reads right too")
+    ok(FN.OilEffect("Dieses Öl ...") == nil and FN.OilEffect(nil) == nil,
+       "text that does not read as an oil gives nothing - the name is said instead")
+    local keepSpell = { gis = C_Item.GetItemSpell, desc = C_Spell.GetSpellDescription }
+    _G.C_Item.GetItemSpell = function(id) return "Mana Oil", 25117 end
+    _G.C_Spell.GetSpellDescription = function(id) return id == 25117 and MINOR or "" end
+    TIP.item = nil
+    ok(FN.OilTip(b) and TIP.lines[1] == "+5 mana / 5 sec · +10 healing · 30 min" and TIP.item == nil,
+       "the hover's first line is the short effect - not the whole item tooltip", TIP.lines[1])
+    _G.C_Item.GetItemSpell, _G.C_Spell.GetSpellDescription = keepSpell.gis, keepSpell.desc
+    local tipText = table.concat(TIP.lines, "|")
+    ok(tipText:find("on your main hand: 23 min left", 1, true) and tipText:find("2 left in your bags", 1, true),
+       "then how long it has left on the weapon, and how many are in the bags", tipText)
+    _G.GetWeaponEnchantInfo = function() return false end
+    FN.OilTip(b)
+    ok(table.concat(TIP.lines, "|"):find("not on your weapon - click to apply", 1, true),
+       "and says so when the weapon has none")
+    _G.GetWeaponEnchantInfo = function() return secret(), secret() end
+    ok(pcall(FN.OilTip, b), "a hidden answer does not break the tooltip")
+    _G.GetWeaponEnchantInfo = realEnch
+    STATE.inCombat = true
+    bags[20748] = nil
+    ok(FN.ArmOil(b) == nil and b.attrs["*macrotext1"] == "/use item:20748\n/use 16",
+       "in a fight nothing secure is rewritten")
+    STATE.inCombat = false
+    ok(FN.ArmOil(b).id == 20747, "after it, the button follows the bags: Lesser Mana Oil now")
+    -- LEAN: a bag storm costs seven counts a burst, and a relayout only when the answer moved
+    asked = 0
+    ok(FN.Oil() ~= nil and asked <= #FN.OILS, "asking costs at most one count per oil kind", asked)
+    _G.C_Item.GetItemCount, _G.C_Item.GetItemIconByID, _G.GetWeaponEnchantInfo = keep.count, keep.icon, keep.ench
     FN.Reset()
 end
 
@@ -7405,7 +7681,8 @@ do
         return { GetRGB = function() return 1, 1, 1 end, GetRGBA = function() return 1, 1, 1, 1 end }
     end
     FG.Layout(FG.anchor)
-    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    -- REAL time: ten steps of 0.1 s (a 10 s step would trigger the 1 s safety sweep on every tick)
+    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 0.1) end
     tick() tick()
 
     local n, by = Cost.Count(function() for _ = 1, 10 do tick() end end)
@@ -7413,9 +7690,61 @@ do
     -- THE BUDGETS, set a little above what was measured on 7 Oct after the cost pass (8,300 and
     -- 600; it was 9,530 and 1,800 before it, and ~630,000 with the book walk). Raising one is
     -- allowed - with a line here saying what bought it. The book walk would read 600,000+.
-    local QUIET, AURAS = 8500, 650       -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed
+    -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed. 10 Oct: -> 1600 - the grid
+    -- paints what the client says CHANGED (events), range on its own 0.25 s beat, a 1 s sweep; a
+    -- quiet second measured 1,450 (Arn: "like Apple super optimized, not power hungry android").
+    local QUIET, AURAS = 1600, 650
     ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
        Cost.Top(by, 6))
+
+    -- WHAT MARKS A CELL, and that ONLY it is repainted (10 Oct 2026)
+    local painted = {}
+    local realPaint = FG.Paint
+    FG.Paint = function(f, ...) painted[#painted + 1] = f return realPaint(f, ...) end
+    local function count() local c = #painted for i = #painted, 1, -1 do painted[i] = nil end return c end
+    tick() count()                                        -- whatever was pending, gone
+    local cellR1 = FG.byUnit and FG.byUnit.raid1
+    ok(FG.unitEvents and FG.unitEvents.__events and FG.unitEvents.__events.UNIT_HEALTH
+       and FG.unitEvents.__events.UNIT_HEAL_PREDICTION and FG.unitEvents.__events.PLAYER_TARGET_CHANGED,
+       "the grid listens for health, heals on the way, and target changes")
+    -- a tick with nothing said repaints only its SLICE of the rolling sweep (a tenth of the cells,
+    -- spares included) plus target/tot - never the raid
+    local slice = math.ceil(#FG.frames * 0.1 / FG.SWEEP)
+    tick()
+    local quietPaints = count()
+    ok(quietPaints <= slice + 2, "a quiet tick repaints only its slice of the rolling sweep", quietPaints)
+    fire(FG.unitEvents, "UNIT_HEALTH", "raid1")
+    tick()
+    local after = {}
+    for _, f in ipairs(painted) do after[f] = true end
+    ok(cellR1 and after[cellR1] and count() <= slice + 3,
+       "raid1's health changed: raid1's cell is repainted, not the raid")
+    -- ENTERING A FIGHT IS SPREAD, NOT DUMPED (Arn: "do the rolling sweep"): no single tick repaints
+    -- everyone, and within FG.SPREAD_TICKS ticks everyone has been repainted
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    local peak, spread = 0, {}
+    for _ = 1, FG.SPREAD_TICKS do
+        tick()
+        local c = #painted
+        for _, f in ipairs(painted) do spread[f] = true end
+        count()
+        if c > peak then peak = c end
+    end
+    local covered = 0
+    for i = 1, 25 do if FG.byUnit["raid" .. i] and spread[FG.byUnit["raid" .. i]] then covered = covered + 1 end end
+    ok(peak < 25 and covered == 25, "the combat flip repaints all 25 over " .. FG.SPREAD_TICKS
+       .. " ticks, never in one frame (peak " .. peak .. ")")
+    fire(FG.unitEvents, "PLAYER_TARGET_CHANGED")
+    tick()
+    ok(count() >= 25, "a new target repaints everyone (the crosshair moves)")
+    fire(FG.unitEvents, "UNIT_HEALTH", secret())
+    tick()
+    ok(count() >= 25, "a unit the client hides cannot be looked up, so everyone is repainted, never a guess")
+    -- the sweep: within a second everything is repainted anyway, event or no event
+    local swept = 0
+    for _ = 1, 10 do tick() swept = swept + count() end
+    ok(swept >= 25, "and the 1 s sweep repaints every cell even if no event came", swept)
+    FG.Paint = realPaint
 
     -- A RAID'S AURAS. UNIT_AURA fires for every buff, debuff and tick on every member - hundreds a
     -- second in a fight. Only YOURS mean anything to the regen pair and the self-buff watch.

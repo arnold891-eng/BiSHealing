@@ -8,6 +8,10 @@
   a trinket you are wearing onto one heal's button. It stacks with Nature's Swiftness. A trinket
   with nothing to use, or on cooldown, is simply skipped. `/bish trinkets shift both` works too.
 - **The mouse bind window is 20% bigger.**
+- **No more double res.** When another BiS healer starts a res, the dead cell says who -
+  "rez: Chain" instead of DEAD - until it lands, fails, or 12 seconds pass. Your own res casts are
+  told to them the same way. Works with anyone running a BiS addon; in a fight inside an instance,
+  where the game hides addon messages, the cell simply says DEAD as before.
 
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.

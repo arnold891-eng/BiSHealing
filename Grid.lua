@@ -1400,7 +1400,13 @@ function FG.StatusWord(unit)
     end
     if UnitIsDeadOrGhost then
         local ok, dead = pcall(UnitIsDeadOrGhost, unit)
-        if ok and NS.Plain(dead) == true then return "DEAD" end
+        if ok and NS.Plain(dead) == true then
+            -- SOMEBODY IS ALREADY RESSING THEM (10 Oct 2026, Rez.lua): say who, so a second healer
+            -- does not walk up and cast the same res
+            local by = NS.FZ and NS.FZ.ClaimOn and NS.FZ.ClaimOn(unit)
+            if by then return "rez: " .. by end
+            return "DEAD"
+        end
     end
     -- AND AFK LAST, because it is the only one of the three you can heal through. EllesmereUI's
     -- frames show it too, and their note draws the line this follows: of these calls "only

@@ -612,14 +612,43 @@ end
 --- screenshot showed why: on Forever Minor Mana Oil is "5 mana every 5 seconds ... healing by up to
 --- 10 ... 30 minutes", not the classic figures anyone would have remembered. Under it: whether it is
 --- on your main hand and for how long, and how many are left in your bags.
+--- THE EFFECT, SHORT (11 Oct 2026). Arn, on the full item tooltip: "lets concise dont need to repeat
+--- while applied to target weapon it" - just the numbers. Read out of the game's own description
+--- (so Forever's values, never ours): "+5 mana / 5 sec · +10 healing · 30 min". nil when the text
+--- does not read as an oil (another language, or not loaded yet) - the caller says the name then.
+function FN.OilEffect(text)
+    if type(text) ~= "string" or text == "" or (NS.Secret and NS.Secret(text)) then return nil end
+    local t = text:lower()
+    local parts = {}
+    local mana, every = t:match("restores (%d+) mana"), t:match("every (%d+) sec")
+    if mana then parts[#parts + 1] = "+" .. mana .. " mana / " .. (every or "5") .. " sec" end
+    local both = t:match("spell damage and healing[^%d]-(%d+)")
+    local heal = not both and t:match("healing[^%d]-(%d+)")
+    if both then parts[#parts + 1] = "+" .. both .. " spell damage & healing"
+    elseif heal then parts[#parts + 1] = "+" .. heal .. " healing" end
+    local crit = t:match("critical strike chance[^%d]-(%d+)%%")
+    if crit then parts[#parts + 1] = "+" .. crit .. "% spell crit" end
+    local mins = t:match("lasts? for (%d+) min")
+    if mins then parts[#parts + 1] = mins .. " min" end
+    if #parts == 0 then return nil end
+    return table.concat(parts, " · ")
+end
+
+--- The oil's own description, from its use-spell. nil until the client has it (it can load late).
+function FN.OilText(id)
+    if not (C_Item and C_Item.GetItemSpell and C_Spell and C_Spell.GetSpellDescription) then return nil end
+    local ok, _, spellID = pcall(C_Item.GetItemSpell, id)
+    if not ok or type(spellID) ~= "number" then return nil end
+    local okD, text = pcall(C_Spell.GetSpellDescription, spellID)
+    return okD and text or nil
+end
+
 function FN.OilTip(b)
     if not (GameTooltip and b) then return false end
     GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
     local o = b.oilItem
-    if o and GameTooltip.SetItemByID then
-        pcall(GameTooltip.SetItemByID, GameTooltip, o.id)
-    elseif o then
-        GameTooltip:AddLine(o.word)
+    if o then
+        GameTooltip:AddLine(FN.OilEffect(FN.OilText(o.id)) or o.word, 0.31, 0.82, 0.81)
     end
     local ok, has, msLeft = false, nil, nil
     if GetWeaponEnchantInfo then ok, has, msLeft = pcall(GetWeaponEnchantInfo) end

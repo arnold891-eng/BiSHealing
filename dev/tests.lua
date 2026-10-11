@@ -6417,8 +6417,25 @@ do
     -- the buff"): the game's own item tooltip - never numbers typed in - then where it stands
     local realEnch = _G.GetWeaponEnchantInfo
     _G.GetWeaponEnchantInfo = function() return true, 23 * 60000 end
+    -- CONCISE (Arn: "dont need to repeat while applied to target weapon it ... restores 5 mana ... every
+    -- 5 seconds ... increases healing ... up to 10 ... lasts 30"): the numbers out of the client's own
+    -- text - his screenshot's wording, Forever's values
+    local MINOR = "When applied to target weapon it restores 5 mana to the caster every 5 seconds and "
+        .. "increases healing done by up to 10. Lasts for 30 minutes."
+    ok(FN.OilEffect(MINOR) == "+5 mana / 5 sec · +10 healing · 30 min",
+       "the effect, short: just the numbers", tostring(FN.OilEffect(MINOR)))
+    ok(FN.OilEffect("When applied to target weapon it increases spell damage and healing by up to 36 "
+        .. "and spell critical strike chance by 1%. Lasts for 30 minutes.")
+       == "+36 spell damage & healing · +1% spell crit · 30 min", "a wizard oil reads right too")
+    ok(FN.OilEffect("Dieses Öl ...") == nil and FN.OilEffect(nil) == nil,
+       "text that does not read as an oil gives nothing - the name is said instead")
+    local keepSpell = { gis = C_Item.GetItemSpell, desc = C_Spell.GetSpellDescription }
+    _G.C_Item.GetItemSpell = function(id) return "Mana Oil", 25117 end
+    _G.C_Spell.GetSpellDescription = function(id) return id == 25117 and MINOR or "" end
     TIP.item = nil
-    ok(FN.OilTip(b) and TIP.item == 20748, "hovering shows the client's own tooltip for the oil it will use")
+    ok(FN.OilTip(b) and TIP.lines[1] == "+5 mana / 5 sec · +10 healing · 30 min" and TIP.item == nil,
+       "the hover's first line is the short effect - not the whole item tooltip", TIP.lines[1])
+    _G.C_Item.GetItemSpell, _G.C_Spell.GetSpellDescription = keepSpell.gis, keepSpell.desc
     local tipText = table.concat(TIP.lines, "|")
     ok(tipText:find("on your main hand: 23 min left", 1, true) and tipText:find("2 left in your bags", 1, true),
        "then how long it has left on the weapon, and how many are in the bags", tipText)

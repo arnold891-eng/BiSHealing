@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A weapon oil button in BiS> now.** While you have a mana or wizard oil in your bags, BiS> now
+  shows an Oil button wearing its icon: one click puts your best oil on your main hand. It is lit
+  while the weapon has no oil and dimmed once it has one. It checks your bags only when they change.
+
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.
 

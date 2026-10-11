@@ -6334,10 +6334,12 @@ do
     -- it (M16, 1 Oct). A fourth button is added here to give the order room to show the difference.
     FN.BUTTONS[#FN.BUTTONS + 1] = { id = 9, key = "testonly", word = "Test" }
     FN.Reset()
-    ok(FN.Place("testonly") == 4, "the extra button starts last")
+    -- (counted from the end, so a new button - the oil, 11 Oct - does not break the arithmetic)
+    local last = #FN.BUTTONS
+    ok(FN.Place("testonly") == last, "the extra button starts last")
     FN.Note("testonly") FN.Note("testonly")
     FN.Settle()
-    ok(FN.Place("testonly") == 2,
+    ok(FN.Place("testonly") == last - 2,
        "twice in one fight moves it TWO places, not one",
        tostring(FN.Place("testonly")))
     FN.BUTTONS[#FN.BUTTONS] = nil
@@ -6375,6 +6377,50 @@ do
     ok(FN.Decode(nil) == false, "and neither is nil")
     ok(FN.Note("nosuchbutton") == false, "a button we do not have is not noted")
 
+    FN.Reset()
+
+    -- WEAPON OIL (Arn, 11 Oct: "got the mana oil how do i bring it up in bis now, does it scan my
+    -- bags for oils?"). The client's shape: C_Item.GetItemCount(id) -> a count;
+    -- GetWeaponEnchantInfo() -> hasMainHandEnchant first.
+    local bags, oiled, asked = {}, false, 0
+    local keep = { count = C_Item and C_Item.GetItemCount, ench = _G.GetWeaponEnchantInfo,
+                   icon = C_Item and C_Item.GetItemIconByID }
+    _G.C_Item = _G.C_Item or {}
+    _G.C_Item.GetItemCount = function(id) asked = asked + 1 return bags[id] or 0 end
+    _G.C_Item.GetItemIconByID = function(id) return "Interface\\Icons\\Oil" .. id end
+    _G.GetWeaponEnchantInfo = function() return oiled end
+    ok(FN.Oil() == nil, "no oil in your bags: no oil")
+    local function mineHas(k) for _, x in ipairs(FN.Mine()) do if x == k then return true end end end
+    ok(not mineHas("oil"), "and no oil button")
+    bags[20747] = 3                                   -- Lesser Mana Oil
+    bags[20749] = 1                                   -- Brilliant Wizard Oil
+    ok(FN.Oil() and FN.Oil().id == 20747, "the best oil for a healer is chosen: mana before wizard")
+    bags[20748] = 2                                   -- Brilliant Mana Oil
+    ok(FN.Oil().id == 20748, "and Brilliant before Lesser")
+    ok(mineHas("oil"), "with an oil in your bags, the oil button is yours")
+    local b = { art = CreateFrame("Frame"):CreateTexture(), attrs = {} }
+    function b:SetAttribute(k, v) self.attrs[k] = v end
+    FN.ArmOil(b)
+    ok(b.attrs["*type1"] == "macro" and b.attrs["*macrotext1"] == "/use item:20748\n/use 16",
+       "one click: the oil, then the main hand (the macro Arn saw, without the stone)", b.attrs["*macrotext1"])
+    ok(b.art.__texture == "Interface\\Icons\\Oil20748", "wearing the oil's own icon")
+    oiled = false
+    ok(FN.PaintOil(b) == true, "the weapon has no oil: lit")
+    oiled = true
+    ok(FN.PaintOil(b) == false, "oiled: dimmed")
+    _G.GetWeaponEnchantInfo = function() return secret() end
+    ok(FN.PaintOil(b) == false, "a client that will not say: dimmed, never a guess")
+    _G.GetWeaponEnchantInfo = function() return oiled end
+    STATE.inCombat = true
+    bags[20748] = nil
+    ok(FN.ArmOil(b) == nil and b.attrs["*macrotext1"] == "/use item:20748\n/use 16",
+       "in a fight nothing secure is rewritten")
+    STATE.inCombat = false
+    ok(FN.ArmOil(b).id == 20747, "after it, the button follows the bags: Lesser Mana Oil now")
+    -- LEAN: a bag storm costs seven counts a burst, and a relayout only when the answer moved
+    asked = 0
+    ok(FN.Oil() ~= nil and asked <= #FN.OILS, "asking costs at most one count per oil kind", asked)
+    _G.C_Item.GetItemCount, _G.C_Item.GetItemIconByID, _G.GetWeaponEnchantInfo = keep.count, keep.icon, keep.ench
     FN.Reset()
 end
 

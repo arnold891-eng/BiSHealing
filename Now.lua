@@ -58,7 +58,44 @@ FN.BUTTONS = {
     { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem", ready = true,
       cast = "Tremor Totem", holds = "TREMOR" },
     { id = 3, key = "poison", word = "Poison", needs = "Poison Cleansing Totem" },
+    -- WEAPON OIL (11 Oct 2026). Arn: "okay got the mana oil how do i bring it up in bis now, does it
+    -- scan my bags for oils?" - after a macro he saw (/use the stone, /use 16). Not earned by a
+    -- fight: it is there while an oil is in your bags (FN.Oil), bright while the main hand has none.
+    { id = 4, key = "oil", word = "Oil", ready = true, always = true, oil = true },
 }
+
+--- THE OILS, best first for a healer: mana oils (mana back AND healing), then wizard oils.
+FN.OILS = {
+    { id = 20748, word = "Brilliant Mana Oil" },
+    { id = 20747, word = "Lesser Mana Oil" },
+    { id = 20745, word = "Minor Mana Oil" },
+    { id = 20749, word = "Brilliant Wizard Oil" },
+    { id = 20750, word = "Wizard Oil" },
+    { id = 20746, word = "Lesser Wizard Oil" },
+    { id = 20744, word = "Minor Wizard Oil" },
+}
+
+--- The best oil in your bags, or nil. One count per oil kind (seven calls, never a bag walk), and
+--- asked only when the bags change (FN.OilWatch) or the block is laid out.
+function FN.Oil()
+    local count = (C_Item and C_Item.GetItemCount) or GetItemCount
+    if not count then return nil end
+    for _, o in ipairs(FN.OILS) do
+        local ok, n = pcall(count, o.id)
+        if ok and not (NS.Secret and NS.Secret(n)) and type(n) == "number" and n > 0 then return o end
+    end
+    return nil
+end
+
+--- Is the main hand already oiled? true / false, or nil when the client will not say.
+function FN.Oiled()
+    if not GetWeaponEnchantInfo then return nil end
+    local ok, has = pcall(GetWeaponEnchantInfo)
+    if not ok or (NS.Secret and NS.Secret(has)) then return nil end
+    if has == true or has == 1 then return true end
+    if has == false or has == nil or has == 0 then return false end
+    return nil
+end
 
 --- WHAT A TREMOR TOTEM ACTUALLY ANSWERS. Arn: "dimmed until somone in the party is feared charmed
 --- or sleep" - and that list is the point. A button that lit for every root and stun would be a
@@ -300,7 +337,8 @@ function FN.Mine()
     for _, k in ipairs(FN.Order()) do
         local b = FN.Button(k)
         if b and b.ready and FN.Earned(k)
-           and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs))) then
+           and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
+           and (not b.oil or FN.Oil()) then                -- the oil button needs an oil in your bags
             out[#out + 1] = k
         end
     end
@@ -549,6 +587,54 @@ function FN.PaintHelp(b)
     return drew
 end
 
+--- Point the oil button at the best oil in your bags: the macro Arn saw, without the stone -
+--- `/use item:<id>` picks the oil up, `/use 16` puts it on the main hand. OUT OF COMBAT, like every
+--- secure write; the icon follows the oil. Returns the oil it armed, or nil.
+function FN.ArmOil(b)
+    b = b or (FN.buttons and FN.buttons.oil)
+    if not b or (InCombatLockdown and InCombatLockdown()) then return nil end
+    local o = FN.Oil()
+    b.oilItem = o
+    if b.SetAttribute then
+        b:SetAttribute("*type1", o and "macro" or nil)
+        b:SetAttribute("*macrotext1", o and ("/use item:" .. o.id .. "\n/use 16") or nil)
+    end
+    local iconOf = (C_Item and C_Item.GetItemIconByID) or GetItemIcon
+    if o and iconOf and b.art and b.art.SetTexture then
+        local okI, icon = pcall(iconOf, o.id)
+        if okI and icon then pcall(b.art.SetTexture, b.art, icon) end
+    end
+    return o
+end
+
+--- Bright while the main hand has no oil; dim when it has one, or when the client will not say.
+function FN.PaintOil(b)
+    b = b or (FN.buttons and FN.buttons.oil)
+    if not (b and b.art) then return nil end
+    local want = FN.Oiled() == false
+    b.art:SetVertexColor(1, 1, 1, want and 1 or 0.35)
+    if b.art.SetDesaturated then b.art:SetDesaturated(not want) end
+    return want
+end
+
+--- BAGS CHANGED: lay the block out again only if "an oil, and which" changed - a loot storm costs
+--- seven counts per burst, and a relayout only when the answer moved.
+function FN.OilWatch()
+    if FN.oilFrame then return end
+    local f = CreateFrame("Frame")
+    pcall(f.RegisterEvent, f, "BAG_UPDATE_DELAYED")
+    pcall(f.RegisterEvent, f, "PLAYER_REGEN_ENABLED")
+    f:SetScript("OnEvent", function()
+        local o = FN.Oil()
+        local now = o and o.id or 0
+        if now ~= FN.oilSeen then
+            FN.oilSeen = now
+            if not (InCombatLockdown and InCombatLockdown()) then FN.Layout() end
+        end
+    end)
+    FN.oilFrame = f
+end
+
 --- One button. A SECURE UNIT BUTTON pointed at you, so that hovering it makes you the mouseover -
 --- which is what `/ping [@mouseover] assist` then aims at. Built out of combat, never rewritten.
 local function makeButton(parent, key)
@@ -618,6 +704,7 @@ local function makeButton(parent, key)
         end)
         if okT and icon and b.art.SetTexture then pcall(b.art.SetTexture, b.art, icon) end
     end
+    if def and def.oil then FN.ArmOil(b) end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -648,7 +735,9 @@ function FN.Paint()
     FN.Watch()
     for key, b in pairs(FN.buttons or {}) do
         if b:IsShown() then
-            if key == "help" then FN.PaintHelp(b) else FN.PaintNeed(b, key) end
+            if key == "help" then FN.PaintHelp(b)
+            elseif key == "oil" then FN.PaintOil(b)
+            else FN.PaintNeed(b, key) end
         end
     end
 end
@@ -707,9 +796,11 @@ function FN.Layout(anchor)
     local a = FN.block
     a:Show()
     if a.handle then a.handle:Show() end
+    FN.OilWatch()                   -- bags changing can bring the oil button in or take it out
     for i, key in ipairs(mine) do
         local b = FN.buttons[key] or makeButton(a, key)
         FN.buttons[key] = b
+        if key == "oil" then FN.ArmOil(b) end      -- the best oil may have changed since it was built
         b:ClearAllPoints()
         local w, _, pad = dims()
         b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (w + pad), 0)

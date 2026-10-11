@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.4
 
 - **Trinkets before your heal, in one press.** In `/bish mouse`, each tab (no modifier, shift,
   ctrl, alt) has two ticks: **trinket 1** and **trinket 2**. Tick them and every button on that
@@ -15,14 +15,16 @@
 - **Far lighter on your computer.** The grid used to redraw every frame ten times a second, changed
   or not. Now it redraws a frame when the game says something about that person changed (health,
   heals on the way, a shield, going offline or dying, your target), checks range four times a
-  second, and sweeps everything once a second as a safety net. A quiet 25-player second went from
-  about 8,300 questions to the game to about 1,450.
+  second, and refreshes everything once a second as a safety net - a little each frame, never in
+  one lump, and entering combat is spread over three frames. A quiet 25-player second went from
+  about 8,300 questions to the game to about 1,400.
 - **`/bish cpu`**: which addons make your game hitch - spikes over 100 ms since login, how many are
   new since you last asked, the worst one and the load right now - plus one line for the BiS addons.
 - **A weapon oil button in BiS> now.** While you have a mana or wizard oil in your bags, BiS> now
   shows an Oil button wearing its icon: one click puts your best oil on your main hand. It is lit
   while the weapon has no oil and dimmed once it has one. It checks your bags only when they change.
-
+  Hover it for the short version of what the oil does ("+5 mana / 5 sec · +10 healing · 30 min",
+  read from the game itself), how long it has left on your weapon, and how many you have.
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.
 

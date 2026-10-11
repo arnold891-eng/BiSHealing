@@ -7431,15 +7431,33 @@ do
     ok(FG.unitEvents and FG.unitEvents.__events and FG.unitEvents.__events.UNIT_HEALTH
        and FG.unitEvents.__events.UNIT_HEAL_PREDICTION and FG.unitEvents.__events.PLAYER_TARGET_CHANGED,
        "the grid listens for health, heals on the way, and target changes")
-    -- a tick with nothing said repaints NO roster cell (target/tot/me are 0-2 extra at most)
+    -- a tick with nothing said repaints only its SLICE of the rolling sweep (a tenth of the cells,
+    -- spares included) plus target/tot - never the raid
+    local slice = math.ceil(#FG.frames * 0.1 / FG.SWEEP)
     tick()
     local quietPaints = count()
-    ok(quietPaints <= 2, "a tick where the client said nothing repaints no roster cell", quietPaints)
+    ok(quietPaints <= slice + 2, "a quiet tick repaints only its slice of the rolling sweep", quietPaints)
     fire(FG.unitEvents, "UNIT_HEALTH", "raid1")
     tick()
     local after = {}
     for _, f in ipairs(painted) do after[f] = true end
-    ok(cellR1 and after[cellR1] and count() <= 3, "raid1's health changed: raid1's cell is repainted, not the raid")
+    ok(cellR1 and after[cellR1] and count() <= slice + 3,
+       "raid1's health changed: raid1's cell is repainted, not the raid")
+    -- ENTERING A FIGHT IS SPREAD, NOT DUMPED (Arn: "do the rolling sweep"): no single tick repaints
+    -- everyone, and within FG.SPREAD_TICKS ticks everyone has been repainted
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    local peak, spread = 0, {}
+    for _ = 1, FG.SPREAD_TICKS do
+        tick()
+        local c = #painted
+        for _, f in ipairs(painted) do spread[f] = true end
+        count()
+        if c > peak then peak = c end
+    end
+    local covered = 0
+    for i = 1, 25 do if FG.byUnit["raid" .. i] and spread[FG.byUnit["raid" .. i]] then covered = covered + 1 end end
+    ok(peak < 25 and covered == 25, "the combat flip repaints all 25 over " .. FG.SPREAD_TICKS
+       .. " ticks, never in one frame (peak " .. peak .. ")")
     fire(FG.unitEvents, "PLAYER_TARGET_CHANGED")
     tick()
     ok(count() >= 25, "a new target repaints everyone (the crosshair moves)")

@@ -2519,8 +2519,38 @@ FG.UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_HEAL_PREDICTION",
                    "PLAYER_FLAGS_CHANGED", "UNIT_NAME_UPDATE" }
 FG.ALL_EVENTS = { "PLAYER_TARGET_CHANGED", "PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_DISABLED",
                   "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }
+-- ROLLED, NOT DUMPED (10 Oct 2026). Arn, after ForeverAuras' notes on a combat-flip hitch: "do the
+-- rolling sweep". The 1 s sweep used to repaint every cell in ONE frame (~800 client calls), every
+-- second; now each tick repaints the next slice, so every cell is still refreshed once a second at
+-- an even ~80 a tick. The combat edges and a new set of roles are not urgent to the frame, so they
+-- are SPREAD over FG.SPREAD_TICKS ticks the same way. A new target, a new roster, a new world stay
+-- at once: the crosshair and the cells themselves have changed.
+FG.SPREAD_TICKS = 3
+FG.SPREAD_EVENTS = { PLAYER_REGEN_DISABLED = true, PLAYER_REGEN_ENABLED = true, PLAYER_ROLES_ASSIGNED = true }
+FG.sweepAt, FG.spreadLeft = 0, 0
 
 function FG.MarkAll() FG.dirtyAll = true end
+
+--- Spread "everyone" over the next few ticks instead of one frame.
+function FG.MarkAllSoon() FG.spreadLeft = #(FG.frames or {}) end
+
+--- This tick's slice: the next cells round the roster for the rolling sweep, plus a share of any
+--- spread still owed. Hidden spares take a slot and cost nothing, so a full lap is still FG.SWEEP.
+local function rollSlice(step)
+    local cells = FG.frames or {}
+    local n = #cells
+    if n == 0 then return end
+    local per = math.max(1, math.ceil(n * step / FG.SWEEP))
+    if FG.spreadLeft > 0 then
+        local extra = math.min(FG.spreadLeft, math.ceil(n / FG.SPREAD_TICKS))
+        FG.spreadLeft = FG.spreadLeft - extra
+        per = per + extra
+    end
+    for _ = 1, math.min(per, n) do
+        FG.sweepAt = (FG.sweepAt % n) + 1
+        FG.dirty[cells[FG.sweepAt]] = true
+    end
+end
 
 --- The cells showing this unit go on the next tick's list. A unit token the client hides cannot
 --- be looked up, so it marks everything rather than guessing which.
@@ -2568,7 +2598,13 @@ function FG.Start()
         local step = since
         since = 0
         sweepIn, rangeIn = sweepIn + step, rangeIn + step
-        if sweepIn >= FG.SWEEP then sweepIn = 0 FG.dirtyAll = true end
+        -- the roster rolls a slice every tick; your own cell and the pets (a handful) once a lap
+        rollSlice(step)
+        if sweepIn >= FG.SWEEP then
+            sweepIn = 0
+            if FG.me then FG.dirty[FG.me] = true end
+            for _, c in ipairs(FG.petFrames or {}) do FG.dirty[c] = true end
+        end
         local doRange = rangeIn >= FG.RANGE_EVERY
         if doRange then rangeIn = 0 end
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
@@ -2631,7 +2667,9 @@ function FG.Start()
     local isAll = {}
     for _, e in ipairs(FG.ALL_EVENTS) do isAll[e] = true end
     uev:SetScript("OnEvent", function(_, event, unit)
-        if isAll[event] then FG.dirtyAll = true else FG.MarkUnit(unit) end
+        if FG.SPREAD_EVENTS[event] then FG.MarkAllSoon()
+        elseif isAll[event] then FG.dirtyAll = true
+        else FG.MarkUnit(unit) end
     end)
     FG.unitEvents = uev
 

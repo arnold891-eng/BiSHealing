@@ -17,6 +17,8 @@
   heals on the way, a shield, going offline or dying, your target), checks range four times a
   second, and sweeps everything once a second as a safety net. A quiet 25-player second went from
   about 8,300 questions to the game to about 1,450.
+- **`/bish cpu`**: which addons make your game hitch - spikes over 100 ms since login, how many are
+  new since you last asked, the worst one and the load right now - plus one line for the BiS addons.
 
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.

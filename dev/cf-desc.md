@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (0.8.3)
+# BiS Healing — CurseForge page text (0.8.4)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.3 text (11 Oct): the opener and "Why it works" in the house voice
+(`_bisdev/docs/voice.md`); trinkets first in the mouse section; "rez: Name" on a corpse someone is
+ressing; the oil button in BiS> now; `/bish trinkets` and `/bish cpu` in the command table.
 
 Changed since the 0.8.3-beta4 text (8 Oct): the mouse section gains the heal row and "Nature's
 Swiftness first"; the overheal line says what to DO with the band (cancel until it is gone);
@@ -30,7 +34,7 @@ the first time it matters rather than in a list. Add it to the page once it has 
 
 **Click-cast healing frames for any healer on WoW Forever.**
 
-Drag a spell onto a picture of a mouse. Click a name. That's the addon.
+Forty names on the screen and one of them is about to die. You do not want a spellbook. You want your mouse on their name and a heal on the button. Drag a spell onto a picture of a mouse. Click a name. That's the addon.
 
 ## Your mouse, or Clique — your choice
 
@@ -39,6 +43,7 @@ Drag a spell onto a picture of a mouse. Click a name. That's the addon.
 - **Your heals, ready to drag.** A row of your trained healing spells sits in the window, each at your highest rank — drag one onto a button.
 - **Ranks are kept.** Drop Rank 4 and you get Rank 4, not the biggest one you know — the same bar for a third of the mana. Click the little number on a slot to step through your ranks.
 - **Nature's Swiftness first, in one press.** Drop Nature's Swiftness onto a button that already holds a heal: that button pops it, then casts the heal on whoever you clicked. The slot shows half of each icon. On cooldown you simply get the normal heal; drop the heal again to take it off. Inner Focus (priest) and Divine Favor (paladin) work the same way.
+- **Trinkets first, in one press.** Each tab (no modifier, Shift, Ctrl, Alt) has two ticks: **trinket 1** and **trinket 2**. Tick them and every button on that tab uses those trinkets, then the heal. Or drag a trinket you wear onto one heal's button. It stacks with Nature's Swiftness. A trinket with nothing to use, or on cooldown, is skipped.
 - **Anything not bound targets the unit.** Leave a button empty and clicking a name selects them, like Blizzard's own frames.
 - **Right-click a slot** to clear it.
 
@@ -68,6 +73,7 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
 - **Marker size**, 6 to 20 pixels.
 - **Dimmed when they're out of range** of your longest-reaching heal — every heal you have bound, plus your class's own — **including during a fight**, which is when you need it. The game keeps "can you reach them" secret in combat, so it is handed back to the game to pick the brightness from; the addon never learns who is reachable. You and your target are never dimmed. **How far it dims is yours**: `out of range` in the options, 20% to 90% (30% on a fresh install).
+- **No double res.** When another BiS healer starts a res, the corpse's cell says who: `rez: Chain`, until it lands or fails. Your own res casts are told to them the same way. Inside an instance fight the game hides these messages, and the cell just says DEAD.
 - **Role icons**, and the raid's Main Tank counts as a tank.
 - **A pyramid** (`/bish pyramid`): tanks on top, then damage, healers at the bottom. Melee sit above casters inside each band, and the bottom rows go half-width so a 40-man still reads as a pyramid.
 - **Size**: 60% to 160%. **Put it anywhere** — drag the header above the cells.
@@ -109,6 +115,8 @@ It starts with one button: **help**. It is faint while you are well, warms to am
 
 More buttons arrive as you need them. Each earns its place the first time its moment happens, and the order learns: what keeps coming up drifts to the front, and help stays first.
 
+**Weapon oil.** With a mana or wizard oil in your bags, an **Oil** button appears wearing its icon. One click puts your best oil on your main hand. It is lit while the weapon has none and dims once it does. Hover it for what the oil gives, read from the game itself, and how long it has left.
+
 ## The header talks to you
 
 **Out of combat, the buff you keep forgetting.** `no Water Shield`, right there — one per healing class to start with, and only if you have actually trained it. `/bish buff <name>` watches something else.
@@ -134,6 +142,7 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish` | the options window |
 | `/bish mouse` | the mouse binds, and the ping chips |
 | `/bish clique` | let Clique handle the clicks, or take them back |
+| `/bish trinkets shift both` | trinkets first on a modifier tab — `1`, `2`, `both`, `off` |
 | `/bish now` | the BiS> now block |
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
 | `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |
@@ -150,16 +159,17 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish scan` · `/bish range` · `/bish regen` · `/bish overheal` | what this client will tell me right now |
 | `/bish byid` · `/bish ping` · `/bish curve` · `/bish control` · `/bish hits` | the same, in detail — for bug reports |
 | `/bish keep` | what's saved in your `BiSHealing` macro |
+| `/bish cpu` | which addons make your game hitch, and whether it is us |
 
 ## Why it works the way it does
 
-On WoW Forever, addons aren't allowed to read other players' health, auras, mana, or even whether you can reach them — and inside a dungeon or raid, not even between pulls. BiS Healing never tries to. It hands the numbers to the game and lets the game draw them: the health bar, the missing-health number, the health colours, the dispel type, the heal-over-time countdown, another healer's mana, the dimming when someone is out of range, the red on an enemy, the sound when your own buff drops, and the colour of the help button.
+Forever will not let an addon read another player's health. Or their auras, their mana, whether you can reach them. Inside a dungeon, not even between pulls. So BiS Healing never asks. It hands each number to the game, and the game draws it.
 
-That's why it keeps working in every fight — and why it doesn't rank people by damage taken: ranking would mean reading what the game keeps hidden.
+The bar, the missing number, the dimming, the dispel marker, the magenta overheal, all drawn by the game from numbers this addon never sees. That is why it keeps working in every fight. And why it will not rank people by damage taken. It cannot see it.
 
-It is also why, when this addon cannot tell, it says so instead of guessing.
+When it cannot tell, it says so. It does not guess.
 
-And it is built to be light: what does not change — your spellbook, your binds — is read once and kept, not asked again every frame, so a 40-man costs little more than a party.
+It is also built to sit still. A cell is redrawn when the game says that person changed, not ten times a second for nothing. A quiet raid second used to cost 8,300 questions to the game. Now about 1,400.
 
 ## TBC
 

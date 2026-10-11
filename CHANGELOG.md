@@ -12,6 +12,11 @@
   "rez: Chain" instead of DEAD - until it lands, fails, or 12 seconds pass. Your own res casts are
   told to them the same way. Works with anyone running a BiS addon; in a fight inside an instance,
   where the game hides addon messages, the cell simply says DEAD as before.
+- **Far lighter on your computer.** The grid used to redraw every frame ten times a second, changed
+  or not. Now it redraws a frame when the game says something about that person changed (health,
+  heals on the way, a shield, going offline or dying, your target), checks range four times a
+  second, and sweeps everything once a second as a safety net. A quiet 25-player second went from
+  about 8,300 questions to the game to about 1,450.
 
 - **The number in the corner is always readable.** The magenta overheal band painted over it (and
   could over a long name); the words and the role icon now sit on a layer above every band.

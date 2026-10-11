@@ -7566,7 +7566,8 @@ do
         return { GetRGB = function() return 1, 1, 1 end, GetRGBA = function() return 1, 1, 1, 1 end }
     end
     FG.Layout(FG.anchor)
-    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 10) end
+    -- REAL time: ten steps of 0.1 s (a 10 s step would trigger the 1 s safety sweep on every tick)
+    local tick = function() TICK(0.1) FG.anchor.__scripts.OnUpdate(FG.anchor, 0.1) end
     tick() tick()
 
     local n, by = Cost.Count(function() for _ = 1, 10 do tick() end end)
@@ -7574,9 +7575,61 @@ do
     -- THE BUDGETS, set a little above what was measured on 7 Oct after the cost pass (8,300 and
     -- 600; it was 9,530 and 1,800 before it, and ~630,000 with the book walk). Raising one is
     -- allowed - with a line here saying what bought it. The book walk would read 600,000+.
-    local QUIET, AURAS = 8500, 650       -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed
+    -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed. 10 Oct: -> 1600 - the grid
+    -- paints what the client says CHANGED (events), range on its own 0.25 s beat, a 1 s sweep; a
+    -- quiet second measured 1,450 (Arn: "like Apple super optimized, not power hungry android").
+    local QUIET, AURAS = 1600, 650
     ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
        Cost.Top(by, 6))
+
+    -- WHAT MARKS A CELL, and that ONLY it is repainted (10 Oct 2026)
+    local painted = {}
+    local realPaint = FG.Paint
+    FG.Paint = function(f, ...) painted[#painted + 1] = f return realPaint(f, ...) end
+    local function count() local c = #painted for i = #painted, 1, -1 do painted[i] = nil end return c end
+    tick() count()                                        -- whatever was pending, gone
+    local cellR1 = FG.byUnit and FG.byUnit.raid1
+    ok(FG.unitEvents and FG.unitEvents.__events and FG.unitEvents.__events.UNIT_HEALTH
+       and FG.unitEvents.__events.UNIT_HEAL_PREDICTION and FG.unitEvents.__events.PLAYER_TARGET_CHANGED,
+       "the grid listens for health, heals on the way, and target changes")
+    -- a tick with nothing said repaints only its SLICE of the rolling sweep (a tenth of the cells,
+    -- spares included) plus target/tot - never the raid
+    local slice = math.ceil(#FG.frames * 0.1 / FG.SWEEP)
+    tick()
+    local quietPaints = count()
+    ok(quietPaints <= slice + 2, "a quiet tick repaints only its slice of the rolling sweep", quietPaints)
+    fire(FG.unitEvents, "UNIT_HEALTH", "raid1")
+    tick()
+    local after = {}
+    for _, f in ipairs(painted) do after[f] = true end
+    ok(cellR1 and after[cellR1] and count() <= slice + 3,
+       "raid1's health changed: raid1's cell is repainted, not the raid")
+    -- ENTERING A FIGHT IS SPREAD, NOT DUMPED (Arn: "do the rolling sweep"): no single tick repaints
+    -- everyone, and within FG.SPREAD_TICKS ticks everyone has been repainted
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    local peak, spread = 0, {}
+    for _ = 1, FG.SPREAD_TICKS do
+        tick()
+        local c = #painted
+        for _, f in ipairs(painted) do spread[f] = true end
+        count()
+        if c > peak then peak = c end
+    end
+    local covered = 0
+    for i = 1, 25 do if FG.byUnit["raid" .. i] and spread[FG.byUnit["raid" .. i]] then covered = covered + 1 end end
+    ok(peak < 25 and covered == 25, "the combat flip repaints all 25 over " .. FG.SPREAD_TICKS
+       .. " ticks, never in one frame (peak " .. peak .. ")")
+    fire(FG.unitEvents, "PLAYER_TARGET_CHANGED")
+    tick()
+    ok(count() >= 25, "a new target repaints everyone (the crosshair moves)")
+    fire(FG.unitEvents, "UNIT_HEALTH", secret())
+    tick()
+    ok(count() >= 25, "a unit the client hides cannot be looked up, so everyone is repainted, never a guess")
+    -- the sweep: within a second everything is repainted anyway, event or no event
+    local swept = 0
+    for _ = 1, 10 do tick() swept = swept + count() end
+    ok(swept >= 25, "and the 1 s sweep repaints every cell even if no event came", swept)
+    FG.Paint = realPaint
 
     -- A RAID'S AURAS. UNIT_AURA fires for every buff, debuff and tick on every member - hundreds a
     -- second in a fight. Only YOURS mean anything to the regen pair and the self-buff watch.

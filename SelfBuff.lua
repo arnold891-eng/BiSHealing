@@ -272,6 +272,56 @@ local function badgeDown()
     FS.badges, FS.badgeFor = {}, {}
 end
 
+--- The spell id of the aura called `name` on you right now, read by walking your buffs: nil when it
+--- is not on you, false when the client would not say. The book's id and the BUFF's id need not be
+--- the same number, and the badge is filtered by the book's.
+function FS.AuraIdByName(name)
+    local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not get then return false end
+    for i = 1, 40 do
+        local ok, a = pcall(get, "player", i, "HELPFUL")
+        if not ok then return false end
+        if not a then return nil end
+        local okN, n = pcall(function() return a.name end)
+        n = okN and NS.Plain(n) or nil
+        if n == nil then return false end
+        if n == name then
+            local okI, id = pcall(function() return a.spellId end)
+            return okI and NS.Plain(id) or false
+        end
+    end
+    return nil
+end
+
+--- What /bish buff says about each badge, a line each: the ids it is filtered to, the id of the
+--- buff actually on you, and whether the client has ever handed it a button to draw.
+function FS.BadgeReport()
+    local lines = {}
+    for _, b in ipairs(FS.badges) do
+        local on = FS.AuraIdByName(b.name)
+        local match = "not on you now"
+        if on == false then match = "the client will not say now"
+        elseif on then
+            local hit = false
+            for _, id in ipairs(b.ids or {}) do if id == on then hit = true end end
+            match = ("on you as id %s - %s"):format(tostring(on), hit and "in the filter" or "NOT in the filter")
+        end
+        lines[#lines + 1] = ("  badge %s: filter %s; %s"):format(b.name, table.concat(b.ids or {}, ","), match)
+        local btn = b.button
+        if not btn then
+            lines[#lines + 1] = "    the game has not drawn it yet"
+        else
+            local shown = btn.IsVisible and btn:IsVisible()
+            local w = btn.GetWidth and btn:GetWidth()
+            local lvl = btn.GetFrameLevel and btn:GetFrameLevel()
+            lines[#lines + 1] = ("    the game drew it: visible %s, %s px, level %s (red at %s)"):format(
+                tostring(NS.Plain(shown)), tostring(NS.Plain(w)), tostring(NS.Plain(lvl)),
+                tostring(b.under.GetFrameLevel and b.under:GetFrameLevel()))
+        end
+    end
+    return lines
+end
+
 --- Put a badge on the header's right end for each watched buff this character has. Answers how
 --- many stand. In a fight it does nothing and asks again when the fight ends.
 function FS.Badge(header)
@@ -330,13 +380,22 @@ function FS.Badge(header)
             container:SetUnit("player")
             local want = {}
             for _, id in ipairs(ids) do want[id] = true end
+            local b = { name = name, under = under, container = container, ids = ids }
             local slot = FA.AddSlot(container, "BiSHealSelf" .. #FS.badges, "HELPFUL", {
                 candidateFilters = { includeSpellIDs = want },
-                initializeFrame = badgeIcon,
+                -- the client hands a button over when the buff appears; noted, so /bish buff can
+                -- say whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
+                initializeFrame = function(button)
+                    b.button = button
+                    badgeIcon(button)
+                end,
             })
+            b.slot = slot
             local placed = slot and FA.Place and FA.Place(slot, px, "RIGHT", header, x, 0)
             if container.SetEnabled then container:SetEnabled(true) end
-            local b = { name = name, under = under, container = container, slot = slot }
+            -- and asked to look now, as Fojji's bar does after enabling: a buff already on you is
+            -- not news to a container that only starts listening for changes
+            if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
             FS.badges[#FS.badges + 1] = b
             -- a slot that could not be placed draws nowhere useful: the red would never be
             -- covered, so it would cry "missing" for ever. The word speaks for that buff instead.

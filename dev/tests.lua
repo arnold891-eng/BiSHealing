@@ -4213,8 +4213,22 @@ do
             ok(b and b.under:GetFrameLevel() < c:GetFrameLevel(),
                "and sits BELOW the container, so the client's icon covers it while the shield is up",
                b and (b.under:GetFrameLevel() .. " vs " .. c:GetFrameLevel()))
+            -- /bish buff SAYS which half failed (Arn, 12 Oct: "water shield on did not turn it on")
+            local rep = table.concat(FS.BadgeReport(), "\n")
+            ok(rep:find("filter 24398", 1, true) and rep:find("has not drawn it yet", 1, true),
+               "the report names the filter ids, and that no button has come", rep)
+            mine[1] = { name = "Water Shield", spellId = 52127 }
+            rep = table.concat(FS.BadgeReport(), "\n")
+            ok(rep:find("id 52127 - NOT in the filter", 1, true),
+               "a buff whose id is not the book's is named as the reason", rep)
+            mine[1] = { name = "Water Shield", spellId = 24398 }
+            rep = table.concat(FS.BadgeReport(), "\n")
+            ok(rep:find("in the filter", 1, true) and not rep:find("NOT in", 1, true), "and a match says so", rep)
+            mine[1] = nil
             ok(slot and slot.__init and pcall(slot.__init, slot),
                "nothing waited for the button: the client hands it over when the buff appears")
+            rep = table.concat(FS.BadgeReport(), "\n")
+            ok(rep:find("the game drew it", 1, true), "and once it has, the report says where", rep)
             ok(FS.badgeFor["Water Shield"], "the badge stands for Water Shield")
 
             -- ONE LABEL: the word does not say what the badge already shows

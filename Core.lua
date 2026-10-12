@@ -434,6 +434,7 @@ function NS.DO.buff(name)
         or ("  no live badge (%s)"):format((NS.FA and NS.FA.refused)
             or ((NS.FA and NS.FA.Available and NS.FA.Available()) and "none of them is in your spellbook"
                 or "this client draws no auras for addons")))
+    for _, line in ipairs(FS.BadgeReport and FS.BadgeReport() or {}) do Print("%s", line) end
     local missing = FS.Check()
     if type(missing) == "table" and #missing > 0 then
         Print("  missing now: " .. table.concat(missing, ", "))

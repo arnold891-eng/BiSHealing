@@ -430,8 +430,10 @@ function NS.DO.buff(name)
     Print(sounds and sounds > 0 and ("  a sound when one drops: %d registered"):format(sounds)
         or ("  no sound when one drops (%s)"):format(tostring(why or "nothing to register")))
     local badges = FS.Badge and FS.Badge() or 0
-    Print(badges > 0 and ("  a live badge on the header for %d: red while it is down, even mid-fight"):format(badges)
-        or ("  no live badge (%s)"):format((NS.FA and NS.FA.refused)
+    local nowOn = type(DB()) == "table" and DB().now == true
+    Print(badges > 0 and "  its button in BiS> now: red while it is down, even mid-fight - click to cast"
+        or ("  no live button (%s)"):format((NS.FA and NS.FA.refused)
+            or (not nowOn and "BiS> now is off - |cffb980ff/bish now on|r")
             or ((NS.FA and NS.FA.Available and NS.FA.Available()) and "none of them is in your spellbook"
                 or "this client draws no auras for addons")))
     for _, line in ipairs(FS.BadgeReport and FS.BadgeReport() or {}) do Print("%s", line) end

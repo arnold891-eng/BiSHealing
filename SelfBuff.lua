@@ -270,30 +270,38 @@ local function badgeIcon(button, b)
     if button.EnableMouse then pcall(button.EnableMouse, button, false) end
 end
 
---- What the badges would be built for: the buffs this character has, and every id of each.
-local function badgeSig(px)
-    local parts = { "px" .. px }
+--- The buff the BiS> now shield button stands for: the first watched one this character has
+--- trained, and every spell id the book has for it. nil when there is none.
+function FS.Target()
     for _, name in ipairs(FS.List()) do
         if FS.Knows(name) then
             local ids = FS.SpellIds(name)
-            if #ids > 0 then
-                local sorted = {}
-                for i, id in ipairs(ids) do sorted[i] = id end
-                table.sort(sorted)
-                parts[#parts + 1] = name .. ":" .. table.concat(sorted, ",")
-            end
+            if #ids > 0 then return name, ids end
         end
     end
-    return table.concat(parts, "|")
+    return nil
 end
 
-local function badgeDown()
-    for _, b in ipairs(FS.badges) do
-        if b.container and b.container.SetEnabled then pcall(b.container.SetEnabled, b.container, false) end
-        if b.container and b.container.Hide then pcall(b.container.Hide, b.container) end
-        if b.under and b.under.Hide then b.under:Hide() end
+--- What a badge would be built for, as one string: a new rank or a new watched buff changes it.
+function FS.TargetSig()
+    local name, ids = FS.Target()
+    if not name then return "" end
+    local sorted = {}
+    for i, id in ipairs(ids) do sorted[i] = id end
+    table.sort(sorted)
+    return name .. ":" .. table.concat(sorted, ",")
+end
+
+--- Take one badge down: the container stops, the red goes, and the header word speaks again.
+function FS.DropBadge(b)
+    if not b then return end
+    if b.container and b.container.SetEnabled then pcall(b.container.SetEnabled, b.container, false) end
+    if b.container and b.container.Hide then pcall(b.container.Hide, b.container) end
+    if b.under and b.under.Hide then b.under:Hide() end
+    for i, x in ipairs(FS.badges) do
+        if x == b then table.remove(FS.badges, i) break end
     end
-    FS.badges, FS.badgeFor = {}, {}
+    FS.badgeFor[b.name] = nil
 end
 
 --- The spell id of the aura called `name` on you right now, read by walking your buffs: nil when it
@@ -351,90 +359,88 @@ function FS.BadgeReport()
     return lines
 end
 
---- Put a badge on the header's right end for each watched buff this character has. Answers how
---- many stand. In a fight it does nothing and asks again when the fight ends.
-function FS.Badge(header)
-    header = header or (NS.FG and NS.FG.header)
-    if not header then return 0 end
+--- ONE BADGE, centred on `parent`, `px` square: red with the buff's initials, and the client's
+--- button over it while the buff is on you. Answers the badge, or nil and why. OUT OF COMBAT.
+---
+--- It lived on the grid header first; Arn, seeing it work: "header too crowded" - so it is the
+--- face of a BiS> now button now (Now.lua, FN.ArmShield), where a click also recasts the buff.
+function FS.MakeBadge(parent, name, ids, px)
+    local FA = NS.FA
+    if not (parent and name and ids and #ids > 0) then return nil, "nothing to stand for" end
+    if not (FA and FA.Available and FA.Available() and FA.AddSlot) then
+        return nil, FA and FA.refused or "this client draws no auras for addons"
+    end
+    local lvl = parent.GetFrameLevel and parent:GetFrameLevel() or 1
+    if type(lvl) ~= "number" then lvl = 1 end
+    -- what shows when the client draws nothing: red, and the buff's initials
+    local under = CreateFrame("Frame", nil, parent)
+    under:SetSize(px, px)
+    under:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    if under.SetFrameLevel then under:SetFrameLevel(lvl + 2) end
+    local red = under:CreateTexture(nil, "ARTWORK")
+    red:SetAllPoints(under)
+    local c = FS.BADGE_RED
+    red:SetColorTexture(c[1], c[2], c[3], c[4])
+    local tag = under:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tag:SetPoint("CENTER", under, "CENTER", 0, 0)
+    tag:SetText(FS.Initials(name))
+    under.red, under.tag = red, tag
+    -- and over it, the client's icon while the buff is up. A refusal here is the client saying no
+    -- to containers: remembered by FA, and the header word speaks instead.
+    local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+    if not ok or not container then
+        FA.available = false
+        FA.refused = "the client refused to build an AuraContainer (protected action?)"
+        under:Hide()
+        return nil, FA.refused
+    end
+    container:SetSize(1, 1)
+    container:SetPoint("CENTER", under, "CENTER")
+    if container.SetFrameLevel then container:SetFrameLevel(lvl + 10) end
+    container:SetUnit("player")
+    local want = {}
+    for _, id in ipairs(ids) do want[id] = true end
+    local b = { name = name, under = under, container = container, ids = ids }
+    local slot = FA.AddSlot(container, "BiSHealSelf", "HELPFUL", {
+        candidateFilters = { includeSpellIDs = want },
+        -- the client hands a button over when the buff appears; noted, so /bish buff can say
+        -- whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
+        initializeFrame = function(button)
+            b.button = button
+            badgeIcon(button, b)
+        end,
+    })
+    b.slot = slot
+    local placed = slot and FA.Place and FA.Place(slot, px, "CENTER", parent, 0, 0)
+    if container.SetEnabled then container:SetEnabled(true) end
+    -- and asked to look now, as Fojji's bar does after enabling: a buff already on you is not news
+    -- to a container that only starts listening for changes
+    if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
+    -- a slot that could not be placed draws nowhere useful: the red would never be covered, so it
+    -- would cry "missing" for ever. Nothing stands for the buff then, and the word speaks.
+    if not placed then
+        pcall(container.SetEnabled, container, false)
+        under:Hide()
+        return nil, "the client would not let the marker be placed"
+    end
+    FS.badges[#FS.badges + 1] = b
+    FS.badgeFor[name] = true
+    return b
+end
+
+--- THE BUFF LIST OR THE BOOK MAY HAVE CHANGED: if what the badge stands for did, BiS> now is laid
+--- out again, which rebuilds its button. Nothing at all when it did not - this runs at every
+--- SPELLS_CHANGED. In a fight it waits for the fight to end. Answers how many badges stand.
+function FS.Badge()
+    local sig = FS.TargetSig()
+    if sig == FS.badgeSig then return #FS.badges end
     if InCombatLockdown and InCombatLockdown() then
         FS.badgeLater = true
         return #FS.badges
     end
     FS.badgeLater = nil
-    local FA = NS.FA
-    if not (FA and FA.Available and FA.Available() and FA.AddSlot) then
-        if #FS.badges > 0 then badgeDown() end
-        FS.badgeSig = nil
-        return 0
-    end
-    local h = header.GetHeight and header:GetHeight() or 0
-    local px = (type(h) == "number" and h > 6) and math.floor(h - 2) or 14
-    local sig = badgeSig(px)
-    if sig == FS.badgeSig then return #FS.badges end
-    badgeDown()
     FS.badgeSig = sig
-    local lvl = header.GetFrameLevel and header:GetFrameLevel() or 1
-    if type(lvl) ~= "number" then lvl = 1 end
-    for _, name in ipairs(FS.List()) do
-        local ids = FS.Knows(name) and FS.SpellIds(name) or {}
-        if #ids > 0 then
-            local x = -1 - #FS.badges * (px + 2)
-            -- what shows when the client draws nothing: red, and the buff's initials
-            local under = CreateFrame("Frame", nil, header)
-            under:SetSize(px, px)
-            under:SetPoint("RIGHT", header, "RIGHT", x, 0)
-            if under.SetFrameLevel then under:SetFrameLevel(lvl + 2) end
-            local red = under:CreateTexture(nil, "ARTWORK")
-            red:SetAllPoints(under)
-            local c = FS.BADGE_RED
-            red:SetColorTexture(c[1], c[2], c[3], c[4])
-            local tag = under:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            tag:SetPoint("CENTER", under, "CENTER", 0, 0)
-            tag:SetText(FS.Initials(name))
-            under.red, under.tag = red, tag
-            -- and over it, the client's icon while the buff is up. A refusal here is the client
-            -- saying no to containers: remembered by FA, and the header word speaks instead.
-            local ok, container = pcall(CreateFrame, "AuraContainer", nil, header, "CustomAuraContainerTemplate")
-            if not ok or not container then
-                FA.available = false
-                FA.refused = "the client refused to build an AuraContainer (protected action?)"
-                under:Hide()
-                badgeDown()
-                FS.badgeSig = nil
-                return 0
-            end
-            container:SetSize(1, 1)
-            container:SetPoint("CENTER", under, "CENTER")
-            if container.SetFrameLevel then container:SetFrameLevel(lvl + 10) end
-            container:SetUnit("player")
-            local want = {}
-            for _, id in ipairs(ids) do want[id] = true end
-            local b = { name = name, under = under, container = container, ids = ids }
-            local slot = FA.AddSlot(container, "BiSHealSelf" .. #FS.badges, "HELPFUL", {
-                candidateFilters = { includeSpellIDs = want },
-                -- the client hands a button over when the buff appears; noted, so /bish buff can
-                -- say whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
-                initializeFrame = function(button)
-                    b.button = button
-                    badgeIcon(button, b)
-                end,
-            })
-            b.slot = slot
-            local placed = slot and FA.Place and FA.Place(slot, px, "RIGHT", header, x, 0)
-            if container.SetEnabled then container:SetEnabled(true) end
-            -- and asked to look now, as Fojji's bar does after enabling: a buff already on you is
-            -- not news to a container that only starts listening for changes
-            if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
-            FS.badges[#FS.badges + 1] = b
-            -- a slot that could not be placed draws nowhere useful: the red would never be
-            -- covered, so it would cry "missing" for ever. The word speaks for that buff instead.
-            if placed then
-                FS.badgeFor[name] = true
-            else
-                under:Hide()
-            end
-        end
-    end
+    if NS.FN and NS.FN.Layout then NS.FN.Layout() end
     return #FS.badges
 end
 

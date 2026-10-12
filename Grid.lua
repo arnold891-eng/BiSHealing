@@ -1702,12 +1702,10 @@ function FG.Layout(anchor)
         -- through each other on a party grid: "in default mode keep BiS> but drop the healing and
         -- put it in there". The prompt still blinks; it just stops saying what you already know.
         local h = FG.header
-        -- and the self-buff badges own the right end (SelfBuff.lua), so the words stop short of them
-        local badges = (NS.FS and NS.FS.badges and #NS.FS.badges or 0) * (GRID_HEADER_H + 1)
-        if h and h.con then h.con.width = math.max(40, w - 10 - badges) end
+        if h and h.con then h.con.width = math.max(40, w - 10) end
         if h and h.title and not h.con then
             local T = _G.BiSTheme
-            if T and T.Fit then T.Fit(h.title, "BiS> " .. FG.HeaderWord(w), math.max(40, w - 10 - badges)) end
+            if T and T.Fit then T.Fit(h.title, "BiS> " .. FG.HeaderWord(w), math.max(40, w - 10)) end
         end
     end
     return true, #roster

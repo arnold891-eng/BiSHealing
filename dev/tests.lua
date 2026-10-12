@@ -4186,25 +4186,36 @@ do
         _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("no such call", 2) end
         ok(FS.Present("Water Shield") == nil, "and so is an error")
 
-        -- THE BADGE (12 Oct 2026): Fojji's "combat back door". A container slot filtered to Water
-        -- Shield is drawn by the client while it is up; a red square underneath shows when it is
-        -- not. Nothing is read, so it holds in a fight. What can be tested is what is DECLARED and
-        -- the order things sit in; whether the client covers the red is for Arn's screen.
+        -- THE SHIELD BUTTON (12 Oct 2026): Fojji's "combat back door". A container slot filtered to
+        -- Water Shield is drawn by the client while it is up; a red square underneath shows when it
+        -- is not. Nothing is read, so it holds in a fight. It was a badge on the grid header first;
+        -- Arn: "header too crowded" - so it is the face of a BiS> now button that casts the buff.
+        -- What can be tested is what is DECLARED and the order things sit in; whether the client
+        -- covers the red is for Arn's screen (it did, on the header).
         do
             local Cost = dofile("../_bisdev/dev/cost.lua")
-            local FA = NS.FA
+            local FA, FN = NS.FA, NS.FN
+            local d = NS.DB()
+            local keepNow, keepShown = d.now, d.shown
+            d.now, d.shown = true, true
             STATE.lazyAuras = true
             -- the client answers again (the checks above left it refusing every question)
             _G.C_Secrets.ShouldSpellAuraBeSecret = function(id) return hidden[id] and true or false end
-            local hdr = CreateFrame("Frame", nil, UIParent)
-            hdr:SetFrameLevel(5)
+            FN.Reset()
+            FN.DropShield()
             FS.badgeSig = nil
             local before = #CONTAINERS
-            ok(FS.Badge(hdr) == 1 and #CONTAINERS == before + 1, "one badge, one container",
-               #CONTAINERS - before)
-            local b = FS.badges[1]
+            FS.Badge()                                   -- what the buff list says -> BiS> now laid out
+            local sb = FN.buttons and FN.buttons.shield
+            ok(sb and sb:IsShown(), "BiS> now has a shield button")
+            ok(#CONTAINERS == before + 1, "with one container", #CONTAINERS - before)
+            ok(sb and sb:GetAttribute("*type1") == "macro" and sb:GetAttribute("*macrotext1") == "/cast Water Shield",
+               "a click casts Water Shield", sb and sb:GetAttribute("*macrotext1"))
+            ok(sb and sb.art and not sb.art:IsShown(), "the static icon is hidden: the badge is the face")
+            local b = sb and sb.badge
             local c = b and b.container
-            local slot = c and c.slots and c.slots.BiSHealSelf0
+            local slot = c and c.slots and c.slots.BiSHealSelf
+            ok(b and b.under:GetParent() == sb and c.__parent == sb, "red and container sit on the button")
             ok(c and c.unit == "player" and c.enabled, "the container watches YOU, and is switched on")
             ok(slot and slot.filter == "HELPFUL" and slot.opts.candidateFilters.includeSpellIDs[24398],
                "its slot is filtered to every Water Shield id the book has")
@@ -4229,7 +4240,7 @@ do
                "nothing waited for the button: the client hands it over when the buff appears")
             -- THE BUTTON COMES BLANK (Arn, 12 Oct: shield up, badge still red, the button made):
             -- the icon is ours to paint, the spell's own
-            local icon = FS.badges[1].icon
+            local icon = b and b.icon
             ok(icon and icon.__texture ~= nil and icon.__texture == _G.C_Spell.GetSpellTexture(24398),
                "our own icon is painted on the client's button, from the spell", icon and tostring(icon.__texture))
             -- and THAT BUTTON REFUSES QUESTIONS from our code (Arn's client: "calling '?' on bad
@@ -4243,28 +4254,34 @@ do
                "a forbidden button is reported as refused, never thrown", rep)
             ok(FS.badgeFor["Water Shield"], "the badge stands for Water Shield")
 
-            -- ONE LABEL: the word does not say what the badge already shows
+            -- THE WORDS GO IN THE TOOLTIP (one bar, one label)
+            sb.__scripts.OnEnter(sb)
+            ok(TIP.lines[1] == "Water Shield" and table.concat(TIP.lines, "|"):find("click to cast", 1, true),
+               "hovering says what it is and that a click casts it", table.concat(TIP.lines, "|"))
+            ok(sb.__wasMouseover, "and the secure template's own OnEnter still ran")
+
+            -- ONE LABEL: the header word does not say what the button already shows
             up[24398] = nil
             FS.state, FS.known = {}, nil
             FS.Check()
             ok(FS.known and FS.known[1] == "Water Shield", "the shield IS missing (so the next check bites)")
-            ok(FS.Word() == nil, "with a live badge the header word stays quiet", tostring(FS.Word()))
+            ok(FS.Word() == nil, "with a live button the header word stays quiet", tostring(FS.Word()))
 
-            -- built once: asking again with nothing changed builds nothing
+            -- built once: a relayout for anything else (an oil, a new member) rebuilds nothing
             local n = #CONTAINERS
-            FS.Badge(hdr); FS.Badge(hdr)
-            ok(#CONTAINERS == n, "asked again, nothing is rebuilt", #CONTAINERS - n)
+            FN.Layout(); FN.Layout(); FS.Badge()
+            ok(#CONTAINERS == n, "laid out again, nothing is rebuilt", #CONTAINERS - n)
 
             -- IN A FIGHT, never built - asked again when it ends
-            STATE.inCombat = true
+            FN.DropShield()
             FS.badgeSig = nil
-            FS.Badge(hdr)
+            STATE.inCombat = true
+            FS.Badge()
             ok(#CONTAINERS == n and FS.badgeLater, "in a fight no container is made; it waits")
             STATE.inCombat = false
-            local keepHeader = FG.header
-            FG.header = hdr
             FS.frame.__scripts.OnEvent(FS.frame, "PLAYER_REGEN_ENABLED")
-            ok(#CONTAINERS == n + 1 and not FS.badgeLater, "and is built the moment the fight ends")
+            ok(#CONTAINERS == n + 1 and not FS.badgeLater and FN.buttons.shield.badge,
+               "and is built the moment the fight ends")
 
             -- LEAN: your auras change many times a second in a fight; the badge hears none of it
             local calls, realBadge = 0, FS.Badge
@@ -4277,33 +4294,41 @@ do
             FS.Badge = realBadge
             ok(calls == 0, "300 aura changes on you in a fight never touch the badge", calls)
             -- and the no-change answer it gives at every SPELLS_CHANGED is a short one
-            local idle = Cost.Count(function() for _ = 1, 100 do FS.Badge(hdr) end end)
+            local idle = Cost.Count(function() for _ = 1, 100 do FS.Badge() end end)
             ok(idle <= 800, "100 'anything changed?' asks cost at most 8 client calls each: " .. idle)
             print(("   cost: badge, unchanged x100 = %d calls; 300 combat auras = %d"):format(idle, cost))
 
-            -- AT LOGIN, with nobody touching anything: the badge is there (cold start law)
+            -- AT LOGIN, with nobody touching anything: the button wears its badge (cold start law)
+            FN.DropShield()
             FS.badgeSig = nil
-            for _, x in ipairs(FS.badges) do x.under:Hide() end
-            FS.badges, FS.badgeFor = {}, {}
             FS.frame.__scripts.OnEvent(FS.frame, "PLAYER_ENTERING_WORLD")
-            ok(#FS.badges == 1 and FS.badges[1].under:GetParent() == hdr,
-               "a fresh login puts the badge on the header by itself")
+            ok(FN.buttons.shield.badge and FN.buttons.shield:IsShown(),
+               "a fresh login puts the badge on the shield button by itself")
 
-            -- A CLIENT THAT WILL NOT DRAW FOR US: no badge, and the word speaks again
-            containersExist = false
-            FA.available = nil
-            FS.Badge(hdr)
-            ok(#FS.badges == 0 and not FS.badgeFor["Water Shield"], "no containers, no badge")
+            -- BiS> now SWITCHED OFF: no button, and the header word speaks again
+            d.now = false
+            FN.Layout()
+            ok(#FS.badges == 0 and not FS.badgeFor["Water Shield"], "BiS> now off: no badge stands")
             FS.state, FS.known = {}, nil
             FS.Check()
             ok(FS.Word() == "no Water Shield", "and the header word takes over", tostring(FS.Word()))
+            d.now = true
+
+            -- A CLIENT THAT WILL NOT DRAW FOR US: no shield button at all - a face that is red for
+            -- ever would be a lie - and the word speaks
+            containersExist = false
+            FA.available = nil
+            FN.Layout()
+            ok(not FN.buttons.shield:IsShown() and #FS.badges == 0, "no containers, no shield button")
+            ok(FS.Word() == "no Water Shield", "and the header word speaks", tostring(FS.Word()))
             containersExist = true
             FA.available = nil
-            FS.badgeSig = nil
-            FS.Badge(hdr)
-            FG.header = keepHeader
-            for _, x in ipairs(FS.badges) do x.under:Hide() end
+
+            FN.DropShield()
             FS.badges, FS.badgeFor, FS.badgeSig = {}, {}, nil
+            d.now, d.shown = keepNow, keepShown
+            FN.Layout()
+            FN.Reset()
             STATE.lazyAuras = nil
         end
 
@@ -6577,6 +6602,10 @@ do
         FN.Reset()
         local realKnows = NS.FB.Knows
         NS.FB.Knows = function() return true end          -- a shaman with every totem trained
+        -- this block counts EARNED buttons; the shield button (12 Oct) is always there for a
+        -- character with a watched buff, and has its own checks in the self-buff section
+        local realShield = FN.ShieldReady
+        FN.ShieldReady = function() return false end
 
         local mine = FN.Mine()
         ok(#mine == 1 and mine[1] == "help",
@@ -6616,6 +6645,13 @@ do
         ok(#FN.Mine() == 2, "but the fear was still noticed, and earned it")
 
         _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
+        FN.ShieldReady = realShield
+        -- and with it back: a character with a watched buff has help AND the shield from the start
+        local watchedOne = NS.FS.Target() ~= nil
+        local has = false
+        for _, k in ipairs(FN.Mine()) do if k == "shield" then has = true end end
+        ok(has == (watchedOne and NS.FA.Available()), "the shield button is there exactly when a watched buff is",
+           table.concat(FN.Mine(), " "))
         FN.Reset()
     end
 

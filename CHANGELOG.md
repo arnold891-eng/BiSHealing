@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Your shield, live in a fight.** A small badge on the right of the grid header shows your Water Shield (or your class's watched self buff) with its charges while it is up, and a red square with its initials when it is down - even mid-fight, because the game draws it and the addon reads nothing. The header word no longer repeats it. `/bish buff` says whether the badge is live.
+- **Your shield, live in a fight, one click to put it back.** BiS> now has a shield button: your Water Shield's icon while it is on you, a red square with "WS" when it is not - even mid-fight, because the game draws it and the addon reads nothing. Click it to cast. It follows `/bish buff` (Inner Fire for a priest, and so on). The grid header's "no WS" stays quiet while the button is there. `/bish buff` says whether it is live and, if not, why.
 
 - Res claims (RezComm minor 4) are never sent into the chat lockdown, and a claim the game asks to retry is sent once more.
 

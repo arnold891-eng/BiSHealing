@@ -537,8 +537,8 @@ _G.CreateFrame = function(kind, name, parent, template)
         c.slots, c.unit, c.enabled = {}, nil, false
         function c:SetUnit(u) self.unit = u end
         function c:SetEnabled(v) self.enabled = v and true or false end
-        function c:SetFrameLevel() end
-        function c:GetFrameLevel() return 1 end
+        function c:SetFrameLevel(l) self.__level = l end
+        function c:GetFrameLevel() return self.__level or 1 end
         function c:AddAuraSlot(key, filter, opts)
             local slot = newFrame("AuraSlot")
             slot.key, slot.filter, slot.opts = key, filter, opts
@@ -568,7 +568,14 @@ _G.CreateFrame = function(kind, name, parent, template)
                 end
             end
             self.slots[key] = slot
-            if opts and opts.initializeFrame then opts.initializeFrame(slot) end
+            -- THE BUTTON ARRIVES WITH THE AURA, NOT WITH THE SLOT (12 Oct 2026). Fojji's consume
+            -- bar for Forever builds a slot, asks UpdateAllAuras, and finds no button until the
+            -- buff is on - initializeFrame is the client handing over a button it just made for
+            -- an aura. STATE.lazyAuras = that client; the eager call stays for the older checks.
+            if opts and opts.initializeFrame then
+                if STATE.lazyAuras then slot.__init = opts.initializeFrame
+                else opts.initializeFrame(slot) end
+            end
             return slot
         end
         CONTAINERS[#CONTAINERS + 1] = c
@@ -4178,6 +4185,101 @@ do
            "a secret answer about secrecy is unknown, not permission")
         _G.C_Secrets.ShouldSpellAuraBeSecret = function() error("no such call", 2) end
         ok(FS.Present("Water Shield") == nil, "and so is an error")
+
+        -- THE BADGE (12 Oct 2026): Fojji's "combat back door". A container slot filtered to Water
+        -- Shield is drawn by the client while it is up; a red square underneath shows when it is
+        -- not. Nothing is read, so it holds in a fight. What can be tested is what is DECLARED and
+        -- the order things sit in; whether the client covers the red is for Arn's screen.
+        do
+            local Cost = dofile("../_bisdev/dev/cost.lua")
+            local FA = NS.FA
+            STATE.lazyAuras = true
+            -- the client answers again (the checks above left it refusing every question)
+            _G.C_Secrets.ShouldSpellAuraBeSecret = function(id) return hidden[id] and true or false end
+            local hdr = CreateFrame("Frame", nil, UIParent)
+            hdr:SetFrameLevel(5)
+            FS.badgeSig = nil
+            local before = #CONTAINERS
+            ok(FS.Badge(hdr) == 1 and #CONTAINERS == before + 1, "one badge, one container",
+               #CONTAINERS - before)
+            local b = FS.badges[1]
+            local c = b and b.container
+            local slot = c and c.slots and c.slots.BiSHealSelf0
+            ok(c and c.unit == "player" and c.enabled, "the container watches YOU, and is switched on")
+            ok(slot and slot.filter == "HELPFUL" and slot.opts.candidateFilters.includeSpellIDs[24398],
+               "its slot is filtered to every Water Shield id the book has")
+            ok(b and b.under:IsShown() and b.under.tag and b.under.tag:GetText() == "WS",
+               "the red square underneath says WS", b and b.under.tag and b.under.tag:GetText())
+            ok(b and b.under:GetFrameLevel() < c:GetFrameLevel(),
+               "and sits BELOW the container, so the client's icon covers it while the shield is up",
+               b and (b.under:GetFrameLevel() .. " vs " .. c:GetFrameLevel()))
+            ok(slot and slot.__init and pcall(slot.__init, slot),
+               "nothing waited for the button: the client hands it over when the buff appears")
+            ok(FS.badgeFor["Water Shield"], "the badge stands for Water Shield")
+
+            -- ONE LABEL: the word does not say what the badge already shows
+            up[24398] = nil
+            FS.state, FS.known = {}, nil
+            FS.Check()
+            ok(FS.known and FS.known[1] == "Water Shield", "the shield IS missing (so the next check bites)")
+            ok(FS.Word() == nil, "with a live badge the header word stays quiet", tostring(FS.Word()))
+
+            -- built once: asking again with nothing changed builds nothing
+            local n = #CONTAINERS
+            FS.Badge(hdr); FS.Badge(hdr)
+            ok(#CONTAINERS == n, "asked again, nothing is rebuilt", #CONTAINERS - n)
+
+            -- IN A FIGHT, never built - asked again when it ends
+            STATE.inCombat = true
+            FS.badgeSig = nil
+            FS.Badge(hdr)
+            ok(#CONTAINERS == n and FS.badgeLater, "in a fight no container is made; it waits")
+            STATE.inCombat = false
+            local keepHeader = FG.header
+            FG.header = hdr
+            FS.frame.__scripts.OnEvent(FS.frame, "PLAYER_REGEN_ENABLED")
+            ok(#CONTAINERS == n + 1 and not FS.badgeLater, "and is built the moment the fight ends")
+
+            -- LEAN: your auras change many times a second in a fight; the badge hears none of it
+            local calls, realBadge = 0, FS.Badge
+            FS.Badge = function(...) calls = calls + 1 return realBadge(...) end
+            STATE.inCombat = true
+            local cost = Cost.Count(function()
+                for _ = 1, 300 do FS.frame.__scripts.OnEvent(FS.frame, "UNIT_AURA", "player") end
+            end)
+            STATE.inCombat = false
+            FS.Badge = realBadge
+            ok(calls == 0, "300 aura changes on you in a fight never touch the badge", calls)
+            -- and the no-change answer it gives at every SPELLS_CHANGED is a short one
+            local idle = Cost.Count(function() for _ = 1, 100 do FS.Badge(hdr) end end)
+            ok(idle <= 800, "100 'anything changed?' asks cost at most 8 client calls each: " .. idle)
+            print(("   cost: badge, unchanged x100 = %d calls; 300 combat auras = %d"):format(idle, cost))
+
+            -- AT LOGIN, with nobody touching anything: the badge is there (cold start law)
+            FS.badgeSig = nil
+            for _, x in ipairs(FS.badges) do x.under:Hide() end
+            FS.badges, FS.badgeFor = {}, {}
+            FS.frame.__scripts.OnEvent(FS.frame, "PLAYER_ENTERING_WORLD")
+            ok(#FS.badges == 1 and FS.badges[1].under:GetParent() == hdr,
+               "a fresh login puts the badge on the header by itself")
+
+            -- A CLIENT THAT WILL NOT DRAW FOR US: no badge, and the word speaks again
+            containersExist = false
+            FA.available = nil
+            FS.Badge(hdr)
+            ok(#FS.badges == 0 and not FS.badgeFor["Water Shield"], "no containers, no badge")
+            FS.state, FS.known = {}, nil
+            FS.Check()
+            ok(FS.Word() == "no Water Shield", "and the header word takes over", tostring(FS.Word()))
+            containersExist = true
+            FA.available = nil
+            FS.badgeSig = nil
+            FS.Badge(hdr)
+            FG.header = keepHeader
+            for _, x in ipairs(FS.badges) do x.under:Hide() end
+            FS.badges, FS.badgeFor, FS.badgeSig = {}, {}, nil
+            STATE.lazyAuras = nil
+        end
 
         _G.C_Secrets = realSecrets
         _G.C_SpellBook.GetSpellBookItemInfo = realInfo

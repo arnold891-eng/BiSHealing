@@ -82,6 +82,7 @@ local function addSlot(container, key, filter, opts)
     end
     return nil
 end
+FA.AddSlot = addSlot                    -- SelfBuff's header badge builds its slot the same way
 
 --- A small coloured pip, and NOTHING of the client's own button.
 ---

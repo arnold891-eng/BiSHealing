@@ -429,6 +429,11 @@ function NS.DO.buff(name)
     local sounds, why = FS.Sounds()
     Print(sounds and sounds > 0 and ("  a sound when one drops: %d registered"):format(sounds)
         or ("  no sound when one drops (%s)"):format(tostring(why or "nothing to register")))
+    local badges = FS.Badge and FS.Badge() or 0
+    Print(badges > 0 and ("  a live badge on the header for %d: red while it is down, even mid-fight"):format(badges)
+        or ("  no live badge (%s)"):format((NS.FA and NS.FA.refused)
+            or ((NS.FA and NS.FA.Available and NS.FA.Available()) and "none of them is in your spellbook"
+                or "this client draws no auras for addons")))
     local missing = FS.Check()
     if type(missing) == "table" and #missing > 0 then
         Print("  missing now: " .. table.concat(missing, ", "))

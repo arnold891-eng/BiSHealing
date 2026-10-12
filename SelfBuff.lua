@@ -205,10 +205,266 @@ end
 
 --- "no Water Shield", or nil when nothing is missing or nothing is known yet. Short on purpose:
 --- it shares the header with the prompt, and a header is one cell wide on a party grid.
+--- A BUFF WITH A BADGE IS NOT SAID TWICE: the badge is live and the word is only the last answer,
+--- so the word speaks for the buffs the client would not give a badge to.
 function FS.Word(short)
     local missing = FS.known
-    if type(missing) ~= "table" or #missing == 0 then return nil end
-    return "no " .. (short and FS.Initials(missing[1]) or missing[1])
+    if type(missing) ~= "table" then return nil end
+    for _, name in ipairs(missing) do
+        if not FS.badgeFor[name] then
+            return "no " .. (short and FS.Initials(name) or name)
+        end
+    end
+    return nil
+end
+
+-- THE BADGE: YOUR BUFF, LIVE, IN A FIGHT (12 Oct 2026). Arn, after reading the consume bar Fojji
+-- shipped for Forever: "they said they found some combat back door stuff" ... "try the shield
+-- marker".
+--
+-- The back door is the aura container (Auras.lua): the CLIENT draws a buff we may not read. A slot
+-- filtered to Water Shield shows its icon - and its charges - while it is up, and nothing at all
+-- when it is gone. So a red square goes UNDER it: up, the client's icon covers the red; down, the
+-- red shows through. "Missing" is never asked, never read, never computed - it is what is left
+-- when the client stops drawing. Fojji's bar does the same with a stack of them, nesting a
+-- container in another's icon to get "this AND that"; one buff per badge needs no nesting.
+--
+-- Built out of combat only, like every container, and rebuilt only when what it would be built
+-- for changes: after that it costs this addon nothing - no event, no tick, no question.
+FS.badgeFor = {}       -- name -> true while a live badge stands for it
+FS.badges = {}
+FS.BADGE_RED = { 1.00, 0.22, 0.22, 1.00 }       -- a tint on a greyed icon, so brighter than a fill
+FS.PULSE_LOW, FS.PULSE_SECONDS = 0.35, 0.6       -- the red breathes from full to this, and back
+
+-- OUR OWN PICTURE ON THE CLIENT'S BUTTON. Arn, 12 Oct, Water Shield up and the badge still red:
+-- the client HAD made the button (the filter id was right) and it drew nothing. A custom
+-- container's button comes blank - Fojji's bar paints every one itself (`chain.icon`), as our
+-- dispel pip does. So the spell's icon goes on it here; the icon of a spell in your own book is
+-- not a secret. No mouse: it sits on a drag handle.
+local function spellIcon(ids, name)
+    local get = C_Spell and C_Spell.GetSpellTexture
+    if get then
+        for _, q in ipairs({ ids and ids[1], name }) do
+            if q then
+                local ok, tex = pcall(get, q)
+                if ok and tex and not NS.Secret(tex) then return tex end
+            end
+        end
+    end
+    return 136048                             -- a plain blue orb, if the client will not say
+end
+
+local function badgeIcon(button, b)
+    if not button then return end
+    pcall(function()
+        local t = button:CreateTexture(nil, "OVERLAY")
+        t:SetAllPoints(button)
+        t:SetTexture(spellIcon(b and b.ids, b and b.name))
+        if t.SetTexCoord then t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+        if b then b.icon = t end
+    end)
+    for _, k in ipairs({ "Border", "border" }) do
+        local part = button[k]
+        if type(part) == "table" and part.Hide then pcall(part.Hide, part) end
+    end
+    if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
+    if button.EnableMouse then pcall(button.EnableMouse, button, false) end
+end
+
+--- The buff the BiS> now shield button stands for: the first watched one this character has
+--- trained, and every spell id the book has for it. nil when there is none.
+function FS.Target()
+    for _, name in ipairs(FS.List()) do
+        if FS.Knows(name) then
+            local ids = FS.SpellIds(name)
+            if #ids > 0 then return name, ids end
+        end
+    end
+    return nil
+end
+
+--- What a badge would be built for, as one string: a new rank or a new watched buff changes it.
+function FS.TargetSig()
+    local name, ids = FS.Target()
+    if not name then return "" end
+    local sorted = {}
+    for i, id in ipairs(ids) do sorted[i] = id end
+    table.sort(sorted)
+    return name .. ":" .. table.concat(sorted, ",")
+end
+
+--- Take one badge down: the container stops, the red goes, and the header word speaks again.
+function FS.DropBadge(b)
+    if not b then return end
+    if b.container and b.container.SetEnabled then pcall(b.container.SetEnabled, b.container, false) end
+    if b.container and b.container.Hide then pcall(b.container.Hide, b.container) end
+    if b.under and b.under.Hide then b.under:Hide() end
+    for i, x in ipairs(FS.badges) do
+        if x == b then table.remove(FS.badges, i) break end
+    end
+    FS.badgeFor[b.name] = nil
+end
+
+--- The spell id of the aura called `name` on you right now, read by walking your buffs: nil when it
+--- is not on you, false when the client would not say. The book's id and the BUFF's id need not be
+--- the same number, and the badge is filtered by the book's.
+function FS.AuraIdByName(name)
+    local get = C_UnitAuras and C_UnitAuras.GetAuraDataByIndex
+    if not get then return false end
+    for i = 1, 40 do
+        local ok, a = pcall(get, "player", i, "HELPFUL")
+        if not ok then return false end
+        if not a then return nil end
+        local okN, n = pcall(function() return a.name end)
+        n = okN and NS.Plain(n) or nil
+        if n == nil then return false end
+        if n == name then
+            local okI, id = pcall(function() return a.spellId end)
+            return okI and NS.Plain(id) or false
+        end
+    end
+    return nil
+end
+
+--- What /bish buff says about each badge, a line each: the ids it is filtered to, the id of the
+--- buff actually on you, and whether the client has ever handed it a button to draw.
+function FS.BadgeReport()
+    local lines = {}
+    for _, b in ipairs(FS.badges) do
+        local on = FS.AuraIdByName(b.name)
+        local match = "not on you now"
+        if on == false then match = "the client will not say now"
+        elseif on then
+            local hit = false
+            for _, id in ipairs(b.ids or {}) do if id == on then hit = true end end
+            match = ("on you as id %s - %s"):format(tostring(on), hit and "in the filter" or "NOT in the filter")
+        end
+        lines[#lines + 1] = ("  badge %s: filter %s; %s"):format(b.name, table.concat(b.ids or {}, ","), match)
+        local btn = b.button
+        if not btn then
+            lines[#lines + 1] = "    the game has not drawn it yet"
+        else
+            -- THE CLIENT'S BUTTON MAY NOT BE ASKED ANYTHING. Arn's client, 12 Oct: "calling '?' on
+            -- bad self (Attempt to access forbidden object ...) self:IsVisible()" - the slot rule
+            -- in solved.md, again. Every question goes in a pcall; a refusal is an answer.
+            local function ask(o, m)
+                if not o then return "?" end
+                local ok, v = pcall(function() return o[m](o) end)
+                if not ok then return "refused" end
+                return tostring(NS.Plain(v))
+            end
+            lines[#lines + 1] = ("    the game made its button (visible %s); our icon on it: %s, visible %s"):format(
+                ask(btn, "IsVisible"), b.icon and "made" or "NOT made", ask(b.icon, "IsVisible"))
+        end
+    end
+    return lines
+end
+
+--- ONE BADGE, centred on `parent`, `px` square: red with the buff's initials, and the client's
+--- button over it while the buff is on you. Answers the badge, or nil and why. OUT OF COMBAT.
+---
+--- It lived on the grid header first; Arn, seeing it work: "header too crowded" - so it is the
+--- face of a BiS> now button now (Now.lua, FN.ArmShield), where a click also recasts the buff.
+function FS.MakeBadge(parent, name, ids, px)
+    local FA = NS.FA
+    if not (parent and name and ids and #ids > 0) then return nil, "nothing to stand for" end
+    if not (FA and FA.Available and FA.Available() and FA.AddSlot) then
+        return nil, FA and FA.refused or "this client draws no auras for addons"
+    end
+    local lvl = parent.GetFrameLevel and parent:GetFrameLevel() or 1
+    if type(lvl) ~= "number" then lvl = 1 end
+    -- what shows when the client draws nothing: red, and the buff's initials
+    local under = CreateFrame("Frame", nil, parent)
+    under:SetSize(px, px)
+    under:SetPoint("CENTER", parent, "CENTER", 0, 0)
+    if under.SetFrameLevel then under:SetFrameLevel(lvl + 2) end
+    -- THE BUFF'S OWN ICON, WASHED RED (12 Oct 2026). Arn, looking at a red square saying "WS":
+    -- "can we make it a red watershield icon?" Greyed, then tinted, so any icon reads as the same
+    -- red - and up, the client's icon in full colour covers it: your shield, or your shield gone.
+    local red = under:CreateTexture(nil, "ARTWORK")
+    red:SetAllPoints(under)
+    red:SetTexture(spellIcon(ids, name))
+    if red.SetTexCoord then red:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    if red.SetDesaturated then red:SetDesaturated(true) end
+    local c = FS.BADGE_RED
+    red:SetVertexColor(c[1], c[2], c[3], c[4])
+    under.red = red
+    -- A PULSE, NOT A STATIC BLOCK (12 Oct 2026). Arn: "lets not make it a red static thing can we
+    -- show like a pulsing thing?" It never had to be solid: the client's icon covers whatever is
+    -- under it, so the red may breathe. The CLIENT runs the animation - no OnUpdate, no Lua at
+    -- all per frame - and it runs under the icon too, unseen, because whether the buff is up is
+    -- exactly what we may not know. Alpha in steps a healer reads as "do this", never down to
+    -- nothing: a square that vanishes half the time is one you look straight past.
+    if under.CreateAnimationGroup then
+        local ok, pulse = pcall(under.CreateAnimationGroup, under)
+        if ok and pulse then
+            local fade = pulse:CreateAnimation("Alpha")
+            fade:SetFromAlpha(1)
+            fade:SetToAlpha(FS.PULSE_LOW)
+            fade:SetDuration(FS.PULSE_SECONDS)
+            if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
+            pulse:SetLooping("BOUNCE")
+            pulse:Play()
+            under.pulse = pulse
+        end
+    end
+    -- and over it, the client's icon while the buff is up. A refusal here is the client saying no
+    -- to containers: remembered by FA, and the header word speaks instead.
+    local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")
+    if not ok or not container then
+        FA.available = false
+        FA.refused = "the client refused to build an AuraContainer (protected action?)"
+        under:Hide()
+        return nil, FA.refused
+    end
+    container:SetSize(1, 1)
+    container:SetPoint("CENTER", under, "CENTER")
+    if container.SetFrameLevel then container:SetFrameLevel(lvl + 10) end
+    container:SetUnit("player")
+    local want = {}
+    for _, id in ipairs(ids) do want[id] = true end
+    local b = { name = name, under = under, container = container, ids = ids }
+    local slot = FA.AddSlot(container, "BiSHealSelf", "HELPFUL", {
+        candidateFilters = { includeSpellIDs = want },
+        -- the client hands a button over when the buff appears; noted, so /bish buff can say
+        -- whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
+        initializeFrame = function(button)
+            b.button = button
+            badgeIcon(button, b)
+        end,
+    })
+    b.slot = slot
+    local placed = slot and FA.Place and FA.Place(slot, px, "CENTER", parent, 0, 0)
+    if container.SetEnabled then container:SetEnabled(true) end
+    -- and asked to look now, as Fojji's bar does after enabling: a buff already on you is not news
+    -- to a container that only starts listening for changes
+    if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
+    -- a slot that could not be placed draws nowhere useful: the red would never be covered, so it
+    -- would cry "missing" for ever. Nothing stands for the buff then, and the word speaks.
+    if not placed then
+        pcall(container.SetEnabled, container, false)
+        under:Hide()
+        return nil, "the client would not let the marker be placed"
+    end
+    FS.badges[#FS.badges + 1] = b
+    FS.badgeFor[name] = true
+    return b
+end
+
+--- THE BUFF LIST OR THE BOOK MAY HAVE CHANGED: if what the badge stands for did, BiS> now is laid
+--- out again, which rebuilds its button. Nothing at all when it did not - this runs at every
+--- SPELLS_CHANGED. In a fight it waits for the fight to end. Answers how many badges stand.
+function FS.Badge()
+    local sig = FS.TargetSig()
+    if sig == FS.badgeSig then return #FS.badges end
+    if InCombatLockdown and InCombatLockdown() then
+        FS.badgeLater = true
+        return #FS.badges
+    end
+    FS.badgeLater = nil
+    FS.badgeSig = sig
+    if NS.FN and NS.FN.Layout then NS.FN.Layout() end
+    return #FS.badges
 end
 
 --- "Water Shield" -> "WS", for a header one cell wide, where the full name is trimmed to
@@ -233,6 +489,7 @@ function FS.Add(name)
             if #list == 0 then d.selfBuffs = { none = true } end
             FS.Forget()                                 -- and forget what it last was
             FS.Sounds()
+            FS.Badge()
             return nil, n                               -- taken off the list
         end
     end
@@ -241,6 +498,7 @@ function FS.Add(name)
     d.selfBuffs = list
     FS.Forget()
     FS.Sounds()                       -- the new list, and nothing left over from the old one
+    FS.Badge()
     return name
 end
 
@@ -249,6 +507,7 @@ function FS.Reset()
     if type(d) == "table" then d.selfBuffs = nil end
     FS.Forget()
     FS.Sounds()
+    FS.Badge()
     return FS.List()
 end
 
@@ -372,11 +631,17 @@ function FS.Start()
         end
         FS.Check()
         -- the book fills in late at login, and a rank learned later is a new spell id
-        if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then FS.Sounds() end
+        if event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD" then
+            FS.Sounds()
+            FS.Badge()                -- a no-op unless what it stands for changed
+        elseif event == "PLAYER_REGEN_ENABLED" and FS.badgeLater then
+            FS.Badge()                -- asked for during a fight; now the client allows it
+        end
     end)
     FS.frame = f
     FS.Check()
     FS.Sounds()
+    FS.Badge()
     return true
 end
 

@@ -62,6 +62,13 @@ FN.BUTTONS = {
     -- scan my bags for oils?" - after a macro he saw (/use the stone, /use 16). Not earned by a
     -- fight: it is there while an oil is in your bags (FN.Oil), bright while the main hand has none.
     { id = 4, key = "oil", word = "Oil", ready = true, always = true, oil = true },
+    -- YOUR SHIELD, LIVE, AND ONE CLICK TO PUT IT BACK (12 Oct 2026). Arn, after the badge worked on
+    -- the grid header: "what do you think we send it to bis now header too crowded". The face is
+    -- SelfBuff's badge - red with the initials, covered by the client's own icon while the buff is
+    -- on you, even mid-fight - and the click casts it. Whatever /bish buff watches: Water Shield
+    -- for a shaman, Inner Fire for a priest. Always there, like help: a button that is already in
+    -- its place is one you can hit without looking for it.
+    { id = 5, key = "shield", word = "Shield", ready = true, always = true, selfbuff = true },
 }
 
 --- THE OILS, best first for a healer: mana oils (mana back AND healing), then wizard oils.
@@ -338,7 +345,8 @@ function FN.Mine()
         local b = FN.Button(k)
         if b and b.ready and FN.Earned(k)
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
-           and (not b.oil or FN.Oil()) then                -- the oil button needs an oil in your bags
+           and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
+           and (not b.selfbuff or FN.ShieldReady()) then   -- and the shield, a buff and containers
             out[#out + 1] = k
         end
     end
@@ -699,6 +707,59 @@ function FN.OilWatch()
     FN.oilFrame = f
 end
 
+--- May this character have the shield button? A watched self buff it has trained, and a client that
+--- draws auras for addons - without the containers the face would be red for ever, which is a lie.
+function FN.ShieldReady()
+    local FS, FA = NS.FS, NS.FA
+    if not (FS and FS.Target and FS.Target()) then return false end
+    return (FA and FA.Available and FA.Available()) and true or false
+end
+
+--- Take the shield button's face down (it is hidden, or what it stood for changed).
+function FN.DropShield(b)
+    b = b or (FN.buttons and FN.buttons.shield)
+    if not b then return end
+    if b.badge and NS.FS and NS.FS.DropBadge then NS.FS.DropBadge(b.badge) end
+    b.badge, b.shieldSig = nil, nil
+end
+
+--- Point the shield button at your watched buff: the click casts it, the badge is its face. OUT OF
+--- COMBAT, like every secure write, and only when the buff or its ranks changed - a relayout for
+--- an oil must not rebuild a container. Answers the buff's name, or nil.
+function FN.ArmShield(b)
+    b = b or (FN.buttons and FN.buttons.shield)
+    if not b or (InCombatLockdown and InCombatLockdown()) then return nil end
+    local FS = NS.FS
+    local name, ids
+    if FS and FS.Target then name, ids = FS.Target() end
+    if not name then FN.DropShield(b) return nil end
+    local sig = FS.TargetSig()
+    if b.badge and b.shieldSig == sig then return name end
+    FN.DropShield(b)
+    if b.SetAttribute then
+        b:SetAttribute("*type1", "macro")
+        b:SetAttribute("*macrotext1", "/cast " .. name)
+    end
+    b.shieldName = name
+    -- the static picture would say "up" for ever; the badge's red and the client's icon are the face
+    if b.art and b.art.Hide then b.art:Hide() end
+    local _, h = dims()
+    b.badge = FS.MakeBadge(b, name, ids, h - 8)
+    b.shieldSig = b.badge and sig or nil
+    return name
+end
+
+--- What the shield button does, on a hover: the one bar keeps no words, the tooltip has room.
+function FN.ShieldTip(b)
+    if not (GameTooltip and b) then return false end
+    GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(b.shieldName or "your buff", 0.31, 0.82, 0.81)
+    GameTooltip:AddLine("click to cast it", 0.73, 0.50, 1.00)
+    GameTooltip:AddLine("red: it is not on you - the game shows this, even in a fight", 0.59, 0.56, 0.68)
+    GameTooltip:Show()
+    return true
+end
+
 --- One button. A SECURE UNIT BUTTON pointed at you, so that hovering it makes you the mouseover -
 --- which is what `/ping [@mouseover] assist` then aims at. Built out of combat, never rewritten.
 local function makeButton(parent, key)
@@ -776,6 +837,13 @@ local function makeButton(parent, key)
             b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         end
     end
+    if def and def.selfbuff then
+        FN.ArmShield(b)
+        if b.HookScript then
+            b:HookScript("OnEnter", function(self) FN.ShieldTip(self) end)
+            b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        end
+    end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -808,6 +876,7 @@ function FN.Paint()
         if b:IsShown() then
             if key == "help" then FN.PaintHelp(b)
             elseif key == "oil" then FN.PaintOil(b)
+            elseif key == "shield" then             -- painted by the client, never by us
             else FN.PaintNeed(b, key) end
         end
     end
@@ -824,6 +893,7 @@ function FN.Layout(anchor)
     local mine = want and FN.Mine() or {}
     if #mine == 0 then
         if FN.block then FN.block:Hide() end
+        FN.DropShield()                 -- nothing stands for the buff, so the header word speaks
         return true, 0
     end
     if not FN.block then
@@ -872,6 +942,7 @@ function FN.Layout(anchor)
         local b = FN.buttons[key] or makeButton(a, key)
         FN.buttons[key] = b
         if key == "oil" then FN.ArmOil(b) end      -- the best oil may have changed since it was built
+        if key == "shield" then FN.ArmShield(b) end -- a no-op unless the buff or its ranks changed
         b:ClearAllPoints()
         local w, _, pad = dims()
         b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (w + pad), 0)
@@ -880,7 +951,10 @@ function FN.Layout(anchor)
     for key, b in pairs(FN.buttons) do
         local still = false
         for _, k in ipairs(mine) do if k == key then still = true end end
-        if not still then b:Hide() end
+        if not still then
+            b:Hide()
+            if key == "shield" then FN.DropShield(b) end
+        end
     end
     -- sized to what is in it, in whole cells: one cell wide, two when a second button arrives,
     -- with the grid's own gap between them so it reads as part of the grid

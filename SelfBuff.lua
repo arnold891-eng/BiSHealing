@@ -290,16 +290,26 @@ function FS.WashFormatter(px)
     return f
 end
 
+--- INSIDE A FRAME THAT CUTS IT TO THE ICON (12 Oct 2026). Arn's screenshots, orange then yellow:
+--- the wash came out half again the icon's size, hanging off the button down and to the right. A
+--- texture escape is sized against the text it sits in, not in the pixels it was asked for, so its
+--- size is not ours to trust. So the square is drawn deliberately too big, and a frame the icon's
+--- size with SetClipsChildren cuts it to exactly the icon, wherever the text put it. The frame is
+--- the client's button's child, so it goes when the buff goes - no wash left over the red.
+FS.WASH_OVER = 3                               -- the square, this many times the icon: always covers
 function FS.Wash(button, b)
     local px = (b and b.px) or 26
-    local f = FS.WashFormatter(px)
+    local f = FS.WashFormatter(px * FS.WASH_OVER)
     if not f then return false end
-    local fs = button:CreateFontString(nil, "OVERLAY")
+    local clip = CreateFrame("Frame", nil, button)
+    clip:SetAllPoints(button)
+    clip:SetClipsChildren(true)
+    local fs = clip:CreateFontString(nil, "OVERLAY")
     if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
-    fs:SetPoint("CENTER", button, "CENTER", 0, 0)
+    fs:SetPoint("CENTER", clip, "CENTER", 0, 0)
     fs:SetAlpha(FS.WASH_ALPHA)
     local ok = pcall(button.SetApplicationCount, button, fs, { formatter = f })
-    if b then b.wash = ok and fs or nil end
+    if b then b.wash, b.washClip = ok and fs or nil, ok and clip or nil end
     return ok
 end
 

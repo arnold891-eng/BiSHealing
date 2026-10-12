@@ -4318,8 +4318,14 @@ do
             local o1, o2, o3 = rgbOf(fmt and fmt:__pick(1))
             ok(o1 == 255 and o2 and o2 < 160 and o2 > 60 and o3 < 60, "1 charge: orange", fmt and fmt:__pick(1))
             ok(fmt and fmt:__pick(0) == "", "none: no wash (the buff is gone, the red shows)")
-            ok(fmt and (fmt:__pick(2) or ""):find(":" .. b.px .. ":" .. b.px .. ":", 1, true),
-               "the wash is the icon's own size", b.px)
+            -- TOO BIG ON PURPOSE, CUT TO THE ICON (Arn's screenshots: the wash hung half again past
+            -- the button). A frame on the client's button, its size, clipping
+            local big = b.px * FS.WASH_OVER
+            ok(fmt and (fmt:__pick(2) or ""):find(":" .. big .. ":" .. big .. ":", 1, true) and big > b.px,
+               "the square is drawn bigger than the icon", fmt and fmt:__pick(2))
+            local clip = b.washClip
+            ok(clip and clip.__clips == true and clip.__parent == slot and clip.__allpoints == slot,
+               "and cut to exactly the icon by a clipping frame on the client's button")
             ok(slot.clicks == false, "the client's button lets clicks through to ours")
             -- and THAT BUTTON REFUSES QUESTIONS from our code (Arn's client: "calling '?' on bad
             -- self ... self:IsVisible()"); the report must survive it

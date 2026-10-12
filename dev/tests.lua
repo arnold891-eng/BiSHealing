@@ -276,6 +276,9 @@ local function newFrame(kind, name, parent)
             SetAlpha    = function(t, a) t.__alpha = a end,
             GetAlpha    = function(t) return t.__alpha end,
             SetBlendMode = function(t, m) t.__blend = m end,
+            -- AND ITS TINT (12 Oct 2026, the shield's red icon): "is it red" needs an answer
+            SetVertexColor = function(t, r, g, b, a) t.__vertex = { r, g, b, a } end,
+            SetDesaturated = function(t, v) t.__desat = v and true or false end,
             -- WHAT it covers, not just that it does (8 Oct 2026): a mask laid over curClip must say so
             SetAllPoints = function(t, rel) t.__allpoints = rel or true end,
             -- A MASK ON A TEXTURE (8 Oct 2026, the overheal rebuilt on EllesmereUI's mask). An auto
@@ -4241,8 +4244,11 @@ do
             ok(c and c.unit == "player" and c.enabled, "the container watches YOU, and is switched on")
             ok(slot and slot.filter == "HELPFUL" and slot.opts.candidateFilters.includeSpellIDs[24398],
                "its slot is filtered to every Water Shield id the book has")
-            ok(b and b.under:IsShown() and b.under.tag and b.under.tag:GetText() == "WS",
-               "the red square underneath says WS", b and b.under.tag and b.under.tag:GetText())
+            local red = b and b.under.red
+            ok(b and b.under:IsShown() and red and red.__texture == _G.C_Spell.GetSpellTexture(24398)
+               and red.__desat == true and red.__vertex and red.__vertex[1] > 0.8 and red.__vertex[2] < 0.4,
+               "underneath: the Water Shield icon itself, greyed and tinted red",
+               red and (tostring(red.__texture) .. " " .. tostring(red.__desat)))
             ok(b and b.under:GetFrameLevel() < c:GetFrameLevel(),
                "and sits BELOW the container, so the client's icon covers it while the shield is up",
                b and (b.under:GetFrameLevel() .. " vs " .. c:GetFrameLevel()))

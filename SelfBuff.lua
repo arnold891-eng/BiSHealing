@@ -233,7 +233,7 @@ end
 -- for changes: after that it costs this addon nothing - no event, no tick, no question.
 FS.badgeFor = {}       -- name -> true while a live badge stands for it
 FS.badges = {}
-FS.BADGE_RED = { 0.80, 0.12, 0.16, 0.95 }
+FS.BADGE_RED = { 1.00, 0.22, 0.22, 1.00 }       -- a tint on a greyed icon, so brighter than a fill
 FS.PULSE_LOW, FS.PULSE_SECONDS = 0.35, 0.6       -- the red breathes from full to this, and back
 
 -- OUR OWN PICTURE ON THE CLIENT'S BUTTON. Arn, 12 Oct, Water Shield up and the badge still red:
@@ -378,14 +378,17 @@ function FS.MakeBadge(parent, name, ids, px)
     under:SetSize(px, px)
     under:SetPoint("CENTER", parent, "CENTER", 0, 0)
     if under.SetFrameLevel then under:SetFrameLevel(lvl + 2) end
+    -- THE BUFF'S OWN ICON, WASHED RED (12 Oct 2026). Arn, looking at a red square saying "WS":
+    -- "can we make it a red watershield icon?" Greyed, then tinted, so any icon reads as the same
+    -- red - and up, the client's icon in full colour covers it: your shield, or your shield gone.
     local red = under:CreateTexture(nil, "ARTWORK")
     red:SetAllPoints(under)
+    red:SetTexture(spellIcon(ids, name))
+    if red.SetTexCoord then red:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    if red.SetDesaturated then red:SetDesaturated(true) end
     local c = FS.BADGE_RED
-    red:SetColorTexture(c[1], c[2], c[3], c[4])
-    local tag = under:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    tag:SetPoint("CENTER", under, "CENTER", 0, 0)
-    tag:SetText(FS.Initials(name))
-    under.red, under.tag = red, tag
+    red:SetVertexColor(c[1], c[2], c[3], c[4])
+    under.red = red
     -- A PULSE, NOT A STATIC BLOCK (12 Oct 2026). Arn: "lets not make it a red static thing can we
     -- show like a pulsing thing?" It never had to be solid: the client's icon covers whatever is
     -- under it, so the red may breathe. The CLIENT runs the animation - no OnUpdate, no Lua at

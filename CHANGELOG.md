@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.5
 
 - **Your shield's charges, as a colour.** The shield button in BiS> now shows the plain icon at full charges, washes **yellow at 2** and **orange at 1**, then the pulsing red when it is gone - live in a fight; the game picks the colour, the addon never reads the count. Clicks on the icon go through to the button. `/bish buff` shows your charges out of combat.
 

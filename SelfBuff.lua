@@ -234,6 +234,7 @@ end
 FS.badgeFor = {}       -- name -> true while a live badge stands for it
 FS.badges = {}
 FS.BADGE_RED = { 0.80, 0.12, 0.16, 0.95 }
+FS.PULSE_LOW, FS.PULSE_SECONDS = 0.35, 0.6       -- the red breathes from full to this, and back
 
 -- OUR OWN PICTURE ON THE CLIENT'S BUTTON. Arn, 12 Oct, Water Shield up and the badge still red:
 -- the client HAD made the button (the filter id was right) and it drew nothing. A custom
@@ -385,6 +386,25 @@ function FS.MakeBadge(parent, name, ids, px)
     tag:SetPoint("CENTER", under, "CENTER", 0, 0)
     tag:SetText(FS.Initials(name))
     under.red, under.tag = red, tag
+    -- A PULSE, NOT A STATIC BLOCK (12 Oct 2026). Arn: "lets not make it a red static thing can we
+    -- show like a pulsing thing?" It never had to be solid: the client's icon covers whatever is
+    -- under it, so the red may breathe. The CLIENT runs the animation - no OnUpdate, no Lua at
+    -- all per frame - and it runs under the icon too, unseen, because whether the buff is up is
+    -- exactly what we may not know. Alpha in steps a healer reads as "do this", never down to
+    -- nothing: a square that vanishes half the time is one you look straight past.
+    if under.CreateAnimationGroup then
+        local ok, pulse = pcall(under.CreateAnimationGroup, under)
+        if ok and pulse then
+            local fade = pulse:CreateAnimation("Alpha")
+            fade:SetFromAlpha(1)
+            fade:SetToAlpha(FS.PULSE_LOW)
+            fade:SetDuration(FS.PULSE_SECONDS)
+            if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
+            pulse:SetLooping("BOUNCE")
+            pulse:Play()
+            under.pulse = pulse
+        end
+    end
     -- and over it, the client's icon while the buff is up. A refusal here is the client saying no
     -- to containers: remembered by FA, and the header word speaks instead.
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, parent, "CustomAuraContainerTemplate")

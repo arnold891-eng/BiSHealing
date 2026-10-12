@@ -167,6 +167,28 @@ local function newFrame(kind, name, parent)
         self.__alpha, self.__alphaFromSecret = b and whenTrue or whenFalse, false
     end
     function f:SetFrameStrata(v) self.__strata = v end
+    -- AN ANIMATION GROUP, RECORDED (12 Oct 2026, the shield's pulse). The auto no-op answered nil
+    -- to CreateAnimationGroup, so "does it pulse" was a question with no answer; the client hands
+    -- back a group that makes animations, loops and plays - and runs them itself, not in Lua.
+    function f:CreateAnimationGroup()
+        local g = { anims = {}, playing = false }
+        function g:CreateAnimation(kind)
+            local a = { kind = kind }
+            function a:SetFromAlpha(v) self.from = v end
+            function a:SetToAlpha(v) self.to = v end
+            function a:SetDuration(v) self.duration = v end
+            function a:SetSmoothing(v) self.smoothing = v end
+            self.anims[#self.anims + 1] = a
+            return a
+        end
+        function g:SetLooping(v) self.looping = v end
+        function g:Play() self.playing = true end
+        function g:Stop() self.playing = false end
+        function g:IsPlaying() return self.playing end
+        self.__animGroups = self.__animGroups or {}
+        self.__animGroups[#self.__animGroups + 1] = g
+        return g
+    end
     -- A FRAME HAS A LEVEL, and a child starts one above its parent, as in the client (8 Oct 2026).
     -- Both were auto no-ops answering nil, so "does the overheal band paint over the number" had
     -- no answer - and in 0.8.3 it did (Arn: "magenta over laps the numbers").
@@ -4224,6 +4246,15 @@ do
             ok(b and b.under:GetFrameLevel() < c:GetFrameLevel(),
                "and sits BELOW the container, so the client's icon covers it while the shield is up",
                b and (b.under:GetFrameLevel() .. " vs " .. c:GetFrameLevel()))
+            -- IT BREATHES (Arn: "lets not make it a red static thing can we show like a pulsing
+            -- thing?"): the client's animation, looping, never down to nothing
+            local p = b and b.under.pulse
+            local fade = p and p.anims[1]
+            ok(p and p:IsPlaying() and p.looping == "BOUNCE", "the red pulses, on the client's own loop")
+            ok(fade and fade.kind == "Alpha" and fade.from == 1 and fade.to >= 0.3 and fade.to < 1
+               and fade.duration and fade.duration > 0,
+               "from full to a dim that is still plainly there, and back",
+               fade and (tostring(fade.from) .. " -> " .. tostring(fade.to)))
             -- /bish buff SAYS which half failed (Arn, 12 Oct: "water shield on did not turn it on")
             local rep = table.concat(FS.BadgeReport(), "\n")
             ok(rep:find("filter 24398", 1, true) and rep:find("has not drawn it yet", 1, true),

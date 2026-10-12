@@ -575,6 +575,10 @@ _G.CreateFrame = function(kind, name, parent, template)
             else
                 function slot:AddDispelTypeTexture(tex, o) self.dispelTex, self.dispelOpts = tex, o end
                 function slot:SetDurationCooldown(cd) self.durationCooldown = cd end
+                -- the count, written by the client into a font string through a formatter
+                -- (12 Oct 2026, the shield's charges: EllesmereUI, ForeverAuras use it)
+                function slot:SetApplicationCount(fs, o) self.countText, self.countOpts = fs, o end
+                function slot:SetMouseClickEnabled(v) self.clicks = v end
             end
             -- A SLOT THE CLIENT WILL NOT LET US TOUCH (6 Oct 2026, 0.8.1 on a player's own PC):
             -- "Auras.lua:317: calling 'SetSize' on bad self (Attempt to access forbidden object
@@ -4226,6 +4230,27 @@ do
             STATE.lazyAuras = true
             -- the client answers again (the checks above left it refusing every question)
             _G.C_Secrets.ShouldSpellAuraBeSecret = function(id) return hidden[id] and true or false end
+            -- THE CLIENT'S NUMERIC FORMATTER, in its real shape: breakpoints of { threshold, format },
+            -- refused when a point is malformed. `__pick` is the mock's stand-in for the client
+            -- choosing a format for a number nobody else may see.
+            local keepSU = _G.C_StringUtil
+            _G.C_StringUtil = setmetatable({ CreateNumericRuleFormatter = function()
+                local f = {}
+                function f:SetBreakpoints(points)
+                    for _, p in ipairs(points) do
+                        if type(p.threshold) ~= "number" or type(p.format) ~= "string" then
+                            error("bad breakpoint", 2)
+                        end
+                    end
+                    self.points = points
+                end
+                function f:__pick(n)
+                    local out
+                    for _, p in ipairs(self.points or {}) do if n >= p.threshold then out = p.format end end
+                    return out
+                end
+                return f
+            end }, { __index = keepSU })
             FN.Reset()
             FN.DropShield()
             FS.badgeSig = nil
@@ -4269,9 +4294,11 @@ do
             rep = table.concat(FS.BadgeReport(), "\n")
             ok(rep:find("id 52127 - NOT in the filter", 1, true),
                "a buff whose id is not the book's is named as the reason", rep)
-            mine[1] = { name = "Water Shield", spellId = 24398 }
+            mine[1] = { name = "Water Shield", spellId = 24398, applications = 3 }
             rep = table.concat(FS.BadgeReport(), "\n")
             ok(rep:find("in the filter", 1, true) and not rep:find("NOT in", 1, true), "and a match says so", rep)
+            ok(rep:find("3 charges (full counts as 3)", 1, true),
+               "and out of combat it says the charges, so 'full' can be checked against the game", rep)
             mine[1] = nil
             ok(slot and slot.__init and pcall(slot.__init, slot),
                "nothing waited for the button: the client hands it over when the buff appears")
@@ -4280,6 +4307,26 @@ do
             local icon = b and b.icon
             ok(icon and icon.__texture ~= nil and icon.__texture == _G.C_Spell.GetSpellTexture(24398),
                "our own icon is painted on the client's button, from the spell", icon and tostring(icon.__texture))
+            -- CHARGES AS A COLOUR (Arn: "normal icon and its down to 2 or 1 charge we change to
+            -- orange yellow etc"): the client picks the wash, we never read the count
+            local fmt = slot.countOpts and slot.countOpts.formatter
+            ok(slot.countText and b.wash == slot.countText and fmt, "the client is handed a font string and a formatter")
+            local function rgbOf(s) local r, g, bl = (s or ""):match(":(%d+):(%d+):(%d+)|t$") return tonumber(r), tonumber(g), tonumber(bl) end
+            ok(fmt and fmt:__pick(3) == "" and fmt:__pick(5) == "", "full charges: no wash, the plain icon")
+            local y1, y2, y3 = rgbOf(fmt and fmt:__pick(2))
+            ok(y1 == 255 and y2 and y2 > 180 and y3 < 60, "2 charges: yellow", fmt and fmt:__pick(2))
+            local o1, o2, o3 = rgbOf(fmt and fmt:__pick(1))
+            ok(o1 == 255 and o2 and o2 < 160 and o2 > 60 and o3 < 60, "1 charge: orange", fmt and fmt:__pick(1))
+            ok(fmt and fmt:__pick(0) == "", "none: no wash (the buff is gone, the red shows)")
+            -- TOO BIG ON PURPOSE, CUT TO THE ICON (Arn's screenshots: the wash hung half again past
+            -- the button). A frame on the client's button, its size, clipping
+            local big = b.px * FS.WASH_OVER
+            ok(fmt and (fmt:__pick(2) or ""):find(":" .. big .. ":" .. big .. ":", 1, true) and big > b.px,
+               "the square is drawn bigger than the icon", fmt and fmt:__pick(2))
+            local clip = b.washClip
+            ok(clip and clip.__clips == true and clip.__parent == slot and clip.__allpoints == slot,
+               "and cut to exactly the icon by a clipping frame on the client's button")
+            ok(slot.clicks == false, "the client's button lets clicks through to ours")
             -- and THAT BUTTON REFUSES QUESTIONS from our code (Arn's client: "calling '?' on bad
             -- self ... self:IsVisible()"); the report must survive it
             for _, m in ipairs({ "IsVisible", "IsShown", "GetWidth", "GetFrameLevel" }) do
@@ -4367,6 +4414,7 @@ do
             FN.Layout()
             FN.Reset()
             STATE.lazyAuras = nil
+            _G.C_StringUtil = keepSU
         end
 
         _G.C_Secrets = realSecrets

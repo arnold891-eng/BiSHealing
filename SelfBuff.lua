@@ -254,6 +254,55 @@ local function spellIcon(ids, name)
     return 136048                             -- a plain blue orb, if the client will not say
 end
 
+-- CHARGES, AS A COLOUR, CHOSEN BY THE CLIENT (12 Oct 2026). Arn: "can we make it progress by
+-- charges?" ... "right now its normal icon and its down to 2 or 1 charge we change to orange
+-- yellow etc". The count is secret in a fight, so it is never read. The client's button takes a
+-- font string (SetApplicationCount) and writes the count into it THROUGH A FORMATTER we hand it -
+-- and a formatter's "format" may be any text at all, a texture escape included. So 2 is written
+-- as one yellow square the size of the icon, 1 as an orange one, and the font string's own alpha
+-- turns the square into a wash over the icon. Full charges write nothing: the plain icon.
+-- EllesmereUI's warrior charges and ForeverAuras' gates use the same pair; C_StringUtil's
+-- formatter is in the census. Without one, no wash - the icon and the red still tell the truth.
+FS.CHARGE_FULL = 3                             -- Water Shield's globes; at this many or more, no wash
+FS.CHARGE_TINT = {                             -- charges left -> r, g, b (0-255, a texture escape's)
+    [2] = { 255, 215, 0 },                     -- yellow
+    [1] = { 255, 120, 0 },                     -- orange
+}
+FS.WASH_ALPHA = 0.55
+local function wash(px, rgb)
+    return ("|TInterface\\Buttons\\WHITE8X8:%d:%d:0:0:8:8:0:8:0:8:%d:%d:%d|t"):format(px, px, rgb[1], rgb[2], rgb[3])
+end
+local washes = {}
+function FS.WashFormatter(px)
+    if washes[px] then return washes[px] end
+    local make = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+    if not make then return nil end
+    local ok, f = pcall(make)
+    if not ok or not f or not f.SetBreakpoints then return nil end
+    local points = { { threshold = 0, format = "" } }
+    for n = 1, FS.CHARGE_FULL - 1 do
+        local rgb = FS.CHARGE_TINT[n]
+        points[#points + 1] = { threshold = n, format = rgb and wash(px, rgb) or "" }
+    end
+    points[#points + 1] = { threshold = FS.CHARGE_FULL, format = "" }
+    if not pcall(f.SetBreakpoints, f, points) then return nil end
+    washes[px] = f
+    return f
+end
+
+function FS.Wash(button, b)
+    local px = (b and b.px) or 26
+    local f = FS.WashFormatter(px)
+    if not f then return false end
+    local fs = button:CreateFontString(nil, "OVERLAY")
+    if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
+    fs:SetPoint("CENTER", button, "CENTER", 0, 0)
+    fs:SetAlpha(FS.WASH_ALPHA)
+    local ok = pcall(button.SetApplicationCount, button, fs, { formatter = f })
+    if b then b.wash = ok and fs or nil end
+    return ok
+end
+
 local function badgeIcon(button, b)
     if not button then return end
     pcall(function()
@@ -263,6 +312,10 @@ local function badgeIcon(button, b)
         if t.SetTexCoord then t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
         if b then b.icon = t end
     end)
+    pcall(FS.Wash, button, b)
+    -- clicks go through to the BiS> now button underneath, which casts the buff (EllesmereUI's
+    -- AuraKit turns clicks off on the client's buttons the same way)
+    if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
     for _, k in ipairs({ "Border", "border" }) do
         local part = button[k]
         if type(part) == "table" and part.Hide then pcall(part.Hide, part) end
@@ -320,7 +373,9 @@ function FS.AuraIdByName(name)
         if n == nil then return false end
         if n == name then
             local okI, id = pcall(function() return a.spellId end)
-            return okI and NS.Plain(id) or false
+            -- and its charges, out of combat: the wash assumes FS.CHARGE_FULL, and this checks it
+            local okC, stacks = pcall(function() return a.applications end)
+            return okI and NS.Plain(id) or false, okC and NS.Plain(stacks) or nil
         end
     end
     return nil
@@ -331,13 +386,14 @@ end
 function FS.BadgeReport()
     local lines = {}
     for _, b in ipairs(FS.badges) do
-        local on = FS.AuraIdByName(b.name)
+        local on, charges = FS.AuraIdByName(b.name)
         local match = "not on you now"
         if on == false then match = "the client will not say now"
         elseif on then
             local hit = false
             for _, id in ipairs(b.ids or {}) do if id == on then hit = true end end
-            match = ("on you as id %s - %s"):format(tostring(on), hit and "in the filter" or "NOT in the filter")
+            match = ("on you as id %s - %s; %s charges (full counts as %d)"):format(tostring(on),
+                hit and "in the filter" or "NOT in the filter", tostring(charges or "?"), FS.CHARGE_FULL)
         end
         lines[#lines + 1] = ("  badge %s: filter %s; %s"):format(b.name, table.concat(b.ids or {}, ","), match)
         local btn = b.button
@@ -423,7 +479,7 @@ function FS.MakeBadge(parent, name, ids, px)
     container:SetUnit("player")
     local want = {}
     for _, id in ipairs(ids) do want[id] = true end
-    local b = { name = name, under = under, container = container, ids = ids }
+    local b = { name = name, under = under, container = container, ids = ids, px = px }
     local slot = FA.AddSlot(container, "BiSHealSelf", "HELPFUL", {
         candidateFilters = { includeSpellIDs = want },
         -- the client hands a button over when the buff appears; noted, so /bish buff can say

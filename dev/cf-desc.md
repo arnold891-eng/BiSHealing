@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (0.8.4)
+# BiS Healing — CurseForge page text (0.8.5)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.4 text (12 Oct): the shield button in BiS> now (live in a fight, charge
+colours, click to cast); "The header talks to you" says the button takes over the reminder; the
+`/bish buff` row says so too.
 
 Changed since the 0.8.3 text (11 Oct): the opener and "Why it works" in the house voice
 (`_bisdev/docs/voice.md`); trinkets first in the mouse section; "rez: Name" on a corpse someone is
@@ -115,11 +119,13 @@ It starts with one button: **help**. It is faint while you are well, warms to am
 
 More buttons arrive as you need them. Each earns its place the first time its moment happens, and the order learns: what keeps coming up drifts to the front, and help stays first.
 
+**Your shield, live in a fight.** A shaman gets a **Water Shield** button (a priest Inner Fire, and so on: whatever `/bish buff` watches). Full charges: the plain icon. Two left: it washes **yellow**. One: **orange**. Gone: the icon pulses **red**. Click it to put the shield back, mid-fight too. Your own buffs are secret to addons in a fight, so the addon never looks — the game draws the icon and picks the colour.
+
 **Weapon oil.** With a mana or wizard oil in your bags, an **Oil** button appears wearing its icon. One click puts your best oil on your main hand. It is lit while the weapon has none and dims once it does. Hover it for what the oil gives, read from the game itself, and how long it has left.
 
 ## The header talks to you
 
-**Out of combat, the buff you keep forgetting.** `no Water Shield`, right there — one per healing class to start with, and only if you have actually trained it. `/bish buff <name>` watches something else.
+**Out of combat, the buff you keep forgetting.** `no Water Shield`, right there — one per healing class to start with, and only if you have actually trained it. `/bish buff <name>` watches something else. With BiS> now switched on, its shield button shows this instead, live, so the header stays quiet about it.
 
 **And a sound when it drops.** Your own buffs are secret to addons during a fight, so nothing can *look* — but the game will still make a noise for you. Switch it off in the options, or open the **sound id** drawer to put a different one in, with a **hear** button to try it.
 
@@ -147,7 +153,7 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
 | `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |
 | `/bish pets grid` · `own` · `off` | where pets go |
-| `/bish buff Water Shield` | a buff on yourself the header reminds you about |
+| `/bish buff Water Shield` | a buff on yourself: the shield button in BiS> now, or the header when that is off |
 | `/bish buffsound` | the sound when it drops — an id, `off`, `on`, `default`, `test` |
 | `/bish across` · `/bish grid` · `/bish pyramid` | groups across, down, or by role |
 | `/bish missing` · `/bish percent` · `/bish number off` | the number on the cells |

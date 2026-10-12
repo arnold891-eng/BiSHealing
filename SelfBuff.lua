@@ -417,7 +417,9 @@ function FS.BadgeReport()
                 if not o then return "?" end
                 local ok, v = pcall(function() return o[m](o) end)
                 if not ok then return "refused" end
-                return tostring(NS.Plain(v))
+                -- a SECRET answer printed as "nil" read like a fault (Arn's paste, 12 Oct)
+                if NS.Secret(v) then return "hidden" end
+                return tostring(v)
             end
             lines[#lines + 1] = ("    the game made its button (visible %s); our icon on it: %s, visible %s"):format(
                 ask(btn, "IsVisible"), b.icon and "made" or "NOT made", ask(b.icon, "IsVisible"))

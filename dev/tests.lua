@@ -4227,8 +4227,20 @@ do
             mine[1] = nil
             ok(slot and slot.__init and pcall(slot.__init, slot),
                "nothing waited for the button: the client hands it over when the buff appears")
-            rep = table.concat(FS.BadgeReport(), "\n")
-            ok(rep:find("the game drew it", 1, true), "and once it has, the report says where", rep)
+            -- THE BUTTON COMES BLANK (Arn, 12 Oct: shield up, badge still red, the button made):
+            -- the icon is ours to paint, the spell's own
+            local icon = FS.badges[1].icon
+            ok(icon and icon.__texture ~= nil and icon.__texture == _G.C_Spell.GetSpellTexture(24398),
+               "our own icon is painted on the client's button, from the spell", icon and tostring(icon.__texture))
+            -- and THAT BUTTON REFUSES QUESTIONS from our code (Arn's client: "calling '?' on bad
+            -- self ... self:IsVisible()"); the report must survive it
+            for _, m in ipairs({ "IsVisible", "IsShown", "GetWidth", "GetFrameLevel" }) do
+                slot[m] = function() error("Attempt to access forbidden object from code tainted by an AddOn", 2) end
+            end
+            local okR, lines = pcall(FS.BadgeReport)
+            rep = okR and table.concat(lines, "\n") or tostring(lines)
+            ok(okR and rep:find("made its button (visible refused)", 1, true) and rep:find("our icon on it: made", 1, true),
+               "a forbidden button is reported as refused, never thrown", rep)
             ok(FS.badgeFor["Water Shield"], "the badge stands for Water Shield")
 
             -- ONE LABEL: the word does not say what the badge already shows

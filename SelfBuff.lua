@@ -235,9 +235,33 @@ FS.badgeFor = {}       -- name -> true while a live badge stands for it
 FS.badges = {}
 FS.BADGE_RED = { 0.80, 0.12, 0.16, 0.95 }
 
--- the client's own icon and charges, its border gone, and no mouse: it sits on a drag handle
-local function badgeIcon(button)
+-- OUR OWN PICTURE ON THE CLIENT'S BUTTON. Arn, 12 Oct, Water Shield up and the badge still red:
+-- the client HAD made the button (the filter id was right) and it drew nothing. A custom
+-- container's button comes blank - Fojji's bar paints every one itself (`chain.icon`), as our
+-- dispel pip does. So the spell's icon goes on it here; the icon of a spell in your own book is
+-- not a secret. No mouse: it sits on a drag handle.
+local function spellIcon(ids, name)
+    local get = C_Spell and C_Spell.GetSpellTexture
+    if get then
+        for _, q in ipairs({ ids and ids[1], name }) do
+            if q then
+                local ok, tex = pcall(get, q)
+                if ok and tex and not NS.Secret(tex) then return tex end
+            end
+        end
+    end
+    return 136048                             -- a plain blue orb, if the client will not say
+end
+
+local function badgeIcon(button, b)
     if not button then return end
+    pcall(function()
+        local t = button:CreateTexture(nil, "OVERLAY")
+        t:SetAllPoints(button)
+        t:SetTexture(spellIcon(b and b.ids, b and b.name))
+        if t.SetTexCoord then t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+        if b then b.icon = t end
+    end)
     for _, k in ipairs({ "Border", "border" }) do
         local part = button[k]
         if type(part) == "table" and part.Hide then pcall(part.Hide, part) end
@@ -311,12 +335,17 @@ function FS.BadgeReport()
         if not btn then
             lines[#lines + 1] = "    the game has not drawn it yet"
         else
-            local shown = btn.IsVisible and btn:IsVisible()
-            local w = btn.GetWidth and btn:GetWidth()
-            local lvl = btn.GetFrameLevel and btn:GetFrameLevel()
-            lines[#lines + 1] = ("    the game drew it: visible %s, %s px, level %s (red at %s)"):format(
-                tostring(NS.Plain(shown)), tostring(NS.Plain(w)), tostring(NS.Plain(lvl)),
-                tostring(b.under.GetFrameLevel and b.under:GetFrameLevel()))
+            -- THE CLIENT'S BUTTON MAY NOT BE ASKED ANYTHING. Arn's client, 12 Oct: "calling '?' on
+            -- bad self (Attempt to access forbidden object ...) self:IsVisible()" - the slot rule
+            -- in solved.md, again. Every question goes in a pcall; a refusal is an answer.
+            local function ask(o, m)
+                if not o then return "?" end
+                local ok, v = pcall(function() return o[m](o) end)
+                if not ok then return "refused" end
+                return tostring(NS.Plain(v))
+            end
+            lines[#lines + 1] = ("    the game made its button (visible %s); our icon on it: %s, visible %s"):format(
+                ask(btn, "IsVisible"), b.icon and "made" or "NOT made", ask(b.icon, "IsVisible"))
         end
     end
     return lines
@@ -387,7 +416,7 @@ function FS.Badge(header)
                 -- say whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
                 initializeFrame = function(button)
                     b.button = button
-                    badgeIcon(button)
+                    badgeIcon(button, b)
                 end,
             })
             b.slot = slot

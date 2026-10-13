@@ -5979,6 +5979,36 @@ do
 
         -- AND PRESSING ONE CHANGES ITS OWN SETTING. Reading is half the wiring; a `set` pointed at
         -- the neighbour's command looks identical until somebody clicks it.
+        -- ONE LOOK FOR EVERY BiS> BAR (Arn, 12 Oct: "the bis headers are all different fonts some
+        -- different color some blinking _ some static lets get them all the same"). The prompt lib is one
+        -- the TOC loop skips, so every bar took the plain-label road here and the prompt was never
+        -- tested; it is loaded now, and a block's bar is built with it.
+        if not (BiSTheme and BiSTheme.Console) then
+            local lib = assert(loadfile("Libs/BiSTheme/Console.lua"))
+            ok(pcall(lib), "the shared prompt lib loads headless")
+        end
+        do
+            local blk = CreateFrame("Frame", nil, UIParent)
+            blk:SetSize(200, 34)
+            local h = FG.CellHeader(blk, "probe", blk)
+            -- the words fade in, as on the client: a moment passes, two paints
+            CLOCK = CLOCK + 0.3 FG.PaintHeaders() CLOCK = CLOCK + 0.3 FG.PaintHeaders()
+            local plainText = h and h.con and (h.con:Text():gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+            ok(plainText and plainText:find("BiS> probe", 1, true),
+               "a block's bar wears the family prompt: BiS> and the word", plainText)
+            local listed = false
+            for _, x in ipairs(FG.cellCons) do if x == h then listed = true end end
+            ok(listed, "and is on the grid header's one paint list")
+            local painted = 0
+            local real = h.con.Paint
+            h.con.Paint = function(self, ...) painted = painted + 1 return real(self, ...) end
+            FG.PaintHeaders()
+            ok(painted == 1, "one paint of the grid's prompts paints it - no ticker of its own", painted)
+            blk:Hide() h:Hide()
+            FG.PaintHeaders()
+            ok(painted == 1, "a hidden bar is not painted", painted)
+            h.con.Paint = real
+        end
         -- the window has to be BUILT for there to be a button to press, and the shared lib it is
         -- built from is one the TOC loop above skips
         if not (BiSTheme and BiSTheme.Options) then

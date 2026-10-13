@@ -1222,6 +1222,18 @@ FG.SELF_KEYS   = { what = "your own cell", at = "meAt", pos = "mePos",
                    spot = function() return FG.SelfSpot() end,
                    place = function(f) return FG.PlaceSelf(f) end }
 
+FG.cellCons = {}          -- the blocks' bars wearing the prompt, painted by the grid header's ticker
+
+--- One paint for every prompt on the grid: its own header, then each block's bar that is showing (target,
+--- tot, me, pets, mana, now) - one ticker for them all, never one each.
+function FG.PaintHeaders(h)
+    h = h or FG.header
+    if h and h:IsShown() and h.con and h.con.Paint then h.con:Paint() end
+    for _, ch in ipairs(FG.cellCons) do
+        if ch:IsShown() and ch.con and ch.con.Paint then ch.con:Paint() end
+    end
+end
+
 function FG.CellHeader(f, word, moves, keys)
     if not f or f.handle then return f and f.handle end
     moves = moves or f
@@ -1243,9 +1255,22 @@ function FG.CellHeader(f, word, moves, keys)
 
     local title = h:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     title:SetPoint("LEFT", 4, 0)
-    title:SetText("BiS> " .. tostring(word))
+    -- ONE LOOK FOR EVERY BiS> BAR (Arn, 12 Oct, the grid with its blocks round it: "the bis headers are
+    -- all different fonts some different color some blinking _ some static lets get them all the same").
+    -- These were a plain gold label; the grid's own header wears the family prompt - "BiS>" in the
+    -- accent, the word, the blinking "_" - at size 10. Now they all do, painted by the grid header's
+    -- one ticker (FG.cellCons), not a ticker each.
     local T = _G.BiSTheme
-    if T and T.rgb and title.SetTextColor then title:SetTextColor(T.rgb("accent")) end
+    if T and T.Console then
+        local w = (f.GetWidth and f:GetWidth()) or 84
+        if type(w) ~= "number" or w <= 0 then w = 84 end
+        h.con = T.Console(title, { width = math.max(60, w), size = 10 })
+        h.con:Set("name", tostring(word))
+        FG.cellCons[#FG.cellCons + 1] = h
+    else
+        title:SetText("BiS> " .. tostring(word))
+        if T and T.rgb and title.SetTextColor then title:SetTextColor(T.rgb("accent")) end
+    end
     h.title, h.word = title, word
 
     moves:SetMovable(true)
@@ -2418,9 +2443,7 @@ local function makeHeader(anchor)
         h.con = T.Console(title, { width = 120, size = 10 })
         h.con:Set("name", "Healing")
         if C_Timer and C_Timer.NewTicker then
-            C_Timer.NewTicker(0.2, function()
-                if h:IsShown() and h.con and h.con.Paint then h.con:Paint() end
-            end)
+            C_Timer.NewTicker(0.2, function() FG.PaintHeaders(h) end)
         end
     else
         title:SetText("BiS> Healing")

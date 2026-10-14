@@ -40,8 +40,9 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.OPTIONS_MINOR or 0) >= 2 then return end
-T.OPTIONS_MINOR = 2      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
+if (T.OPTIONS_MINOR or 0) >= 3 then return end
+T.OPTIONS_MINOR = 3      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
+                         -- 3: a window opening on top of another moves beside it (Opt:Dodge), 14 Oct
 
 -- palette fallback: only when this file is embedded and neither BiSTheme.lua nor
 -- Console.lua ran. Same table, same values, deliberately duplicated - a shared
@@ -376,9 +377,74 @@ function Opt:Paint()
   for _, r in ipairs(self.rows) do if r.paint then r.paint() end end
 end
 
+-- ---------------------------------------------------------------- not on top of each other
+-- Arn, 14 Oct 2026, with BiS Tools' hub opened over BiS Healing's options: "can we make the option
+-- smart enough if a window is open it does not open right on top of another one". Every window this
+-- kit builds is listed in T.OPEN (T is the one global BiSTheme table, so every addon's windows share
+-- the list - and the newest copy of this file builds all of them). Opening one that would cover an
+-- open one moves it beside it: right, else left, else below - else where it was.
+T.OPEN = T.OPEN or {}
+T.DODGE_GAP = 8
+
+--- Where a box should go so it covers none of `others`. Boxes are { l, b, r, t } in screen pixels;
+--- answers the new left and top, or nil when it covers nothing (or nothing fits).
+function T.DodgeRect(box, others, screenW, screenH)
+  local function hits(a, o) return a[1] < o[3] and a[3] > o[1] and a[2] < o[4] and a[4] > o[2] end
+  local function clear(a)
+    if a[1] < 0 or a[2] < 0 or a[3] > screenW or a[4] > screenH then return false end
+    for _, o in ipairs(others) do if hits(a, o) then return false end end
+    return true
+  end
+  local covered
+  for _, o in ipairs(others) do if hits(box, o) then covered = o break end end
+  if not covered then return nil end
+  local w, h, g = box[3] - box[1], box[4] - box[2], T.DODGE_GAP
+  local tries = {}
+  for _, o in ipairs(others) do
+    tries[#tries + 1] = { o[3] + g, box[2], o[3] + g + w, box[4] }   -- right of it
+    tries[#tries + 1] = { o[1] - g - w, box[2], o[1] - g, box[4] }   -- left of it
+    tries[#tries + 1] = { box[1], o[2] - g - h, box[3], o[2] - g }   -- below it
+  end
+  for _, a in ipairs(tries) do if clear(a) then return a[1], a[4] end end
+  return nil
+end
+
+--- A window about to open: off any other open BiS window. Rect reads are asked, never trusted - a
+--- hidden or refused answer leaves the window where it was.
+function Opt:Dodge()
+  local function rect(f)
+    local ok, l, b, w, h = pcall(f.GetRect, f)
+    local okS, s = pcall(f.GetEffectiveScale, f)
+    if not (ok and okS) then return nil end
+    -- each asked by name: a frame not yet placed answers NOTHING, and ipairs stops at the first gap
+    local function num(v) return type(v) == "number" and not (issecretvalue and issecretvalue(v)) end
+    if not (num(l) and num(b) and num(w) and num(h) and num(s)) then return nil end
+    return { l * s, b * s, (l + w) * s, (b + h) * s }
+  end
+  local mine = rect(self)
+  if not mine then return false end
+  local others = {}
+  for f in pairs(T.OPEN) do
+    if f ~= self and f:IsShown() then
+      local r = rect(f)
+      if r then others[#others + 1] = r end
+    end
+  end
+  if #others == 0 then return false end
+  local okU, sw, sh = pcall(function() return UIParent:GetWidth() * UIParent:GetEffectiveScale(),
+    UIParent:GetHeight() * UIParent:GetEffectiveScale() end)
+  if not okU then return false end
+  local left, top = T.DodgeRect(mine, others, sw, sh)
+  if not left then return false end
+  local s = self:GetEffectiveScale()
+  self:ClearAllPoints()
+  self:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / s, top / s)
+  return true
+end
+
 function Opt:Toggle(want)
   if want == nil then want = not self:IsShown() end
-  if want then self:Paint() self:Show() else self:Hide() end
+  if want then self:Paint() self:Dodge() self:Show() else self:Hide() end
 end
 
 --- Drag the window back to the middle. "reset window position" wires to this.
@@ -439,6 +505,7 @@ function T.Options(name, w, title)
 
   f.head, f.body, f.rows, f.w, f._y = head, body, {}, w, 0
   for k, v in pairs(Opt) do f[k] = v end
+  T.OPEN[f] = true
 
   -- A new frame is shown by default and the toggle is what decides. The harness
   -- caught this on the Hub's first day.

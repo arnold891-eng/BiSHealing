@@ -4408,6 +4408,20 @@ do
             containersExist = true
             FA.available = nil
 
+            -- THE CLIENT REFUSES THE BADGE AFTER THE BUTTON EXISTS (14 Oct, Arn in a battleground:
+            -- an empty slot that still cast). The button keeps the spell's own picture.
+            FN.Layout()
+            local sb = FN.buttons.shield
+            local keepMake = FS.MakeBadge
+            FS.MakeBadge = function() return nil, "the client would not let the marker be placed" end
+            FN.DropShield(sb)
+            sb.shieldSig = nil
+            if sb.art.Hide then sb.art:Hide() end
+            FN.ArmShield(sb)
+            ok(sb:IsShown() and sb.badge == nil and sb.art.__shown ~= false,
+               "a refused badge: the button keeps its picture, never an empty slot")
+            FS.MakeBadge = keepMake
+
             FN.DropShield()
             FS.badges, FS.badgeFor, FS.badgeSig = {}, {}, nil
             d.now, d.shown = keepNow, keepShown

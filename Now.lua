@@ -69,6 +69,10 @@ FN.BUTTONS = {
     -- for a shaman, Inner Fire for a priest. Always there, like help: a button that is already in
     -- its place is one you can hit without looking for it.
     { id = 5, key = "shield", word = "Shield", ready = true, always = true, selfbuff = true },
+    -- MY TANK (14 Oct 2026). Arn: "when im clicking on a friendly target and i click the button it
+    -- becomes my personal tank ... puts a teal small sabers so i know where they are going and i dont
+    -- lose them in bgs and if i click on it it targets them". Always there, like the shield.
+    { id = 6, key = "tank", word = "Tank", ready = true, always = true, tank = true },
 }
 
 --- THE OILS, best first for a healer: mana oils (mana back AND healing), then wizard oils.
@@ -346,7 +350,8 @@ function FN.Mine()
         if b and b.ready and FN.Earned(k)
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
-           and (not b.selfbuff or FN.ShieldReady()) then   -- and the shield, a buff and containers
+           and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
+           and (not b.tank or FN.TankReady()) then         -- and the tank, unless switched off
             out[#out + 1] = k
         end
     end
@@ -577,7 +582,8 @@ function FN.PaintHelp(b)
         return false
     end
     local ok, col = pcall(UnitHealthPercent, "player", true, curve)
-    if not ok or not col or not col.GetRGBA then
+    -- a colour is a table; anything else (a plain number) is "no colour back", never indexed
+    if not ok or type(col) ~= "table" or not col.GetRGBA then
         b.art:SetVertexColor(1, 0.3, 0.3, 0.35)
         FN.seen = ok and "no colour back" or "refused"
         return false
@@ -776,6 +782,227 @@ function FN.ShieldTip(b)
     return true
 end
 
+--[[---------------------------------------------------------------------------
+  MY TANK. One friendly player you choose; the button targets them, and a small teal X
+  stands on them (under their nameplate) so you do not lose them in a battleground.
+
+  LEFT-CLICK targets them: a secure macro, `/target Name`, which reaches a player the
+  client knows even out of sight. RIGHT-CLICK makes your current friendly target your
+  tank (on yourself, or nobody, it lets go). With no tank yet, a left-click chooses too.
+
+  The macro is a secure attribute: written OUT OF COMBAT ONLY. Chosen mid-fight, the X
+  and the tooltip follow at once; the click's target follows when the fight ends.
+-----------------------------------------------------------------------------]]
+FN.TEAL = { 0.20, 0.90, 0.82 }
+FN.TANK_ICON = "Interface\\Icons\\Ability_Defend"
+
+--- The button is there unless switched off (db.tankButton = false).
+function FN.TankReady()
+    local d = NS.DB and NS.DB()
+    return not (type(d) == "table" and d.tankButton == false)
+end
+
+--- The tank's name, or nil. Kept in the db (mirrored per character, see Core's MIRROR).
+function FN.Tank()
+    local d = NS.DB and NS.DB()
+    local t = type(d) == "table" and d.tank or nil
+    return type(t) == "string" and t ~= "" and t or nil
+end
+
+local function ask(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, ...)
+    if not ok then return nil end
+    return NS.Plain and NS.Plain(v) or v
+end
+
+--- A unit's name the way /target wants it (with the realm when it is not ours), or nil.
+local function nameOf(unit)
+    local n = ask(GetUnitName, unit, true)
+    if type(n) ~= "string" or n == "" then n = ask(UnitName, unit) end
+    if type(n) ~= "string" or n == "" or n == (UNKNOWNOBJECT or "Unknown") then return nil end
+    return n
+end
+FN.NameOf = nameOf
+
+--- Is this name the tank? Whole, or a plate's first word against the tank's (Forever's two-part
+--- names: "Tobi Three" - a plate may say only "Tobi"), realm left off either side.
+function FN.IsTank(name)
+    local t = FN.Tank()
+    if not (t and type(name) == "string") then return false end
+    local function bare(s) return (s:match("^([^%-]+)") or s) end
+    local a, b = bare(t), bare(name)
+    if a == b then return true end
+    return (not b:find(" ", 1, true)) and a:match("^(%S+)") == b
+end
+
+--- Your target becomes your tank: a friendly player, not you. Anything else lets go.
+function FN.SetTank()
+    local d = NS.DB and NS.DB()
+    if type(d) ~= "table" then return nil end
+    local friend = ask(UnitExists, "target") == true and ask(UnitIsPlayer, "target") == true
+        and ask(UnitIsFriend, "player", "target") == true and ask(UnitIsUnit, "player", "target") ~= true
+    local name = friend and nameOf("target") or nil
+    if name and FN.IsTank(name) then name = nil end              -- them again: let go
+    d.tank = name
+    if name then
+        NS.Print("%s is your tank - left-click the button to target them", name)
+    else
+        NS.Print("no tank now (right-click the button with a friendly player targeted to choose one)")
+    end
+    FN.ApplyTank()
+    FN.MarkTankPlates()
+    return name
+end
+
+--- The secure half: out of combat only; mid-fight, when it ends.
+function FN.ApplyTank(b)
+    b = b or (FN.buttons and FN.buttons.tank)
+    if not b or not b.SetAttribute then return false end
+    if InCombatLockdown and InCombatLockdown() then FN.tankDirty = true return false end
+    FN.tankDirty = nil
+    local t = FN.Tank()
+    b:SetAttribute("*macrotext1", t and ("/target " .. t) or "")
+    FN.PaintTank(b)
+    return true
+end
+
+--- Dim with nobody chosen, full with a tank, and a teal edge so it reads as the X's button.
+function FN.PaintTank(b)
+    if not b then return end
+    b:SetAlpha(FN.Tank() and 1 or 0.45)
+end
+
+function FN.ArmTank(b)
+    if b.SetAttribute then
+        b:SetAttribute("*type1", "macro")
+        b:SetAttribute("*type2", nil)            -- right-click: ours alone (FN.SetTank), nothing secure
+    end
+    if b.art and b.art.SetTexture then pcall(b.art.SetTexture, b.art, FN.TANK_ICON) end
+    if b.HookScript and not b.tankHooked then
+        b.tankHooked = true
+        b:HookScript("OnClick", function(_, button)
+            if button == "RightButton" or not FN.Tank() then FN.SetTank() end
+        end)
+        b:HookScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            local t = FN.Tank()
+            GameTooltip:AddLine(t and ("Your tank: " .. t) or "Your tank: nobody yet")
+            GameTooltip:AddLine("Left-click: target them. Right-click: make your friendly target your tank (again on them: let go). A small teal X stands on them.", 1, 1, 1, true)
+            if FN.tankDirty then GameTooltip:AddLine("The click targets them once this fight ends.", 1, 0.6, 0.2, true) end
+            GameTooltip:Show()
+        end)
+        b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    end
+    FN.TankWatch()
+    FN.ApplyTank(b)
+end
+
+--- THE X: two slim teal blades, crossed, under the tank's nameplate.
+FN.TANK_W, FN.TANK_H = 30, 35
+FN.tankMarks, FN.tankPool = {}, {}
+
+local function newX()
+    local f = CreateFrame("Frame", nil, UIParent)
+    f:SetFrameStrata("BACKGROUND")
+    f.parts = {}
+    if not f.CreateLine then return f end
+    local c = FN.TEAL
+    local x, y = FN.TANK_W / 2 - 2, FN.TANK_H / 2 - 2
+    for _, sign in ipairs({ 1, -1 }) do
+        for _, layer in ipairs({ { 6, 0.18 }, { 3.5, 0.45 }, { 2, 1 } }) do
+            local l = f:CreateLine(nil, "ARTWORK")
+            l:SetTexture("Interface\\Buttons\\WHITE8X8")
+            l:SetVertexColor(c[1], c[2], c[3], layer[2])
+            if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
+            l:SetThickness(layer[1])
+            l:SetStartPoint("CENTER", f, -x * sign, -y)
+            l:SetEndPoint("CENTER", f, x * sign, y)
+            f.parts[#f.parts + 1] = l
+        end
+    end
+    return f
+end
+
+local function plateOf(unit)
+    local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
+    if not get then return nil end
+    local ok, plate = pcall(get, unit)
+    if not ok or not plate then return nil end
+    local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
+    if not okF or forbidden then FN.tankForbidden = true return nil end
+    return plate
+end
+
+function FN.UnmarkTank(unit)
+    local f = FN.tankMarks[unit]
+    if not f then return end
+    f:Hide() f:ClearAllPoints()
+    FN.tankMarks[unit] = nil
+    FN.tankPool[#FN.tankPool + 1] = f
+end
+
+--- One plate: the X on it when it is the tank, off it when not.
+function FN.MarkTankPlate(unit)
+    if type(unit) ~= "string" then return end
+    local is = FN.Tank() and FN.IsTank(nameOf(unit)) and ask(UnitIsFriend, "player", unit) == true
+    if not is then return FN.UnmarkTank(unit) end
+    if FN.tankMarks[unit] then return end
+    local plate = plateOf(unit)
+    if not plate then return end
+    local f = table.remove(FN.tankPool) or newX()
+    f:SetSize(FN.TANK_W, FN.TANK_H)
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -4)
+    f:Show()
+    FN.tankMarks[unit] = f
+end
+
+FN.tankPlates = {}
+function FN.MarkTankPlates()
+    for unit in pairs(FN.tankPlates) do FN.MarkTankPlate(unit) end
+end
+
+--- Plates come and go; the macro waits for the fight to end. Events only, and with no tank chosen
+--- a plate costs one table lookup.
+function FN.TankWatch()
+    if FN.tankFrame then return end
+    local f = CreateFrame("Frame")
+    FN.tankFrame = f
+    for _, e in ipairs({ "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED", "PLAYER_REGEN_ENABLED" }) do
+        pcall(f.RegisterEvent, f, e)
+    end
+    f:SetScript("OnEvent", function(_, event, unit)
+        if event == "NAME_PLATE_UNIT_ADDED" then
+            if type(unit) == "string" and not (NS.Secret and NS.Secret(unit)) then
+                FN.tankPlates[unit] = true
+                if FN.Tank() then FN.MarkTankPlate(unit) end
+            end
+        elseif event == "NAME_PLATE_UNIT_REMOVED" then
+            if type(unit) == "string" and not (NS.Secret and NS.Secret(unit)) then
+                FN.tankPlates[unit] = nil
+                FN.UnmarkTank(unit)
+            end
+        elseif event == "PLAYER_REGEN_ENABLED" and FN.tankDirty then
+            FN.ApplyTank()
+        end
+    end)
+end
+
+--- /bish tank: who, whether the click is written, and whether their plate can carry the X.
+function FN.TankWhy()
+    local t = FN.Tank()
+    NS.Print("tank: %s", t or "nobody (right-click the Tank button in BiS> now with a friendly player targeted)")
+    if not t then return end
+    local b = FN.buttons and FN.buttons.tank
+    NS.Print("  the click: %s", not b and "no Tank button (is BiS> now on? /bish now on)"
+        or (FN.tankDirty and "waiting for this fight to end" or ("targets " .. t)))
+    local marked = 0
+    for _ in pairs(FN.tankMarks) do marked = marked + 1 end
+    NS.Print("  the teal X: %s%s", marked > 0 and "on them now" or "not on screen (their nameplate is not shown)",
+        FN.tankForbidden and " - the game kept a friendly nameplate from addons here" or "")
+end
+
 --- One button. A SECURE UNIT BUTTON pointed at you, so that hovering it makes you the mouseover -
 --- which is what `/ping [@mouseover] assist` then aims at. Built out of combat, never rewritten.
 local function makeButton(parent, key)
@@ -860,6 +1087,7 @@ local function makeButton(parent, key)
             b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         end
     end
+    if def and def.tank then FN.ArmTank(b) end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -893,6 +1121,7 @@ function FN.Paint()
             if key == "help" then FN.PaintHelp(b)
             elseif key == "oil" then FN.PaintOil(b)
             elseif key == "shield" then             -- painted by the client, never by us
+            elseif key == "tank" then FN.PaintTank(b)
             else FN.PaintNeed(b, key) end
         end
     end

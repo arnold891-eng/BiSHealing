@@ -651,6 +651,11 @@ end
 --- The line that matters is the last one. "reads for SOMEBODY ELSE" is the single unproven claim
 --- the whole Tremor design rests on, and it cannot be proved by a client that keeps answering nil
 --- because nobody happens to be feared.
+--- /bish tank: your chosen tank (BiS> now's Tank button), and whether the click and the X work.
+function NS.DO.tank()
+    if NS.FN and NS.FN.TankWhy then NS.FN.TankWhy() end
+end
+
 function NS.DO.holds()
     local FN = NS.FN
     if not FN then Print("the now block is not loaded") return false end
@@ -1866,6 +1871,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.control()
     elseif msg == "holds" then
         NS.DO.holds()
+    elseif msg == "tank" then
+        NS.DO.tank()
     elseif msg == "now" then
         NS.DO.now()
     elseif msg:match("^now%s+%a+$") then
@@ -1944,7 +1951,7 @@ NS.loaded = { found = false }
 --
 -- These are SEPARATE TABLES, never aliases: two globals pointing at one table is one file saved
 -- and one lost, which would look exactly like the bug we are working around.
-local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves", "holds" }
+local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves", "holds", "tank" }
 
 local function copy(v)
     if type(v) ~= "table" then return v end

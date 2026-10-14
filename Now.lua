@@ -919,29 +919,52 @@ function FN.TankLift(d)
 end
 FN.tankMarks, FN.tankPool = {}, {}
 
-local function newX()
+--- THE LOOKS (Arn, 14 Oct: "i also wanted different disigns not all want x"). Each a set of
+--- glowing strokes in a box from -1 to 1 each way, scaled to the size stepper. The same five, in
+--- the same order, as BiS Tools' bg marks (Battleground.lua B.LOOKS).
+FN.LOOKS = {
+    { key = "x", word = "X", strokes = { { -1, -1, 1, 1 }, { 1, -1, -1, 1 } } },
+    { key = "saber", word = "saber", strokes = { { 0, -1, 0, 1 } } },
+    { key = "arrow", word = "arrow", strokes = { { -1, 1, 0, -0.3 }, { 1, 1, 0, -0.3 } } },
+    { key = "diamond", word = "diamond", strokes = { { 0, 1, 1, 0 }, { 1, 0, 0, -1 }, { 0, -1, -1, 0 }, { -1, 0, 0, 1 } } },
+    { key = "corners", word = "corners", strokes = {
+        { -1, 1, -0.45, 1 }, { -1, 1, -1, 0.45 }, { 1, 1, 0.45, 1 }, { 1, 1, 1, 0.45 },
+        { -1, -1, -0.45, -1 }, { -1, -1, -1, -0.45 }, { 1, -1, 0.45, -1 }, { 1, -1, 1, -0.45 } } },
+}
+
+--- The chosen look's place in FN.LOOKS (the stepper's number), 1 = X.
+function FN.TankLook(d)
+    d = d or (NS.DB and NS.DB())
+    local v = type(d) == "table" and tonumber(d.tankLook) or nil
+    v = v and math.floor(v) or 1
+    return (v >= 1 and v <= #FN.LOOKS) and v or 1
+end
+
+local function newX(look)
     local f = CreateFrame("Frame", nil, UIParent)
     f:SetFrameStrata("BACKGROUND")
     f.parts = {}
+    f.look = look
     if not f.CreateLine then return f end
     local c = FN.TEAL
-    for _, sign in ipairs({ 1, -1 }) do
+    for _, s in ipairs(FN.LOOKS[look].strokes) do
         for _, layer in ipairs({ { 6, 0.18 }, { 3.5, 0.45 }, { 2, 1 } }) do
             local l = f:CreateLine(nil, "ARTWORK")
             l:SetTexture("Interface\\Buttons\\WHITE8X8")
             l:SetVertexColor(c[1], c[2], c[3], layer[2])
             if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
             l:SetThickness(layer[1])
-            l.sign = sign
+            l.stroke = s
             f.parts[#f.parts + 1] = l
         end
     end
-    -- the tips in the box's corners, whatever its size (the size stepper)
+    -- the strokes to the box, whatever its size (the size stepper)
     function f.Fit(w, h)
         local x, y = w / 2 - 2, h / 2 - 2
         for _, l in ipairs(f.parts) do
-            l:SetStartPoint("CENTER", f, -x * l.sign, -y)
-            l:SetEndPoint("CENTER", f, x * l.sign, y)
+            local s = l.stroke
+            l:SetStartPoint("CENTER", f, s[1] * x, s[2] * y)
+            l:SetEndPoint("CENTER", f, s[3] * x, s[4] * y)
         end
     end
     f.Fit(FN.TANK_W, FN.TANK_H)
@@ -969,7 +992,9 @@ function FN.UnmarkTank(unit)
     if not f then return end
     f:Hide() f:ClearAllPoints()
     FN.tankMarks[unit] = nil
-    FN.tankPool[#FN.tankPool + 1] = f
+    local pool = FN.tankPool[f.look or 1] or {}
+    FN.tankPool[f.look or 1] = pool
+    pool[#pool + 1] = f
 end
 
 --- One plate: the X on it when it is the tank, off it when not.
@@ -980,7 +1005,8 @@ function FN.MarkTankPlate(unit)
     if FN.tankMarks[unit] then return end
     local plate = plateOf(unit)
     if not plate then return end
-    local f = table.remove(FN.tankPool) or newX()
+    local look = FN.TankLook()
+    local f = table.remove(FN.tankPool[look] or {}) or newX(look)
     local k = FN.TankSize() / 100
     f:SetSize(FN.TANK_W * k, FN.TANK_H * k)
     if f.Fit then f.Fit(FN.TANK_W * k, FN.TANK_H * k) end

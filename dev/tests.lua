@@ -6888,7 +6888,19 @@ do
         ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
         local keys = {}
         for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = true end
-        ok(keys.tanksize and keys.tanklift, "both steppers are in the options window")
+        ok(keys.tanksize and keys.tanklift and keys.tanklook, "the steppers are in the options window")
+        -- the looks (Arn: "not all want x"): each its own strokes, three glow layers a stroke
+        d.tankSize, d.tankLift = nil, nil
+        for i, look in ipairs(FN.LOOKS) do
+            d.tankLook = i
+            FN.RedrawTank()
+            local m = FN.tankMarks.nameplate5
+            ok(m and m.look == i and #m.parts == #look.strokes * 3 and m:IsShown(),
+               "tank mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        end
+        d.tankLook = 99
+        ok(FN.TankLook(d) == 1, "an unknown look falls back to the X")
+        d.tankLook = nil
         d.tankSize, d.tankLift = nil, nil
         FN.RedrawTank()
         -- right-click on them again: let go; and an enemy or yourself is never a tank

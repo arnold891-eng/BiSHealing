@@ -111,12 +111,18 @@ function CFG.Sections()
               show = function(db) return ("%dpx"):format(db.markers or 10) end },
             -- the tank's teal X (BiS> now's Tank button), to taste (Arn, 14 Oct: "add the steppers
             -- to the tank x too") - the same two as BiS Tools' bg marks
-            { key = "tanksize", kind = "step", label = "tank X size",
+            -- a stepper through names (Arn: "not all want x")
+            { key = "tanklook", kind = "step", label = "tank mark",
+              min = 1, max = NS.FN and #NS.FN.LOOKS or 5, step = 1,
+              get = function(db) return NS.FN and NS.FN.TankLook(db) or 1 end,
+              set = function(db, v) db.tankLook = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db) return NS.FN and NS.FN.LOOKS[NS.FN.TankLook(db)].word or "X" end },
+            { key = "tanksize", kind = "step", label = "tank mark size",
               min = 50, max = 200, step = 10,
               get = function(db) return NS.FN and NS.FN.TankSize(db) or 100 end,
               set = function(db, v) db.tankSize = v if NS.FN then NS.FN.RedrawTank() end end,
               show = function(db) return ("%d%%"):format(NS.FN and NS.FN.TankSize(db) or 100) end },
-            { key = "tanklift", kind = "step", label = "tank X height",
+            { key = "tanklift", kind = "step", label = "tank mark height",
               min = -40, max = 40, step = 5,
               get = function(db) return NS.FN and NS.FN.TankLift(db) or 0 end,
               set = function(db, v) db.tankLift = v if NS.FN then NS.FN.RedrawTank() end end,

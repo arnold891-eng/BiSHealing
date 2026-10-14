@@ -33,28 +33,28 @@ function CFG.Sections()
         -- THE BINDS FIRST. Arn, 21 Sep: "always keep the bind on top". The minimap button opens
         -- this window and nothing else now, so the first row is the thing a healer came for.
         { title = "clicks", options = {
-            { key = "mouse", kind = "button", label = "drag spells onto a mouse", button = "binds",
+            { key = "mouse", kind = "button", label = "drag spells onto a mouse", help = "Opens the mouse: drag a spell onto a button (left, right, middle, 4, 5, the wheel) and clicking a cell casts it on that player.", button = "binds",
               action = function() if DO.mouse then DO.mouse() end end },
             -- one owner of the clicks: ours, or Clique's (Arn, 22 Sep: "im a clique user")
-            { key = "clique", kind = "toggle", label = "let Clique handle clicks",
+            { key = "clique", kind = "toggle", label = "let Clique handle clicks", help = "If you use Clique, let it own the clicks on our cells; our own binds step aside.",
               get = function(db) return db.clique == true end,
               set = function(_, on) if DO.clique then DO.clique(on) end end },
         } },
         { title = "frames", options = {
-            { key = "shown", kind = "toggle", label = "show the cells",
+            { key = "shown", kind = "toggle", label = "show the cells", help = "Show or hide the healing cells. Hidden, nothing is drawn and nothing is clicked.",
               get = function(db) return db.shown ~= false end,
               set = function(_, on) if DO.show then DO.show(on) end end },
-            { key = "minimap", kind = "toggle", label = "minimap button",
+            { key = "minimap", kind = "toggle", label = "minimap button", help = "Show the BiS Healing button on the minimap. /bish still opens everything.",
               get = function() return not (NS.MM and NS.MM.Hidden()) end,
               set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
             -- a STEPPER, not a slider: the family's options lib has none, on purpose - "230 px has
             -- no room for a track, and a stepper is exact" (Libs/BiSTheme/Options.lua)
-            { key = "scale", kind = "step", label = "size of the cells",
+            { key = "scale", kind = "step", label = "size of the cells", help = "Scales every cell, bar and word together.",
               min = 0.6, max = 1.6, step = 0.05,
               get = function(db) return db.scale or 1 end,
               set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
               show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
-            { key = "center", kind = "button", label = "centre on screen", button = "centre",
+            { key = "center", kind = "button", label = "centre on screen", help = "Puts the cells back in the middle of the screen, if they were dragged out of reach.", button = "centre",
               action = function() if DO.center then DO.center() end end },
         } },
         -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
@@ -62,13 +62,13 @@ function CFG.Sections()
         -- only half that works mid-fight, where your own buffs are secret. Two rows, because a
         -- switch and a number are two questions: whether, and which.
         { title = "reminders", options = {
-            { key = "buffsound", kind = "toggle", label = "sound when it drops",
+            { key = "buffsound", kind = "toggle", label = "sound when it drops", help = "A sound when your own buff (Water Shield, Inner Fire...) falls off - the one thing the game lets an addon say mid-fight.",
               get = function(db) return db.buffQuiet ~= true end,
               set = function(_, on) if DO.buffsound then DO.buffsound(on and "on" or "off") end end },
             -- the shared lib has four control kinds and no free-text field, on purpose ("230 px
             -- has no room"). So the number lives in a drawer that unrolls under the window, built
             -- here out of the lib's own primitives - the copy under Libs\ is never edited.
-            { key = "buffsoundid", kind = "button", label = "sound id", button = "change",
+            { key = "buffsoundid", kind = "button", label = "sound id", help = "Which sound plays when your buff drops: type a sound id in the drawer that opens.", button = "change",
               action = function() CFG.Drawer() end },
         } },
         -- THE RIGHT-HAND COLUMN (7 Oct 2026). The window was at its fourteen-row cap and a player
@@ -77,7 +77,7 @@ function CFG.Sections()
         { title = "look", column = 2, options = {
             -- three answers, so segments rather than a switch: "lost" is what they still need
             -- after incoming heals, blank at full
-            { key = "number", kind = "seg", label = "number",
+            { key = "number", kind = "seg", label = "number", help = "The number on each cell: lost - the health they still need after heals on the way; % - their health; off - none.",
               values = { "lost", "%", "off" },
               get = function(db)
                   local m = db.text
@@ -86,25 +86,25 @@ function CFG.Sections()
               set = function(_, v)
                   if DO.number then DO.number((v == "%" and "percent") or (v == "off" and "off") or "missing") end
               end },
-            { key = "colour", kind = "toggle", label = "bar colour by health",
+            { key = "colour", kind = "toggle", label = "bar colour by health", help = "Colour health bars green to red by how hurt they are, instead of by class.",
               get = function(db) return db.color == "health" end,
               set = function(_, on) if DO.colour then DO.colour(on) end end },
             -- a player's two asks, 7 Oct: "a toggle highlight self or highlight target", and "a
             -- slider for how much it dims out of range" - a stepper, like the cell size
-            { key = "ring", kind = "seg", label = "gold ring",
+            { key = "ring", kind = "seg", label = "gold ring", help = "The gold ring marks a cell: me - your own; target - whoever you have targeted.",
               values = { "me", "target" },
               get = function(db) return db.ring == "target" and "target" or "me" end,
               set = function(_, v) if DO.ring then DO.ring(v) end end },
             -- 7 Oct, Arn's cousin's idea: light up the cell of whoever the mouse is on
-            { key = "hover", kind = "toggle", label = "mouse crosshair",
+            { key = "hover", kind = "toggle", label = "mouse crosshair", help = "Light up the cell of whoever your mouse is on, anywhere on screen.",
               get = function(db) return db.hover ~= false end,
               set = function(_, on) if DO.hover then DO.hover(on) end end },
-            { key = "dim", kind = "step", label = "out of range",
+            { key = "dim", kind = "step", label = "out of range", help = "How far a cell dims when that player is out of your healing range.",
               min = 0.2, max = 0.9, step = 0.05,
               get = function(db) return db.dim or 0.30 end,
               set = function(_, v) if DO.dim then DO.dim(v) end end,
               show = function(db) return ("%d%%"):format(math.floor((db.dim or 0.30) * 100 + 0.5)) end },
-            { key = "markers", kind = "step", label = "marker size",
+            { key = "markers", kind = "step", label = "debuff marker size", help = "The size of the little squares the game draws on a cell for a debuff you can cure.",
               min = 6, max = 20, step = 2,
               get = function(db) return db.markers or 10 end,
               set = function(_, v) if DO.markers then DO.markers(v) end end,
@@ -117,7 +117,7 @@ function CFG.Sections()
             -- "which extra cells do you want?" - and the answers are not exclusive, so this is
             -- not the lib's `seg`: it is built here from the lib's primitives, like the sound
             -- drawer, and each button lights on its own.
-            { key = "cells", kind = "cells", label = "cells", parts = {
+            { key = "cells", kind = "cells", label = "cells", help = "Extra cells beside the grid: target, target of target, yourself, and a mana list of your healers.", parts = {
                 { key = "target", label = "target",
                   get = function(db) return db.target == true end,
                   set = function(on) if DO.target then DO.target(on) end end },
@@ -134,13 +134,13 @@ function CFG.Sections()
             -- PETS HAVE THREE ANSWERS, so they are not one of the switches above: in the main
             -- cells, in a block of their own, or nowhere (Arn, 26 Sep). One question, three
             -- answers, which is exactly what the lib's `seg` is for.
-            { key = "pets", kind = "seg", label = "pets",
+            { key = "pets", kind = "seg", label = "pets", help = "Pets: grid - in with their owners; own - a block of their own; off - no pet cells.",
               values = { "grid", "own", "off" },
               get = function() return (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or "off" end,
               set = function(_, v) if DO.pets then DO.pets(v) end end },
             -- THREE LAYOUTS, one row. A player asked for cells "vertically and horizontally"
             -- (paszczyszyn, 22 Sep); the pyramid was already here, so a switch became segments.
-            { key = "layout", kind = "seg", label = "groups",
+            { key = "layout", kind = "seg", label = "groups", help = "How groups are laid out: down - a column each; across - a row each; tanks - tanks on top, the rest below.",
               values = { "down", "across", "tanks" },
               get = function(db)
                   return (db.layout == "rows" and "across") or (db.layout == "pyramid" and "tanks") or "down"

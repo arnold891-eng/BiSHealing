@@ -741,11 +741,27 @@ function FN.ArmShield(b)
         b:SetAttribute("*macrotext1", "/cast " .. name)
     end
     b.shieldName = name
-    -- the static picture would say "up" for ever; the badge's red and the client's icon are the face
-    if b.art and b.art.Hide then b.art:Hide() end
     local _, h = dims()
     b.badge = FS.MakeBadge(b, name, ids, h - 8)
     b.shieldSig = b.badge and sig or nil
+    if b.badge then
+        -- the static picture would say "up" for ever; the badge's red and the client's icon are the face
+        if b.art and b.art.Hide then b.art:Hide() end
+    else
+        -- THE CLIENT REFUSED THE BADGE (14 Oct 2026, Arn in a battleground: "water shield not
+        -- showing up" - "aura markers are off: this client will not let them be placed"). The
+        -- picture used to be hidden BEFORE asking, so a refusal left an empty, invisible button
+        -- that still cast. Now: the spell's own icon, dimmed - a button you can see and click,
+        -- which cannot say whether the buff is up, and does not pretend to.
+        local okT, icon = pcall(function()
+            return C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(name)
+        end)
+        if b.art then
+            if okT and icon and b.art.SetTexture then pcall(b.art.SetTexture, b.art, icon) end
+            if b.art.SetVertexColor then b.art:SetVertexColor(1, 1, 1, 0.6) end
+            if b.art.Show then b.art:Show() end
+        end
+    end
     return name
 end
 

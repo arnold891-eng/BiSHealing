@@ -41,8 +41,8 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.MINIMAP_MINOR or 0) >= 1 then return end
-T.MINIMAP_MINOR = 1
+if (T.MINIMAP_MINOR or 0) >= 2 then return end
+T.MINIMAP_MINOR = 2   -- 2: a click puts a minimap collector's backing back under the icon (b:Unbury)
 
 -- palette fallback: only when this file is embedded and no other BiSTheme file ran. Duplicated on
 -- purpose, exactly as Options.lua duplicates it - a shared local between two embedded files is a
@@ -483,7 +483,28 @@ function T.Minimap(key, opts)
     return true
   end
 
+  --- THE ICON WENT DARK AFTER A CLICK (Arn, 12 Oct 2026 on BiS Tools, and 14 Oct on BiS Healing:
+  --- "the minimap icon still go dim when i click them"). EllesmereUI's minimap collector puts a black
+  --- box behind each button it gathers - a CHILD of the button, one level below it - and its click
+  --- hook lifts EVERY child of the clicked button to DIALOG, its own box too, over the icon. This
+  --- button has no children of its own (the menu hangs off UIParent), so whatever is a child is
+  --- somebody else's backing: a moment after the click (their hook runs after ours) it goes back
+  --- below the button. BiS Tools' Hub.lua H.UnburyIcon is the same fix, for its own button.
+  function b:Unbury()
+    if not (self.GetChildren and C_Timer and C_Timer.After) then return false end
+    C_Timer.After(0, function()
+      local level = (self.GetFrameLevel and self:GetFrameLevel()) or 1
+      local strata = self.GetFrameStrata and self:GetFrameStrata()
+      for _, child in ipairs({ self:GetChildren() }) do
+        if strata then pcall(child.SetFrameStrata, child, strata) end
+        pcall(child.SetFrameLevel, child, math.max(0, level - 1))
+      end
+    end)
+    return true
+  end
+
   b:SetScript("OnClick", function(s, click)
+    s:Unbury()
     if click == "RightButton" and type(s.opts.onRight) == "function" then
       s:CloseMenu()
       s.opts.onRight()

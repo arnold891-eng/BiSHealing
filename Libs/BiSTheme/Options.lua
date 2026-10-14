@@ -40,8 +40,9 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.OPTIONS_MINOR or 0) >= 2 then return end
-T.OPTIONS_MINOR = 2      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
+if (T.OPTIONS_MINOR or 0) >= 3 then return end
+T.OPTIONS_MINOR = 3      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
+                         -- 3: a window opening on top of another moves beside it (Opt:Dodge), 14 Oct
 
 -- palette fallback: only when this file is embedded and neither BiSTheme.lua nor
 -- Console.lua ran. Same table, same values, deliberately duplicated - a shared
@@ -311,7 +312,7 @@ function Opt:Section(title, box)
   r.bg = P.tex(r, "BACKGROUND", "header", 0.6)
   r.name = P.fs(r, T.text("accent", title), 9, "ink")
   r.name:SetPoint("LEFT", 6, 0)
-  T.Fit(r.name, T.text("accent", title), self.w - 6 - O.CTL)
+  T.Fit(r.name, T.text("accent", title), (self.colW or self.w) - 6 - O.CTL)
   if box then
     local b = P.box(r)
     b:SetPoint("RIGHT", -6, 0)
@@ -341,7 +342,7 @@ function Opt:Row(opt, db)
   r.name:SetPoint("LEFT", O.INDENT, 0)
   -- Label budget: W - indent - control. Fit is the net, not the plan - pick
   -- plain words a raider understands and keep them under ~24 characters.
-  T.Fit(r.name, opt.label, self.w - O.INDENT - O.CTL)
+  T.Fit(r.name, opt.label, (self.colW or self.w) - O.INDENT - O.CTL)
   build(self, r, opt, db)
   return r
 end
@@ -363,22 +364,301 @@ end
 --- Size the window to the rows it ended up with: header + rows + a little pad.
 --- `footH` is for a caller that pinned something to the bottom itself (the Hub's
 --- `options` bar); an options window proper has no footer.
+-- ---------------------------------------------------------------- the help strip
+-- Arn, 14 Oct 2026, looking at the room the 1.43:1 shape leaves under the rows: "not sure how we ever
+-- fill in that empty space" - "yes do the help strip". An options window keeps at least HELP_MIN at
+-- the bottom, and whatever the shape adds goes there too. Hovering a setting (its name or any of its
+-- controls) says what it does: the option's `help`, or its name alone when nobody wrote one yet. The
+-- words stay until another setting is hovered - moving from a row onto its own button never blanks it.
+T.OPTIONS.HELP_MIN = T.OPTIONS.HELP_MIN or 30
+T.OPTIONS.HELP_IDLE = T.OPTIONS.HELP_IDLE or "hover a setting to see what it does"
+
+--- Does this window hold settings (an options list), not just a list (the Hub)?
+function Opt:HasHelp()
+  for _, r in ipairs(self.rows) do if r.opt then return true end end
+  return false
+end
+
+--- Say what a row does in the strip.
+function Opt:Help(r)
+  local hb = self.helpBox
+  if not (hb and r) then return end
+  local label = (r.opt and r.opt.label) or r.helpTitle or ""
+  local words = r.help or (r.opt and r.opt.help)
+  hb.title:SetText(T.text("accent", label))
+  hb.text:SetText(words or T.text("muted", "(no notes on this one yet)"))
+end
+
+--- Hover a row, or anything on it, and the strip speaks.
+function Opt:Hoverable(r)
+  if r.hoverable then return end
+  r.hoverable = true
+  local function say() self:Help(r) end
+  if r.EnableMouse then pcall(r.EnableMouse, r, true) end
+  if r.HookScript then pcall(r.HookScript, r, "OnEnter", say) end
+  if r.GetChildren then
+    for _, c in ipairs({ r:GetChildren() }) do
+      if c.HookScript then pcall(c.HookScript, c, "OnEnter", say) end
+    end
+  end
+end
+
+--- The strip itself, built once, laid along the body's bottom at `height`.
+function Opt:HelpStrip(height)
+  local O = T.OPTIONS
+  local hb = self.helpBox
+  if not hb then
+    hb = CreateFrame("Frame", nil, self.body)
+    P.tex(hb, "BACKGROUND", "sunken", 0.55)
+    local hair = hb:CreateTexture(nil, "BORDER")
+    hair:SetPoint("TOPLEFT") hair:SetPoint("TOPRIGHT") hair:SetHeight(1)
+    do local r, g, b = colour("edge") hair:SetColorTexture(r, g, b, 1) end
+    hb.title = P.fs(hb, "", 8, "ink")
+    hb.title:SetPoint("TOPLEFT", 6, -4)
+    hb.text = P.fs(hb, T.text("muted", O.HELP_IDLE), 8, "ink2")
+    hb.text:SetPoint("TOPLEFT", hb.title, "BOTTOMLEFT", 0, -2)
+    hb.text:SetPoint("RIGHT", hb, "RIGHT", -6, 0)
+    if hb.text.SetJustifyH then hb.text:SetJustifyH("LEFT") end
+    if hb.text.SetJustifyV then hb.text:SetJustifyV("TOP") end
+    if hb.text.SetWordWrap then pcall(hb.text.SetWordWrap, hb.text, true) end
+    self.helpBox = hb
+  end
+  hb:ClearAllPoints()
+  hb:SetPoint("BOTTOMLEFT", self.body, "BOTTOMLEFT", 0, 0)
+  hb:SetPoint("BOTTOMRIGHT", self.body, "BOTTOMRIGHT", 0, 0)
+  hb:SetHeight(height)
+  hb:Show()
+  for _, r in ipairs(self.rows) do if r.opt or r.help then self:Hoverable(r) end end
+end
+
 function Opt:Fit(footH)
   local O = T.OPTIONS
-  local body = math.max(self._y + O.PAD, 1)
+  local help = self:HasHelp()
+  local cols, tallest = self:Flow(footH)
+  local rowsH = (cols > 1 and tallest or self._y)
+  local body = math.max(rowsH + O.PAD + (help and O.HELP_MIN or 0), 1)
+  -- THE BiSTheme STANDARD: every window exactly O.RATIO wide to high (Arn, 14 Oct: "that should be a
+  -- bis theme standard 1.43:1 window size ... we can make them bigger to fit more but keeping that
+  -- aspect ratio"). Too narrow: the columns widen. Too flat: the body grows, the room left below.
+  local w, h = cols * self.colW, O.HEADER + body + (footH or 0)
+  if w / h < O.RATIO then
+    w = math.floor(h * O.RATIO + 0.5)
+    local colW = w / cols
+    if cols > 1 then
+      for _, r in ipairs(self.rows) do
+        local c = r.col or 1
+        local _, _, _, _, y = r:GetPoint(1)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", self.body, "TOPLEFT", (c - 1) * colW, y or 0)
+        r:SetWidth(colW)
+      end
+    end
+  else
+    h = math.floor(w / O.RATIO + 0.5)
+    body = h - O.HEADER - (footH or 0)
+  end
+  self:SetWidth(w)
   self.body:SetHeight(body)
-  self:SetHeight(O.HEADER + body + (footH or 0))
+  self:SetHeight(h)
+  -- the strip takes everything under the rows: its minimum, and whatever the shape added
+  if help then self:HelpStrip(math.max(O.HELP_MIN, body - rowsH - O.PAD)) end
   self:Paint()
   return self
+end
+
+-- ---------------------------------------------------------------- the shape
+-- Arn, 14 Oct 2026: "lets make our windows this aspect ratio 1.43:1". A window's sections are
+-- poured into as many columns as bring it closest to T.OPTIONS.RATIO (width : height, compared as a
+-- ratio of ratios, so 2.3 and 0.62 are judged fairly around 1.43). A section never splits across
+-- columns, and the order is kept. One block (a list with no sections, BiSTools' Hub) stays one column.
+T.OPTIONS.RATIO = T.OPTIONS.RATIO or 1.43
+
+--- The rows in blocks: each section header starts one; rows before the first are a block too.
+local function blocks(rows)
+  local out, cur = {}, nil
+  for _, r in ipairs(rows) do
+    if r.isSection or not cur then cur = {} out[#out + 1] = cur end
+    cur[#cur + 1] = r
+  end
+  return out
+end
+
+--- Blocks into n columns AS EVEN AS THEY CAN BE (Arn, 14 Oct: "it added empty space to get the
+--- aspect ratio but did not move sections around ... the window be smaller ... no overly empty
+--- space"): the biggest first, each into the shortest column; then any move or swap of a section
+--- that shortens the tallest column, until none does. Inside a column the sections keep the order
+--- they were written in, so it still reads top to bottom.
+local function pour(bl, n, row)
+  local items = {}
+  for i, b in ipairs(bl) do items[#items + 1] = { i = i, b = b, h = #b * row } end
+  table.sort(items, function(x, y) if x.h ~= y.h then return x.h > y.h end return x.i < y.i end)
+  local cols = {}
+  for c = 1, n do cols[c] = { h = 0, items = {} } end
+  local function shortest()
+    local s = cols[1]
+    for _, c in ipairs(cols) do if c.h < s.h then s = c end end
+    return s
+  end
+  for _, it in ipairs(items) do
+    local c = shortest()
+    c.items[#c.items + 1] = it
+    c.h = c.h + it.h
+  end
+  -- better, while it gets better: a section out of the tallest column, or traded for a smaller one
+  for _ = 1, 60 do
+    local tall = cols[1]
+    for _, c in ipairs(cols) do if c.h > tall.h then tall = c end end
+    local done = false
+    for ti, it in ipairs(tall.items) do
+      for _, c in ipairs(cols) do
+        if c ~= tall then
+          if math.max(tall.h - it.h, c.h + it.h) < tall.h then             -- a move
+            table.remove(tall.items, ti) c.items[#c.items + 1] = it
+            tall.h, c.h = tall.h - it.h, c.h + it.h
+            done = true
+          else
+            for oi, other in ipairs(c.items) do                            -- a swap
+              local d = it.h - other.h
+              if d > 0 and math.max(tall.h - d, c.h + d) < tall.h then
+                tall.items[ti], c.items[oi] = other, it
+                tall.h, c.h = tall.h - d, c.h + d
+                done = true
+                break
+              end
+            end
+          end
+        end
+        if done then break end
+      end
+      if done then break end
+    end
+    if not done then break end
+  end
+  local out = {}
+  for _, c in ipairs(cols) do
+    if #c.items > 0 then
+      table.sort(c.items, function(x, y) return x.i < y.i end)
+      local col = { h = c.h, first = c.items[1].i }
+      for _, it in ipairs(c.items) do col[#col + 1] = it.b end
+      out[#out + 1] = col
+    end
+  end
+  -- the column holding the first section goes first, and so on across
+  table.sort(out, function(x, y) return x.first < y.first end)
+  return out
+end
+
+T.PourColumns = pour            -- for the suite
+
+--- How many columns, and how tall the tallest. Lays the rows out when more than one.
+function Opt:Flow(footH)
+  local O = T.OPTIONS
+  local bl = blocks(self.rows)
+  if #bl < 2 then return 1, self._y end
+  local best, bestCols, bestScore
+  for n = 1, math.min(#bl, 4) do
+    local cols = pour(bl, n, O.ROW)
+    local tall = 0
+    for _, c in ipairs(cols) do tall = math.max(tall, c.h) end
+    -- judged by the FINAL window: it is forced to O.RATIO anyway (Fit), so the best column count is
+    -- the one that wastes the least room doing it - the smallest window that holds everything
+    local w, h = #cols * self.colW, O.HEADER + tall + O.PAD + (footH or 0) + (self:HasHelp() and O.HELP_MIN or 0)
+    local score = math.max(w, h * O.RATIO) * math.max(h, w / O.RATIO)
+    if not bestScore or score < bestScore then best, bestCols, bestScore = #cols, cols, score end
+  end
+  local tallest = 0
+  if best > 1 then
+    for ci, c in ipairs(bestCols) do
+      local y = 0
+      for _, b in ipairs(c) do
+        for _, r in ipairs(b) do
+          r:ClearAllPoints()
+          r:SetPoint("TOPLEFT", self.body, "TOPLEFT", (ci - 1) * self.colW, -y)
+          r:SetWidth(self.colW)
+          r.col = ci
+          y = y + O.ROW
+        end
+      end
+      tallest = math.max(tallest, y)
+    end
+    self:SetWidth(best * self.colW)
+  end
+  self.columns = best
+  return best, tallest
 end
 
 function Opt:Paint()
   for _, r in ipairs(self.rows) do if r.paint then r.paint() end end
 end
 
+-- ---------------------------------------------------------------- not on top of each other
+-- Arn, 14 Oct 2026, with BiS Tools' hub opened over BiS Healing's options: "can we make the option
+-- smart enough if a window is open it does not open right on top of another one". Every window this
+-- kit builds is listed in T.OPEN (T is the one global BiSTheme table, so every addon's windows share
+-- the list - and the newest copy of this file builds all of them). Opening one that would cover an
+-- open one moves it beside it: right, else left, else below - else where it was.
+T.OPEN = T.OPEN or {}
+T.DODGE_GAP = 8
+
+--- Where a box should go so it covers none of `others`. Boxes are { l, b, r, t } in screen pixels;
+--- answers the new left and top, or nil when it covers nothing (or nothing fits).
+function T.DodgeRect(box, others, screenW, screenH)
+  local function hits(a, o) return a[1] < o[3] and a[3] > o[1] and a[2] < o[4] and a[4] > o[2] end
+  local function clear(a)
+    if a[1] < 0 or a[2] < 0 or a[3] > screenW or a[4] > screenH then return false end
+    for _, o in ipairs(others) do if hits(a, o) then return false end end
+    return true
+  end
+  local covered
+  for _, o in ipairs(others) do if hits(box, o) then covered = o break end end
+  if not covered then return nil end
+  local w, h, g = box[3] - box[1], box[4] - box[2], T.DODGE_GAP
+  local tries = {}
+  for _, o in ipairs(others) do
+    tries[#tries + 1] = { o[3] + g, box[2], o[3] + g + w, box[4] }   -- right of it
+    tries[#tries + 1] = { o[1] - g - w, box[2], o[1] - g, box[4] }   -- left of it
+    tries[#tries + 1] = { box[1], o[2] - g - h, box[3], o[2] - g }   -- below it
+  end
+  for _, a in ipairs(tries) do if clear(a) then return a[1], a[4] end end
+  return nil
+end
+
+--- A window about to open: off any other open BiS window. Rect reads are asked, never trusted - a
+--- hidden or refused answer leaves the window where it was.
+function Opt:Dodge()
+  local function rect(f)
+    local ok, l, b, w, h = pcall(f.GetRect, f)
+    local okS, s = pcall(f.GetEffectiveScale, f)
+    if not (ok and okS) then return nil end
+    -- each asked by name: a frame not yet placed answers NOTHING, and ipairs stops at the first gap
+    local function num(v) return type(v) == "number" and not (issecretvalue and issecretvalue(v)) end
+    if not (num(l) and num(b) and num(w) and num(h) and num(s)) then return nil end
+    return { l * s, b * s, (l + w) * s, (b + h) * s }
+  end
+  local mine = rect(self)
+  if not mine then return false end
+  local others = {}
+  for f in pairs(T.OPEN) do
+    if f ~= self and f:IsShown() then
+      local r = rect(f)
+      if r then others[#others + 1] = r end
+    end
+  end
+  if #others == 0 then return false end
+  local okU, sw, sh = pcall(function() return UIParent:GetWidth() * UIParent:GetEffectiveScale(),
+    UIParent:GetHeight() * UIParent:GetEffectiveScale() end)
+  if not okU then return false end
+  local left, top = T.DodgeRect(mine, others, sw, sh)
+  if not left then return false end
+  local s = self:GetEffectiveScale()
+  self:ClearAllPoints()
+  self:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / s, top / s)
+  return true
+end
+
 function Opt:Toggle(want)
   if want == nil then want = not self:IsShown() end
-  if want then self:Paint() self:Show() else self:Hide() end
+  if want then self:Paint() self:Dodge() self:Show() else self:Hide() end
 end
 
 --- Drag the window back to the middle. "reset window position" wires to this.
@@ -438,7 +718,9 @@ function T.Options(name, w, title)
   body:SetHeight(1)
 
   f.head, f.body, f.rows, f.w, f._y = head, body, {}, w, 0
+  f.colW = w            -- the column width, apart from f.w: a frame mock may keep its own width in .w
   for k, v in pairs(Opt) do f[k] = v end
+  T.OPEN[f] = true
 
   -- A new frame is shown by default and the toggle is what decides. The harness
   -- caught this on the Hub's first day.

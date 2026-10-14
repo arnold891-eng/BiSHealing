@@ -4408,6 +4408,20 @@ do
             containersExist = true
             FA.available = nil
 
+            -- THE CLIENT REFUSES THE BADGE AFTER THE BUTTON EXISTS (14 Oct, Arn in a battleground:
+            -- an empty slot that still cast). The button keeps the spell's own picture.
+            FN.Layout()
+            local sb = FN.buttons.shield
+            local keepMake = FS.MakeBadge
+            FS.MakeBadge = function() return nil, "the client would not let the marker be placed" end
+            FN.DropShield(sb)
+            sb.shieldSig = nil
+            if sb.art.Hide then sb.art:Hide() end
+            FN.ArmShield(sb)
+            ok(sb:IsShown() and sb.badge == nil and sb.art.__shown ~= false,
+               "a refused badge: the button keeps its picture, never an empty slot")
+            FS.MakeBadge = keepMake
+
             FN.DropShield()
             FS.badges, FS.badgeFor, FS.badgeSig = {}, {}, nil
             d.now, d.shown = keepNow, keepShown
@@ -5923,6 +5937,16 @@ do
         NS.DO.options = realOptions
         ok(opened == 2, "left AND right click open the options window", opened)
         ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
+        -- OUR click replaces the shared one, so it must ask for the shared unbury itself (Arn,
+        -- 14 Oct: "bis healing stay dark after click" - EllesmereUI's backing over the icon)
+        local unburied = 0
+        local keepU = b.Unbury
+        b.Unbury = function() unburied = unburied + 1 return true end
+        NS.DO.options = function() end
+        click(b, "LeftButton")
+        NS.DO.options = realOptions
+        b.Unbury = keepU
+        ok(unburied == 1, "a click puts a collector's backing back under the icon")
     end
     ok(NS.MM.Rows == nil, "the menu's rows are gone - the window holds them all")
     local first = NS.UI.Rows()[1]
@@ -6068,6 +6092,10 @@ do
         end
         ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         ok(#NS.UI.Rows() <= 20, "and the whole window has no more than twenty settings: " .. #NS.UI.Rows())
+        -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
+        local undocumented = {}
+        for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
+        ok(#undocumented == 0, "every BiS Healing setting has its help written", table.concat(undocumented, ", "))
     end
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no

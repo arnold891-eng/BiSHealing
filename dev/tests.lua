@@ -6092,6 +6092,10 @@ do
         end
         ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         ok(#NS.UI.Rows() <= 20, "and the whole window has no more than twenty settings: " .. #NS.UI.Rows())
+        -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
+        local undocumented = {}
+        for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
+        ok(#undocumented == 0, "every BiS Healing setting has its help written", table.concat(undocumented, ", "))
     end
 
     -- THE DRAWER, where the sound id lives. The shared options lib has four control kinds and no

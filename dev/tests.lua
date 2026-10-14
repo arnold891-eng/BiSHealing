@@ -604,10 +604,20 @@ _G.CreateFrame = function(kind, name, parent, template)
             -- handed back did not. The mock let us size and place it every time, so the throw
             -- that stopped the whole grid's layout at the first cell never ran here.
             -- STATE.slotForbidden = that client.
+            -- BUT NOT INSIDE ITS CREATION (14 Oct 2026, read off EllesmereUI's AuraContainers: "SetPoint
+            -- on the returned button is denied while auras are secret (12.1 button access
+            -- restriction)" - they anchor it INSIDE initializeFrame, "the creation window"). So the
+            -- forbidden methods answer while STATE.inInit, and refuse everywhere else.
             if STATE.slotForbidden then
                 for _, m in ipairs({ "SetSize", "SetWidth", "SetHeight", "SetPoint", "ClearAllPoints",
                                      "SetAllPoints", "Show", "Hide", "SetAlpha", "SetFrameLevel" }) do
-                    slot[m] = function()
+                    local allowed = slot[m]
+                    slot[m] = function(...)
+                        if STATE.inInit then
+                            STATE.slotPlacedInInit = (STATE.slotPlacedInInit or 0) + 1
+                            if allowed then return allowed(...) end
+                            return
+                        end
                         STATE.slotTouched = (STATE.slotTouched or 0) + 1
                         error("calling '" .. m .. "' on bad self (Attempt to access forbidden object"
                               .. " from code tainted by an AddOn - Usage: self:" .. m .. "(x, y))", 2)
@@ -620,8 +630,14 @@ _G.CreateFrame = function(kind, name, parent, template)
             -- buff is on - initializeFrame is the client handing over a button it just made for
             -- an aura. STATE.lazyAuras = that client; the eager call stays for the older checks.
             if opts and opts.initializeFrame then
-                if STATE.lazyAuras then slot.__init = opts.initializeFrame
-                else opts.initializeFrame(slot) end
+                if STATE.lazyAuras then
+                    local init = opts.initializeFrame
+                    slot.__init = function(...) STATE.inInit = true local r = init(...) STATE.inInit = false return r end
+                else
+                    STATE.inInit = true
+                    opts.initializeFrame(slot)
+                    STATE.inInit = false
+                end
             end
             return slot
         end
@@ -7609,10 +7625,13 @@ do
     local shown = 0
     for _, f in ipairs(FG.frames or {}) do if f.unit and f:IsShown() then shown = shown + 1 end end
     ok(shown >= 2, "every cell is laid out, not only the first", shown)
-    ok(type(FA.slotRefused) == "string" and FA.slotRefused:find("forbidden", 1, true) ~= nil,
-       "the refusal is remembered, in the client's own words", tostring(FA.slotRefused))
+    -- 14 Oct: SIZED AND PLACED IN THEIR CREATION (EllesmereUI's way), so a slot forbidden everywhere
+    -- else is never refused at all - the markers stay ON (Arn: "aura markers are off", while "the
+    -- target and tot show the poisons")
+    ok(FA.slotRefused == nil, "nothing is refused: every marker is placed inside its creation", tostring(FA.slotRefused))
+    ok((STATE.slotPlacedInInit or 0) > 0, "the size and anchor went in through the client's hand-over", STATE.slotPlacedInInit)
     local touched = STATE.slotTouched
-    ok(touched == 1, "it was asked ONCE, not once per cell", touched)
+    ok(touched == 0, "and no slot was touched outside it", touched)
     FA.sig = nil
     for _, f in ipairs(FG.frames or {}) do f.auras = nil end
     ok(pcall(FG.Layout, FG.anchor), "and the next layout is clean")

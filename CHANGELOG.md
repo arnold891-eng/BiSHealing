@@ -1,5 +1,9 @@
 # BiS Healing
 
+## Unreleased
+
+- **Cure-me markers, heals-over-time and the shield badge stay on.** On some clients - Arn's too - the game refused to let BiS Healing place them after they were made, and every marker switched itself off ("aura markers are off"). They are now sized and placed in the one moment the game allows it, the way EllesmereUI does, so they stay on.
+
 ## 0.8.6
 
 - **The shield button is never blank.** When the game won't let the shield's live picture be placed (some clients, some battlegrounds), the button showed nothing at all, though it still cast. Now it shows your shield's own icon, a little dimmed.

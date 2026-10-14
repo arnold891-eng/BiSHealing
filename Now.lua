@@ -813,7 +813,11 @@ local function ask(fn, ...)
     if type(fn) ~= "function" then return nil end
     local ok, v = pcall(fn, ...)
     if not ok then return nil end
-    return NS.Plain and NS.Plain(v) or v
+    -- NEVER `Plain(v) or v`: Plain answers nil for a secret, and the `or` handed the secret back
+    -- (14 Oct, Arn's BugGrabber: "attempt to compare local 'n' (a secret string value)" - a
+    -- nameplate's name, hidden in a battleground)
+    if NS.Plain then return NS.Plain(v) end
+    return v
 end
 
 --- A unit's name the way /target wants it (with the realm when it is not ours), or nil.

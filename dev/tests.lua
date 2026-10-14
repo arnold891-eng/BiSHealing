@@ -39,6 +39,24 @@ secretMeta = {
 }
 local function secret() return setmetatable({}, secretMeta) end
 
+-- A SECRET STRING (14 Oct 2026, the tank X in a battleground: a nameplate's name came back secret).
+-- On the client `type()` of one says "string", so a `type(n) ~= "string"` guard does NOT stop it -
+-- the mock's plain secret is a table, which that guard did stop, and the bug went through green.
+-- These answer "string" to type(); everything else about them is the secret above.
+local secretStrings = setmetatable({}, { __mode = "k" })
+local function secretString()
+    local s = setmetatable({}, secretMeta)
+    secretStrings[s] = true
+    return s
+end
+do
+    local rawType = type
+    _G.type = function(v)
+        if secretStrings[v] then return "string" end
+        return rawType(v)
+    end
+end
+
 ------------------------------------------------------------------ the client --
 
 local STATE = {
@@ -6856,6 +6874,18 @@ do
         ok(x and x:IsShown() and #x.parts == 6 and x.parts[3].color and x.parts[3].color[2] > 0.8 and x.parts[3].color[1] < 0.3,
            "a small teal X on them - their plate's first word is enough")
         ok(FN.tankMarks.nameplate4 == nil, "an enemy of the same name: no X")
+        -- a plate whose NAME IS SECRET (14 Oct, Arn's BugGrabber in a battleground: "attempt to
+        -- compare local 'n' (a secret string value)")
+        local keepGUN, keepUN = _G.GetUnitName, _G.UnitName
+        _G.GetUnitName = function(u) if u == "nameplate6" then return secretString() end return keepGUN(u) end
+        _G.UnitName = function(u) if u == "nameplate6" then return secretString() end return keepUN(u) end
+        who.nameplate6 = { friend = true }
+        plates.nameplate6 = CreateFrame("Frame")
+        local okS, errS = pcall(tf.__scripts.OnEvent, tf, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+        ok(okS and FN.tankMarks.nameplate6 == nil, "a plate with a hidden name: no error, no X", errS)
+        _G.GetUnitName, _G.UnitName = keepGUN, keepUN
+        who.nameplate6, plates.nameplate6 = nil, nil
+        FN.tankPlates.nameplate6 = nil
         tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_REMOVED", "nameplate3")
         ok(FN.tankMarks.nameplate3 == nil, "their plate goes: the X with it")
         tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_ADDED", "nameplate3")

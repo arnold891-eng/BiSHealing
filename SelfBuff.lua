@@ -496,13 +496,15 @@ function FS.MakeBadge(parent, name, ids, px)
         candidateFilters = { includeSpellIDs = want },
         -- the client hands a button over when the buff appears; noted, so /bish buff can say
         -- whether it ever did (12 Oct, Arn: "water shield on did not turn it on")
-        initializeFrame = function(button)
+        -- sized and placed IN its creation (FA.Placed - the only moment Forever lets an addon do it
+        -- while auras are secret, 14 Oct)
+        initializeFrame = FA.Placed(function(button)
             b.button = button
             badgeIcon(button, b)
-        end,
+        end, px, "CENTER", parent, 0, 0),
     })
     b.slot = slot
-    local placed = slot and FA.Place and FA.Place(slot, px, "CENTER", parent, 0, 0)
+    local placed = slot ~= nil
     if container.SetEnabled then container:SetEnabled(true) end
     -- and asked to look now, as Fojji's bar does after enabling: a buff already on you is not news
     -- to a container that only starts listening for changes

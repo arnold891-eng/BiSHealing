@@ -282,6 +282,25 @@ local function place(slot, px, point, cell, x, y)
 end
 FA.Place = place
 
+--- SIZE AND PLACE IT INSIDE ITS CREATION (14 Oct 2026, Arn's own client: "aura markers are off: this
+--- client will not let them be placed" - the 6 Oct refusal, now on his PC too; and yet "the target and
+--- tot show the poisons"). Read off EllesmereUI's AuraContainers.lua: "SetPoint on the returned
+--- button is denied while auras are secret (12.1 button access restriction)" - they anchor it INSIDE
+--- initializeFrame, "the creation window", and nowhere else. So do we: the size and the anchor ride
+--- the client's own hand-over of the button, then the marker's own styling runs. place() above is
+--- kept for anything that still calls it; the grid's markers no longer do.
+function FA.Placed(init, px, point, rel, x, y)
+    return function(button, ...)
+        local ok = pcall(function()
+            button:SetSize(px, px)
+            button:ClearAllPoints()
+            button:SetPoint(point, rel, point, x, y)
+        end)
+        if not ok then FA.initRefused = true end
+        if init then return init(button, ...) end
+    end
+end
+
 --- Take a cell's container down before a new one is built: the old one would otherwise go on
 --- drawing underneath it.
 local function release(cell)
@@ -344,9 +363,9 @@ function attach(cell, unit)
 
     -- 1. anything WE can cure, washed over the health bar
     local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
-        initializeFrame = dispelPip(DISPEL_TINT),
+        -- a pip at the edge, never over the bar - sized and placed in its creation (FA.Placed)
+        initializeFrame = FA.Placed(dispelPip(DISPEL_TINT), FA.MarkerSize(), "LEFT", cell, 2, 0),
     })
-    place(dispel, FA.MarkerSize(), "LEFT", cell, 2, 0)      -- a pip at the edge, never over the bar
 
     -- 2. a pip for any buff we are watching. Nothing is watched by default, so no slot is built
     --    and the cell stays as clean as the grid was before.
@@ -359,17 +378,15 @@ function attach(cell, unit)
     if any then
         es = addSlot(container, "BiSHealWatch", "HELPFUL", {
             candidateFilters = { includeSpellIDs = watch },
-            initializeFrame = pip(ES_TINT),
+            initializeFrame = FA.Placed(pip(ES_TINT), math.max(6, FA.MarkerSize() - 2), "TOPRIGHT", cell, -2, -2),
         })
-        place(es, math.max(6, FA.MarkerSize() - 2), "TOPRIGHT", cell, -2, -2)
     end
 
     -- the debug marker, when someone is asking "does this draw at all?"
     if FA.debug then
         local any = addSlot(container, "BiSHealAnyDebuff", "HARMFUL", {
-            initializeFrame = pip({ 1.00, 0.45, 0.10, 0.95 }),
+            initializeFrame = FA.Placed(pip({ 1.00, 0.45, 0.10, 0.95 }), FA.MarkerSize(), "BOTTOMLEFT", cell, 2, 2),
         })
-        place(any, FA.MarkerSize(), "BOTTOMLEFT", cell, 2, 2)
         cell.anySlot = any
     end
 
@@ -386,12 +403,11 @@ function attach(cell, unit)
         if ids then
         shown = shown + 1
         local i = shown
+        local px = FA.MarkerSize()
         local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
             candidateFilters = { includeSpellIDs = ids },
-            initializeFrame = hotIcon,
+            initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell, 3 + (i - 1) * (px + HOT_GAP), 3),
         })
-        local px = FA.MarkerSize()
-        place(slot, px, "BOTTOMLEFT", cell, 3 + (i - 1) * (px + HOT_GAP), 3)
         hots[fam.key] = slot
         end
     end

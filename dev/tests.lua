@@ -39,6 +39,24 @@ secretMeta = {
 }
 local function secret() return setmetatable({}, secretMeta) end
 
+-- A SECRET STRING (14 Oct 2026, the tank X in a battleground: a nameplate's name came back secret).
+-- On the client `type()` of one says "string", so a `type(n) ~= "string"` guard does NOT stop it -
+-- the mock's plain secret is a table, which that guard did stop, and the bug went through green.
+-- These answer "string" to type(); everything else about them is the secret above.
+local secretStrings = setmetatable({}, { __mode = "k" })
+local function secretString()
+    local s = setmetatable({}, secretMeta)
+    secretStrings[s] = true
+    return s
+end
+do
+    local rawType = type
+    _G.type = function(v)
+        if secretStrings[v] then return "string" end
+        return rawType(v)
+    end
+end
+
 ------------------------------------------------------------------ the client --
 
 local STATE = {
@@ -586,10 +604,20 @@ _G.CreateFrame = function(kind, name, parent, template)
             -- handed back did not. The mock let us size and place it every time, so the throw
             -- that stopped the whole grid's layout at the first cell never ran here.
             -- STATE.slotForbidden = that client.
+            -- BUT NOT INSIDE ITS CREATION (14 Oct 2026, read off EllesmereUI's AuraContainers: "SetPoint
+            -- on the returned button is denied while auras are secret (12.1 button access
+            -- restriction)" - they anchor it INSIDE initializeFrame, "the creation window"). So the
+            -- forbidden methods answer while STATE.inInit, and refuse everywhere else.
             if STATE.slotForbidden then
                 for _, m in ipairs({ "SetSize", "SetWidth", "SetHeight", "SetPoint", "ClearAllPoints",
                                      "SetAllPoints", "Show", "Hide", "SetAlpha", "SetFrameLevel" }) do
-                    slot[m] = function()
+                    local allowed = slot[m]
+                    slot[m] = function(...)
+                        if STATE.inInit then
+                            STATE.slotPlacedInInit = (STATE.slotPlacedInInit or 0) + 1
+                            if allowed then return allowed(...) end
+                            return
+                        end
                         STATE.slotTouched = (STATE.slotTouched or 0) + 1
                         error("calling '" .. m .. "' on bad self (Attempt to access forbidden object"
                               .. " from code tainted by an AddOn - Usage: self:" .. m .. "(x, y))", 2)
@@ -602,8 +630,14 @@ _G.CreateFrame = function(kind, name, parent, template)
             -- buff is on - initializeFrame is the client handing over a button it just made for
             -- an aura. STATE.lazyAuras = that client; the eager call stays for the older checks.
             if opts and opts.initializeFrame then
-                if STATE.lazyAuras then slot.__init = opts.initializeFrame
-                else opts.initializeFrame(slot) end
+                if STATE.lazyAuras then
+                    local init = opts.initializeFrame
+                    slot.__init = function(...) STATE.inInit = true local r = init(...) STATE.inInit = false return r end
+                else
+                    STATE.inInit = true
+                    opts.initializeFrame(slot)
+                    STATE.inInit = false
+                end
             end
             return slot
         end
@@ -6749,6 +6783,8 @@ do
         -- character with a watched buff, and has its own checks in the self-buff section
         local realShield = FN.ShieldReady
         FN.ShieldReady = function() return false end
+        local keepTank = FN.TankReady
+        FN.TankReady = function() return false end
 
         local mine = FN.Mine()
         ok(#mine == 1 and mine[1] == "help",
@@ -6789,6 +6825,7 @@ do
 
         _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
         FN.ShieldReady = realShield
+        FN.TankReady = keepTank
         -- and with it back: a character with a watched buff has help AND the shield from the start
         local watchedOne = NS.FS.Target() ~= nil
         local has = false
@@ -6796,6 +6833,138 @@ do
         ok(has == (watchedOne and NS.FA.Available()), "the shield button is there exactly when a watched buff is",
            table.concat(FN.Mine(), " "))
         FN.Reset()
+    end
+
+    -- MY TANK (14 Oct 2026). Arn: "when im clicking on a friendly target and i click the button it
+    -- becomes my personal tank ... puts a teal small sabers so i know where they are going ... and if
+    -- i click on it it targets them"
+    do
+        local FN = NS.FN
+        local d = NS.DB()
+        local keep = { now = d.now, shown = d.shown, tank = d.tank, UnitExists = _G.UnitExists,
+            UnitIsPlayer = _G.UnitIsPlayer, UnitIsFriend = _G.UnitIsFriend, UnitIsUnit = _G.UnitIsUnit,
+            GetUnitName = _G.GetUnitName, UnitName = _G.UnitName, NP = _G.C_NamePlate, CF = _G.CreateFrame }
+        -- the client draws Lines; this mock's frames get them here
+        _G.CreateFrame = function(...)
+            local f = keep.CF(...)
+            if f then
+                function f:CreateLine()
+                    local l = self:CreateTexture()
+                    function l:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
+                    function l:SetThickness(w) self.w = w end
+                    function l:SetStartPoint(_, _, x, y) self.from = { x, y } end
+                    function l:SetEndPoint(_, _, x, y) self.to = { x, y } end
+                    return l
+                end
+            end
+            return f
+        end
+        local who = { target = { name = "Tobi Three", friend = true } }
+        _G.UnitExists = function(u) return who[u] ~= nil end
+        _G.UnitIsPlayer = function(u) return who[u] ~= nil end
+        _G.UnitIsFriend = function(_, u) return who[u] ~= nil and who[u].friend == true end
+        _G.UnitIsUnit = function(a, b) return a == b or (who[b] and who[b].me) or false end
+        _G.GetUnitName = function(u) return who[u] and who[u].full end
+        _G.UnitName = function(u) return who[u] and who[u].name end
+        local plates = {}
+        _G.C_NamePlate = { GetNamePlateForUnit = function(u) return plates[u] end }
+        d.now, d.shown, d.tank = true, true, nil
+        FN.Layout()
+        local b = FN.buttons.tank
+        ok(b and b:IsShown(), "BiS> now carries a Tank button from the start")
+        ok(b:GetAttribute("*type1") == "macro" and (b:GetAttribute("*macrotext1") or "") == "",
+           "nobody chosen: its click targets nobody")
+        -- no tank yet: a left-click on a friendly target chooses them
+        b.__scripts.OnClick(b, "LeftButton")
+        ok(FN.Tank() == "Tobi Three" and b:GetAttribute("*macrotext1") == "/target Tobi Three",
+           "a friendly target + the button: your tank, and the click now targets them")
+        -- the teal X on their plate - a plate that says only "Tobi"
+        who.nameplate3 = { name = "Tobi", friend = true }
+        plates.nameplate3 = CreateFrame("Frame")
+        who.nameplate4 = { name = "Tobi" }               -- an enemy Tobi: never
+        plates.nameplate4 = CreateFrame("Frame")
+        local tf = FN.tankFrame
+        tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+        tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_ADDED", "nameplate4")
+        local x = FN.tankMarks.nameplate3
+        ok(x and x:IsShown() and #x.parts == 6 and x.parts[3].color and x.parts[3].color[2] > 0.8 and x.parts[3].color[1] < 0.3,
+           "a small teal X on them - their plate's first word is enough")
+        ok(FN.tankMarks.nameplate4 == nil, "an enemy of the same name: no X")
+        -- a plate whose NAME IS SECRET (14 Oct, Arn's BugGrabber in a battleground: "attempt to
+        -- compare local 'n' (a secret string value)")
+        local keepGUN, keepUN = _G.GetUnitName, _G.UnitName
+        _G.GetUnitName = function(u) if u == "nameplate6" then return secretString() end return keepGUN(u) end
+        _G.UnitName = function(u) if u == "nameplate6" then return secretString() end return keepUN(u) end
+        who.nameplate6 = { friend = true }
+        plates.nameplate6 = CreateFrame("Frame")
+        local okS, errS = pcall(tf.__scripts.OnEvent, tf, "NAME_PLATE_UNIT_ADDED", "nameplate6")
+        ok(okS and FN.tankMarks.nameplate6 == nil, "a plate with a hidden name: no error, no X", errS)
+        _G.GetUnitName, _G.UnitName = keepGUN, keepUN
+        who.nameplate6, plates.nameplate6 = nil, nil
+        FN.tankPlates.nameplate6 = nil
+        tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_REMOVED", "nameplate3")
+        ok(FN.tankMarks.nameplate3 == nil, "their plate goes: the X with it")
+        tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_ADDED", "nameplate3")
+        -- a left-click with a tank chosen: ours does nothing, the macro targets them
+        who.target = { name = "Somebody Else", friend = true }
+        b.__scripts.OnClick(b, "LeftButton")
+        ok(FN.Tank() == "Tobi Three", "left-click with a tank: targets them, chooses nobody new")
+        -- mid-fight, a new tank: the X moves now, the click when the fight ends
+        STATE.inCombat = true
+        who.target = { name = "Bigtank", friend = true }
+        who.nameplate5 = { name = "Bigtank", friend = true }
+        plates.nameplate5 = CreateFrame("Frame")
+        tf.__scripts.OnEvent(tf, "NAME_PLATE_UNIT_ADDED", "nameplate5")
+        b.__scripts.OnClick(b, "RightButton")
+        ok(FN.Tank() == "Bigtank" and FN.tankMarks.nameplate5 and FN.tankMarks.nameplate3 == nil,
+           "right-click mid-fight: the new tank, the X moves at once")
+        ok(b:GetAttribute("*macrotext1") == "/target Tobi Three" and FN.tankDirty, "but the secure click waits")
+        STATE.inCombat = false
+        tf.__scripts.OnEvent(tf, "PLAYER_REGEN_ENABLED")
+        ok(b:GetAttribute("*macrotext1") == "/target Bigtank" and not FN.tankDirty, "the fight over: it targets the new one")
+        -- the steppers (Arn: "add the steppers to the tank x too")
+        d.tankSize, d.tankLift = 200, 10
+        FN.RedrawTank()
+        local big = FN.tankMarks.nameplate5
+        local tip = big and big.parts[3].to
+        local _, _, _, _, y = big:GetPoint(1)
+        ok(tip and math.abs(tip[1] - (FN.TANK_W * 2 / 2 - 2)) < 0.01 and y == -FN.TANK_DROP + 10,
+           "tank X size 200%, height 10 up: redrawn at once")
+        d.tankSize, d.tankLift = 999, -999
+        ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
+        local keys = {}
+        for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = true end
+        ok(keys.tanksize and keys.tanklift and keys.tanklook, "the steppers are in the options window")
+        -- the looks (Arn: "not all want x"): each its own strokes, three glow layers a stroke
+        d.tankSize, d.tankLift = nil, nil
+        for i, look in ipairs(FN.LOOKS) do
+            d.tankLook = i
+            FN.RedrawTank()
+            local m = FN.tankMarks.nameplate5
+            ok(m and m.look == i and #m.parts == #look.strokes * 3 and m:IsShown(),
+               "tank mark look " .. look.word .. ": " .. #look.strokes .. " strokes")
+        end
+        d.tankLook = 99
+        ok(FN.TankLook(d) == 1, "an unknown look falls back to the X")
+        d.tankLook = nil
+        d.tankSize, d.tankLift = nil, nil
+        FN.RedrawTank()
+        -- right-click on them again: let go; and an enemy or yourself is never a tank
+        b.__scripts.OnClick(b, "RightButton")
+        ok(FN.Tank() == nil and FN.tankMarks.nameplate5 == nil and b:GetAttribute("*macrotext1") == "",
+           "right-click on your tank again: let go, the X gone")
+        who.target = { name = "Enemy Guy" }
+        b.__scripts.OnClick(b, "RightButton")
+        ok(FN.Tank() == nil, "an enemy is never your tank")
+        who.target = { name = "Me", friend = true, me = true }
+        b.__scripts.OnClick(b, "RightButton")
+        ok(FN.Tank() == nil, "nor are you")
+        for u in pairs(FN.tankMarks) do FN.UnmarkTank(u) end
+        FN.tankPlates = {}
+        d.now, d.shown, d.tank = keep.now, keep.shown, keep.tank
+        _G.UnitExists, _G.UnitIsPlayer, _G.UnitIsFriend, _G.UnitIsUnit = keep.UnitExists, keep.UnitIsPlayer, keep.UnitIsFriend, keep.UnitIsUnit
+        _G.GetUnitName, _G.UnitName, _G.C_NamePlate, _G.CreateFrame = keep.GetUnitName, keep.UnitName, keep.NP, keep.CF
+        FN.Layout()
     end
 
     -- THE BLOCK LINES UP; THE BUTTONS DO NOT PRETEND TO BE CELLS. A button 84 wide gives an icon
@@ -7456,10 +7625,13 @@ do
     local shown = 0
     for _, f in ipairs(FG.frames or {}) do if f.unit and f:IsShown() then shown = shown + 1 end end
     ok(shown >= 2, "every cell is laid out, not only the first", shown)
-    ok(type(FA.slotRefused) == "string" and FA.slotRefused:find("forbidden", 1, true) ~= nil,
-       "the refusal is remembered, in the client's own words", tostring(FA.slotRefused))
+    -- 14 Oct: SIZED AND PLACED IN THEIR CREATION (EllesmereUI's way), so a slot forbidden everywhere
+    -- else is never refused at all - the markers stay ON (Arn: "aura markers are off", while "the
+    -- target and tot show the poisons")
+    ok(FA.slotRefused == nil, "nothing is refused: every marker is placed inside its creation", tostring(FA.slotRefused))
+    ok((STATE.slotPlacedInInit or 0) > 0, "the size and anchor went in through the client's hand-over", STATE.slotPlacedInInit)
     local touched = STATE.slotTouched
-    ok(touched == 1, "it was asked ONCE, not once per cell", touched)
+    ok(touched == 0, "and no slot was touched outside it", touched)
     FA.sig = nil
     for _, f in ipairs(FG.frames or {}) do f.auras = nil end
     ok(pcall(FG.Layout, FG.anchor), "and the next layout is clean")

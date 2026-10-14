@@ -109,6 +109,27 @@ function CFG.Sections()
               get = function(db) return db.markers or 10 end,
               set = function(_, v) if DO.markers then DO.markers(v) end end,
               show = function(db) return ("%dpx"):format(db.markers or 10) end },
+            -- the tank's teal X (BiS> now's Tank button), to taste (Arn, 14 Oct: "add the steppers
+            -- to the tank x too") - the same two as BiS Tools' bg marks
+            -- a stepper through names (Arn: "not all want x")
+            { key = "tanklook", kind = "step", label = "tank mark", help = "The shape over your chosen tank (BiS> now's Tank button): X, saber, arrow, diamond or corners, in teal.",
+              min = 1, max = NS.FN and #NS.FN.LOOKS or 5, step = 1,
+              get = function(db) return NS.FN and NS.FN.TankLook(db) or 1 end,
+              set = function(db, v) db.tankLook = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db) return NS.FN and NS.FN.LOOKS[NS.FN.TankLook(db)].word or "X" end },
+            { key = "tanksize", kind = "step", label = "tank mark size", help = "How big the tank's mark is.",
+              min = 50, max = 200, step = 10,
+              get = function(db) return NS.FN and NS.FN.TankSize(db) or 100 end,
+              set = function(db, v) db.tankSize = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db) return ("%d%%"):format(NS.FN and NS.FN.TankSize(db) or 100) end },
+            { key = "tanklift", kind = "step", label = "tank mark height", help = "Moves the tank's mark up or down on them.",
+              min = -40, max = 40, step = 5,
+              get = function(db) return NS.FN and NS.FN.TankLift(db) or 0 end,
+              set = function(db, v) db.tankLift = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db)
+                  local v = NS.FN and NS.FN.TankLift(db) or 0
+                  return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+              end },
         } },
         { title = "cells", column = 2, options = {
             -- FOUR SWITCHES, ONE ROW. Three of these had a row each and a fourth was asked for

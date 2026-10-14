@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 0.9.0
+
+- **A Tank button in BiS> now: your tank, one click away.** Target a friendly player and right-click the button: they're your tank. Left-click it and you target them, wherever they are in the raid. Right-click it on them again, or on nobody, to let go. `/bish tank` says who it is and whether everything works.
+- **A teal mark on your tank**, standing on their body under the nameplate, so you can see where they're going in the crowd. Five looks to pick from in the options (X, sabers, arrow, diamond, corners), with size and height steppers.
+- **Cure-me markers, heals-over-time and the shield badge stay on.** On some clients - Arn's too - the game refused to let BiS Healing place them after they were made, and every marker switched itself off ("aura markers are off"). They are now sized and placed in the one moment the game allows it, the way EllesmereUI does, so they stay on.
+
 ## 0.8.6
 
 - **The shield button is never blank.** When the game won't let the shield's live picture be placed (some clients, some battlegrounds), the button showed nothing at all, though it still cast. Now it shows your shield's own icon, a little dimmed.

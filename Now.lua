@@ -901,6 +901,9 @@ end
 
 --- THE X: two slim teal blades, crossed, under the tank's nameplate.
 FN.TANK_W, FN.TANK_H = 30, 35
+-- how far under the plate: ON them, the chest, not just under the name (Arn, 14 Oct, the X
+-- floating under "Kai Tu": "def want this on them so lower")
+FN.TANK_DROP = 42
 FN.tankMarks, FN.tankPool = {}, {}
 
 local function newX()
@@ -953,7 +956,7 @@ function FN.MarkTankPlate(unit)
     if not plate then return end
     local f = table.remove(FN.tankPool) or newX()
     f:SetSize(FN.TANK_W, FN.TANK_H)
-    f:SetPoint("TOP", plate, "BOTTOM", 0, -4)
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -FN.TANK_DROP)
     f:Show()
     FN.tankMarks[unit] = f
 end

@@ -412,22 +412,72 @@ local function blocks(rows)
   return out
 end
 
---- Blocks into n columns, in order, each column filled to about an n-th of the whole.
+--- Blocks into n columns AS EVEN AS THEY CAN BE (Arn, 14 Oct: "it added empty space to get the
+--- aspect ratio but did not move sections around ... the window be smaller ... no overly empty
+--- space"): the biggest first, each into the shortest column; then any move or swap of a section
+--- that shortens the tallest column, until none does. Inside a column the sections keep the order
+--- they were written in, so it still reads top to bottom.
 local function pour(bl, n, row)
-  local total = 0
-  for _, b in ipairs(bl) do total = total + #b * row end
-  local goal, cols = total / n, { { h = 0 } }
-  for i, b in ipairs(bl) do
-    local c = cols[#cols]
-    local left = #bl - i + 1
-    if c.h > 0 and c.h + #b * row / 2 > goal and #cols < n and left >= n - #cols then
-      c = { h = 0 } cols[#cols + 1] = c
-    end
-    c[#c + 1] = b
-    c.h = c.h + #b * row
+  local items = {}
+  for i, b in ipairs(bl) do items[#items + 1] = { i = i, b = b, h = #b * row } end
+  table.sort(items, function(x, y) if x.h ~= y.h then return x.h > y.h end return x.i < y.i end)
+  local cols = {}
+  for c = 1, n do cols[c] = { h = 0, items = {} } end
+  local function shortest()
+    local s = cols[1]
+    for _, c in ipairs(cols) do if c.h < s.h then s = c end end
+    return s
   end
-  return cols
+  for _, it in ipairs(items) do
+    local c = shortest()
+    c.items[#c.items + 1] = it
+    c.h = c.h + it.h
+  end
+  -- better, while it gets better: a section out of the tallest column, or traded for a smaller one
+  for _ = 1, 60 do
+    local tall = cols[1]
+    for _, c in ipairs(cols) do if c.h > tall.h then tall = c end end
+    local done = false
+    for ti, it in ipairs(tall.items) do
+      for _, c in ipairs(cols) do
+        if c ~= tall then
+          if math.max(tall.h - it.h, c.h + it.h) < tall.h then             -- a move
+            table.remove(tall.items, ti) c.items[#c.items + 1] = it
+            tall.h, c.h = tall.h - it.h, c.h + it.h
+            done = true
+          else
+            for oi, other in ipairs(c.items) do                            -- a swap
+              local d = it.h - other.h
+              if d > 0 and math.max(tall.h - d, c.h + d) < tall.h then
+                tall.items[ti], c.items[oi] = other, it
+                tall.h, c.h = tall.h - d, c.h + d
+                done = true
+                break
+              end
+            end
+          end
+        end
+        if done then break end
+      end
+      if done then break end
+    end
+    if not done then break end
+  end
+  local out = {}
+  for _, c in ipairs(cols) do
+    if #c.items > 0 then
+      table.sort(c.items, function(x, y) return x.i < y.i end)
+      local col = { h = c.h, first = c.items[1].i }
+      for _, it in ipairs(c.items) do col[#col + 1] = it.b end
+      out[#out + 1] = col
+    end
+  end
+  -- the column holding the first section goes first, and so on across
+  table.sort(out, function(x, y) return x.first < y.first end)
+  return out
 end
+
+T.PourColumns = pour            -- for the suite
 
 --- How many columns, and how tall the tallest. Lays the rows out when more than one.
 function Opt:Flow(footH)

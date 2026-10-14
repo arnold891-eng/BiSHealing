@@ -312,7 +312,7 @@ function Opt:Section(title, box)
   r.bg = P.tex(r, "BACKGROUND", "header", 0.6)
   r.name = P.fs(r, T.text("accent", title), 9, "ink")
   r.name:SetPoint("LEFT", 6, 0)
-  T.Fit(r.name, T.text("accent", title), self.w - 6 - O.CTL)
+  T.Fit(r.name, T.text("accent", title), (self.colW or self.w) - 6 - O.CTL)
   if box then
     local b = P.box(r)
     b:SetPoint("RIGHT", -6, 0)
@@ -342,7 +342,7 @@ function Opt:Row(opt, db)
   r.name:SetPoint("LEFT", O.INDENT, 0)
   -- Label budget: W - indent - control. Fit is the net, not the plan - pick
   -- plain words a raider understands and keep them under ~24 characters.
-  T.Fit(r.name, opt.label, self.w - O.INDENT - O.CTL)
+  T.Fit(r.name, opt.label, (self.colW or self.w) - O.INDENT - O.CTL)
   build(self, r, opt, db)
   return r
 end
@@ -366,11 +366,104 @@ end
 --- `options` bar); an options window proper has no footer.
 function Opt:Fit(footH)
   local O = T.OPTIONS
-  local body = math.max(self._y + O.PAD, 1)
+  local cols, tallest = self:Flow(footH)
+  local body = math.max((cols > 1 and tallest or self._y) + O.PAD, 1)
+  -- THE BiSTheme STANDARD: every window exactly O.RATIO wide to high (Arn, 14 Oct: "that should be a
+  -- bis theme standard 1.43:1 window size ... we can make them bigger to fit more but keeping that
+  -- aspect ratio"). Too narrow: the columns widen. Too flat: the body grows, the room left below.
+  local w, h = cols * self.colW, O.HEADER + body + (footH or 0)
+  if w / h < O.RATIO then
+    w = math.floor(h * O.RATIO + 0.5)
+    local colW = w / cols
+    if cols > 1 then
+      for _, r in ipairs(self.rows) do
+        local c = r.col or 1
+        local _, _, _, _, y = r:GetPoint(1)
+        r:ClearAllPoints()
+        r:SetPoint("TOPLEFT", self.body, "TOPLEFT", (c - 1) * colW, y or 0)
+        r:SetWidth(colW)
+      end
+    end
+  else
+    h = math.floor(w / O.RATIO + 0.5)
+    body = h - O.HEADER - (footH or 0)
+  end
+  self:SetWidth(w)
   self.body:SetHeight(body)
-  self:SetHeight(O.HEADER + body + (footH or 0))
+  self:SetHeight(h)
   self:Paint()
   return self
+end
+
+-- ---------------------------------------------------------------- the shape
+-- Arn, 14 Oct 2026: "lets make our windows this aspect ratio 1.43:1". A window's sections are
+-- poured into as many columns as bring it closest to T.OPTIONS.RATIO (width : height, compared as a
+-- ratio of ratios, so 2.3 and 0.62 are judged fairly around 1.43). A section never splits across
+-- columns, and the order is kept. One block (a list with no sections, BiSTools' Hub) stays one column.
+T.OPTIONS.RATIO = T.OPTIONS.RATIO or 1.43
+
+--- The rows in blocks: each section header starts one; rows before the first are a block too.
+local function blocks(rows)
+  local out, cur = {}, nil
+  for _, r in ipairs(rows) do
+    if r.isSection or not cur then cur = {} out[#out + 1] = cur end
+    cur[#cur + 1] = r
+  end
+  return out
+end
+
+--- Blocks into n columns, in order, each column filled to about an n-th of the whole.
+local function pour(bl, n, row)
+  local total = 0
+  for _, b in ipairs(bl) do total = total + #b * row end
+  local goal, cols = total / n, { { h = 0 } }
+  for i, b in ipairs(bl) do
+    local c = cols[#cols]
+    local left = #bl - i + 1
+    if c.h > 0 and c.h + #b * row / 2 > goal and #cols < n and left >= n - #cols then
+      c = { h = 0 } cols[#cols + 1] = c
+    end
+    c[#c + 1] = b
+    c.h = c.h + #b * row
+  end
+  return cols
+end
+
+--- How many columns, and how tall the tallest. Lays the rows out when more than one.
+function Opt:Flow(footH)
+  local O = T.OPTIONS
+  local bl = blocks(self.rows)
+  if #bl < 2 then return 1, self._y end
+  local best, bestCols, bestScore
+  for n = 1, math.min(#bl, 4) do
+    local cols = pour(bl, n, O.ROW)
+    local tall = 0
+    for _, c in ipairs(cols) do tall = math.max(tall, c.h) end
+    -- judged by the FINAL window: it is forced to O.RATIO anyway (Fit), so the best column count is
+    -- the one that wastes the least room doing it - the smallest window that holds everything
+    local w, h = #cols * self.colW, O.HEADER + tall + O.PAD + (footH or 0)
+    local score = math.max(w, h * O.RATIO) * math.max(h, w / O.RATIO)
+    if not bestScore or score < bestScore then best, bestCols, bestScore = #cols, cols, score end
+  end
+  local tallest = 0
+  if best > 1 then
+    for ci, c in ipairs(bestCols) do
+      local y = 0
+      for _, b in ipairs(c) do
+        for _, r in ipairs(b) do
+          r:ClearAllPoints()
+          r:SetPoint("TOPLEFT", self.body, "TOPLEFT", (ci - 1) * self.colW, -y)
+          r:SetWidth(self.colW)
+          r.col = ci
+          y = y + O.ROW
+        end
+      end
+      tallest = math.max(tallest, y)
+    end
+    self:SetWidth(best * self.colW)
+  end
+  self.columns = best
+  return best, tallest
 end
 
 function Opt:Paint()
@@ -504,6 +597,7 @@ function T.Options(name, w, title)
   body:SetHeight(1)
 
   f.head, f.body, f.rows, f.w, f._y = head, body, {}, w, 0
+  f.colW = w            -- the column width, apart from f.w: a frame mock may keep its own width in .w
   for k, v in pairs(Opt) do f[k] = v end
   T.OPEN[f] = true
 

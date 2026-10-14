@@ -364,10 +364,79 @@ end
 --- Size the window to the rows it ended up with: header + rows + a little pad.
 --- `footH` is for a caller that pinned something to the bottom itself (the Hub's
 --- `options` bar); an options window proper has no footer.
+-- ---------------------------------------------------------------- the help strip
+-- Arn, 14 Oct 2026, looking at the room the 1.43:1 shape leaves under the rows: "not sure how we ever
+-- fill in that empty space" - "yes do the help strip". An options window keeps at least HELP_MIN at
+-- the bottom, and whatever the shape adds goes there too. Hovering a setting (its name or any of its
+-- controls) says what it does: the option's `help`, or its name alone when nobody wrote one yet. The
+-- words stay until another setting is hovered - moving from a row onto its own button never blanks it.
+T.OPTIONS.HELP_MIN = T.OPTIONS.HELP_MIN or 30
+T.OPTIONS.HELP_IDLE = T.OPTIONS.HELP_IDLE or "hover a setting to see what it does"
+
+--- Does this window hold settings (an options list), not just a list (the Hub)?
+function Opt:HasHelp()
+  for _, r in ipairs(self.rows) do if r.opt then return true end end
+  return false
+end
+
+--- Say what a row does in the strip.
+function Opt:Help(r)
+  local hb = self.helpBox
+  if not (hb and r) then return end
+  local label = (r.opt and r.opt.label) or r.helpTitle or ""
+  local words = r.help or (r.opt and r.opt.help)
+  hb.title:SetText(T.text("accent", label))
+  hb.text:SetText(words or T.text("muted", "(no notes on this one yet)"))
+end
+
+--- Hover a row, or anything on it, and the strip speaks.
+function Opt:Hoverable(r)
+  if r.hoverable then return end
+  r.hoverable = true
+  local function say() self:Help(r) end
+  if r.EnableMouse then pcall(r.EnableMouse, r, true) end
+  if r.HookScript then pcall(r.HookScript, r, "OnEnter", say) end
+  if r.GetChildren then
+    for _, c in ipairs({ r:GetChildren() }) do
+      if c.HookScript then pcall(c.HookScript, c, "OnEnter", say) end
+    end
+  end
+end
+
+--- The strip itself, built once, laid along the body's bottom at `height`.
+function Opt:HelpStrip(height)
+  local O = T.OPTIONS
+  local hb = self.helpBox
+  if not hb then
+    hb = CreateFrame("Frame", nil, self.body)
+    P.tex(hb, "BACKGROUND", "sunken", 0.55)
+    local hair = hb:CreateTexture(nil, "BORDER")
+    hair:SetPoint("TOPLEFT") hair:SetPoint("TOPRIGHT") hair:SetHeight(1)
+    do local r, g, b = colour("edge") hair:SetColorTexture(r, g, b, 1) end
+    hb.title = P.fs(hb, "", 8, "ink")
+    hb.title:SetPoint("TOPLEFT", 6, -4)
+    hb.text = P.fs(hb, T.text("muted", O.HELP_IDLE), 8, "ink2")
+    hb.text:SetPoint("TOPLEFT", hb.title, "BOTTOMLEFT", 0, -2)
+    hb.text:SetPoint("RIGHT", hb, "RIGHT", -6, 0)
+    if hb.text.SetJustifyH then hb.text:SetJustifyH("LEFT") end
+    if hb.text.SetJustifyV then hb.text:SetJustifyV("TOP") end
+    if hb.text.SetWordWrap then pcall(hb.text.SetWordWrap, hb.text, true) end
+    self.helpBox = hb
+  end
+  hb:ClearAllPoints()
+  hb:SetPoint("BOTTOMLEFT", self.body, "BOTTOMLEFT", 0, 0)
+  hb:SetPoint("BOTTOMRIGHT", self.body, "BOTTOMRIGHT", 0, 0)
+  hb:SetHeight(height)
+  hb:Show()
+  for _, r in ipairs(self.rows) do if r.opt or r.help then self:Hoverable(r) end end
+end
+
 function Opt:Fit(footH)
   local O = T.OPTIONS
+  local help = self:HasHelp()
   local cols, tallest = self:Flow(footH)
-  local body = math.max((cols > 1 and tallest or self._y) + O.PAD, 1)
+  local rowsH = (cols > 1 and tallest or self._y)
+  local body = math.max(rowsH + O.PAD + (help and O.HELP_MIN or 0), 1)
   -- THE BiSTheme STANDARD: every window exactly O.RATIO wide to high (Arn, 14 Oct: "that should be a
   -- bis theme standard 1.43:1 window size ... we can make them bigger to fit more but keeping that
   -- aspect ratio"). Too narrow: the columns widen. Too flat: the body grows, the room left below.
@@ -391,6 +460,8 @@ function Opt:Fit(footH)
   self:SetWidth(w)
   self.body:SetHeight(body)
   self:SetHeight(h)
+  -- the strip takes everything under the rows: its minimum, and whatever the shape added
+  if help then self:HelpStrip(math.max(O.HELP_MIN, body - rowsH - O.PAD)) end
   self:Paint()
   return self
 end
@@ -491,7 +562,7 @@ function Opt:Flow(footH)
     for _, c in ipairs(cols) do tall = math.max(tall, c.h) end
     -- judged by the FINAL window: it is forced to O.RATIO anyway (Fit), so the best column count is
     -- the one that wastes the least room doing it - the smallest window that holds everything
-    local w, h = #cols * self.colW, O.HEADER + tall + O.PAD + (footH or 0)
+    local w, h = #cols * self.colW, O.HEADER + tall + O.PAD + (footH or 0) + (self:HasHelp() and O.HELP_MIN or 0)
     local score = math.max(w, h * O.RATIO) * math.max(h, w / O.RATIO)
     if not bestScore or score < bestScore then best, bestCols, bestScore = #cols, cols, score end
   end

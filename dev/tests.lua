@@ -6876,6 +6876,21 @@ do
         STATE.inCombat = false
         tf.__scripts.OnEvent(tf, "PLAYER_REGEN_ENABLED")
         ok(b:GetAttribute("*macrotext1") == "/target Bigtank" and not FN.tankDirty, "the fight over: it targets the new one")
+        -- the steppers (Arn: "add the steppers to the tank x too")
+        d.tankSize, d.tankLift = 200, 10
+        FN.RedrawTank()
+        local big = FN.tankMarks.nameplate5
+        local tip = big and big.parts[3].to
+        local _, _, _, _, y = big:GetPoint(1)
+        ok(tip and math.abs(tip[1] - (FN.TANK_W * 2 / 2 - 2)) < 0.01 and y == -FN.TANK_DROP + 10,
+           "tank X size 200%, height 10 up: redrawn at once")
+        d.tankSize, d.tankLift = 999, -999
+        ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
+        local keys = {}
+        for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = true end
+        ok(keys.tanksize and keys.tanklift, "both steppers are in the options window")
+        d.tankSize, d.tankLift = nil, nil
+        FN.RedrawTank()
         -- right-click on them again: let go; and an enemy or yourself is never a tank
         b.__scripts.OnClick(b, "RightButton")
         ok(FN.Tank() == nil and FN.tankMarks.nameplate5 == nil and b:GetAttribute("*macrotext1") == "",

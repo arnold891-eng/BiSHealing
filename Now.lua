@@ -904,6 +904,19 @@ FN.TANK_W, FN.TANK_H = 30, 35
 -- how far under the plate: ON them, the chest, not just under the name (Arn, 14 Oct, the X
 -- floating under "Kai Tu": "def want this on them so lower")
 FN.TANK_DROP = 42
+
+--- The X's size (% of TANK_W x TANK_H) and lift (px up from TANK_DROP): the options' steppers
+--- (Arn, 14 Oct: "add the steppers to the tank x too" - the same two as BiS Tools' bg marks).
+function FN.TankSize(d)
+    d = d or (NS.DB and NS.DB())
+    local v = type(d) == "table" and tonumber(d.tankSize) or nil
+    return v and math.max(50, math.min(200, v)) or 100
+end
+function FN.TankLift(d)
+    d = d or (NS.DB and NS.DB())
+    local v = type(d) == "table" and tonumber(d.tankLift) or nil
+    return v and math.max(-40, math.min(40, v)) or 0
+end
 FN.tankMarks, FN.tankPool = {}, {}
 
 local function newX()
@@ -912,7 +925,6 @@ local function newX()
     f.parts = {}
     if not f.CreateLine then return f end
     local c = FN.TEAL
-    local x, y = FN.TANK_W / 2 - 2, FN.TANK_H / 2 - 2
     for _, sign in ipairs({ 1, -1 }) do
         for _, layer in ipairs({ { 6, 0.18 }, { 3.5, 0.45 }, { 2, 1 } }) do
             local l = f:CreateLine(nil, "ARTWORK")
@@ -920,11 +932,19 @@ local function newX()
             l:SetVertexColor(c[1], c[2], c[3], layer[2])
             if layer[2] < 1 and l.SetBlendMode then pcall(l.SetBlendMode, l, "ADD") end
             l:SetThickness(layer[1])
-            l:SetStartPoint("CENTER", f, -x * sign, -y)
-            l:SetEndPoint("CENTER", f, x * sign, y)
+            l.sign = sign
             f.parts[#f.parts + 1] = l
         end
     end
+    -- the tips in the box's corners, whatever its size (the size stepper)
+    function f.Fit(w, h)
+        local x, y = w / 2 - 2, h / 2 - 2
+        for _, l in ipairs(f.parts) do
+            l:SetStartPoint("CENTER", f, -x * l.sign, -y)
+            l:SetEndPoint("CENTER", f, x * l.sign, y)
+        end
+    end
+    f.Fit(FN.TANK_W, FN.TANK_H)
     return f
 end
 
@@ -936,6 +956,12 @@ local function plateOf(unit)
     local okF, forbidden = pcall(function() return plate.IsForbidden and plate:IsForbidden() end)
     if not okF or forbidden then FN.tankForbidden = true return nil end
     return plate
+end
+
+--- A stepper moved: every X drawn again.
+function FN.RedrawTank()
+    for unit in pairs(FN.tankMarks) do FN.UnmarkTank(unit) end
+    FN.MarkTankPlates()
 end
 
 function FN.UnmarkTank(unit)
@@ -955,8 +981,10 @@ function FN.MarkTankPlate(unit)
     local plate = plateOf(unit)
     if not plate then return end
     local f = table.remove(FN.tankPool) or newX()
-    f:SetSize(FN.TANK_W, FN.TANK_H)
-    f:SetPoint("TOP", plate, "BOTTOM", 0, -FN.TANK_DROP)
+    local k = FN.TankSize() / 100
+    f:SetSize(FN.TANK_W * k, FN.TANK_H * k)
+    if f.Fit then f.Fit(FN.TANK_W * k, FN.TANK_H * k) end
+    f:SetPoint("TOP", plate, "BOTTOM", 0, -FN.TANK_DROP + FN.TankLift())
     f:Show()
     FN.tankMarks[unit] = f
 end

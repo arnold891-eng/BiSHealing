@@ -109,6 +109,21 @@ function CFG.Sections()
               get = function(db) return db.markers or 10 end,
               set = function(_, v) if DO.markers then DO.markers(v) end end,
               show = function(db) return ("%dpx"):format(db.markers or 10) end },
+            -- the tank's teal X (BiS> now's Tank button), to taste (Arn, 14 Oct: "add the steppers
+            -- to the tank x too") - the same two as BiS Tools' bg marks
+            { key = "tanksize", kind = "step", label = "tank X size",
+              min = 50, max = 200, step = 10,
+              get = function(db) return NS.FN and NS.FN.TankSize(db) or 100 end,
+              set = function(db, v) db.tankSize = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db) return ("%d%%"):format(NS.FN and NS.FN.TankSize(db) or 100) end },
+            { key = "tanklift", kind = "step", label = "tank X height",
+              min = -40, max = 40, step = 5,
+              get = function(db) return NS.FN and NS.FN.TankLift(db) or 0 end,
+              set = function(db, v) db.tankLift = v if NS.FN then NS.FN.RedrawTank() end end,
+              show = function(db)
+                  local v = NS.FN and NS.FN.TankLift(db) or 0
+                  return v == 0 and "on them" or (v > 0 and (v .. " up") or (-v .. " down"))
+              end },
         } },
         { title = "cells", column = 2, options = {
             -- FOUR SWITCHES, ONE ROW. Three of these had a row each and a fourth was asked for

@@ -1951,7 +1951,7 @@ NS.loaded = { found = false }
 --
 -- These are SEPARATE TABLES, never aliases: two globals pointing at one table is one file saved
 -- and one lost, which would look exactly like the bug we are working around.
-local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves", "holds", "tank" }
+local MIRROR = { "binds", "minimap", "shown", "bindsSeeded", "dbver", "savedAt", "saves", "holds", "tank", "tankSize", "tankLift" }
 
 local function copy(v)
     if type(v) ~= "table" then return v end

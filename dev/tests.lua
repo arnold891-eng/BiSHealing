@@ -5937,6 +5937,16 @@ do
         NS.DO.options = realOptions
         ok(opened == 2, "left AND right click open the options window", opened)
         ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
+        -- OUR click replaces the shared one, so it must ask for the shared unbury itself (Arn,
+        -- 14 Oct: "bis healing stay dark after click" - EllesmereUI's backing over the icon)
+        local unburied = 0
+        local keepU = b.Unbury
+        b.Unbury = function() unburied = unburied + 1 return true end
+        NS.DO.options = function() end
+        click(b, "LeftButton")
+        NS.DO.options = realOptions
+        b.Unbury = keepU
+        ok(unburied == 1, "a click puts a collector's backing back under the icon")
     end
     ok(NS.MM.Rows == nil, "the menu's rows are gone - the window holds them all")
     local first = NS.UI.Rows()[1]

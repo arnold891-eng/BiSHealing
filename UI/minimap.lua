@@ -53,6 +53,10 @@ end
 --- given this addon's click and tooltip.
 function MM.Click(_, click)
     local b = MM.button
+    -- this click REPLACES the shared button's own, so the shared fix must be asked for here: a
+    -- minimap collector's backing lifted over the icon goes back under it (Arn, 14 Oct: "bis
+    -- healing stay dark after click" - the fix in BiSTheme's Minimap.lua never ran)
+    if b and b.Unbury then b:Unbury() end
     if b and b.CloseMenu then b:CloseMenu() end
     if b and b.dragging then return end
     act("options")()

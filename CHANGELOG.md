@@ -1,7 +1,11 @@
 # BiS Healing
 
-## Unreleased
+## 0.8.6
 
+- **The shield button is never blank.** When the game won't let the shield's live picture be placed (some clients, some battlegrounds), the button showed nothing at all, though it still cast. Now it shows your shield's own icon, a little dimmed.
+- **The minimap icon stays bright after a click** - with EllesmereUI's minimap collector it went dark and stayed dark.
+- **Every setting says what it does**: hover one in the options window and the strip at the bottom explains it. "marker size" is now "debuff marker size" - it's the size of the cure-me squares on your cells.
+- **Options windows**: the BiS shape (1.43:1) with settings in even columns, and two BiS windows no longer open on top of each other.
 - **Every BiS> bar looks the same.** The bars over BiS> now, the mana list, target, tot, me and pets wear the same prompt as the grid's own header - purple BiS>, the word, the blinking _ - instead of a plain gold label.
 
 ## 0.8.5

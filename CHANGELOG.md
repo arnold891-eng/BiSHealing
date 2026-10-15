@@ -1,5 +1,16 @@
 # BiS Healing
 
+## 0.9.1
+
+- **Your tank's cell in the grid wears a teal frame**, the same teal as the mark. Inside dungeons and raids the game keeps friendly nameplates from addons, so the mark can't show there - the frame does, everywhere.
+- **No Tank button in BiS> now inside a 5-man dungeon** - the mark can't show there and five players need no finding. It comes back when you leave; raids and battlegrounds keep it.
+- **Said plainly**: the tooltip, `/bish tank` and the options tell you the mark doesn't work inside dungeons and raids (battlegrounds and the open world are fine).
+- **The tank mark finds a tank already on screen** when you choose them - it no longer waits for their nameplate to leave and come back.
+- **A preview of the tank mark** on you in the options, so you can see the look, size and height as you change them.
+- **The grid sits under Blizzard's windows** - the quest log and friends no longer open underneath it - and still over your action bars.
+- **A narrow block keeps its blinking _** in its header bar.
+- **Binds that don't fit in the save macro are named**, instead of quietly going missing after a reload.
+
 ## 0.9.0
 
 - **A Tank button in BiS> now: your tank, one click away.** Target a friendly player and right-click the button: they're your tank. Left-click it and you target them, wherever they are in the raid. Right-click it on them again, or on nobody, to let go. `/bish tank` says who it is and whether everything works.

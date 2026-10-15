@@ -5279,6 +5279,21 @@ do
         FM.Clear("shift-", "left")
         FM.Set("", "left", "Spell331")        -- as the checks below this one left it
     end
+    -- A FULL SAVE MACRO SAYS SO (14 Oct 2026): binds that do not fit used to vanish at the next load
+    -- with no word (Arn's cousin, a Nature's Swiftness bind "not saving")
+    do
+        local keepSave, from = NS.FK.Save, #SAID
+        NS.FK.Save = function() return true, 2 end
+        FM.Set("alt-", "button5", "Healing Wave")
+        local said = table.concat(SAID, " / ", from + 1)
+        ok(said:find("2 bind(s) did not fit in the save macro", 1, true), "binds that did not fit: said, with /bish keep to see which", said)
+        from = #SAID
+        NS.FK.Save = function() return true, 0 end
+        FM.Set("alt-", "button5", "Healing Wave")
+        ok(#SAID == from, "everything fits: nothing said")
+        NS.FK.Save = keepSave
+        FM.Clear("alt-", "button5")
+    end
 
     FM.Set("shift-", "right", "Chain Heal")
     FM.Set("", "wheelup", "Lesser Healing Wave")

@@ -1171,6 +1171,8 @@ end
 function FN.MarkTankPlates()
     if FN.Tank() then FN.SeedTankPlates() end
     for unit in pairs(FN.tankPlates) do FN.MarkTankPlate(unit) end
+    -- and the tank's cell in the grid (it shows inside dungeons, where the plate cannot)
+    if NS.FG and NS.FG.PaintTanks then NS.FG.PaintTanks() end
 end
 
 --- Plates come and go; the macro waits for the fight to end. Events only, and with no tank chosen

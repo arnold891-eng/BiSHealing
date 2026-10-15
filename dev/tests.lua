@@ -6929,6 +6929,25 @@ do
         b.__scripts.OnClick(b, "RightButton")             -- Tobi again, as the rest expects
         _G.C_NamePlate.GetNamePlates = nil
         who.nameplate7, plates.nameplate7, FN.tankPlates.nameplate7 = nil, nil, nil
+        -- THE TANK'S CELL (Arn, 14 Oct): inside a dungeon no plate is handed over, so the tank's cell in
+        -- the grid wears a teal frame - always, there or anywhere
+        if NS.FG and NS.FG.Make and NS.FG.anchor then
+            who.party1 = { name = "Tobi", full = "Tobi Three", friend = true }
+            who.party2 = { name = "Other", full = "Other Guy", friend = true }
+            local c1 = NS.FG.Make("TankCell1", NS.FG.anchor) c1.unit = "party1"
+            local c2 = NS.FG.Make("TankCell2", NS.FG.anchor) c2.unit = "party2"
+            local n0 = #NS.FG.frames
+            NS.FG.frames[n0 + 1], NS.FG.frames[n0 + 2] = c1, c2   -- the grid's own list, as a real cell is
+            NS.FG.PaintTank(c1) NS.FG.PaintTank(c2)
+            ok(c1.tankRing and c1.tankRing:IsShown() and not c2.tankRing:IsShown(),
+               "the tank's cell wears the teal frame; nobody else's does")
+            b.__scripts.OnClick(b, "RightButton")         -- let go of the tank
+            ok(not c1.tankRing:IsShown(), "no tank: no frame (choosing or letting go repaints the grid)")
+            b.__scripts.OnClick(b, "RightButton")         -- Tobi again
+            ok(c1.tankRing:IsShown(), "and back")
+            NS.FG.frames[n0 + 2], NS.FG.frames[n0 + 1] = nil, nil
+            who.party1, who.party2 = nil, nil
+        end
         -- a plate whose NAME IS SECRET (14 Oct, Arn's BugGrabber in a battleground: "attempt to
         -- compare local 'n' (a secret string value)")
         local keepGUN, keepUN = _G.GetUnitName, _G.UnitName

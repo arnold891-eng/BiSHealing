@@ -266,6 +266,20 @@ local function newFrame(kind, name, parent)
     -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
     -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
     -- like the client's, and like the frames above.
+    -- A LINE IS A REAL OBJECT (14 Oct 2026): the client's CreateLine always hands one back. The
+    -- generic auto-method answered nil, so the first code to draw a tank mark on a plain frame (the
+    -- options' preview) died here on "index a nil value" - a mock harsher than the client is a lie too.
+    function f:CreateLine()
+        local l = autoMethods({ __shown = true })
+        function l:SetStartPoint(_, _, x, y) self.from = { x, y } end
+        function l:SetEndPoint(_, _, x, y) self.to = { x, y } end
+        function l:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
+        function l:SetThickness(w) self.thick = w end
+        function l:Show() self.__shown = true end
+        function l:Hide() self.__shown = false end
+        function l:IsShown() return self.__shown end
+        return l
+    end
     function f:CreateTexture()
         return autoMethods({
             -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
@@ -8056,6 +8070,30 @@ do
     ok(d.ring == "target", "pressing 'target' on the row moves the ring")
     keys.dim.set(nil, 0.6)
     ok(math.abs(d.dim - 0.6) < 0.001 and keys.dim.show(d) == "60%", "the dim row sets it and says it")
+
+    -- THE TANK MARK PREVIEW (Arn, 14 Oct: "bis healing needs a preview like bis tools"): hover a tank
+    -- mark row and a 1.43:1 panel rolls out beside the window - you, a plate, the mark on you
+    local pv = NS.FN.preview
+    ok(pv and not pv:IsShown(), "the preview is built with the window, hidden")
+    local tankRow, otherRow
+    for _, r in ipairs(win.rows or {}) do
+        if r.opt and r.opt.key == "tanksize" then tankRow = r end
+        if r.opt and r.opt.key == "dim" then otherRow = r end
+    end
+    ok(tankRow and tankRow.__scripts and tankRow.__scripts.OnEnter, "the tank mark row has a hover")
+    tankRow.__scripts.OnEnter(tankRow)
+    ok(pv:IsShown() and pv.mark and pv.mark:IsShown(), "hovering 'tank mark size': the panel, and the mark on you")
+    ok(math.abs(pv.__w / pv.__h - 1.43) < 0.01, "1.43:1, the BiSTheme shape", pv.__w .. "x" .. pv.__h)
+    local w0 = pv.mark.__w
+    d.tankSize = 200
+    NS.FN.RedrawTank()
+    ok(pv.mark.__w == NS.FN.TANK_W * 2 and pv.mark.__w > w0, "a step redraws it at once: 200%")
+    d.tankLook = 5
+    NS.FN.RedrawTank()
+    ok(pv.mark.look == 5, "and the look follows")
+    d.tankSize, d.tankLook = nil, nil
+    otherRow.__scripts.OnEnter(otherRow)
+    ok(not pv:IsShown(), "hovering any other setting: it rolls back in")
 
     _G.UnitIsUnit = realIsUnit
     d.ring, d.dim = was.ring, was.dim

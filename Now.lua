@@ -976,6 +976,122 @@ local function newX(look)
     f.Fit(FN.TANK_W, FN.TANK_H)
     return f
 end
+FN.NewTankMark = newX                     -- the options' preview draws the same mark
+
+-- ---------------------------------------------------------------- the preview
+-- Arn, 14 Oct: "bis healing needs a preview like bis tools". Hover "tank mark", "tank mark size" or
+-- "tank mark height" in the options and a panel rolls out beside the window: YOU as a 3D model, a
+-- nameplate over your head, wearing the tank mark exactly as FN.MarkTankPlate puts it on the tank -
+-- redrawn on every step. As tall as the options window, 1.43:1 (the BiSTheme standard).
+FN.PREVIEW_H, FN.PREVIEW_HEADROOM = 230, 60
+FN.PREVIEW_PLATE = { 120, 8 }
+
+local function pvTex(parent, layer, c, a)
+    local t = parent:CreateTexture(nil, layer)
+    t:SetColorTexture(c[1], c[2], c[3], a or 1)
+    return t
+end
+
+--- (Re)draw the mark in the current look, size and height.
+function FN.PaintPreview()
+    local pv = FN.preview
+    if not (pv and pv:IsShown()) then return end
+    if pv.mark then pv.mark:Hide() end
+    local look = FN.TankLook()
+    pv.made = pv.made or {}
+    local f = pv.made[look]
+    if not f then
+        f = newX(look)
+        f:SetParent(pv.cell)
+        pv.made[look] = f
+    end
+    local okS, strata = pcall(pv.GetFrameStrata, pv)
+    local okL, level = pcall(pv.GetFrameLevel, pv)
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    local k = FN.TankSize() / 100
+    f:SetSize(FN.TANK_W * k, FN.TANK_H * k)
+    if f.Fit then f.Fit(FN.TANK_W * k, FN.TANK_H * k) end
+    f:ClearAllPoints()
+    f:SetPoint("TOP", pv.plate, "BOTTOM", 0, -FN.TANK_DROP + FN.TankLift())
+    f:Show()
+    pv.mark = f
+end
+
+function FN.DressPreview()
+    local pv = FN.preview
+    if not pv then return end
+    local okN, me = pcall(UnitName, "player")
+    pv.plate.name:SetText((okN and type(me) == "string" and not (NS.Secret and NS.Secret(me))) and me or "you")
+    if pv.model then
+        pcall(pv.model.SetUnit, pv.model, "player")
+        pcall(pv.model.SetFacing, pv.model, 0.35)
+        if pv.model.SetPortraitZoom then pcall(pv.model.SetPortraitZoom, pv.model, 0) end
+    end
+end
+
+--- The roll-out, hung off the options window's right edge; shown while a tank mark row is hovered.
+function FN.AttachPreview(opt)
+    if not opt then return FN.preview end
+    if FN.preview and FN.previewFor == opt then return FN.preview end   -- a rebuilt window gets its own
+    FN.previewFor = opt
+    local pv = CreateFrame("Frame", "BiSHealingTankPreview", opt)
+    local okH, oh = pcall(opt.GetHeight, opt)
+    local H = (okH and type(oh) == "number" and oh >= FN.PREVIEW_H) and math.floor(oh + 0.5) or FN.PREVIEW_H
+    pv:SetSize(math.floor(H * 1.43 + 0.5), H)
+    pv:SetPoint("TOPLEFT", opt, "TOPRIGHT", 4, 0)
+    pvTex(pv, "BACKGROUND", { 0.05, 0.05, 0.08 }, 0.92):SetAllPoints(pv)
+    local title = pv:CreateFontString(nil, "OVERLAY")
+    pcall(title.SetFont, title, STANDARD_TEXT_FONT, 9, "")
+    title:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -5)
+    title:SetText((NS.T and NS.T.text and NS.T.text("accent", "BiS>") or "BiS>") .. " the tank mark, on you")
+    local cell = CreateFrame("Frame", nil, pv)
+    cell:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -18)
+    cell:SetPoint("BOTTOMRIGHT", pv, "BOTTOMRIGHT", -6, 4)
+    pv.cell = cell
+    local okM, m = pcall(CreateFrame, "DressUpModel", nil, cell)
+    if okM and m then
+        m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -(FN.PREVIEW_HEADROOM + 4))
+        m:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 14)
+        pv.model = m
+    end
+    -- the plate stands where a nameplate stands: over the head
+    local p = CreateFrame("Frame", nil, cell)
+    p:SetSize(FN.PREVIEW_PLATE[1], FN.PREVIEW_PLATE[2])
+    p:SetPoint("TOP", cell, "TOP", 0, -FN.PREVIEW_HEADROOM)
+    pvTex(p, "BACKGROUND", { 0.10, 0.10, 0.12 }, 0.9):SetAllPoints(p)
+    local fill = pvTex(p, "ARTWORK", { 0.20, 0.75, 0.25 }, 1)
+    fill:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -1, 1)
+    p.name = p:CreateFontString(nil, "OVERLAY")
+    pcall(p.name.SetFont, p.name, STANDARD_TEXT_FONT, 8, "")
+    p.name:SetPoint("BOTTOM", p, "TOP", 0, 1)
+    pv.plate = p
+    local word = cell:CreateFontString(nil, "OVERLAY")
+    pcall(word.SetFont, word, STANDARD_TEXT_FONT, 9, "")
+    word:SetPoint("BOTTOM", cell, "BOTTOM", 0, 2)
+    word:SetText("your tank, as you will see them (open world and battlegrounds)")
+    pv.word = word
+    pv:Hide()
+    FN.preview = pv
+    local function hover(r)
+        if r.opt and r.opt.tankPreview then
+            if not pv:IsShown() then pv:Show() FN.DressPreview() end
+            FN.PaintPreview()
+        elseif pv:IsShown() then
+            pv:Hide()
+        end
+    end
+    for _, r in ipairs(opt.rows or {}) do
+        if r.HookScript then pcall(r.HookScript, r, "OnEnter", function() hover(r) end) end
+        if r.GetChildren then
+            for _, c in ipairs({ r:GetChildren() }) do
+                if c.HookScript then pcall(c.HookScript, c, "OnEnter", function() hover(r) end) end
+            end
+        end
+    end
+    return pv
+end
 
 local function plateOf(unit)
     local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
@@ -991,6 +1107,7 @@ end
 function FN.RedrawTank()
     for unit in pairs(FN.tankMarks) do FN.UnmarkTank(unit) end
     FN.MarkTankPlates()
+    if FN.PaintPreview then FN.PaintPreview() end
 end
 
 function FN.UnmarkTank(unit)

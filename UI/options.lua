@@ -112,17 +112,17 @@ function CFG.Sections()
             -- the tank's teal X (BiS> now's Tank button), to taste (Arn, 14 Oct: "add the steppers
             -- to the tank x too") - the same two as BiS Tools' bg marks
             -- a stepper through names (Arn: "not all want x")
-            { key = "tanklook", kind = "step", label = "tank mark", help = "The shape over your chosen tank (BiS> now's Tank button): X, saber, arrow, diamond or corners, in teal. Shows in the open world and battlegrounds - not inside dungeons or raids, where the game keeps friendly nameplates from addons.",
+            { key = "tanklook", kind = "step", label = "tank mark", tankPreview = true, help = "The shape over your chosen tank (BiS> now's Tank button): X, saber, arrow, diamond or corners, in teal. Shows in the open world and battlegrounds - not inside dungeons or raids, where the game keeps friendly nameplates from addons.",
               min = 1, max = NS.FN and #NS.FN.LOOKS or 5, step = 1,
               get = function(db) return NS.FN and NS.FN.TankLook(db) or 1 end,
               set = function(db, v) db.tankLook = v if NS.FN then NS.FN.RedrawTank() end end,
               show = function(db) return NS.FN and NS.FN.LOOKS[NS.FN.TankLook(db)].word or "X" end },
-            { key = "tanksize", kind = "step", label = "tank mark size", help = "How big the tank's mark is.",
+            { key = "tanksize", kind = "step", label = "tank mark size", tankPreview = true, help = "How big the tank's mark is.",
               min = 50, max = 200, step = 10,
               get = function(db) return NS.FN and NS.FN.TankSize(db) or 100 end,
               set = function(db, v) db.tankSize = v if NS.FN then NS.FN.RedrawTank() end end,
               show = function(db) return ("%d%%"):format(NS.FN and NS.FN.TankSize(db) or 100) end },
-            { key = "tanklift", kind = "step", label = "tank mark height", help = "Moves the tank's mark up or down on them.",
+            { key = "tanklift", kind = "step", label = "tank mark height", tankPreview = true, help = "Moves the tank's mark up or down on them.",
               min = -40, max = 40, step = 5,
               get = function(db) return NS.FN and NS.FN.TankLift(db) or 0 end,
               set = function(db, v) db.tankLift = v if NS.FN then NS.FN.RedrawTank() end end,
@@ -414,6 +414,8 @@ function CFG.Build()
         CFG.columns = 2
     end
     f:Fit()
+    -- the tank mark's roll-out preview (Arn, 14 Oct: "bis healing needs a preview like bis tools")
+    if NS.FN and NS.FN.AttachPreview then NS.FN.AttachPreview(f) end
     return f
 end
 

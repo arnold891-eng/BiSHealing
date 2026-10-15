@@ -2042,8 +2042,10 @@ end
 -- sentence, and both of them make the window unrescuable: it drew among the action bars, and the
 -- one command meant to retrieve a window you cannot see put it back into them.
 do
-    ok(FG.anchor.__strata == "HIGH",
-       "the grid is above the action bars, not among them", tostring(FG.anchor.__strata))
+    -- and NOT over Blizzard's windows (Arn's cousin, 14 Oct: the quest window opened under the grid):
+    -- MEDIUM, Blizzard's own layer, high inside it - a Blizzard window raises itself over it on open
+    ok(FG.anchor.__strata == "MEDIUM" and FG.anchor.__level == FG.LEVEL,
+       "the grid is high in Blizzard's own layer: over the bars, under a window that opens", tostring(FG.anchor.__strata))
 
     local d = NS.DB()
     d.gridPos = { point = "RIGHT", rel = "RIGHT", x = -192, y = 14 }

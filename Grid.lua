@@ -1224,6 +1224,7 @@ FG.SELF_KEYS   = { what = "your own cell", at = "meAt", pos = "mePos",
 
 FG.cellCons = {}          -- the blocks' bars wearing the prompt, painted by the grid header's ticker
 FG.HEADER_MIN_W = 96      -- a block bar's prompt never narrower: "BiS> target_" at size 10 fits
+FG.LEVEL = 40            -- the grid's level in MEDIUM: over the action bars, under a Blizzard window that opens
 
 --- One paint for every prompt on the grid: its own header, then each block's bar that is showing (target,
 --- tot, me, pets, mana, now) - one ticker for them all, never one each.
@@ -2615,7 +2616,14 @@ function FG.Start()
     -- see is not a healing grid, and the header you would drag to move it was buried with it.
     -- HIGH is above the bars and bags and below DIALOG and tooltips, so nothing it needs to sit
     -- under is covered.
-    if anchor.SetFrameStrata then anchor:SetFrameStrata("HIGH") end
+    --
+    -- BUT NOT OVER BLIZZARD'S WINDOWS (Arn's cousin, 14 Oct: "when he opened his quest window the bis
+    -- healing was over and he could not move it - can we send it behind the blizz windows"). HIGH sat
+    -- above the quest log, the character sheet, every panel. So: MEDIUM - Blizzard's own layer - at a
+    -- high level inside it (FG.LEVEL): still over the bars, and a Blizzard window, which raises itself
+    -- to the top of its layer when it opens, comes up over the grid.
+    if anchor.SetFrameStrata then anchor:SetFrameStrata("MEDIUM") end
+    if anchor.SetFrameLevel then anchor:SetFrameLevel(FG.LEVEL) end
     anchor:SetSize(FRAME_W, FRAME_H)
     FG.anchor = anchor
     local ds = NS.DB and NS.DB()

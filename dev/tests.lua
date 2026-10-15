@@ -6890,6 +6890,22 @@ do
         ok(x and x:IsShown() and #x.parts == 6 and x.parts[3].color and x.parts[3].color[2] > 0.8 and x.parts[3].color[1] < 0.3,
            "a small teal X on them - their plate's first word is enough")
         ok(FN.tankMarks.nameplate4 == nil, "an enemy of the same name: no X")
+        -- A PLATE ALREADY ON SCREEN when the tank is chosen (Arn's cousin, 14 Oct: "target the tank
+        -- right click the shield and no crosshairs"): no NAME_PLATE_UNIT_ADDED ever came for it
+        who.nameplate7 = { name = "Rocky", full = "Rocky Road", friend = true }
+        plates.nameplate7 = CreateFrame("Frame")
+        plates.nameplate7.namePlateUnitToken = "nameplate7"
+        _G.C_NamePlate.GetNamePlates = function() return { plates.nameplate7 } end
+        local keepTarget = who.target
+        who.target = { name = "Rocky", full = "Rocky Road", friend = true }
+        b.__scripts.OnClick(b, "RightButton")             -- choose Rocky (a new target: chosen at once)
+        ok(FN.Tank() and FN.Tank():find("Rocky", 1, true) and FN.tankMarks.nameplate7 and FN.tankMarks.nameplate7:IsShown(),
+           "a plate already on screen when the tank is chosen gets the X at once", FN.Tank())
+        b.__scripts.OnClick(b, "RightButton")             -- let go of Rocky
+        who.target = keepTarget
+        b.__scripts.OnClick(b, "RightButton")             -- Tobi again, as the rest expects
+        _G.C_NamePlate.GetNamePlates = nil
+        who.nameplate7, plates.nameplate7, FN.tankPlates.nameplate7 = nil, nil, nil
         -- a plate whose NAME IS SECRET (14 Oct, Arn's BugGrabber in a battleground: "attempt to
         -- compare local 'n' (a secret string value)")
         local keepGUN, keepUN = _G.GetUnitName, _G.UnitName

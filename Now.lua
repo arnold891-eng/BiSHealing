@@ -1020,7 +1020,24 @@ function FN.MarkTankPlate(unit)
 end
 
 FN.tankPlates = {}
+
+--- The plates ALREADY on screen (Arn's cousin, 14 Oct: "target the tank right click the shield and
+--- no crosshairs"): the list grew only from NAME_PLATE_UNIT_ADDED, so a plate showing before the tank
+--- was chosen - or one whose event the client skipped, after a reload - was never in it, and the X
+--- waited for that plate to leave and come back. Asked whenever the marks are redrawn.
+function FN.SeedTankPlates()
+    local all = C_NamePlate and C_NamePlate.GetNamePlates
+    if not all then return end
+    local ok, list = pcall(all)
+    if not ok or type(list) ~= "table" then return end
+    for _, p in ipairs(list) do
+        local okU, u = pcall(function() return p.namePlateUnitToken or (p.UnitFrame and p.UnitFrame.unit) end)
+        if okU and type(u) == "string" and not (NS.Secret and NS.Secret(u)) then FN.tankPlates[u] = true end
+    end
+end
+
 function FN.MarkTankPlates()
+    if FN.Tank() then FN.SeedTankPlates() end
     for unit in pairs(FN.tankPlates) do FN.MarkTankPlate(unit) end
 end
 

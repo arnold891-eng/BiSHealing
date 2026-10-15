@@ -7004,6 +7004,15 @@ do
         ok(FN.MarkLocked() == false, "in a battleground: not locked - the mark works there")
         _G.IsInInstance = function() return false, "none" end
         ok(FN.MarkLocked() == false, "in the open world: not locked")
+        -- NO TANK BUTTON IN A DUNGEON (Arn, 14 Oct: "in dungeon get rid of tank button")
+        local function hasTank() for _, k in ipairs(FN.Mine()) do if k == "tank" then return true end end return false end
+        local outside = hasTank()
+        _G.IsInInstance = function() return true, "party" end
+        ok(outside and not hasTank(), "a dungeon: the Tank button leaves BiS> now")
+        _G.IsInInstance = function() return true, "raid" end
+        ok(hasTank(), "a raid keeps it (the click still targets them)")
+        _G.IsInInstance = function() return true, "pvp" end
+        ok(hasTank(), "a battleground keeps it")
         _G.IsInInstance = keepII
         d.tankSize, d.tankLift = 999, -999
         ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")

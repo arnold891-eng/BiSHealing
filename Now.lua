@@ -351,7 +351,7 @@ function FN.Mine()
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
-           and (not b.tank or FN.TankReady()) then         -- and the tank, unless switched off
+           and (not b.tank or (FN.TankReady() and not FN.InDungeon())) then -- the tank: not off, not in a dungeon
             out[#out + 1] = k
         end
     end
@@ -797,6 +797,16 @@ FN.TEAL = { 0.20, 0.90, 0.82 }
 FN.TANK_ICON = "Interface\\Icons\\Ability_Defend"
 
 --- The button is there unless switched off (db.tankButton = false).
+--- A 5-man dungeon (Arn, 14 Oct: "in dungeon get rid of tank button"): the mark cannot show in there
+--- and five players need no finding, so the button leaves the block. Raids and battlegrounds keep it.
+--- Asked at every layout, and the grid lays out again on PLAYER_ENTERING_WORLD - i.e. at every zone-in.
+function FN.InDungeon()
+    if not IsInInstance then return false end
+    local ok, inside, kind = pcall(IsInInstance)
+    if not ok or NS.Secret and (NS.Secret(inside) or NS.Secret(kind)) then return false end
+    return inside == true and kind == "party"
+end
+
 function FN.TankReady()
     local d = NS.DB and NS.DB()
     return not (type(d) == "table" and d.tankButton == false)

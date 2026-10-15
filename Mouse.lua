@@ -929,7 +929,15 @@ end
 --- change out of combat writes the whole mouse anyway - there is no half-saved state to repair.
 local function keep(d)
     FM.touched = true              -- a deliberate act, never to be thrown away by us
-    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds) end
+    if NS.FK and NS.FK.Save then
+        -- SAID, NOT SILENT (14 Oct 2026, Arn's cousin: a Nature's Swiftness bind "not saving").
+        -- A full macro sheds its LAST binds, and they were gone at the next load with no word.
+        local done, dropped = NS.FK.Save(d.binds)
+        if done and type(dropped) == "number" and dropped > 0 and NS.Print then
+            NS.Print("|cfff08cb0%d bind(s) did not fit in the save macro|r and will be gone after a reload"
+                .. " - /bish keep shows which", dropped)
+        end
+    end
 end
 
 --- The macro list is not always populated the moment we first ask. If it filled in late, what

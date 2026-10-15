@@ -266,6 +266,20 @@ local function newFrame(kind, name, parent)
     -- fine for SetColorTexture and a liar for the rest: "the icon is shown" and "it used the
     -- healer corner" are only questions if Show and SetTexCoord leave a mark. Shown-by-default
     -- like the client's, and like the frames above.
+    -- A LINE IS A REAL OBJECT (14 Oct 2026): the client's CreateLine always hands one back. The
+    -- generic auto-method answered nil, so the first code to draw a tank mark on a plain frame (the
+    -- options' preview) died here on "index a nil value" - a mock harsher than the client is a lie too.
+    function f:CreateLine()
+        local l = autoMethods({ __shown = true })
+        function l:SetStartPoint(_, _, x, y) self.from = { x, y } end
+        function l:SetEndPoint(_, _, x, y) self.to = { x, y } end
+        function l:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
+        function l:SetThickness(w) self.thick = w end
+        function l:Show() self.__shown = true end
+        function l:Hide() self.__shown = false end
+        function l:IsShown() return self.__shown end
+        return l
+    end
     function f:CreateTexture()
         return autoMethods({
             -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
@@ -2028,8 +2042,10 @@ end
 -- sentence, and both of them make the window unrescuable: it drew among the action bars, and the
 -- one command meant to retrieve a window you cannot see put it back into them.
 do
-    ok(FG.anchor.__strata == "HIGH",
-       "the grid is above the action bars, not among them", tostring(FG.anchor.__strata))
+    -- and NOT over Blizzard's windows (Arn's cousin, 14 Oct: the quest window opened under the grid):
+    -- MEDIUM, Blizzard's own layer, high inside it - a Blizzard window raises itself over it on open
+    ok(FG.anchor.__strata == "MEDIUM" and FG.anchor.__level == FG.LEVEL,
+       "the grid is high in Blizzard's own layer: over the bars, under a window that opens", tostring(FG.anchor.__strata))
 
     local d = NS.DB()
     d.gridPos = { point = "RIGHT", rel = "RIGHT", x = -192, y = 14 }
@@ -5263,6 +5279,21 @@ do
         FM.Clear("shift-", "left")
         FM.Set("", "left", "Spell331")        -- as the checks below this one left it
     end
+    -- A FULL SAVE MACRO SAYS SO (14 Oct 2026): binds that do not fit used to vanish at the next load
+    -- with no word (Arn's cousin, a Nature's Swiftness bind "not saving")
+    do
+        local keepSave, from = NS.FK.Save, #SAID
+        NS.FK.Save = function() return true, 2 end
+        FM.Set("alt-", "button5", "Healing Wave")
+        local said = table.concat(SAID, " / ", from + 1)
+        ok(said:find("2 bind(s) did not fit in the save macro", 1, true), "binds that did not fit: said, with /bish keep to see which", said)
+        from = #SAID
+        NS.FK.Save = function() return true, 0 end
+        FM.Set("alt-", "button5", "Healing Wave")
+        ok(#SAID == from, "everything fits: nothing said")
+        NS.FK.Save = keepSave
+        FM.Clear("alt-", "button5")
+    end
 
     FM.Set("shift-", "right", "Chain Heal")
     FM.Set("", "wheelup", "Lesser Healing Wave")
@@ -6057,6 +6088,13 @@ do
             local listed = false
             for _, x in ipairs(FG.cellCons) do if x == h then listed = true end end
             ok(listed, "and is on the grid header's one paint list")
+            -- a NARROW block still has room for the word and its "_" (Arn's cousin, 14 Oct: "his bis
+            -- now does not have a blinking _" - BiS> now with two buttons)
+            local thin = CreateFrame("Frame", nil, UIParent)
+            thin:SetSize(68, 34)
+            local th = FG.CellHeader(thin, "now", thin)
+            ok(th and th.con and th.con.width >= FG.HEADER_MIN_W, "a 68 px block's prompt still gets the room for 'BiS> now_'",
+               th and th.con and th.con.width)
             local painted = 0
             local real = h.con.Paint
             h.con.Paint = function(self, ...) painted = painted + 1 return real(self, ...) end
@@ -6890,6 +6928,41 @@ do
         ok(x and x:IsShown() and #x.parts == 6 and x.parts[3].color and x.parts[3].color[2] > 0.8 and x.parts[3].color[1] < 0.3,
            "a small teal X on them - their plate's first word is enough")
         ok(FN.tankMarks.nameplate4 == nil, "an enemy of the same name: no X")
+        -- A PLATE ALREADY ON SCREEN when the tank is chosen (Arn's cousin, 14 Oct: "target the tank
+        -- right click the shield and no crosshairs"): no NAME_PLATE_UNIT_ADDED ever came for it
+        who.nameplate7 = { name = "Rocky", full = "Rocky Road", friend = true }
+        plates.nameplate7 = CreateFrame("Frame")
+        plates.nameplate7.namePlateUnitToken = "nameplate7"
+        _G.C_NamePlate.GetNamePlates = function() return { plates.nameplate7 } end
+        local keepTarget = who.target
+        who.target = { name = "Rocky", full = "Rocky Road", friend = true }
+        b.__scripts.OnClick(b, "RightButton")             -- choose Rocky (a new target: chosen at once)
+        ok(FN.Tank() and FN.Tank():find("Rocky", 1, true) and FN.tankMarks.nameplate7 and FN.tankMarks.nameplate7:IsShown(),
+           "a plate already on screen when the tank is chosen gets the X at once", FN.Tank())
+        b.__scripts.OnClick(b, "RightButton")             -- let go of Rocky
+        who.target = keepTarget
+        b.__scripts.OnClick(b, "RightButton")             -- Tobi again, as the rest expects
+        _G.C_NamePlate.GetNamePlates = nil
+        who.nameplate7, plates.nameplate7, FN.tankPlates.nameplate7 = nil, nil, nil
+        -- THE TANK'S CELL (Arn, 14 Oct): inside a dungeon no plate is handed over, so the tank's cell in
+        -- the grid wears a teal frame - always, there or anywhere
+        if NS.FG and NS.FG.Make and NS.FG.anchor then
+            who.party1 = { name = "Tobi", full = "Tobi Three", friend = true }
+            who.party2 = { name = "Other", full = "Other Guy", friend = true }
+            local c1 = NS.FG.Make("TankCell1", NS.FG.anchor) c1.unit = "party1"
+            local c2 = NS.FG.Make("TankCell2", NS.FG.anchor) c2.unit = "party2"
+            local n0 = #NS.FG.frames
+            NS.FG.frames[n0 + 1], NS.FG.frames[n0 + 2] = c1, c2   -- the grid's own list, as a real cell is
+            NS.FG.PaintTank(c1) NS.FG.PaintTank(c2)
+            ok(c1.tankRing and c1.tankRing:IsShown() and not c2.tankRing:IsShown(),
+               "the tank's cell wears the teal frame; nobody else's does")
+            b.__scripts.OnClick(b, "RightButton")         -- let go of the tank
+            ok(not c1.tankRing:IsShown(), "no tank: no frame (choosing or letting go repaints the grid)")
+            b.__scripts.OnClick(b, "RightButton")         -- Tobi again
+            ok(c1.tankRing:IsShown(), "and back")
+            NS.FG.frames[n0 + 2], NS.FG.frames[n0 + 1] = nil, nil
+            who.party1, who.party2 = nil, nil
+        end
         -- a plate whose NAME IS SECRET (14 Oct, Arn's BugGrabber in a battleground: "attempt to
         -- compare local 'n' (a secret string value)")
         local keepGUN, keepUN = _G.GetUnitName, _G.UnitName
@@ -6930,6 +7003,32 @@ do
         local _, _, _, _, y = big:GetPoint(1)
         ok(tip and math.abs(tip[1] - (FN.TANK_W * 2 / 2 - 2)) < 0.01 and y == -FN.TANK_DROP + 10,
            "tank X size 200%, height 10 up: redrawn at once")
+        -- SAID PLAINLY: no mark inside dungeons or raids, yes in battlegrounds (Arn's cousin, 14 Oct,
+        -- Ragefire: the friendly plate was never handed over; Arn: "weirdly yes inside battlegrounds")
+        local keepII = _G.IsInInstance
+        local from = #SAID
+        _G.IsInInstance = function() return true, "party" end
+        ok(FN.MarkLocked() == true, "inside a dungeon: the mark is locked")
+        FN.TankWhy()
+        local said = table.concat(SAID, " / ", from + 1)
+        ok(said:find("inside dungeons and raids the game keeps friendly nameplates", 1, true),
+           "/bish tank says so in plain words")
+        _G.IsInInstance = function() return true, "raid" end
+        ok(FN.MarkLocked() == true, "inside a raid: locked too")
+        _G.IsInInstance = function() return true, "pvp" end
+        ok(FN.MarkLocked() == false, "in a battleground: not locked - the mark works there")
+        _G.IsInInstance = function() return false, "none" end
+        ok(FN.MarkLocked() == false, "in the open world: not locked")
+        -- NO TANK BUTTON IN A DUNGEON (Arn, 14 Oct: "in dungeon get rid of tank button")
+        local function hasTank() for _, k in ipairs(FN.Mine()) do if k == "tank" then return true end end return false end
+        local outside = hasTank()
+        _G.IsInInstance = function() return true, "party" end
+        ok(outside and not hasTank(), "a dungeon: the Tank button leaves BiS> now")
+        _G.IsInInstance = function() return true, "raid" end
+        ok(hasTank(), "a raid keeps it (the click still targets them)")
+        _G.IsInInstance = function() return true, "pvp" end
+        ok(hasTank(), "a battleground keeps it")
+        _G.IsInInstance = keepII
         d.tankSize, d.tankLift = 999, -999
         ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
         local keys = {}
@@ -8023,6 +8122,30 @@ do
     ok(d.ring == "target", "pressing 'target' on the row moves the ring")
     keys.dim.set(nil, 0.6)
     ok(math.abs(d.dim - 0.6) < 0.001 and keys.dim.show(d) == "60%", "the dim row sets it and says it")
+
+    -- THE TANK MARK PREVIEW (Arn, 14 Oct: "bis healing needs a preview like bis tools"): hover a tank
+    -- mark row and a 1.43:1 panel rolls out beside the window - you, a plate, the mark on you
+    local pv = NS.FN.preview
+    ok(pv and not pv:IsShown(), "the preview is built with the window, hidden")
+    local tankRow, otherRow
+    for _, r in ipairs(win.rows or {}) do
+        if r.opt and r.opt.key == "tanksize" then tankRow = r end
+        if r.opt and r.opt.key == "dim" then otherRow = r end
+    end
+    ok(tankRow and tankRow.__scripts and tankRow.__scripts.OnEnter, "the tank mark row has a hover")
+    tankRow.__scripts.OnEnter(tankRow)
+    ok(pv:IsShown() and pv.mark and pv.mark:IsShown(), "hovering 'tank mark size': the panel, and the mark on you")
+    ok(math.abs(pv.__w / pv.__h - 1.43) < 0.01, "1.43:1, the BiSTheme shape", pv.__w .. "x" .. pv.__h)
+    local w0 = pv.mark.__w
+    d.tankSize = 200
+    NS.FN.RedrawTank()
+    ok(pv.mark.__w == NS.FN.TANK_W * 2 and pv.mark.__w > w0, "a step redraws it at once: 200%")
+    d.tankLook = 5
+    NS.FN.RedrawTank()
+    ok(pv.mark.look == 5, "and the look follows")
+    d.tankSize, d.tankLook = nil, nil
+    otherRow.__scripts.OnEnter(otherRow)
+    ok(not pv:IsShown(), "hovering any other setting: it rolls back in")
 
     _G.UnitIsUnit = realIsUnit
     d.ring, d.dim = was.ring, was.dim

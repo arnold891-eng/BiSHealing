@@ -444,6 +444,32 @@ function FG.Make(i, parent)
     FG.Crosshair(f.targetRing, FG.EDGE.me)
     f.targetRing:Hide()
 
+    -- YOUR TANK'S CELL (Arn, 14 Oct). Inside a dungeon or raid the game hands addons no friendly
+    -- nameplate (his cousin's tests: the plate "none", the map "nil"), so the teal mark cannot stand
+    -- on the tank there - this one always can: a 2 px teal frame round the cell of the tank chosen
+    -- with BiS> now's Tank button, the mark's own teal, a level UNDER the target and mouse
+    -- crosshairs so it never covers them. Painted by FG.PaintTank on a bind and when the tank changes.
+    f.tankRing = CreateFrame("Frame", nil, f)
+    f.tankRing:SetAllPoints()
+    if f.tankRing.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.tankRing:SetFrameLevel(lvl + 1) end
+    end
+    do
+        local c, w = FG.TANK_RING, FG.TANK_RING_W
+        local function side(a, b, horizontal)
+            local t = f.tankRing:CreateTexture(nil, "OVERLAY")
+            t:SetColorTexture(c[1], c[2], c[3], 1)
+            t:SetPoint(a) t:SetPoint(b)
+            if horizontal then t:SetHeight(w) else t:SetWidth(w) end
+        end
+        side("TOPLEFT", "TOPRIGHT", true)
+        side("BOTTOMLEFT", "BOTTOMRIGHT", true)
+        side("TOPLEFT", "BOTTOMLEFT", false)
+        side("TOPRIGHT", "BOTTOMRIGHT", false)
+    end
+    f.tankRing:Hide()
+
     -- WHO YOUR MOUSE IS ON (7 Oct 2026). Arn's cousin's idea: "when he mouse hovers over someone's
     -- character if we can light up their frame with an indicator ... this is who it is on the
     -- frames". The same crosshair in white, a level above the gold one, asked about "mouseover" the
@@ -1223,6 +1249,27 @@ FG.SELF_KEYS   = { what = "your own cell", at = "meAt", pos = "mePos",
                    place = function(f) return FG.PlaceSelf(f) end }
 
 FG.cellCons = {}          -- the blocks' bars wearing the prompt, painted by the grid header's ticker
+FG.HEADER_MIN_W = 96      -- a block bar's prompt never narrower: "BiS> target_" at size 10 fits
+FG.LEVEL = 40            -- the grid's level in MEDIUM: over the action bars, under a Blizzard window that opens
+FG.TANK_RING = { 0.20, 0.90, 0.82 }   -- the tank mark's own teal (Now.lua FN.TEAL)
+FG.TANK_RING_W = 2
+
+--- The tank's cell wears a teal frame: on every bind, and whenever the tank changes. A name we may
+--- not read (a secret) is just no frame.
+function FG.PaintTank(f)
+    if not (f and f.tankRing) then return end
+    local FN = NS.FN
+    local is = false
+    if f.unit and FN and FN.Tank and FN.Tank() and FN.NameOf and FN.IsTank then
+        local ok, n = pcall(FN.NameOf, f.unit)
+        is = ok and type(n) == "string" and FN.IsTank(n) or false
+    end
+    if is then f.tankRing:Show() else f.tankRing:Hide() end
+end
+
+function FG.PaintTanks()
+    for _, f in ipairs(FG.frames or {}) do FG.PaintTank(f) end
+end
 
 --- One paint for every prompt on the grid: its own header, then each block's bar that is showing (target,
 --- tot, me, pets, mana, now) - one ticker for them all, never one each.
@@ -1264,7 +1311,10 @@ function FG.CellHeader(f, word, moves, keys)
     if T and T.Console then
         local w = (f.GetWidth and f:GetWidth()) or 84
         if type(w) ~= "number" or w <= 0 then w = 84 end
-        h.con = T.Console(title, { width = math.max(60, w), size = 10 })
+        -- room for the word AND its "_" even on a narrow block (Arn's cousin, 14 Oct: "his bis now does
+        -- not have a blinking _ but every other header does" - BiS> now with two buttons is ~68 px, and
+        -- the prompt dropped the cursor that did not fit). The text may run past a tiny block; it is short.
+        h.con = T.Console(title, { width = math.max(FG.HEADER_MIN_W, w), size = 10 })
         h.con:Set("name", tostring(word))
         FG.cellCons[#FG.cellCons + 1] = h
     else
@@ -1525,6 +1575,7 @@ function FG.Bind(f, unit)
     if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(f) end
     if RegisterUnitWatch then RegisterUnitWatch(f) end
     if f.name then f.name:SetText(FG.CellName(f, unit)) end
+    FG.PaintTank(f)
     return true
 end
 
@@ -2611,7 +2662,14 @@ function FG.Start()
     -- see is not a healing grid, and the header you would drag to move it was buried with it.
     -- HIGH is above the bars and bags and below DIALOG and tooltips, so nothing it needs to sit
     -- under is covered.
-    if anchor.SetFrameStrata then anchor:SetFrameStrata("HIGH") end
+    --
+    -- BUT NOT OVER BLIZZARD'S WINDOWS (Arn's cousin, 14 Oct: "when he opened his quest window the bis
+    -- healing was over and he could not move it - can we send it behind the blizz windows"). HIGH sat
+    -- above the quest log, the character sheet, every panel. So: MEDIUM - Blizzard's own layer - at a
+    -- high level inside it (FG.LEVEL): still over the bars, and a Blizzard window, which raises itself
+    -- to the top of its layer when it opens, comes up over the grid.
+    if anchor.SetFrameStrata then anchor:SetFrameStrata("MEDIUM") end
+    if anchor.SetFrameLevel then anchor:SetFrameLevel(FG.LEVEL) end
     anchor:SetSize(FRAME_W, FRAME_H)
     FG.anchor = anchor
     local ds = NS.DB and NS.DB()

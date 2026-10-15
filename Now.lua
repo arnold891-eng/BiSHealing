@@ -351,7 +351,7 @@ function FN.Mine()
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
-           and (not b.tank or FN.TankReady()) then         -- and the tank, unless switched off
+           and (not b.tank or (FN.TankReady() and not FN.InDungeon())) then -- the tank: not off, not in a dungeon
             out[#out + 1] = k
         end
     end
@@ -797,6 +797,16 @@ FN.TEAL = { 0.20, 0.90, 0.82 }
 FN.TANK_ICON = "Interface\\Icons\\Ability_Defend"
 
 --- The button is there unless switched off (db.tankButton = false).
+--- A 5-man dungeon (Arn, 14 Oct: "in dungeon get rid of tank button"): the mark cannot show in there
+--- and five players need no finding, so the button leaves the block. Raids and battlegrounds keep it.
+--- Asked at every layout, and the grid lays out again on PLAYER_ENTERING_WORLD - i.e. at every zone-in.
+function FN.InDungeon()
+    if not IsInInstance then return false end
+    local ok, inside, kind = pcall(IsInInstance)
+    if not ok or NS.Secret and (NS.Secret(inside) or NS.Secret(kind)) then return false end
+    return inside == true and kind == "party"
+end
+
 function FN.TankReady()
     local d = NS.DB and NS.DB()
     return not (type(d) == "table" and d.tankButton == false)
@@ -851,6 +861,7 @@ function FN.SetTank()
     d.tank = name
     if name then
         NS.Print("%s is your tank - left-click the button to target them", name)
+        if FN.MarkLocked() then NS.Print("  (the teal mark won't show in here: %s)", FN.LOCKED_WHY) end
     else
         NS.Print("no tank now (right-click the button with a friendly player targeted to choose one)")
     end
@@ -894,6 +905,7 @@ function FN.ArmTank(b)
             local t = FN.Tank()
             GameTooltip:AddLine(t and ("Your tank: " .. t) or "Your tank: nobody yet")
             GameTooltip:AddLine("Left-click: target them. Right-click: make your friendly target your tank (again on them: let go). A small teal X stands on them.", 1, 1, 1, true)
+            GameTooltip:AddLine("The mark shows in the open world and battlegrounds - not inside dungeons or raids, where the game keeps friendly nameplates from addons.", 0.6, 0.6, 0.6, true)
             if FN.tankDirty then GameTooltip:AddLine("The click targets them once this fight ends.", 1, 0.6, 0.2, true) end
             GameTooltip:Show()
         end)
@@ -974,6 +986,122 @@ local function newX(look)
     f.Fit(FN.TANK_W, FN.TANK_H)
     return f
 end
+FN.NewTankMark = newX                     -- the options' preview draws the same mark
+
+-- ---------------------------------------------------------------- the preview
+-- Arn, 14 Oct: "bis healing needs a preview like bis tools". Hover "tank mark", "tank mark size" or
+-- "tank mark height" in the options and a panel rolls out beside the window: YOU as a 3D model, a
+-- nameplate over your head, wearing the tank mark exactly as FN.MarkTankPlate puts it on the tank -
+-- redrawn on every step. As tall as the options window, 1.43:1 (the BiSTheme standard).
+FN.PREVIEW_H, FN.PREVIEW_HEADROOM = 230, 60
+FN.PREVIEW_PLATE = { 120, 8 }
+
+local function pvTex(parent, layer, c, a)
+    local t = parent:CreateTexture(nil, layer)
+    t:SetColorTexture(c[1], c[2], c[3], a or 1)
+    return t
+end
+
+--- (Re)draw the mark in the current look, size and height.
+function FN.PaintPreview()
+    local pv = FN.preview
+    if not (pv and pv:IsShown()) then return end
+    if pv.mark then pv.mark:Hide() end
+    local look = FN.TankLook()
+    pv.made = pv.made or {}
+    local f = pv.made[look]
+    if not f then
+        f = newX(look)
+        f:SetParent(pv.cell)
+        pv.made[look] = f
+    end
+    local okS, strata = pcall(pv.GetFrameStrata, pv)
+    local okL, level = pcall(pv.GetFrameLevel, pv)
+    if okS and strata then f:SetFrameStrata(strata) end
+    if okL and type(level) == "number" then f:SetFrameLevel(level + 5) end
+    local k = FN.TankSize() / 100
+    f:SetSize(FN.TANK_W * k, FN.TANK_H * k)
+    if f.Fit then f.Fit(FN.TANK_W * k, FN.TANK_H * k) end
+    f:ClearAllPoints()
+    f:SetPoint("TOP", pv.plate, "BOTTOM", 0, -FN.TANK_DROP + FN.TankLift())
+    f:Show()
+    pv.mark = f
+end
+
+function FN.DressPreview()
+    local pv = FN.preview
+    if not pv then return end
+    local okN, me = pcall(UnitName, "player")
+    pv.plate.name:SetText((okN and type(me) == "string" and not (NS.Secret and NS.Secret(me))) and me or "you")
+    if pv.model then
+        pcall(pv.model.SetUnit, pv.model, "player")
+        pcall(pv.model.SetFacing, pv.model, 0.35)
+        if pv.model.SetPortraitZoom then pcall(pv.model.SetPortraitZoom, pv.model, 0) end
+    end
+end
+
+--- The roll-out, hung off the options window's right edge; shown while a tank mark row is hovered.
+function FN.AttachPreview(opt)
+    if not opt then return FN.preview end
+    if FN.preview and FN.previewFor == opt then return FN.preview end   -- a rebuilt window gets its own
+    FN.previewFor = opt
+    local pv = CreateFrame("Frame", "BiSHealingTankPreview", opt)
+    local okH, oh = pcall(opt.GetHeight, opt)
+    local H = (okH and type(oh) == "number" and oh >= FN.PREVIEW_H) and math.floor(oh + 0.5) or FN.PREVIEW_H
+    pv:SetSize(math.floor(H * 1.43 + 0.5), H)
+    pv:SetPoint("TOPLEFT", opt, "TOPRIGHT", 4, 0)
+    pvTex(pv, "BACKGROUND", { 0.05, 0.05, 0.08 }, 0.92):SetAllPoints(pv)
+    local title = pv:CreateFontString(nil, "OVERLAY")
+    pcall(title.SetFont, title, STANDARD_TEXT_FONT, 9, "")
+    title:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -5)
+    title:SetText((NS.T and NS.T.text and NS.T.text("accent", "BiS>") or "BiS>") .. " the tank mark, on you")
+    local cell = CreateFrame("Frame", nil, pv)
+    cell:SetPoint("TOPLEFT", pv, "TOPLEFT", 6, -18)
+    cell:SetPoint("BOTTOMRIGHT", pv, "BOTTOMRIGHT", -6, 4)
+    pv.cell = cell
+    local okM, m = pcall(CreateFrame, "DressUpModel", nil, cell)
+    if okM and m then
+        m:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, -(FN.PREVIEW_HEADROOM + 4))
+        m:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 14)
+        pv.model = m
+    end
+    -- the plate stands where a nameplate stands: over the head
+    local p = CreateFrame("Frame", nil, cell)
+    p:SetSize(FN.PREVIEW_PLATE[1], FN.PREVIEW_PLATE[2])
+    p:SetPoint("TOP", cell, "TOP", 0, -FN.PREVIEW_HEADROOM)
+    pvTex(p, "BACKGROUND", { 0.10, 0.10, 0.12 }, 0.9):SetAllPoints(p)
+    local fill = pvTex(p, "ARTWORK", { 0.20, 0.75, 0.25 }, 1)
+    fill:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1)
+    fill:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -1, 1)
+    p.name = p:CreateFontString(nil, "OVERLAY")
+    pcall(p.name.SetFont, p.name, STANDARD_TEXT_FONT, 8, "")
+    p.name:SetPoint("BOTTOM", p, "TOP", 0, 1)
+    pv.plate = p
+    local word = cell:CreateFontString(nil, "OVERLAY")
+    pcall(word.SetFont, word, STANDARD_TEXT_FONT, 9, "")
+    word:SetPoint("BOTTOM", cell, "BOTTOM", 0, 2)
+    word:SetText("your tank, as you will see them (open world and battlegrounds)")
+    pv.word = word
+    pv:Hide()
+    FN.preview = pv
+    local function hover(r)
+        if r.opt and r.opt.tankPreview then
+            if not pv:IsShown() then pv:Show() FN.DressPreview() end
+            FN.PaintPreview()
+        elseif pv:IsShown() then
+            pv:Hide()
+        end
+    end
+    for _, r in ipairs(opt.rows or {}) do
+        if r.HookScript then pcall(r.HookScript, r, "OnEnter", function() hover(r) end) end
+        if r.GetChildren then
+            for _, c in ipairs({ r:GetChildren() }) do
+                if c.HookScript then pcall(c.HookScript, c, "OnEnter", function() hover(r) end) end
+            end
+        end
+    end
+    return pv
+end
 
 local function plateOf(unit)
     local get = C_NamePlate and C_NamePlate.GetNamePlateForUnit
@@ -989,6 +1117,7 @@ end
 function FN.RedrawTank()
     for unit in pairs(FN.tankMarks) do FN.UnmarkTank(unit) end
     FN.MarkTankPlates()
+    if FN.PaintPreview then FN.PaintPreview() end
 end
 
 function FN.UnmarkTank(unit)
@@ -1020,8 +1149,40 @@ function FN.MarkTankPlate(unit)
 end
 
 FN.tankPlates = {}
+
+-- INSIDE A DUNGEON OR RAID THE MARK CANNOT SHOW (Arn's cousin, 14 Oct, Ragefire: friendly plates on
+-- and visible, the tank targeted, and C_NamePlate.GetNamePlateForUnit("target") answered nil - the
+-- game draws friendly plates there itself and hands addons none). Yet in a BATTLEGROUND it works
+-- (Arn, 14 Oct: "weirdly yes inside battlegrounds"). So it is said plainly, in the tooltip, when a
+-- tank is chosen in there, in /bish tank and in the options - not guessed at by the player.
+FN.LOCKED_WHY = "inside dungeons and raids the game keeps friendly nameplates from addons (battlegrounds and the open world are fine)"
+function FN.MarkLocked()
+    if not IsInInstance then return false end
+    local ok, inside, kind = pcall(IsInInstance)
+    if not ok or NS.Secret and (NS.Secret(inside) or NS.Secret(kind)) then return false end
+    return inside == true and (kind == "party" or kind == "raid" or kind == "scenario")
+end
+
+--- The plates ALREADY on screen (Arn's cousin, 14 Oct: "target the tank right click the shield and
+--- no crosshairs"): the list grew only from NAME_PLATE_UNIT_ADDED, so a plate showing before the tank
+--- was chosen - or one whose event the client skipped, after a reload - was never in it, and the X
+--- waited for that plate to leave and come back. Asked whenever the marks are redrawn.
+function FN.SeedTankPlates()
+    local all = C_NamePlate and C_NamePlate.GetNamePlates
+    if not all then return end
+    local ok, list = pcall(all)
+    if not ok or type(list) ~= "table" then return end
+    for _, p in ipairs(list) do
+        local okU, u = pcall(function() return p.namePlateUnitToken or (p.UnitFrame and p.UnitFrame.unit) end)
+        if okU and type(u) == "string" and not (NS.Secret and NS.Secret(u)) then FN.tankPlates[u] = true end
+    end
+end
+
 function FN.MarkTankPlates()
+    if FN.Tank() then FN.SeedTankPlates() end
     for unit in pairs(FN.tankPlates) do FN.MarkTankPlate(unit) end
+    -- and the tank's cell in the grid (it shows inside dungeons, where the plate cannot)
+    if NS.FG and NS.FG.PaintTanks then NS.FG.PaintTanks() end
 end
 
 --- Plates come and go; the macro waits for the fight to end. Events only, and with no tank chosen
@@ -1060,6 +1221,10 @@ function FN.TankWhy()
         or (FN.tankDirty and "waiting for this fight to end" or ("targets " .. t)))
     local marked = 0
     for _ in pairs(FN.tankMarks) do marked = marked + 1 end
+    if FN.MarkLocked() then
+        NS.Print("  the teal X: not in here - %s", FN.LOCKED_WHY)
+        return
+    end
     NS.Print("  the teal X: %s%s", marked > 0 and "on them now" or "not on screen (their nameplate is not shown)",
         FN.tankForbidden and " - the game kept a friendly nameplate from addons here" or "")
 end

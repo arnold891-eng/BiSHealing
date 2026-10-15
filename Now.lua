@@ -851,6 +851,7 @@ function FN.SetTank()
     d.tank = name
     if name then
         NS.Print("%s is your tank - left-click the button to target them", name)
+        if FN.MarkLocked() then NS.Print("  (the teal mark won't show in here: %s)", FN.LOCKED_WHY) end
     else
         NS.Print("no tank now (right-click the button with a friendly player targeted to choose one)")
     end
@@ -894,6 +895,7 @@ function FN.ArmTank(b)
             local t = FN.Tank()
             GameTooltip:AddLine(t and ("Your tank: " .. t) or "Your tank: nobody yet")
             GameTooltip:AddLine("Left-click: target them. Right-click: make your friendly target your tank (again on them: let go). A small teal X stands on them.", 1, 1, 1, true)
+            GameTooltip:AddLine("The mark shows in the open world and battlegrounds - not inside dungeons or raids, where the game keeps friendly nameplates from addons.", 0.6, 0.6, 0.6, true)
             if FN.tankDirty then GameTooltip:AddLine("The click targets them once this fight ends.", 1, 0.6, 0.2, true) end
             GameTooltip:Show()
         end)
@@ -1021,6 +1023,19 @@ end
 
 FN.tankPlates = {}
 
+-- INSIDE A DUNGEON OR RAID THE MARK CANNOT SHOW (Arn's cousin, 14 Oct, Ragefire: friendly plates on
+-- and visible, the tank targeted, and C_NamePlate.GetNamePlateForUnit("target") answered nil - the
+-- game draws friendly plates there itself and hands addons none). Yet in a BATTLEGROUND it works
+-- (Arn, 14 Oct: "weirdly yes inside battlegrounds"). So it is said plainly, in the tooltip, when a
+-- tank is chosen in there, in /bish tank and in the options - not guessed at by the player.
+FN.LOCKED_WHY = "inside dungeons and raids the game keeps friendly nameplates from addons (battlegrounds and the open world are fine)"
+function FN.MarkLocked()
+    if not IsInInstance then return false end
+    local ok, inside, kind = pcall(IsInInstance)
+    if not ok or NS.Secret and (NS.Secret(inside) or NS.Secret(kind)) then return false end
+    return inside == true and (kind == "party" or kind == "raid" or kind == "scenario")
+end
+
 --- The plates ALREADY on screen (Arn's cousin, 14 Oct: "target the tank right click the shield and
 --- no crosshairs"): the list grew only from NAME_PLATE_UNIT_ADDED, so a plate showing before the tank
 --- was chosen - or one whose event the client skipped, after a reload - was never in it, and the X
@@ -1077,6 +1092,10 @@ function FN.TankWhy()
         or (FN.tankDirty and "waiting for this fight to end" or ("targets " .. t)))
     local marked = 0
     for _ in pairs(FN.tankMarks) do marked = marked + 1 end
+    if FN.MarkLocked() then
+        NS.Print("  the teal X: not in here - %s", FN.LOCKED_WHY)
+        return
+    end
     NS.Print("  the teal X: %s%s", marked > 0 and "on them now" or "not on screen (their nameplate is not shown)",
         FN.tankForbidden and " - the game kept a friendly nameplate from addons here" or "")
 end

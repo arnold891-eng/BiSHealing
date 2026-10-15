@@ -112,7 +112,7 @@ function CFG.Sections()
             -- the tank's teal X (BiS> now's Tank button), to taste (Arn, 14 Oct: "add the steppers
             -- to the tank x too") - the same two as BiS Tools' bg marks
             -- a stepper through names (Arn: "not all want x")
-            { key = "tanklook", kind = "step", label = "tank mark", help = "The shape over your chosen tank (BiS> now's Tank button): X, saber, arrow, diamond or corners, in teal.",
+            { key = "tanklook", kind = "step", label = "tank mark", help = "The shape over your chosen tank (BiS> now's Tank button): X, saber, arrow, diamond or corners, in teal. Shows in the open world and battlegrounds - not inside dungeons or raids, where the game keeps friendly nameplates from addons.",
               min = 1, max = NS.FN and #NS.FN.LOOKS or 5, step = 1,
               get = function(db) return NS.FN and NS.FN.TankLook(db) or 1 end,
               set = function(db, v) db.tankLook = v if NS.FN then NS.FN.RedrawTank() end end,

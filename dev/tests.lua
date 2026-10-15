@@ -6946,6 +6946,23 @@ do
         local _, _, _, _, y = big:GetPoint(1)
         ok(tip and math.abs(tip[1] - (FN.TANK_W * 2 / 2 - 2)) < 0.01 and y == -FN.TANK_DROP + 10,
            "tank X size 200%, height 10 up: redrawn at once")
+        -- SAID PLAINLY: no mark inside dungeons or raids, yes in battlegrounds (Arn's cousin, 14 Oct,
+        -- Ragefire: the friendly plate was never handed over; Arn: "weirdly yes inside battlegrounds")
+        local keepII = _G.IsInInstance
+        local from = #SAID
+        _G.IsInInstance = function() return true, "party" end
+        ok(FN.MarkLocked() == true, "inside a dungeon: the mark is locked")
+        FN.TankWhy()
+        local said = table.concat(SAID, " / ", from + 1)
+        ok(said:find("inside dungeons and raids the game keeps friendly nameplates", 1, true),
+           "/bish tank says so in plain words")
+        _G.IsInInstance = function() return true, "raid" end
+        ok(FN.MarkLocked() == true, "inside a raid: locked too")
+        _G.IsInInstance = function() return true, "pvp" end
+        ok(FN.MarkLocked() == false, "in a battleground: not locked - the mark works there")
+        _G.IsInInstance = function() return false, "none" end
+        ok(FN.MarkLocked() == false, "in the open world: not locked")
+        _G.IsInInstance = keepII
         d.tankSize, d.tankLift = 999, -999
         ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
         local keys = {}

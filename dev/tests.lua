@@ -6071,6 +6071,13 @@ do
             local listed = false
             for _, x in ipairs(FG.cellCons) do if x == h then listed = true end end
             ok(listed, "and is on the grid header's one paint list")
+            -- a NARROW block still has room for the word and its "_" (Arn's cousin, 14 Oct: "his bis
+            -- now does not have a blinking _" - BiS> now with two buttons)
+            local thin = CreateFrame("Frame", nil, UIParent)
+            thin:SetSize(68, 34)
+            local th = FG.CellHeader(thin, "now", thin)
+            ok(th and th.con and th.con.width >= FG.HEADER_MIN_W, "a 68 px block's prompt still gets the room for 'BiS> now_'",
+               th and th.con and th.con.width)
             local painted = 0
             local real = h.con.Paint
             h.con.Paint = function(self, ...) painted = painted + 1 return real(self, ...) end

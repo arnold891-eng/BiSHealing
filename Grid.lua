@@ -1223,6 +1223,7 @@ FG.SELF_KEYS   = { what = "your own cell", at = "meAt", pos = "mePos",
                    place = function(f) return FG.PlaceSelf(f) end }
 
 FG.cellCons = {}          -- the blocks' bars wearing the prompt, painted by the grid header's ticker
+FG.HEADER_MIN_W = 96      -- a block bar's prompt never narrower: "BiS> target_" at size 10 fits
 
 --- One paint for every prompt on the grid: its own header, then each block's bar that is showing (target,
 --- tot, me, pets, mana, now) - one ticker for them all, never one each.
@@ -1264,7 +1265,10 @@ function FG.CellHeader(f, word, moves, keys)
     if T and T.Console then
         local w = (f.GetWidth and f:GetWidth()) or 84
         if type(w) ~= "number" or w <= 0 then w = 84 end
-        h.con = T.Console(title, { width = math.max(60, w), size = 10 })
+        -- room for the word AND its "_" even on a narrow block (Arn's cousin, 14 Oct: "his bis now does
+        -- not have a blinking _ but every other header does" - BiS> now with two buttons is ~68 px, and
+        -- the prompt dropped the cursor that did not fit). The text may run past a tiny block; it is short.
+        h.con = T.Console(title, { width = math.max(FG.HEADER_MIN_W, w), size = 10 })
         h.con:Set("name", tostring(word))
         FG.cellCons[#FG.cellCons + 1] = h
     else

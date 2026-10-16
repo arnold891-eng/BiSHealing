@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 0.9.2
+
+- **Your binds stay with the character they belong to.** Switching to an alt used to show your main's mouse binds in the bind window - and a change on the alt could write your main's heals into the alt's own save. Each character now loads its own binds, tank and settings, never the last character's. If an alt already picked up stray binds from your main, right-click those slots once to clear them; they won't come back.
+
 ## 0.9.1
 
 - **Your tank's cell in the grid wears a teal frame**, the same teal as the mark. Inside dungeons and raids the game keeps friendly nameplates from addons, so the mark can't show there - the frame does, everywhere.

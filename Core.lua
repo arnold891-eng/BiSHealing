@@ -1983,6 +1983,35 @@ local function mirrorIn()
     return true
 end
 
+--- WHOSE IS THE ACCOUNT TABLE? (Arn, 15 Oct, logging into his alt: the bind window showed his
+--- main's heals, while the alt's own macro held its hunter shots.) BiSHealingDB is ACCOUNT-wide:
+--- switch characters and the next one loads what the last one wrote, binds and all - and the
+--- macro, the per-character truth, is only asked when that table is empty. So the table now
+--- carries its owner, and a different character takes the per-character things (MIRROR) from
+--- its OWN copy, or from nothing - then its macro answers. A table from before the stamp has no
+--- owner and is nobody's: the character's own copy wins, else its macro.
+local function me()
+    local okN, n = pcall(UnitName, "player")
+    if not okN or type(n) ~= "string" or n == "" or (issecretvalue and issecretvalue(n))
+       or n == (UNKNOWNOBJECT or "Unknown") then return nil end
+    local okR, r = pcall(function() return GetRealmName and GetRealmName() end)
+    if okR and type(r) == "string" and r ~= "" and not (issecretvalue and issecretvalue(r)) then return n .. "-" .. r end
+    return n
+end
+NS.Me = me
+
+function NS.Claim()
+    local who, acct = me(), _G.BiSHealingDB
+    if not who or type(acct) ~= "table" then return false end
+    if acct.owner == who then return false end
+    local char = type(_G.BiSHealingCharDB) == "table" and _G.BiSHealingCharDB or {}
+    local was = acct.owner
+    for _, k in ipairs(MIRROR) do acct[k] = copy(char[k]) end
+    acct.owner = who
+    NS.claimed = { from = was or "nobody (from before 0.9.2)", own = anything(char.binds) }
+    return true
+end
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
@@ -1992,6 +2021,7 @@ ev:SetScript("OnEvent", function(_, event, name)
         if name ~= ADDON then return end
         -- READ IT RAW, before DB() has a chance to create or migrate anything
         local raw = _G.BiSHealingDB
+        NS.Claim()                          -- another character's table: this one's own things
         local binds, n = type(raw) == "table" and raw.binds, 0
         if type(binds) == "table" then for _ in pairs(binds) do n = n + 1 end end
         local rescued = mirrorIn()          -- the per-character copy, if that is all there is
@@ -2016,6 +2046,7 @@ ev:SetScript("OnEvent", function(_, event, name)
     end
 
     DB()
+    NS.Claim()                              -- the name may only be known by now
     if NS.FG and NS.FG.Start then NS.FG.Start() end
     Print(("%s -- /bish, or the button on your minimap"):format(NS.VERSION))
     if not NS.loaded.found or NS.loaded.savedAt == nil then

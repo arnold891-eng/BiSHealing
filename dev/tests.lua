@@ -5968,12 +5968,34 @@ do
         ok(NS.loaded.rescued == true, "the next login notices and takes the per-character copy")
         ok(NS.FM.Get("", "left") == "Healing Wave(Rank 2)", "so the binds are still there")
 
-        -- and when BOTH came back, the account-wide one is left alone
-        _G.BiSHealingDB = { dbver = 1, binds = { left = "Chain Heal" } }
+        -- and when BOTH came back, the account-wide one is left alone - when it is this character's
+        local me = NS.Me()
+        ok(type(me) == "string", "the character's own name-realm", me)
+        _G.BiSHealingDB = { dbver = 1, owner = me, binds = { left = "Chain Heal" } }
         _G.BiSHealingCharDB = keep
         fire(NS.events, "ADDON_LOADED", "BiSHealing")
         ok(NS.loaded.rescued == false and NS.FM.Get("", "left") == "Chain Heal",
            "a client that keeps both changes nothing")
+
+        -- ANOTHER CHARACTER'S TABLE (Arn, 15 Oct: his alt's bind window showed his main's heals).
+        -- The account table is shared; the alt takes its own copy, never the main's binds.
+        _G.BiSHealingDB = { dbver = 1, owner = "Mainchar-Realm", binds = { left = "Chain Heal", wheelup = "Healing Wave(Rank 9)" }, tank = "Tankmain" }
+        _G.BiSHealingCharDB = { binds = { left = "Auto Shot" } }
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(_G.BiSHealingDB.binds.left == "Auto Shot" and _G.BiSHealingDB.binds.wheelup == nil and _G.BiSHealingDB.tank == nil,
+           "logging into an alt: the alt's own binds and tank, nothing of the main's")
+        ok(_G.BiSHealingDB.owner == me and NS.claimed and NS.claimed.from == "Mainchar-Realm", "and the table is the alt's now")
+        -- an alt with no copy of its own: no binds at all, so its macro is asked (FK.Load)
+        _G.BiSHealingDB = { dbver = 1, owner = "Mainchar-Realm", binds = { left = "Chain Heal" } }
+        _G.BiSHealingCharDB = nil
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(_G.BiSHealingDB.binds == nil, "an alt with no copy: the main's binds go, and its own macro answers")
+        -- a table from before the stamp is nobody's: the character's own copy wins
+        _G.BiSHealingDB = { dbver = 1, binds = { left = "Chain Heal" } }
+        _G.BiSHealingCharDB = { binds = { left = "Healing Wave(Rank 2)" } }
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        ok(_G.BiSHealingDB.binds.left == "Healing Wave(Rank 2)" and _G.BiSHealingDB.owner == me,
+           "a table from before 0.9.2 (no owner): this character's own copy, and the stamp")
 
         _G.BiSHealingDB, _G.BiSHealingCharDB = nil, nil
     end

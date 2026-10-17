@@ -142,6 +142,10 @@ if ($ifaceLine -and (($ifaceLine[0] -split '[,\s]+') -contains '16001')) {
     if ($fv) { Write-Host "forever version: $($fv.name) (id $foreverId)" }
     else     { Write-Host "forever version: id $foreverId (pinned in versions.json)" }
 }
+# TBC IS DONE (Arn, 16 Oct 2026: "going forward for the next updates we just uncheck that game
+# version"). A Forever addon's file goes up for Forever alone; files already up keep their TBC tag.
+# _bisdev/check.sh goes red on a release.ps1 without this line.
+if ($foreverId) { $gameVersionIds = @($foreverId) }
 
 
 # multipart by hand: Invoke-RestMethod -Form needs PS 6+, this runs on 5.1 too

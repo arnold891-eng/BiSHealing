@@ -286,6 +286,20 @@ function NS.DO.auras()
     end
 end
 
+--- Cure boxes on the cells: click the box to cure, and it lights when there is something to cure.
+--- No argument flips.
+function NS.DO.cures(on)
+    local d = DB()
+    if on == nil then on = d.cures == false end
+    local now = NS.FA and NS.FA.SetCures and NS.FA.SetCures(on)
+    local list = {}
+    for _, c in ipairs((NS.FA and NS.FA.Cures and NS.FA.Cures()) or {}) do list[#list + 1] = c.name end
+    Print((on and ("cure boxes on the cells: %s"):format(#list > 0 and table.concat(list, ", ")
+        or "none - no cure in your spellbook") or "cure boxes off - the dispel pip is back")
+        .. ((now == false) and " - after this fight" or ""))
+    return on
+end
+
 --- Your heals over time on the cells (Renew, Rejuvenation, Regrowth), on or off. No argument flips.
 function NS.DO.hots(on)
     local d = DB()
@@ -1904,6 +1918,9 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
+    elseif msg == "cures" or msg:match("^cures%s") then
+        local w = msg:match("^cures%s+(%a+)")
+        NS.DO.cures(w == "on" and true or w == "off" and false or nil)
     elseif msg == "ring" or msg:match("^ring%s") then
         NS.DO.ring(msg:match("^ring%s+(%S+)"))
     elseif msg == "trinkets" or msg:match("^trinkets%s") then

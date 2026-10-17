@@ -5123,6 +5123,70 @@ do
         cell.auras = nil
     end
 
+    -- CURE BOXES (Arn, 16 Oct 2026): "where we draw the markers right now we pre put tiny cells there
+    -- for that raider with that cleanse ... always clickable ... when they get poison Blizz draws the
+    -- icon we de alpha the button outline". One secure box per cure; one marker per box, narrowed to
+    -- the types that spell removes; the bright outline made INSIDE the client's own marker.
+    do
+        local k29, k31 = BOOK[29], BOOK[31]
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and not (cell.cureBoxes and cell.cureBoxes[1] and cell.cureBoxes[1]:IsShown()),
+           "no cure in the book: the old dispel pip, no boxes")
+
+        BOOK[29] = { name = "Cure Poison", rank = "" }
+        BOOK[31] = { name = "Cure Disease", rank = "" }
+        bookSaid()
+        local cures = FA.Cures()
+        ok(#cures == 2 and cures[1].name == "Cure Poison" and cures[2].name == "Cure Disease",
+           "a shaman with both: two cures, poison first", #cures)
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        local s1, s2 = cell.auras.slots.BiSHealCure1, cell.auras.slots.BiSHealCure2
+        ok(s1 and s2 and cell.auras.slots.BiSHealDispel == nil, "one marker per cure, and no catch-all pip")
+        ok(s1 and s1.filter == "HARMFUL|RAID_PLAYER_DISPELLABLE", "still only what YOU can dispel")
+        local t1 = s1 and s1.opts.candidateFilters.includeDispelTypes or {}
+        local t2 = s2 and s2.opts.candidateFilters.includeDispelTypes or {}
+        ok(t1.Poison and not t1.Disease and t2.Disease and not t2.Poison,
+           "the poison box lights for poison only, the disease box for disease only")
+        ok(s1 and s1.cureGlow and s1.cureGlow.TOP, "the bright outline is made inside the client's marker - shown only when it is")
+        ok(s1 and s1.clicks == false, "and the marker takes no clicks: they go to the box under it")
+
+        local b1, b2 = cell.cureBoxes and cell.cureBoxes[1], cell.cureBoxes and cell.cureBoxes[2]
+        ok(b1 and b2 and b1:IsShown() and b2:IsShown(), "two boxes on the cell")
+        ok(b1 and b1:GetAttribute("type") == "spell" and b1:GetAttribute("spell") == "Cure Poison",
+           "box one casts Cure Poison", b1 and b1:GetAttribute("spell"))
+        ok(b2 and b2:GetAttribute("spell") == "Cure Disease", "box two casts Cure Disease")
+        ok(b1 and b1:GetAttribute("useparent-unit") == true, "on whoever the cell holds - a rebind never touches it")
+        ok(b1 and b1.dim and b1.dim.LEFT, "a dim outline says the corner cures, always")
+        local size, x2 = FA.CureBox(2)
+        local _, x1 = FA.CureBox(1)
+        ok(x2 >= x1 + size, "the boxes sit side by side, never on each other")
+        ok(x2 + size <= 84 / 2, "and keep to the left half of an 84 px cell")
+
+        -- a fight: the boxes are not touched (secure), and the switch waits
+        STATE.inCombat = true
+        ok(FA.Boxes(cell, {}) == false, "in a fight the boxes are left as they are")
+        STATE.inCombat = false
+
+        -- switched off: the pip is back, the boxes go
+        NS.DO.cures(false)
+        ok(not b1:IsShown() and not b2:IsShown(), "/bish cures off: the boxes go")
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and cell.auras.slots.BiSHealCure1 == nil, "and the old pip is back")
+        NS.DO.cures(true)
+        ok(b1:IsShown() and b1:GetAttribute("spell") == "Cure Poison", "/bish cures on: back")
+
+        BOOK[29], BOOK[31] = k29, k31
+        bookSaid()
+        FA.sig = nil
+        cell.auras = nil
+    end
+
     -- A PRIEST: Renew, every rank, only the priest's own, with the client's countdown
     local realClass, realInfo, realName = _G.UnitClass, C_SpellBook.GetSpellBookItemInfo, C_Spell.GetSpellName
     _G.UnitClass = function() return "Priest", "PRIEST" end

@@ -141,6 +141,44 @@ function FM.Place(w)
     return "free"
 end
 
+--- THE GHOST: a copy of a dragged ping's icon (or its word) following the mouse, since the real
+--- cursor cannot carry a ping. `FM.Ghost(icon, word)` shows it, `FM.Ghost(nil)` puts it away. Its
+--- OnUpdate runs only while it shows - for the length of one drag.
+function FM.Ghost(icon, word)
+    local g = FM.ghost
+    if not icon and not word then
+        if g then g:Hide() end
+        return
+    end
+    if not g then
+        g = CreateFrame("Frame", nil, UIParent)
+        g:SetSize(20, 20)
+        g:SetFrameStrata("TOOLTIP")
+        g.icon = g:CreateTexture(nil, "ARTWORK")
+        g.icon:SetAllPoints()
+        g.text = g:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        g.text:SetPoint("CENTER")
+        g:SetScript("OnUpdate", function(self)
+            local x, y = GetCursorPosition()
+            local s = UIParent:GetEffectiveScale()
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / s + 12, y / s - 12)
+        end)
+        FM.ghost = g
+    end
+    local atlas = icon and icon.GetAtlas and icon:GetAtlas()
+    if atlas and g.icon.SetAtlas then
+        g.icon:SetAtlas(atlas)
+        g.icon:Show()
+        g.text:Hide()
+    else
+        g.icon:Hide()
+        g.text:SetText(word or "")
+        g.text:Show()
+    end
+    g:Show()
+end
+
 --- One drop target on the drawing.
 local function makeSlot(parent, slot)
     local f = CreateFrame("Button", nil, parent)
@@ -248,6 +286,7 @@ local function makeSlot(parent, slot)
         return true
     end
     f:SetScript("OnReceiveDrag", take)
+    f.take = take                       -- a ping let go over this slot drops here (the pings' OnDragStop)
     f:SetScript("OnMouseUp", function(_, button)
         if take() then return end
         if button == "RightButton" then
@@ -535,6 +574,23 @@ function FM.Window()
         b:SetScript("OnClick", function(self, button)
             FM.held = (button == "RightButton" or FM.held == self.ping) and nil or self.ping
             w:Refresh()
+        end)
+        -- DRAGGED, BY HAND (16 Oct 2026, Arn on a hunter: "why are these not draggable"). The real
+        -- cursor cannot carry a ping, so the drag is ours: pressing picks it up as a click would, a
+        -- ghost of its icon follows the mouse, and letting go over a mouse button drops it there -
+        -- the same drop a click-then-click makes. Let go anywhere else and it stays held, lit, for
+        -- the click way.
+        b:RegisterForDrag("LeftButton")
+        b:SetScript("OnDragStart", function(self)
+            FM.held = self.ping
+            w:Refresh()
+            FM.Ghost(self.icon:IsShown() and self.icon or nil, p.word)
+        end)
+        b:SetScript("OnDragStop", function()
+            FM.Ghost(nil)
+            for _, s in pairs(w.slots or {}) do
+                if s:IsMouseOver() and s.take then s.take() return end
+            end
         end)
         b:SetScript("OnEnter", function(self)
             if not GameTooltip then return end

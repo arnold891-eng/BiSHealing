@@ -7648,6 +7648,30 @@ do
     for _, b in ipairs(w.pings or {}) do
         if b.text.__shown ~= false then fitsIn(b, "the " .. tostring(b.text.__text) .. " ping button") end
     end
+
+    -- A PING, DRAGGED (16 Oct 2026, Arn on a hunter: "why are these not draggable" - "I'm dragging
+    -- the assist button"). The cursor cannot carry a ping, so the drag is ours: a ghost follows the
+    -- mouse, and letting go over a mouse button drops it there.
+    w.mod = ""
+    w:Refresh()
+    local ping = w.pings[1]
+    local target = w.slots.right
+    FM.Clear("", "right")
+    ping.__scripts.OnDragStart(ping)
+    ok(FM.held == ping.ping, "pressing and dragging a ping picks it up")
+    ok(FM.ghost and FM.ghost:IsShown(), "a ghost of it follows the mouse")
+    target.__mouseOver = true
+    ping.__scripts.OnDragStop(ping)
+    target.__mouseOver = false
+    ok(FM.Get("", "right") == FM.PingBind(ping.ping), "let go over the right button: it is bound there")
+    ok(FM.held == nil and not FM.ghost:IsShown(), "nothing left held, the ghost gone")
+    -- let go over nothing: it stays held, lit, for the click way
+    ping.__scripts.OnDragStart(ping)
+    ping.__scripts.OnDragStop(ping)
+    ok(FM.held == ping.ping and not FM.ghost:IsShown(), "dropped on nothing: still held, for click-then-click")
+    FM.held = nil
+    FM.Clear("", "right")
+    w:Refresh()
     w:Hide()
 
     -- THE GRID'S HEADER and the cell headers, with the longest words they carry

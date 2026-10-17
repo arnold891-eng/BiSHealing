@@ -198,6 +198,15 @@ function FA.Cures()
     return out
 end
 
+--- ONLY ON YOUR GROUP'S CELLS (Arn, 17 Oct 2026, a screenshot of the target cell on an enemy:
+--- "its coming up on the enemy bars too"). The target and target-of-target cells hold whoever you
+--- clicked, friend or foe, and a secure box cannot come and go with them in a fight - so they, and
+--- pets, keep the old pip. You, party1-4 and raid1-40 get boxes.
+function FA.CureUnit(unit)
+    if type(unit) ~= "string" then return false end
+    return unit == "player" or unit:match("^party%d+$") ~= nil or unit:match("^raid%d+$") ~= nil
+end
+
 --- Where box `i` sits on a cell, and how big it is: the marker's size plus a 2 px frame for the outline.
 function FA.CureBox(i)
     local box = FA.MarkerSize() + 4
@@ -501,7 +510,7 @@ function attach(cell, unit)
     --    spell removes, sitting in its box. Without (switched off, or a class with no cure): the
     --    one pip at the edge, as it always was.
     local dispel
-    local cures = FA.Cures()
+    local cures = FA.CureUnit(unit) and FA.Cures() or {}
     cell.cureSlots = {}
     if #cures > 0 then
         local px = FA.MarkerSize()

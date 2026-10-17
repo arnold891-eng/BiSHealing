@@ -5166,6 +5166,27 @@ do
         ok(x2 >= x1 + size, "the boxes sit side by side, never on each other")
         ok(x2 + size <= 84 / 2, "and keep to the left half of an 84 px cell")
 
+        -- NOT ON THE TARGET CELLS (Arn, 17 Oct: "its coming up on the enemy bars too"): whoever is
+        -- targeted may be a foe, and a secure box cannot follow them in a fight
+        local tcell = { GetFrameLevel = function() return 5 end }
+        for _, u in ipairs({ "target", "targettarget", "pet", "partypet1", "raidpet3", "focus" }) do
+            ok(not FA.CureUnit(u), u .. ": no cure boxes")
+        end
+        for _, u in ipairs({ "player", "party2", "raid17" }) do ok(FA.CureUnit(u), u .. ": cure boxes") end
+        FA.sig = nil
+        local keepAuras = cell.auras
+        cell.auras = nil
+        FA.Attach(cell, "target")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and cell.auras.slots.BiSHealCure1 == nil,
+           "a target cell keeps the old pip")
+        ok(not b1:IsShown() and not b2:IsShown(), "and its boxes are put away")
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(b1:IsShown(), "back on a party cell: the boxes return")
+        cell.auras = cell.auras or keepAuras
+        tcell = nil
+
         -- a fight: the boxes are not touched (secure), and the switch waits
         STATE.inCombat = true
         ok(FA.Boxes(cell, {}) == false, "in a fight the boxes are left as they are")

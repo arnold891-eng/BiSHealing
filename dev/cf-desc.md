@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (0.8.5)
+# BiS Healing — CurseForge page text (0.11.0)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.8.5 text (17 Oct, 0.11.0 - big features only, Arn: "only for the big things"):
+the cure boxes replace the dispel-marker line in "The cells"; click a corpse to res joins "No double
+res"; the res button in BiS> now; `/bish cures` and `/bish res` in the command table.
 
 Changed since the 0.8.4 text (12 Oct): the shield button in BiS> now (live in a fight, charge
 colours, click to cast); "The header talks to you" says the button takes over the reminder; the
@@ -73,10 +77,11 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 - **A number on the bottom line: what they still need.** It counts heals already on their way, so two healers stop filling the same gap. Shortened (`3.2K`), and **blank at full health**. Prefer a **percentage**? Or nothing? Your choice.
 - **Heals on their way, and the overheal.** Incoming heals fill the missing health in green and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold magenta band over the end of their health, with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Mid-cast, cancel and re-cast until there is no magenta left - then every point of it lands.
 - **Bars in class colour — or coloured by health**: green, amber below 70%, red below 35%.
-- **The dispel marker shows what it is**: magic, curse, poison or disease, in the game's own icon, when there's something on them *you* can remove.
+- **Cure boxes, down the left edge.** One small box per cure you know: Cure Poison and Cure Disease for a shaman, Dispel Magic and Cure Disease for a priest, Remove Curse and Cure Poison for a druid, Cleanse for a paladin. Click the box to cure that person, mid-fight too. When they pick up something that box can remove, the game draws its icon in the box and the box pulses teal, with the stack count in the corner. On Forever a cure takes one stack off, so the number is how many clicks are left. Each box lights only for its own kind, so the one lit is the one to click. Your mouse buttons stay free for heals. `/bish cures off` puts back a single marker instead.
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
 - **Marker size**, 6 to 20 pixels.
 - **Dimmed when they're out of range** of your longest-reaching heal — every heal you have bound, plus your class's own — **including during a fight**, which is when you need it. The game keeps "can you reach them" secret in combat, so it is handed back to the game to pick the brightness from; the addon never learns who is reachable. You and your target are never dimmed. **How far it dims is yours**: `out of range` in the options, 20% to 90% (30% on a fresh install).
+- **Click a corpse to res it.** Out of combat, any heal click on someone dead casts your res instead (Ancestral Spirit, Resurrection, Redemption, Rebirth). In a fight the click is the heal it always was, so a druid's Rebirth is never spent by accident. `/bish res off` turns it off.
 - **No double res.** When another BiS healer starts a res, the corpse's cell says who: `rez: Chain`, until it lands or fails. Your own res casts are told to them the same way. Inside an instance fight the game hides these messages, and the cell just says DEAD.
 - **Role icons**, and the raid's Main Tank counts as a tank.
 - **A pyramid** (`/bish pyramid`): tanks on top, then damage, healers at the bottom. Melee sit above casters inside each band, and the bottom rows go half-width so a 40-man still reads as a pyramid.
@@ -121,6 +126,8 @@ More buttons arrive as you need them. Each earns its place the first time its mo
 
 **Your shield, live in a fight.** A shaman gets a **Water Shield** button (a priest Inner Fire, and so on: whatever `/bish buff` watches). Full charges: the plain icon. Two left: it washes **yellow**. One: **orange**. Gone: the icon pulses **red**. Click it to put the shield back, mid-fight too. Your own buffs are secret to addons in a fight, so the addon never looks — the game draws the icon and picks the colour.
 
+**The next res, already aimed.** After a wipe, BiS> now carries your res with a name on it: the best person to get up next. Healers first, then priest, paladin, shaman, druid, mage, warlock, hunter, warrior, rogue. It skips anyone another healer is already ressing, anyone with a res on the way, and anyone who released. Click, and it moves on to the next. It is only there out of combat, while someone is down.
+
 **Weapon oil.** With a mana or wizard oil in your bags, an **Oil** button appears wearing its icon. One click puts your best oil on your main hand. It is lit while the weapon has none and dims once it does. Hover it for what the oil gives, read from the game itself, and how long it has left.
 
 ## The header talks to you
@@ -150,6 +157,7 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish clique` | let Clique handle the clicks, or take them back |
 | `/bish trinkets shift both` | trinkets first on a modifier tab — `1`, `2`, `both`, `off` |
 | `/bish now` | the BiS> now block |
+| `/bish cures` · `/bish res` | the cure boxes, and click-a-corpse-to-res: `on` or `off` |
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
 | `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |
 | `/bish pets grid` · `own` · `off` | where pets go |

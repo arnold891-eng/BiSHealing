@@ -73,7 +73,123 @@ FN.BUTTONS = {
     -- becomes my personal tank ... puts a teal small sabers so i know where they are going and i dont
     -- lose them in bgs and if i click on it it targets them". Always there, like the shield.
     { id = 6, key = "tank", word = "Tank", ready = true, always = true, tank = true },
+    -- THE NEXT RES (17 Oct 2026). Arn: "if out of combat bis now gets a res button already targeting
+    -- the best next target to res other healers first mana users next warriors rogues hunters last".
+    -- There only out of combat, only while someone is dead and you have a res; skips anyone another
+    -- BiS healer has claimed (Rez.lua), anyone released, anyone with a res already coming.
+    { id = 7, key = "res", word = "Res", ready = true, always = true, res = true },
 }
+
+--------------------------------------------------------------------- the res --
+
+--- Who to res first: anyone in the healer role, then by class in Arn's order (17 Oct 2026): "priest >
+--- paladin > shaman > druid > mage > warlock > hunter > (warrior) > rogue". A class not listed goes last.
+FN.RES_ORDER = { PRIEST = 1, PALADIN = 2, SHAMAN = 3, DRUID = 4, MAGE = 5, WARLOCK = 6,
+                 HUNTER = 7, WARRIOR = 8, ROGUE = 9 }
+
+local function plainTrue(f, unit)
+    if not f then return false end
+    local ok, v = pcall(f, unit)
+    return ok and NS.Plain(v) == true
+end
+
+--- The best corpse to res now: unit, short name. Nil in a fight, with no res, or nobody to res.
+function FN.ResTarget()
+    if InCombatLockdown and InCombatLockdown() then return nil end
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
+    if not res or not (NS.FG and NS.FG.Roster) then return nil end
+    local healer = {}
+    for _, u in ipairs(NS.FG.Healers and NS.FG.Healers() or {}) do healer[u] = true end
+    local best, bestRank, bestName
+    for _, u in ipairs(NS.FG.Roster()) do
+        if u ~= "player" and not (NS.FG.IsPetUnit and NS.FG.IsPetUnit(u))
+           and UnitExists and UnitExists(u)
+           and plainTrue(UnitIsDeadOrGhost, u) and not plainTrue(UnitIsGhost, u)
+           and (not UnitIsConnected or plainTrue(UnitIsConnected, u))
+           and not plainTrue(UnitHasIncomingResurrection, u)
+           and not (NS.FZ and NS.FZ.ClaimOn and NS.FZ.ClaimOn(u)) then
+            local class = UnitClass and NS.Plain(select(2, UnitClass(u))) or nil
+            local rank = healer[u] and 0 or FN.RES_ORDER[class or ""] or 99
+            if not bestRank or rank < bestRank then
+                best, bestRank = u, rank
+                local n = UnitName and UnitName(u)
+                bestName = (not NS.Secret(n) and type(n) == "string") and (n:match("^%s*(%S+)") or n) or u
+            end
+        end
+    end
+    return best, bestName
+end
+
+--- Aim the button at the next corpse. Out of combat only - and a res is out of combat only.
+function FN.ApplyRes(b)
+    b = b or (FN.buttons and FN.buttons.res)
+    if not b or not b.SetAttribute then return false end
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local unit, name = FN.ResTarget()
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
+    b:SetAttribute("*type1", "macro")
+    b:SetAttribute("*macrotext1", (unit and res) and ("/cast [@" .. unit .. "] " .. res) or "")
+    b.resUnit, b.resName = unit, name
+    if b.word then b.word:SetText(name or "") end
+    return true
+end
+
+function FN.ArmRes(b)
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
+    if b.art and b.art.SetTexture and res and C_Spell and C_Spell.GetSpellTexture then
+        local ok, tex = pcall(C_Spell.GetSpellTexture, res)
+        if ok and tex then pcall(b.art.SetTexture, b.art, tex) end
+    end
+    if not b.word and b.CreateFontString then
+        b.word = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        b.word:SetPoint("BOTTOM", b, "BOTTOM", 0, 1)
+        if b.word.SetFont then pcall(b.word.SetFont, b.word, STANDARD_TEXT_FONT, 8, "OUTLINE") end
+    end
+    if b.HookScript and not b.resHooked then
+        b.resHooked = true
+        b:HookScript("OnEnter", function(self)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("Res " .. (self.resName or "nobody"))
+            GameTooltip:AddLine("The next one up: healers first, then priest, paladin, shaman, druid, mage, warlock, hunter, warrior, rogue. Skips anyone another healer is already ressing.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    end
+    FN.ApplyRes(b)
+end
+
+--- Something changed - a death, someone up, a claim, the fight ended. Looked at once a moment later,
+--- never per event: a raid's health events would otherwise mean forty unit checks each.
+FN.RES_WAIT = 0.3
+function FN.ResSoon()
+    if FN.resArmed or (InCombatLockdown and InCombatLockdown()) then return false end
+    FN.resArmed = true
+    local function go()
+        FN.resArmed = nil
+        if InCombatLockdown and InCombatLockdown() then return end
+        local unit = FN.ResTarget()
+        local b = FN.buttons and FN.buttons.res
+        local shown = b and b:IsShown()
+        if (unit ~= nil) ~= (shown and true or false) then
+            FN.Layout()                    -- the button comes or goes
+        elseif b and unit ~= b.resUnit then
+            FN.ApplyRes(b)                 -- it stays, aimed at someone else
+        end
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(FN.RES_WAIT, go) else go() end
+    return true
+end
+
+do
+    local w = CreateFrame("Frame")
+    for _, e in ipairs({ "PLAYER_REGEN_ENABLED", "GROUP_ROSTER_UPDATE", "UNIT_HEALTH", "UNIT_FLAGS",
+                         "UNIT_CONNECTION", "INCOMING_RESURRECT_CHANGED" }) do
+        pcall(w.RegisterEvent, w, e)
+    end
+    w:SetScript("OnEvent", function() FN.ResSoon() end)
+    FN.resWatcher = w
+end
 
 --- THE OILS, best first for a healer: mana oils (mana back AND healing), then wizard oils.
 FN.OILS = {
@@ -351,7 +467,8 @@ function FN.Mine()
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
-           and (not b.tank or (FN.TankReady() and not FN.InDungeon())) then -- the tank: not off, not in a dungeon
+           and (not b.tank or (FN.TankReady() and not FN.InDungeon())) -- the tank: not off, not in a dungeon
+           and (not b.res or FN.ResTarget() ~= nil) then                -- the res: someone to res, out of combat
             out[#out + 1] = k
         end
     end
@@ -1415,6 +1532,7 @@ function FN.Layout(anchor)
         FN.buttons[key] = b
         if key == "oil" then FN.ArmOil(b) end      -- the best oil may have changed since it was built
         if key == "shield" then FN.ArmShield(b) end -- a no-op unless the buff or its ranks changed
+        if key == "res" then FN.ArmRes(b) end       -- aimed at whoever is next, every layout
         b:ClearAllPoints()
         local w, _, pad = dims()
         b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (w + pad), 0)

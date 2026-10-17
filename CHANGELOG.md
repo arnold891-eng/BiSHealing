@@ -6,6 +6,7 @@
   - **The lit box pulses**, teal, so it stands out next to the crosshair.
   - **The number in its corner is how many clicks are left.** On Forever a cure takes off one stack at a time: a poison on 3 is three clicks.
 - **Click someone dead to res them.** Out of combat, a click on a dead raider casts your res (Ancestral Spirit, Resurrection, Redemption, or a druid's Rebirth) instead of the heal on that button. In a fight nothing changes, so Rebirth is never spent on a misclick. `/bish res off` turns it off.
+- **A res button in BiS> now, already aimed.** Out of combat, while anyone is down, BiS> now carries your res with the next person's name on it: healers first, then priest, paladin, shaman, druid, mage, warlock, hunter, warrior, rogue. It skips anyone another BiS healer is already ressing, anyone with a res on the way, and anyone who released. Click, and it moves on to the next.
 
 ## 0.10.0
 

@@ -72,7 +72,8 @@ function FZ.Start()
     local f = CreateFrame("Frame")
     pcall(f.RegisterEvent, f, "CHAT_MSG_ADDON")
     f:SetScript("OnEvent", function(_, _, prefix, msg, channel, sender)
-        FZ.OnMessage(prefix, msg, channel, sender)
+        -- a claim came or went: the BiS> now res button looks again (17 Oct 2026, Now.lua)
+        if FZ.OnMessage(prefix, msg, channel, sender) and NS.FN and NS.FN.ResSoon then NS.FN.ResSoon() end
     end)
     FZ.frame = f
     return true

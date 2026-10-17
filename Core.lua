@@ -300,6 +300,19 @@ function NS.DO.cures(on)
     return on
 end
 
+--- A click on a dead raider, out of combat, casts your res instead of the heal. No argument flips.
+function NS.DO.res(on)
+    local d = DB()
+    if on == nil then on = d.resClick == false end
+    d.resClick = on and true or false
+    local applied = NS.FM and NS.FM.Apply and NS.FM.Apply()
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
+    Print((on and (res and ("a click on someone dead, out of combat, casts %s"):format(res)
+        or "res on click is on - but no res spell in your spellbook yet") or "res on click off")
+        .. ((applied == false) and " - after this fight" or ""))
+    return on
+end
+
 --- Your heals over time on the cells (Renew, Rejuvenation, Regrowth), on or off. No argument flips.
 function NS.DO.hots(on)
     local d = DB()
@@ -1918,6 +1931,9 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.markers(msg:match("^markers%s+(%d+)"))
     elseif msg == "hots" or msg == "hot" then
         NS.DO.hots()
+    elseif msg == "res" or msg:match("^res%s") then
+        local w = msg:match("^res%s+(%a+)")
+        NS.DO.res(w == "on" and true or w == "off" and false or nil)
     elseif msg == "cures" or msg:match("^cures%s") then
         local w = msg:match("^cures%s+(%a+)")
         NS.DO.cures(w == "on" and true or w == "off" and false or nil)

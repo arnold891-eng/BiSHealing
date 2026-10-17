@@ -3,6 +3,10 @@
 ## Unreleased
 
 - **Cure boxes on every cell.** Where the green dispel dot was, a small outlined box for each cure you know - a shaman gets Cure Poison and Cure Disease, a priest Dispel Magic and Cure Disease, a druid Remove Curse and Cure Poison, a paladin Cleanse. Click the box to cure that raider; it is always there, in a fight too. When they pick up something that box cures, the game draws the debuff's icon in it and the box lights up - each box only for its own kind, so the one that lights is the one to click. It frees the mouse buttons you had cures on. `/bish cures off` brings the old dot back.
+  - **The lit box pulses**, teal, so it stands out next to the crosshair.
+  - **The number in its corner is how many clicks are left.** On Forever a cure takes off one stack at a time: a poison on 3 is three clicks.
+- **Click someone dead to res them.** Out of combat, a click on a dead raider casts your res (Ancestral Spirit, Resurrection, Redemption, or a druid's Rebirth) instead of the heal on that button. In a fight nothing changes, so Rebirth is never spent on a misclick. `/bish res off` turns it off.
+- **A res button in BiS> now, already aimed.** Out of combat, while anyone is down, BiS> now carries your res with the next person's name on it: healers first, then priest, paladin, shaman, druid, mage, warlock, hunter, warrior, rogue. It skips anyone another BiS healer is already ressing, anyone with a res on the way, and anyone who released. Click, and it moves on to the next.
 
 ## 0.10.0
 

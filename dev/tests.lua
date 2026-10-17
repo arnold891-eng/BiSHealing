@@ -447,10 +447,17 @@ local function TICK(seconds) CLOCK = CLOCK + (seconds or 0.1) return CLOCK end
 _G.UnitExists = function(u) return STATE.units[u] and true or false end
 _G.IsInRaid = function() return false end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
-_G.UnitClass = function()
+-- EVERY UNIT HAD THE SAME CLASS (17 Oct 2026): this answered "Shaman" whoever was asked, so "res the
+-- mage before the warrior" had no answer. STATE.classes[unit] is that unit's class; you stay a shaman.
+_G.UnitClass = function(u)
     if STATE.classSecret then return secret(), secret() end
+    local c = STATE.classes and u and STATE.classes[u]
+    if c then return c, c end
     return "Shaman", "SHAMAN"
 end
+-- released (a ghost has no corpse to res) and a res already on its way
+_G.UnitIsGhost = function(u) return STATE.ghost and STATE.ghost[u] and true or false end
+_G.UnitHasIncomingResurrection = function(u) return STATE.resComing and STATE.resComing[u] and true or false end
 -- CAN I ATTACK THIS? The target cell holds whatever you clicked, which on a hunter is usually a
 -- mob - and in combat the answer is a secret like everything else about somebody else.
 STATE.hostile = {}
@@ -5462,6 +5469,41 @@ do
     ok(cell.__attrs["*spell2"] == "Lesser Healing Wave(Rank 1)",
        "plain right click keeps its own bind (the seeded default), unleaked: " .. tostring(cell.__attrs["*spell2"]))
 
+    -- A CLICK ON THE DEAD RESES (Arn, 17 Oct 2026: "when someone is dead and out of combat if we
+    -- click the cell does it default to res?" - it did not). The client decides, at the click.
+    do
+        ok(FM.ResSpell() == nil, "no res in the book: the heal binds stay plain spells")
+        local k28 = BOOK[28]
+        BOOK[28] = { name = "Ancestral Spirit", rank = "" }
+        bookSaid()
+        ok(FM.ResSpell() == "Ancestral Spirit", "a shaman who has trained it: Ancestral Spirit")
+        FM.ApplyTo(cell)
+        local m1 = cell.__attrs["*macrotext1"] or ""
+        ok(cell.__attrs["*type1"] == "macro", "the left click becomes one macro")
+        ok(m1:find("^/cast %[@mouseover,dead,nocombat%] Ancestral Spirit\n"),
+           "dead and out of combat - the client's test, at the click - casts the res first", m1)
+        ok(m1:find("\n/cast %[@mouseover%] Spell331$"), "anything else: the heal on the button, as before", m1)
+        local m2 = cell.__attrs["*macrotext2"] or ""
+        ok(m2:find("Lesser Healing Wave%(Rank 1%)$") and m2:find("Ancestral Spirit", 1, true),
+           "every heal button, rank and all", m2)
+        -- nocombat: a druid's Rebirth is never spent on a misclick mid-pull
+        ok(m1:find("nocombat", 1, true) ~= nil, "never in a fight")
+        -- a res on the button already: no res line in front of itself
+        FM.Set("ctrl-", "left", "Ancestral Spirit")
+        FM.ApplyTo(cell)
+        ok(cell.__attrs["ctrl-type1"] == "spell" and cell.__attrs["ctrl-spell1"] == "Ancestral Spirit",
+           "a res bound by hand stays exactly that")
+        FM.Clear("ctrl-", "left")
+        -- off
+        NS.DO.res(false)
+        ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Spell331", "/bish res off: plain heals again")
+        NS.DO.res(true)
+        ok(cell.__attrs["*type1"] == "macro", "/bish res on: back")
+        BOOK[28] = k28
+        bookSaid()
+        FM.ApplyTo(cell)
+    end
+
     -- the wheel is a binding, not a click
     BOUND = {}
     ok(select(1, FM.ApplyWheel(anchor)) == true, "the wheel binds")
@@ -7260,11 +7302,18 @@ do
         ok(FN.HEADER_MIN < cellW, "but still narrower than a cell", tostring(FN.HEADER_MIN))
         ok(FN.BlockWidth(2) == 2 * cellH + pad, "two is two, with the grid's gap between",
            tostring(FN.BlockWidth(2)))
-        for _, n in ipairs({ 2, 3, 7 }) do
+        for _, n in ipairs({ 2, 3, 5 }) do
             ok(FN.BlockWidth(n) == n * cellH + (n - 1) * pad,
                ("%d buttons take exactly the room %d buttons need"):format(n, n),
                tostring(FN.BlockWidth(n)))
         end
+        -- ROWS OF FIVE (Arn, 17 Oct: "okay at 4-5 buttons a row then we should make another row")
+        local c5, r5 = FN.Grid(5)
+        local c6, r6 = FN.Grid(6)
+        local c11, r11 = FN.Grid(11)
+        ok(c5 == 5 and r5 == 1, "five: one row")
+        ok(c6 == 5 and r6 == 2, "six: five, and a second row", c6 .. "x" .. r6)
+        ok(c11 == 5 and r11 == 3, "eleven: three rows of five at most")
     end
 
     ok(FN.Place("help") == 1, "the help button starts first")
@@ -8742,6 +8791,77 @@ do
 
     for k, v in pairs(was) do d[k] = v end
     FG.Layout(FG.anchor)
+end
+
+print("BiS> now: the next res (17 Oct 2026)")
+do
+    -- Arn: "if out of combat bis now gets a res button already targeting the best next target to res
+    -- other healers first mana users next warriors rogues hunters last"
+    local FN, FM, FZ = NS.FN, NS.FM, NS.FZ
+    local d = NS.DB()
+    local keep = { units = STATE.units, dead = STATE.dead, roles = STATE.roles, classes = STATE.classes,
+                   name = _G.UnitName, b28 = BOOK[28], now = d.now, shown = d.shown }
+    STATE.units = { player = true, party1 = true, party2 = true, party3 = true, party4 = true }
+    STATE.classes = { party1 = "WARRIOR", party2 = "MAGE", party3 = "PRIEST", party4 = "HUNTER" }
+    STATE.dead, STATE.ghost, STATE.resComing, STATE.roles = {}, {}, {}, {}
+    _G.UnitName = function(u) return "P" .. tostring(u) end          -- a different name each, for the claims
+    ok(FN.ResTarget() == nil, "no res in the spellbook: no button")
+    BOOK[28] = { name = "Ancestral Spirit", rank = "" }
+    bookSaid()
+    ok(FN.ResTarget() == nil, "nobody dead: no button")
+    STATE.dead.party1, STATE.dead.party2, STATE.dead.party4 = true, true, true
+    local u = FN.ResTarget()
+    ok(u == "party2", "warrior, mage, hunter down: the mage first", u)
+    STATE.dead.party3 = true
+    STATE.roles = { party3 = "HEALER" }
+    u = FN.ResTarget()
+    ok(u == "party3", "a healer down: the healer before anyone", u)
+    FZ.claims["Pparty3"] = { by = "Arn", at = GetTime() }
+    u = FN.ResTarget()
+    ok(u == "party2", "another BiS healer is on the healer: skipped, the mage next", u)
+    STATE.resComing.party2 = true
+    u = FN.ResTarget()
+    ok(u == "party4", "a res already coming to the mage: the hunter before the warrior (Arn's order)", u)
+    STATE.ghost.party4 = true
+    u = FN.ResTarget()
+    ok(u == "party1", "the hunter released: no corpse, so the warrior", u)
+    STATE.classes.party1 = "ROGUE"
+    STATE.ghost.party4 = nil
+    ok(FN.ResTarget() == "party4", "hunter before rogue")
+    STATE.classes.party1 = "WARRIOR"
+    STATE.inCombat = true
+    ok(FN.ResTarget() == nil, "in a fight: no res button at all")
+    STATE.inCombat = false
+
+    -- on the bar, aimed, and gone when nobody is left
+    FZ.claims["Pparty3"] = nil
+    STATE.resComing, STATE.ghost = {}, {}
+    d.now, d.shown = true, true
+    FN.Layout()
+    local b = FN.buttons and FN.buttons.res
+    ok(b and b:IsShown(), "BiS> now shows the res button")
+    ok(b and b:GetAttribute("*macrotext1") == "/cast [@party3] Ancestral Spirit", "aimed at the healer",
+       b and b:GetAttribute("*macrotext1"))
+    ok(b and b.word and b.word:GetText() == "Pparty3", "with their name on it")
+    STATE.dead.party3 = nil                                           -- the priest is up
+    FN.ResSoon()
+    ok(b:GetAttribute("*macrotext1") == "/cast [@party2] Ancestral Spirit", "up: the button moves on to the mage")
+    STATE.dead = {}
+    FN.ResSoon()
+    ok(not b:IsShown(), "everyone up: the button goes")
+
+    -- LEAN: a 40-person raid looked at once costs a few calls a person, and only out of combat
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    for i = 1, 40 do STATE.units["raid" .. i] = true STATE.dead["raid" .. i] = (i % 3 == 0) end
+    local n, by = Cost.Count(function() FN.ResTarget() end)
+    print(("   cost: next res over a 40-raid roster = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+    ok(n <= 40 * 10, "the res scan stays a few calls a person: " .. n, Cost.Top(by, 4))
+
+    STATE.units, STATE.dead, STATE.roles, STATE.classes = keep.units, keep.dead, keep.roles, keep.classes
+    STATE.ghost, STATE.resComing = nil, nil
+    _G.UnitName, BOOK[28], d.now, d.shown = keep.name, keep.b28, keep.now, keep.shown
+    bookSaid()
+    FN.Layout()
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

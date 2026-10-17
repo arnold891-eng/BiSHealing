@@ -349,6 +349,8 @@ local function newFrame(kind, name, parent)
                 self2.__text = getmetatable(v) == secretMeta and "(secret)" or tostring(v)
             end,
             GetText = function(self2) return self2.__text end,
+            -- recorded (17 Oct 2026): "is the name centred beside the cure column" needs an answer
+            SetJustifyH = function(self2, j) self2.__justify = j end,
             -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
             -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
             -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
@@ -5161,10 +5163,20 @@ do
         ok(b2 and b2:GetAttribute("spell") == "Cure Disease", "box two casts Cure Disease")
         ok(b1 and b1:GetAttribute("useparent-unit") == true, "on whoever the cell holds - a rebind never touches it")
         ok(b1 and b1.dim and b1.dim.LEFT, "a dim outline says the corner cures, always")
-        local size, x2 = FA.CureBox(2)
-        local _, x1 = FA.CureBox(1)
-        ok(x2 >= x1 + size, "the boxes sit side by side, never on each other")
-        ok(x2 + size <= 84 / 2, "and keep to the left half of an 84 px cell")
+        -- A COLUMN DOWN THE LEFT EDGE (Arn, 17 Oct: "use the left side as the debuff window")
+        local size, x2, y2 = FA.CureBox(2)
+        local _, x1, y1 = FA.CureBox(1)
+        ok(x1 == x2 and y2 >= y1 + size, "the boxes stack, one under the other, never on each other")
+        ok(y2 + size <= 34, "and two fit the 34 px cell top to bottom", y2 + size)
+        ok(cell.cureLeft and cell.cureLeft >= x1 + size, "the name starts past the column", cell.cureLeft)
+        local nameLeft
+        for _, p in ipairs(cell.name and cell.name.points or {}) do
+            if p[1] == "TOPLEFT" then nameLeft = p[2] end
+        end
+        ok(nameLeft == cell.cureLeft, "the cell's name is anchored there", tostring(nameLeft))
+        ok(cell.name and cell.name.__justify == "CENTER", "and centred in the room left", cell.name and cell.name.__justify)
+        local hot = cell.auras.slots.BiSHealHotRiptide
+        if hot then ok(hot:OffsetFor("BOTTOMLEFT") >= cell.cureLeft, "heals over time sit beside the column too") end
 
         -- NOT ON THE TARGET CELLS (Arn, 17 Oct: "its coming up on the enemy bars too"): whoever is
         -- targeted may be a foe, and a secure box cannot follow them in a fight

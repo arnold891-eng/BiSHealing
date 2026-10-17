@@ -208,9 +208,18 @@ function FA.CureUnit(unit)
 end
 
 --- Where box `i` sits on a cell, and how big it is: the marker's size plus a 2 px frame for the outline.
+--- A COLUMN DOWN THE LEFT EDGE (Arn, 17 Oct: "use the left side as the debuff window"): box 1 at the
+--- top, box 2 under it - two 14 px boxes fill a 34 px cell. Answers size, x, and y down from the top.
 function FA.CureBox(i)
     local box = FA.MarkerSize() + 4
-    return box, 2 + (i - 1) * (box + 2)
+    return box, 2, 2 + (i - 1) * (box + 2)
+end
+
+--- Where the cure column ends, for whatever sits beside it (the name, the heals over time).
+function FA.CureLeft(n)
+    if not n or n < 1 then return nil end
+    local box, x = FA.CureBox(1)
+    return x + box + 3
 end
 
 local function outline(parent, col, inset, layer)
@@ -265,10 +274,10 @@ function FA.Boxes(cell, cures)
         end
         if b then
             if c then
-                local size, x = FA.CureBox(i)
+                local size, x, y = FA.CureBox(i)
                 b:SetSize(size, size)
                 b:ClearAllPoints()
-                b:SetPoint("LEFT", cell, "LEFT", x, 0)
+                b:SetPoint("TOPLEFT", cell, "TOPLEFT", x, -y)
                 if b.SetFrameLevel and cell.GetFrameLevel then
                     local lvl = cell:GetFrameLevel()
                     if type(lvl) == "number" then b:SetFrameLevel(lvl + 12) end   -- over the markers
@@ -282,6 +291,9 @@ function FA.Boxes(cell, cures)
             end
         end
     end
+    -- the name moves beside the column, or back to the edge
+    cell.cureLeft = FA.CureLeft(#cures)
+    if NS.FG and NS.FG.PlaceName then NS.FG.PlaceName(cell) end
     return true
 end
 
@@ -515,10 +527,10 @@ function attach(cell, unit)
     if #cures > 0 then
         local px = FA.MarkerSize()
         for i, c in ipairs(cures) do
-            local _, x = FA.CureBox(i)
+            local _, x, y = FA.CureBox(i)
             cell.cureSlots[i] = addSlot(container, "BiSHealCure" .. i, "HARMFUL|RAID_PLAYER_DISPELLABLE", {
                 candidateFilters = { includeDispelTypes = c.types },
-                initializeFrame = FA.Placed(curePip(DISPEL_TINT), px, "LEFT", cell, x + 2, 0),
+                initializeFrame = FA.Placed(curePip(DISPEL_TINT), px, "TOPLEFT", cell, x + 2, -(y + 2)),
             })
         end
         dispel = cell.cureSlots[1]
@@ -569,7 +581,9 @@ function attach(cell, unit)
         local px = FA.MarkerSize()
         local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
             candidateFilters = { includeSpellIDs = ids },
-            initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell, 3 + (i - 1) * (px + HOT_GAP), 3),
+            -- beside the cure column when there is one (17 Oct), at the edge when not
+            initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell,
+                (FA.CureLeft(#cures) or 3) + (i - 1) * (px + HOT_GAP), 3),
         })
         hots[fam.key] = slot
         end

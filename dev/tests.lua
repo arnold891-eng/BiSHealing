@@ -5157,6 +5157,11 @@ do
         -- LOUDER (Arn, 17 Oct: "hard to see with our cross hairs ... make the little boxes flash more")
         local glow = s1 and s1.cureGlowFrame
         ok(glow and glow.wash, "a teal wash behind the icon, not just an edge")
+        -- Arn, 17 Oct: "cant really see it" - the box's own dim outline painted the bright one out
+        local box1 = cell.cureBoxes and cell.cureBoxes[1]
+        ok(glow and box1 and glow:GetFrameLevel() > box1:GetFrameLevel(),
+           "the pulsing outline is drawn OVER the box, not under it",
+           glow and box1 and (glow:GetFrameLevel() .. " vs " .. box1:GetFrameLevel()))
         local pulse = glow and glow.pulse
         ok(pulse and pulse.playing and pulse.looping == "BOUNCE", "and it pulses - the client runs it, no Lua per frame")
         local fade = pulse and pulse.anims[1]

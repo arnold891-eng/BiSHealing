@@ -245,7 +245,7 @@ FA.Outline = outline
 
 --- The client's marker for one cure: the type icon it paints, and around it the bright outline -
 --- made here, inside the button the client shows only when there is something to cure.
-local function curePip(colour)
+local function curePip(colour, cell)
     local inner = dispelPip(colour)
     return function(auraButton)
         inner(auraButton)
@@ -257,18 +257,28 @@ local function curePip(colour)
         -- little boxes flash more"): a 2 px outline and a teal wash behind the icon, on a frame of
         -- their own that BREATHES - the client runs the pulse, no Lua per frame, and only while it
         -- shows the marker, which is only while there is something to cure.
+        -- NOT UNDER THE BOX (Arn, 17 Oct, the first pulse: "cant really see it flashing or pulsing").
+        -- The secure box sits ABOVE the client's marker so it takes the click, and its dim outline
+        -- landed exactly on the bright one and painted it out. So: the wash on the marker itself,
+        -- UNDER the icon, filling the box's empty middle; the outline on a frame raised over the
+        -- box and drawn just OUTSIDE it, where nothing of ours can cover it.
+        local wash = auraButton:CreateTexture(nil, "BACKGROUND", nil, -1)
+        wash:SetPoint("TOPLEFT", auraButton, "TOPLEFT", -2, 2)
+        wash:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMRIGHT", 2, -2)
+        wash:SetColorTexture(CURE_BRIGHT[1], CURE_BRIGHT[2], CURE_BRIGHT[3], 0.55)
         local ok, glow = pcall(CreateFrame, "Frame", nil, auraButton)
         if not ok or not glow then
-            auraButton.cureGlow = outline(auraButton, CURE_BRIGHT, 2, "OVERLAY", 2)
+            auraButton.cureGlow = outline(auraButton, CURE_BRIGHT, 3, "OVERLAY", 2)
             return
         end
         glow:SetAllPoints(auraButton)
-        local wash = glow:CreateTexture(nil, "BACKGROUND")
-        wash:SetPoint("TOPLEFT", auraButton, "TOPLEFT", -2, 2)
-        wash:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMRIGHT", 2, -2)
-        wash:SetColorTexture(CURE_BRIGHT[1], CURE_BRIGHT[2], CURE_BRIGHT[3], 0.35)
+        -- measured from the CELL, as the box is (cell + 12): the marker's own level is the client's
+        if glow.SetFrameLevel and cell and cell.GetFrameLevel then
+            local lvl = cell:GetFrameLevel()
+            if type(lvl) == "number" then glow:SetFrameLevel(lvl + 20) end
+        end
         glow.wash = wash
-        auraButton.cureGlow = outline(glow, CURE_BRIGHT, 2, "OVERLAY", 2)
+        auraButton.cureGlow = outline(glow, CURE_BRIGHT, 3, "OVERLAY", 2)
         if glow.CreateAnimationGroup then
             local okA, pulse = pcall(glow.CreateAnimationGroup, glow)
             if okA and pulse then
@@ -561,7 +571,7 @@ function attach(cell, unit)
             local _, x, y = FA.CureBox(i)
             cell.cureSlots[i] = addSlot(container, "BiSHealCure" .. i, "HARMFUL|RAID_PLAYER_DISPELLABLE", {
                 candidateFilters = { includeDispelTypes = c.types },
-                initializeFrame = FA.Placed(curePip(DISPEL_TINT), px, "TOPLEFT", cell, x + 2, -(y + 2)),
+                initializeFrame = FA.Placed(curePip(DISPEL_TINT, cell), px, "TOPLEFT", cell, x + 2, -(y + 2)),
             })
         end
         dispel = cell.cureSlots[1]

@@ -5164,6 +5164,9 @@ do
            glow and box1 and (glow:GetFrameLevel() .. " vs " .. box1:GetFrameLevel()))
         local pulse = glow and glow.pulse
         ok(pulse and pulse.playing and pulse.looping == "BOUNCE", "and it pulses - the client runs it, no Lua per frame")
+        -- the stack count, written by the client (Arn: "shows how many it is so i know i have to click")
+        ok(s1 and s1.cureCount and s1.countText == s1.cureCount, "the client is handed a label for the stack count")
+        ok(s1 and s1.cureCount and s1.cureCount:GetParent() ~= glow, "and it is not on the pulsing frame - it does not fade")
         local fade = pulse and pulse.anims[1]
         ok(fade and fade.to >= 0.2 and fade.to < 1, "bright to dim, never to nothing", fade and fade.to)
         ok(s1 and s1.clicks == false, "and the marker takes no clicks: they go to the box under it")

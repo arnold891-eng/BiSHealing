@@ -141,6 +141,162 @@ local function dispelPip(colour)
     end
 end
 
+-- CURE BOXES (Arn, 16 Oct 2026): "Decursive draws 20 cells for the raid ... what if where we draw
+-- the markers right now we pre put tiny cells there for that raider with that cleanse. So the game
+-- draws the poison icon and we draw the cleanse poison in the same place, it's always clickable and
+-- we carve out a place that's outlined inside the cell ... when they get poison Blizz draws the icon
+-- we de alpha the button outline so it draws attention to cure".
+--
+-- HOW, WITHOUT READING A THING:
+--   * a SECURE button per cure spell, set up out of combat - "cast Cure Poison on this raider" - and
+--     never changed in a fight, so it is always clickable. A dim outline says "this corner cures".
+--   * its own aura slot, narrowed to the debuff TYPES that spell removes. The client draws its icon
+--     there only when such a debuff is on, and the BRIGHT outline is made inside that button - so the
+--     client showing its icon IS the outline lighting up. We never learn that anyone is poisoned.
+-- One box per spell, each lighting only for its own types: a shaman's poison box lights for poison
+-- and nothing else, so the box that lights is the box to click.
+--
+-- By NAME, first one in the book wins (the stronger rank-up spell before the plain one). Forever's
+-- class kits are not TBC's or vanilla's, so the book decides, as it does for the heals over time.
+FA.CURES = {
+    SHAMAN  = { { names = { "Cure Poison" }, types = { Poison = true } },
+                { names = { "Cure Disease" }, types = { Disease = true } } },
+    PRIEST  = { { names = { "Dispel Magic" }, types = { Magic = true } },
+                { names = { "Abolish Disease", "Cure Disease" }, types = { Disease = true } } },
+    DRUID   = { { names = { "Remove Curse" }, types = { Curse = true } },
+                { names = { "Abolish Poison", "Cure Poison" }, types = { Poison = true } } },
+    PALADIN = { { names = { "Cleanse" }, types = { Magic = true, Poison = true, Disease = true } },
+                { names = { "Purify" }, types = { Poison = true, Disease = true }, unless = "Cleanse" } },
+    MAGE    = { { names = { "Remove Curse", "Remove Lesser Curse" }, types = { Curse = true } } },
+}
+FA.CURE_MAX = 2
+local CURE_DIM    = { 0.59, 0.56, 0.68, 0.45 }   -- "this corner cures", always
+local CURE_BRIGHT = { 0.31, 0.82, 0.81, 1.00 }   -- the family's "good": cure this, now
+
+function FA.CuresOn()
+    local d = NS.DB and NS.DB()
+    return not (type(d) == "table" and d.cures == false)
+end
+
+local function known(name)
+    return NS.FM and NS.FM.BookIds and #NS.FM.BookIds(name) > 0
+end
+
+--- The cures this character can cast, in box order: { name =, types = } - at most FA.CURE_MAX.
+function FA.Cures()
+    if not FA.CuresOn() then return {} end
+    local class = UnitClass and NS.Plain(select(2, UnitClass("player"))) or nil
+    local out = {}
+    for _, c in ipairs(FA.CURES[class or ""] or {}) do
+        if not (c.unless and known(c.unless)) then
+            for _, name in ipairs(c.names) do
+                if known(name) then out[#out + 1] = { name = name, types = c.types } break end
+            end
+        end
+        if #out >= FA.CURE_MAX then break end
+    end
+    return out
+end
+
+--- ONLY ON YOUR GROUP'S CELLS (Arn, 17 Oct 2026, a screenshot of the target cell on an enemy:
+--- "its coming up on the enemy bars too"). The target and target-of-target cells hold whoever you
+--- clicked, friend or foe, and a secure box cannot come and go with them in a fight - so they, and
+--- pets, keep the old pip. You, party1-4 and raid1-40 get boxes.
+function FA.CureUnit(unit)
+    if type(unit) ~= "string" then return false end
+    return unit == "player" or unit:match("^party%d+$") ~= nil or unit:match("^raid%d+$") ~= nil
+end
+
+--- Where box `i` sits on a cell, and how big it is: the marker's size plus a 2 px frame for the outline.
+--- A COLUMN DOWN THE LEFT EDGE (Arn, 17 Oct: "use the left side as the debuff window"): box 1 at the
+--- top, box 2 under it - two 14 px boxes fill a 34 px cell. Answers size, x, and y down from the top.
+function FA.CureBox(i)
+    local box = FA.MarkerSize() + 4
+    return box, 2, 2 + (i - 1) * (box + 2)
+end
+
+--- Where the cure column ends, for whatever sits beside it (the name, the heals over time).
+function FA.CureLeft(n)
+    if not n or n < 1 then return nil end
+    local box, x = FA.CureBox(1)
+    return x + box + 3
+end
+
+local function outline(parent, col, inset, layer)
+    local t = {}
+    for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+        local e = parent:CreateTexture(nil, layer or "OVERLAY", nil, 2)
+        e:SetColorTexture(col[1], col[2], col[3], col[4])
+        if side == "TOP" or side == "BOTTOM" then
+            e:SetPoint(side .. "LEFT", parent, side .. "LEFT", -inset, side == "TOP" and inset or -inset)
+            e:SetPoint(side .. "RIGHT", parent, side .. "RIGHT", inset, side == "TOP" and inset or -inset)
+            e:SetHeight(1)
+        else
+            e:SetPoint("TOP" .. side, parent, "TOP" .. side, side == "LEFT" and -inset or inset, inset)
+            e:SetPoint("BOTTOM" .. side, parent, "BOTTOM" .. side, side == "LEFT" and -inset or inset, -inset)
+            e:SetWidth(1)
+        end
+        t[side] = e
+    end
+    return t
+end
+FA.Outline = outline
+
+--- The client's marker for one cure: the type icon it paints, and around it the bright outline -
+--- made here, inside the button the client shows only when there is something to cure.
+local function curePip(colour)
+    local inner = dispelPip(colour)
+    return function(auraButton)
+        inner(auraButton)
+        if not auraButton then return end
+        -- the click belongs to the box underneath, never to the marker
+        if auraButton.EnableMouse then pcall(auraButton.EnableMouse, auraButton, false) end
+        if auraButton.SetMouseClickEnabled then pcall(auraButton.SetMouseClickEnabled, auraButton, false) end
+        auraButton.cureGlow = outline(auraButton, CURE_BRIGHT, 2)
+    end
+end
+
+--- The secure boxes on a cell, one per cure. Out of combat only (the caller's rule, like the
+--- attributes); a box beyond the cures this character has is hidden, not destroyed.
+function FA.Boxes(cell, cures)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    cell.cureBoxes = cell.cureBoxes or {}
+    for i = 1, FA.CURE_MAX do
+        local c, b = cures[i], cell.cureBoxes[i]
+        if c and not b then
+            b = CreateFrame("Button", nil, cell, "SecureActionButtonTemplate")
+            b:RegisterForClicks("AnyDown")          -- the cell's own rule: bare LeftButtonDown no-ops
+            -- the cell's unit, whoever it is now: a rebind never has to touch the box
+            b:SetAttribute("useparent-unit", true)
+            b:SetAttribute("type", "spell")
+            b.dim = outline(b, CURE_DIM, 0, "ARTWORK")
+            cell.cureBoxes[i] = b
+        end
+        if b then
+            if c then
+                local size, x, y = FA.CureBox(i)
+                b:SetSize(size, size)
+                b:ClearAllPoints()
+                b:SetPoint("TOPLEFT", cell, "TOPLEFT", x, -y)
+                if b.SetFrameLevel and cell.GetFrameLevel then
+                    local lvl = cell:GetFrameLevel()
+                    if type(lvl) == "number" then b:SetFrameLevel(lvl + 12) end   -- over the markers
+                end
+                b:SetAttribute("spell", c.name)
+                b.cure = c.name
+                b:Show()
+            else
+                b:Hide()
+                b.cure = nil
+            end
+        end
+    end
+    -- the name moves beside the column, or back to the edge
+    cell.cureLeft = FA.CureLeft(#cures)
+    if NS.FG and NS.FG.PlaceName then NS.FG.PlaceName(cell) end
+    return true
+end
+
 -- YOUR HEALS OVER TIME, on the cell, with the client's own countdown. By family: every rank of a
 -- spell is its own spell id, and a slot shows whichever rank of the family is on the target. The
 -- ids are Classic's - and the book is read too (FA.HotIds), because this client's ids for the
@@ -249,6 +405,7 @@ local function signature()
     local now = GetTime and GetTime() or 0
     if FA.sig and FA.sigAt == now then return FA.sig end
     local parts = { FA.debug and "d" or "", "px" .. FA.MarkerSize() }
+    for _, c in ipairs(FA.Cures()) do parts[#parts + 1] = "cure:" .. c.name end
     for _, fam in ipairs(FA.Hots()) do
         local ids = {}
         for id in pairs(FA.HotIds(fam)) do ids[#ids + 1] = id end
@@ -361,11 +518,29 @@ function attach(cell, unit)
     end
     container:SetUnit(unit)
 
-    -- 1. anything WE can cure, washed over the health bar
-    local dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
-        -- a pip at the edge, never over the bar - sized and placed in its creation (FA.Placed)
-        initializeFrame = FA.Placed(dispelPip(DISPEL_TINT), FA.MarkerSize(), "LEFT", cell, 2, 0),
-    })
+    -- 1. anything WE can cure. With cure boxes: one marker per cure, narrowed to the types that
+    --    spell removes, sitting in its box. Without (switched off, or a class with no cure): the
+    --    one pip at the edge, as it always was.
+    local dispel
+    local cures = FA.CureUnit(unit) and FA.Cures() or {}
+    cell.cureSlots = {}
+    if #cures > 0 then
+        local px = FA.MarkerSize()
+        for i, c in ipairs(cures) do
+            local _, x, y = FA.CureBox(i)
+            cell.cureSlots[i] = addSlot(container, "BiSHealCure" .. i, "HARMFUL|RAID_PLAYER_DISPELLABLE", {
+                candidateFilters = { includeDispelTypes = c.types },
+                initializeFrame = FA.Placed(curePip(DISPEL_TINT), px, "TOPLEFT", cell, x + 2, -(y + 2)),
+            })
+        end
+        dispel = cell.cureSlots[1]
+    else
+        dispel = addSlot(container, "BiSHealDispel", "HARMFUL|RAID_PLAYER_DISPELLABLE", {
+            -- a pip at the edge, never over the bar - sized and placed in its creation (FA.Placed)
+            initializeFrame = FA.Placed(dispelPip(DISPEL_TINT), FA.MarkerSize(), "LEFT", cell, 2, 0),
+        })
+    end
+    FA.Boxes(cell, cures)
 
     -- 2. a pip for any buff we are watching. Nothing is watched by default, so no slot is built
     --    and the cell stays as clean as the grid was before.
@@ -406,7 +581,9 @@ function attach(cell, unit)
         local px = FA.MarkerSize()
         local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
             candidateFilters = { includeSpellIDs = ids },
-            initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell, 3 + (i - 1) * (px + HOT_GAP), 3),
+            -- beside the cure column when there is one (17 Oct), at the edge when not
+            initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell,
+                (FA.CureLeft(#cures) or 3) + (i - 1) * (px + HOT_GAP), 3),
         })
         hots[fam.key] = slot
         end
@@ -437,6 +614,19 @@ function FA.Debug(on, frames)
 end
 
 --- Your heals over time on the cells, on or off. Out of combat only, like every container change.
+--- Cure boxes on or off (`/bish cures`). Out of combat, every cell is rebuilt now; in a fight, after.
+function FA.SetCures(on)
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" then d.cures = on and true or false end
+    FA.sig = nil
+    if InCombatLockdown and InCombatLockdown() then return false end
+    for _, f in ipairs((NS.FG and NS.FG.frames) or {}) do
+        if f.unit then FA.Attach(f, f.unit) end
+        if not on and f.cureBoxes then FA.Boxes(f, {}) end
+    end
+    return true
+end
+
 function FA.SetHots(on)
     local d = NS.DB and NS.DB()
     if type(d) == "table" then d.hots = on and true or false end

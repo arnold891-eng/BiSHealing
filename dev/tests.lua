@@ -349,6 +349,8 @@ local function newFrame(kind, name, parent)
                 self2.__text = getmetatable(v) == secretMeta and "(secret)" or tostring(v)
             end,
             GetText = function(self2) return self2.__text end,
+            -- recorded (17 Oct 2026): "is the name centred beside the cure column" needs an answer
+            SetJustifyH = function(self2, j) self2.__justify = j end,
             -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
             -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
             -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
@@ -5119,6 +5121,101 @@ do
         ok(ids[1030] == true, "and its id is read out of the spellbook", tostring(next(ids)))
 
         BOOK[30] = keep
+        FA.sig = nil
+        cell.auras = nil
+    end
+
+    -- CURE BOXES (Arn, 16 Oct 2026): "where we draw the markers right now we pre put tiny cells there
+    -- for that raider with that cleanse ... always clickable ... when they get poison Blizz draws the
+    -- icon we de alpha the button outline". One secure box per cure; one marker per box, narrowed to
+    -- the types that spell removes; the bright outline made INSIDE the client's own marker.
+    do
+        local k29, k31 = BOOK[29], BOOK[31]
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and not (cell.cureBoxes and cell.cureBoxes[1] and cell.cureBoxes[1]:IsShown()),
+           "no cure in the book: the old dispel pip, no boxes")
+
+        BOOK[29] = { name = "Cure Poison", rank = "" }
+        BOOK[31] = { name = "Cure Disease", rank = "" }
+        bookSaid()
+        local cures = FA.Cures()
+        ok(#cures == 2 and cures[1].name == "Cure Poison" and cures[2].name == "Cure Disease",
+           "a shaman with both: two cures, poison first", #cures)
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        local s1, s2 = cell.auras.slots.BiSHealCure1, cell.auras.slots.BiSHealCure2
+        ok(s1 and s2 and cell.auras.slots.BiSHealDispel == nil, "one marker per cure, and no catch-all pip")
+        ok(s1 and s1.filter == "HARMFUL|RAID_PLAYER_DISPELLABLE", "still only what YOU can dispel")
+        local t1 = s1 and s1.opts.candidateFilters.includeDispelTypes or {}
+        local t2 = s2 and s2.opts.candidateFilters.includeDispelTypes or {}
+        ok(t1.Poison and not t1.Disease and t2.Disease and not t2.Poison,
+           "the poison box lights for poison only, the disease box for disease only")
+        ok(s1 and s1.cureGlow and s1.cureGlow.TOP, "the bright outline is made inside the client's marker - shown only when it is")
+        ok(s1 and s1.clicks == false, "and the marker takes no clicks: they go to the box under it")
+
+        local b1, b2 = cell.cureBoxes and cell.cureBoxes[1], cell.cureBoxes and cell.cureBoxes[2]
+        ok(b1 and b2 and b1:IsShown() and b2:IsShown(), "two boxes on the cell")
+        ok(b1 and b1:GetAttribute("type") == "spell" and b1:GetAttribute("spell") == "Cure Poison",
+           "box one casts Cure Poison", b1 and b1:GetAttribute("spell"))
+        ok(b2 and b2:GetAttribute("spell") == "Cure Disease", "box two casts Cure Disease")
+        ok(b1 and b1:GetAttribute("useparent-unit") == true, "on whoever the cell holds - a rebind never touches it")
+        ok(b1 and b1.dim and b1.dim.LEFT, "a dim outline says the corner cures, always")
+        -- A COLUMN DOWN THE LEFT EDGE (Arn, 17 Oct: "use the left side as the debuff window")
+        local size, x2, y2 = FA.CureBox(2)
+        local _, x1, y1 = FA.CureBox(1)
+        ok(x1 == x2 and y2 >= y1 + size, "the boxes stack, one under the other, never on each other")
+        ok(y2 + size <= 34, "and two fit the 34 px cell top to bottom", y2 + size)
+        ok(cell.cureLeft and cell.cureLeft >= x1 + size, "the name starts past the column", cell.cureLeft)
+        local nameLeft
+        for _, p in ipairs(cell.name and cell.name.points or {}) do
+            if p[1] == "TOPLEFT" then nameLeft = p[2] end
+        end
+        ok(nameLeft == cell.cureLeft, "the cell's name is anchored there", tostring(nameLeft))
+        ok(cell.name and cell.name.__justify == "CENTER", "and centred in the room left", cell.name and cell.name.__justify)
+        local hot = cell.auras.slots.BiSHealHotRiptide
+        if hot then ok(hot:OffsetFor("BOTTOMLEFT") >= cell.cureLeft, "heals over time sit beside the column too") end
+
+        -- NOT ON THE TARGET CELLS (Arn, 17 Oct: "its coming up on the enemy bars too"): whoever is
+        -- targeted may be a foe, and a secure box cannot follow them in a fight
+        local tcell = { GetFrameLevel = function() return 5 end }
+        for _, u in ipairs({ "target", "targettarget", "pet", "partypet1", "raidpet3", "focus" }) do
+            ok(not FA.CureUnit(u), u .. ": no cure boxes")
+        end
+        for _, u in ipairs({ "player", "party2", "raid17" }) do ok(FA.CureUnit(u), u .. ": cure boxes") end
+        FA.sig = nil
+        local keepAuras = cell.auras
+        cell.auras = nil
+        FA.Attach(cell, "target")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and cell.auras.slots.BiSHealCure1 == nil,
+           "a target cell keeps the old pip")
+        ok(not b1:IsShown() and not b2:IsShown(), "and its boxes are put away")
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(b1:IsShown(), "back on a party cell: the boxes return")
+        cell.auras = cell.auras or keepAuras
+        tcell = nil
+
+        -- a fight: the boxes are not touched (secure), and the switch waits
+        STATE.inCombat = true
+        ok(FA.Boxes(cell, {}) == false, "in a fight the boxes are left as they are")
+        STATE.inCombat = false
+
+        -- switched off: the pip is back, the boxes go
+        NS.DO.cures(false)
+        ok(not b1:IsShown() and not b2:IsShown(), "/bish cures off: the boxes go")
+        FA.sig = nil
+        cell.auras = nil
+        FA.Attach(cell, "party1")
+        ok(cell.auras.slots.BiSHealDispel ~= nil and cell.auras.slots.BiSHealCure1 == nil, "and the old pip is back")
+        NS.DO.cures(true)
+        ok(b1:IsShown() and b1:GetAttribute("spell") == "Cure Poison", "/bish cures on: back")
+
+        BOOK[29], BOOK[31] = k29, k31
+        bookSaid()
         FA.sig = nil
         cell.auras = nil
     end

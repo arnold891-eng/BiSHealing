@@ -1597,17 +1597,31 @@ local CHAR_W = 5.5                       -- the small font, measured by eye at 1
 --- known, rather than from the paint - anchors do not change sixty times a second.
 function FG.FitCell(f, w)
     local narrow = (tonumber(w) or FRAME_W) < NARROW_W
-    f.__chars = math.max(3, math.floor(((tonumber(w) or FRAME_W) - 6) / CHAR_W))
-    if f.__narrow == narrow then return narrow end
+    f.__w = tonumber(w) or FRAME_W
+    local changed = f.__narrow ~= narrow
     f.__narrow = narrow
-    if f.name then
-        f.name:ClearAllPoints()
-        f.name:SetPoint("TOPLEFT", 3, -4)
-        -- the corner the role icon was keeping, or all of it
-        f.name:SetPoint("TOPRIGHT", narrow and -3 or -14, -4)
-    end
-    if narrow and f.role then f.role:Hide() end
+    FG.PlaceName(f)
+    if changed and narrow and f.role then f.role:Hide() end
     return narrow
+end
+
+--- THE NAME, BESIDE THE CURE COLUMN (Arn, 17 Oct 2026: "its stacking with the name what do you
+--- think we center the name and use the left side as the debuff window"). With cure boxes the
+--- cell's left edge is a column of them (f.cureLeft = where it ends, set by Auras.lua FA.Boxes)
+--- and the name is centred in what is left; without, it starts at the edge as it always did.
+function FG.PlaceName(f)
+    local left = f.cureLeft or 3
+    local w = f.__w or FRAME_W
+    f.__chars = math.max(3, math.floor((w - left - 3) / CHAR_W))
+    if not f.name then return end
+    if f.__nameAt == left .. (f.__narrow and "n" or "w") then return end
+    f.__nameAt = left .. (f.__narrow and "n" or "w")
+    f.name:ClearAllPoints()
+    f.name:SetPoint("TOPLEFT", left, -4)
+    -- the corner the role icon was keeping, or all of it
+    f.name:SetPoint("TOPRIGHT", f.__narrow and -3 or -14, -4)
+    if f.name.SetJustifyH then f.name:SetJustifyH(f.cureLeft and "CENTER" or "LEFT") end
+    if f.unit then f.name:SetText(FG.CellName(f, f.unit)) end
 end
 
 --- The name this particular cell can hold. A secret name is handed over whole - it cannot be cut,

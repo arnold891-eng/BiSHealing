@@ -293,6 +293,24 @@ local function curePip(colour, cell)
             end
         end
         auraButton.cureGlowFrame = glow
+        -- HOW MANY (Arn, 17 Oct, the game's own icon reading 3: "this one shows how many it is so i
+        -- know i have to click 3 times"). The client writes the stack count into a label we hand it
+        -- (SetApplicationCount, as the shield badge's charges) - never read. Its own frame, over the
+        -- box and NOT on the pulsing one: a number that fades in and out is a number misread.
+        if type(auraButton.SetApplicationCount) == "function" then
+            local okN, num = pcall(CreateFrame, "Frame", nil, auraButton)
+            if okN and num then
+                num:SetAllPoints(auraButton)
+                if num.SetFrameLevel and cell and cell.GetFrameLevel then
+                    local lvl = cell:GetFrameLevel()
+                    if type(lvl) == "number" then num:SetFrameLevel(lvl + 21) end
+                end
+                local fs = num:CreateFontString(nil, "OVERLAY")
+                if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "OUTLINE") end
+                fs:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMRIGHT", 4, -3)
+                if pcall(auraButton.SetApplicationCount, auraButton, fs) then auraButton.cureCount = fs end
+            end
+        end
     end
 end
 FA.CURE_PULSE_LOW, FA.CURE_PULSE_SECONDS = 0.25, 0.4    -- never down to nothing: a box that vanishes is one you look past

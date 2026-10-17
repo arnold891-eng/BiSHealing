@@ -5462,6 +5462,41 @@ do
     ok(cell.__attrs["*spell2"] == "Lesser Healing Wave(Rank 1)",
        "plain right click keeps its own bind (the seeded default), unleaked: " .. tostring(cell.__attrs["*spell2"]))
 
+    -- A CLICK ON THE DEAD RESES (Arn, 17 Oct 2026: "when someone is dead and out of combat if we
+    -- click the cell does it default to res?" - it did not). The client decides, at the click.
+    do
+        ok(FM.ResSpell() == nil, "no res in the book: the heal binds stay plain spells")
+        local k28 = BOOK[28]
+        BOOK[28] = { name = "Ancestral Spirit", rank = "" }
+        bookSaid()
+        ok(FM.ResSpell() == "Ancestral Spirit", "a shaman who has trained it: Ancestral Spirit")
+        FM.ApplyTo(cell)
+        local m1 = cell.__attrs["*macrotext1"] or ""
+        ok(cell.__attrs["*type1"] == "macro", "the left click becomes one macro")
+        ok(m1:find("^/cast %[@mouseover,dead,nocombat%] Ancestral Spirit\n"),
+           "dead and out of combat - the client's test, at the click - casts the res first", m1)
+        ok(m1:find("\n/cast %[@mouseover%] Spell331$"), "anything else: the heal on the button, as before", m1)
+        local m2 = cell.__attrs["*macrotext2"] or ""
+        ok(m2:find("Lesser Healing Wave%(Rank 1%)$") and m2:find("Ancestral Spirit", 1, true),
+           "every heal button, rank and all", m2)
+        -- nocombat: a druid's Rebirth is never spent on a misclick mid-pull
+        ok(m1:find("nocombat", 1, true) ~= nil, "never in a fight")
+        -- a res on the button already: no res line in front of itself
+        FM.Set("ctrl-", "left", "Ancestral Spirit")
+        FM.ApplyTo(cell)
+        ok(cell.__attrs["ctrl-type1"] == "spell" and cell.__attrs["ctrl-spell1"] == "Ancestral Spirit",
+           "a res bound by hand stays exactly that")
+        FM.Clear("ctrl-", "left")
+        -- off
+        NS.DO.res(false)
+        ok(cell.__attrs["*type1"] == "spell" and cell.__attrs["*spell1"] == "Spell331", "/bish res off: plain heals again")
+        NS.DO.res(true)
+        ok(cell.__attrs["*type1"] == "macro", "/bish res on: back")
+        BOOK[28] = k28
+        bookSaid()
+        FM.ApplyTo(cell)
+    end
+
     -- the wheel is a binding, not a click
     BOUND = {}
     ok(select(1, FM.ApplyWheel(anchor)) == true, "the wheel binds")

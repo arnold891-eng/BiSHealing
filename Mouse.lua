@@ -454,6 +454,31 @@ FM.PALETTE = {
 }
 FM.PALETTE_MAX = 11                 -- what fits across the bind window
 
+--- A CLICK ON THE DEAD RESES (Arn, 17 Oct 2026: "when someone is dead and out of combat if we click
+--- the cell does it default to res?" - it did not; the heal on the button was cast and the client
+--- said "target is dead"). Every heal click carries one more line, first: `/cast [@mouseover,dead,
+--- nocombat] <your res>`. The CLIENT decides at the click - dead and out of combat, the res; anything
+--- else, the line does nothing and the heal goes out as it always did. Nothing is read, nothing
+--- changes in a fight, and `nocombat` keeps a druid's Rebirth from going on a misclick mid-pull.
+--- By name, from the book: a character who has not trained it gets no line. `/bish res off` stops it.
+FM.RES = { SHAMAN = "Ancestral Spirit", PRIEST = "Resurrection", PALADIN = "Redemption", DRUID = "Rebirth" }
+
+function FM.ResSpell()
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" and d.resClick == false then return nil end
+    local class = UnitClass and NS.Plain(select(2, UnitClass("player"))) or nil
+    local name = FM.RES[class or ""]
+    if not name or #FM.BookIds(name) == 0 then return nil end
+    return name
+end
+
+--- The line that goes first in a heal click, or "" when there is no res to cast.
+function FM.ResLine(cast)
+    local res = FM.ResSpell()
+    if not res or not cast or FM.Split(cast) == res then return "" end
+    return "/cast [@mouseover,dead,nocombat] " .. res .. "\n"
+end
+
 --- This character's palette: { name, id (the highest trained rank's), rank } in class order.
 function FM.Palette()
     local class = UnitClass and select(2, UnitClass("player"))
@@ -1065,8 +1090,13 @@ function FM.ApplyTo(cell)
                     -- spent on a dead or hostile cell.
                     local _, heal = FM.Boost(spell)
                     kind, cast = "macro", nil
-                    text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+                    text = FM.ResLine(spell)
+                        .. "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
                         .. FM.FirstLines(spell, m.key) .. "/cast [@mouseover] " .. heal
+                elseif spell and FM.ResLine(spell) ~= "" then
+                    -- a heal with a res in front of it: one macro, the client picks at the click
+                    kind, cast = "macro", nil
+                    text = FM.ResLine(spell) .. "/cast [@mouseover] " .. spell
                 elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end

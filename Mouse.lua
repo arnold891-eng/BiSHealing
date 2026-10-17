@@ -588,6 +588,7 @@ function FM.SetTabTrinket(mod, slot, on)
     -- written to the macro like any bind (keep() lives below; its two lines, inlined)
     FM.touched = true
     if NS.FK and NS.FK.Save then NS.FK.Save(d.binds) end
+    if NS.Announce then NS.Announce("BiSHealing_BindsChanged") end
     return on and true or false
 end
 
@@ -938,6 +939,7 @@ local function keep(d)
                 .. " - /bish keep shows which", dropped)
         end
     end
+    if NS.Announce then NS.Announce("BiSHealing_BindsChanged") end   -- API.lua, for other addons
 end
 
 --- The macro list is not always populated the moment we first ask. If it filled in late, what

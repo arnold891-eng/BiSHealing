@@ -1,9 +1,9 @@
 ## Interface: 20506, 16001
-## Title: BiS Healing
+## Title: |cffb980ffBiS>|rHealing
 ## Category: |cffb980ffBiS>|rAddons
 ## Notes: Click-cast healing cells for any healer. The client draws what it will not let an addon read.
 ## Author: Kumlust
-## Version: 0.9.2
+## Version: 0.10.0
 ## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
 ## SavedVariablesPerCharacter: BiSHealingCharDB
@@ -30,6 +30,8 @@ MouseUI.lua
 Between.lua
 # after Between: FN.Mine asks FB.Knows what this character has trained
 Now.lua
+# last before the UI-only files: BiSHealingAPI, for other addons (playbook 5a)
+API.lua
 
 UI\options.lua
 UI\minimap.lua

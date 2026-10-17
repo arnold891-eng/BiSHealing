@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 0.10.0
+
+- **Drag a ping onto a mouse button.** The assist, attack, warning and on-my-way pings can now be dragged straight onto a button in the bind window - a copy of the icon follows the mouse, let go to bind it. Clicking a ping and then a button still works.
+- **BiSHealingAPI** - other BiS addons can read your binds, the grid's on/off, BiS> now and your tank, and open the bind or options window. It's read-only: nothing else can change your binds.
+- The addon list shows **BiS>Healing**, like its category.
+
 ## 0.9.2
 
 - **Your binds stay with the character they belong to.** Switching to an alt used to show your main's mouse binds in the bind window - and a change on the alt could write your main's heals into the alt's own save. Each character now loads its own binds, tank and settings, never the last character's. If an alt already picked up stray binds from your main, right-click those slots once to clear them; they won't come back.

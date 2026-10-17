@@ -236,6 +236,7 @@ function NS.DO.show(on)
     local db = DB()
     if on == nil then on = not (db.shown ~= false) end
     db.shown = on and true or false
+    if NS.Announce then NS.Announce("BiSHealing_Shown", db.shown) end   -- API.lua, for other addons
     if InCombatLockdown and InCombatLockdown() then
         Print("the frames change when the fight ends: the client will not move them now")
         return db.shown

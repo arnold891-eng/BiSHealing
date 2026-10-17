@@ -931,6 +931,8 @@ _G.tinsert = table.insert
 -- The Libs lines are skipped: BiSTheme is a shared lib with its own suite, and the drawing here
 -- is stub frames anyway.
 local LOADED = {}
+local beforeLoad = {}
+for k in pairs(_G) do beforeLoad[k] = true end
 do
     local toc = assert(io.open("BiSHealing.toc"))
     for line in toc:lines() do
@@ -947,6 +949,45 @@ do
     toc:close()
 end
 ok(#LOADED >= 8, "the TOC's files all load: " .. #LOADED)
+
+-- THE GLOBALS THE ADDON MAKES BY LOADING, and nothing else (16 Oct 2026, with the API). A named
+-- frame lands in _G in the client as here, so those are not counted; everything else must be on
+-- this list, and a new one is a choice made here, not an accident.
+local ALLOWED_GLOBALS = {
+    BiSHealingAPI = true,      -- API.lua, for other addons (playbook 5a)
+    SLASH_BISHEALING1 = true, SLASH_BISHEALING2 = true, SLASH_BISHEALING3 = true,   -- /bish and its aliases
+    -- the client's own table; the mock has none before load, so Core's `if not SlashCmdList` makes
+    -- it here (the source check "no file writes a Blizzard global outright" guards the client side)
+    SlashCmdList = true,
+}
+do
+    local leaked = {}
+    for k, v in pairs(_G) do
+        if not beforeLoad[k] and not ALLOWED_GLOBALS[k]
+           and not (type(v) == "table" and rawget(v, "__kind")) then
+            leaked[#leaked + 1] = tostring(k)
+        end
+    end
+    table.sort(leaked)
+    ok(#leaked == 0, "loading the addon makes no global off the allowed list: " .. table.concat(leaked, ", "))
+end
+
+-- BiSHealingAPI BEFORE LOGIN: the grid is not built yet, so every question answers nil, "not
+-- ready" - and nothing throws, and nothing is created by being asked.
+do
+    local A = _G.BiSHealingAPI
+    ok(type(A) == "table" and A.major == 1 and A.version == 1, "BiSHealingAPI is there, major 1 version 1")
+    ok(NS.FG and NS.FG.anchor == nil, "(the grid is not started yet, as before PLAYER_LOGIN)")
+    local hadDB = _G.BiSHealingDB
+    for _, name in ipairs({ "Ready", "Shown", "CliqueOn", "Slots", "Binds", "Bind", "Now", "Tank",
+                            "OpenBinds", "OpenOptions" }) do
+        local fn = A and A[name]
+        local ran, v, why = pcall(fn or error, "left")
+        ok(ran and v == nil and why == "not ready", "before login " .. name .. "() answers nil, \"not ready\": "
+           .. tostring(v) .. " " .. tostring(why))
+    end
+    ok(_G.BiSHealingDB == hadDB, "and asking created no saved table")
+end
 -- ONE LINE IN THE CHAT FRAME, AND IT FORMATS. NS.Print took a single argument and dropped the
 -- rest, so every call that passed values printed its own punctuation: "asking: %s". /bish range
 -- did that for the two days it existed, in front of Arn, while he was using it to find out why
@@ -8428,6 +8469,166 @@ do
     _G.IsInRaid, _G.UnitHealthPercent = realRaid, realHP
     for i = 1, 25 do STATE.units["raid" .. i] = nil end
     d.binds, d.now, d.shown = was.binds, was.now, was.shown
+    FG.Layout(FG.anchor)
+end
+
+-- BiSHealingAPI AFTER LOGIN (16 Oct 2026, playbook 5a). Every function, ready and not; every answer
+-- a copy (edit it, ask again, unchanged - and the addon's own table unchanged too); every action a
+-- click the player could make; every event fired by the real road, not by calling Announce.
+do
+    local A = _G.BiSHealingAPI
+    local FM, FN = NS.FM, NS.FN
+    local d = NS.DB()
+    local was = { binds = d.binds, trinketTabs = d.trinketTabs, tank = d.tank, shown = d.shown,
+                  clique = d.clique, now = d.now }
+    ok(FG.anchor ~= nil and A.Ready() == true, "after login the API is ready")
+
+    d.shown = false
+    ok(A.Shown() == false, "Shown() reads the hide switch")
+    d.shown = true
+    ok(A.Shown() == true, "and the show switch")
+    d.clique = true
+    ok(A.CliqueOn() == true, "CliqueOn() says when Clique owns the clicks")
+    d.clique = false
+    ok(A.CliqueOn() == false, "and when it does not")
+
+    local slots = A.Slots()
+    ok(type(slots) == "table" and #slots == #FM.SLOTS and slots[1].key == "left"
+       and slots[1].wheel == false and slots[3].key == "wheelup" and slots[3].wheel == true,
+       "Slots() lists every mouse slot, the wheel marked as such")
+    slots[1].key, slots[2] = "edited", nil
+    local again = A.Slots()
+    ok(again[1].key == "left" and again[2] and FM.SLOTS[1].key == "left",
+       "Slots() answers a copy: editing it changes neither the next answer nor the addon")
+
+    d.binds = { left = "Healing Wave(Rank 3)",
+                ["shift-left"] = "!use:13+Nature's Swiftness+Healing Wave(Rank 10)",
+                ["ctrl-right"] = FM.PingBind("assist"),
+                ["alt-wheelup"] = "Chain Heal" }
+    d.trinketTabs = { ["alt-"] = { [14] = true } }
+    local b = A.Binds()
+    ok(b and b.left and b.left.spell == "Healing Wave" and b.left.rank == "Rank 3" and b.left.mod == ""
+       and b.left.slot == "left" and b.left.cast == "Healing Wave(Rank 3)" and #b.left.trinkets == 0,
+       "Binds(): a plain bind, its spell and rank apart")
+    local s = b and b["shift-left"]
+    ok(s and s.mod == "shift-" and s.slot == "left" and s.spell == "Healing Wave" and s.rank == "Rank 10"
+       and s.boost == "Nature's Swiftness" and s.trinkets[1] == 13 and #s.trinkets == 1,
+       "a bind with a trinket and a booster in front says both")
+    local p = b and b["ctrl-right"]
+    ok(p and p.ping == "assist" and p.spell == nil and p.mod == "ctrl-" and p.slot == "right",
+       "a ping bind says which ping, and no spell")
+    local w = b and b["alt-wheelup"]
+    ok(w and w.spell == "Chain Heal" and w.rank == nil and w.trinkets[1] == 14,
+       "a bare name has no rank, and its modifier tab's trinket is counted")
+    b.left.spell, b.left.trinkets[1], b["shift-left"].trinkets[1], b.extra = "edited", 99, 99, {}
+    local b2 = A.Binds()
+    ok(b2.left.spell == "Healing Wave" and #b2.left.trinkets == 0 and b2["shift-left"].trinkets[1] == 13
+       and b2.extra == nil and d.binds.left == "Healing Wave(Rank 3)" and d.binds.extra == nil,
+       "Binds() answers a copy: editing it changes neither the next answer nor the saved binds")
+
+    local one = A.Bind("left", "shift")
+    ok(one and one.key == "shift-left" and one.boost == "Nature's Swiftness", "Bind(slot, \"shift\")")
+    ok(A.Bind("left", "shift-").key == "shift-left" and A.Bind("left").key == "left"
+       and A.Bind("left", "").key == "left", "Bind() takes \"shift-\", \"\" or nothing for the modifier")
+    one.cast = "edited"
+    ok(A.Bind("left", "shift").cast ~= "edited", "Bind() answers a copy")
+    local n1, w1 = A.Bind("nose")
+    ok(n1 == nil and w1 == "no such slot", "a slot that is not on the mouse: no such slot")
+    local n2, w2 = A.Bind("left", "hyper")
+    ok(n2 == nil and w2 == "no such modifier", "a modifier that is not one: no such modifier")
+    local n3, w3 = A.Bind("middle")
+    ok(n3 == nil and w3 == "nothing bound", "an empty slot: nothing bound")
+    local n4, w4 = A.Bind(7)
+    ok(n4 == nil and w4 == "no such slot", "junk is refused, not thrown on")
+    d.binds = {}
+    ok(next(A.Binds()) == nil, "nothing bound: Binds() is an empty table, not nil")
+
+    d.tank = nil
+    local t0, tw = A.Tank()
+    ok(t0 == nil and tw == "no tank", "Tank(): nobody chosen says no tank")
+    d.tank = "Tobi Three"
+    ok(A.Tank() == "Tobi Three", "and the chosen tank by the name the client wrote")
+
+    local nw = A.Now()
+    ok(type(nw) == "table" and type(nw.on) == "boolean" and type(nw.shown) == "boolean"
+       and type(nw.buttons) == "table" and nw.tank == "Tobi Three", "Now(): the switch, the block, its buttons, the tank")
+    d.now = true
+    FG.Layout(FG.anchor)
+    local on = A.Now()
+    ok(on.on == true and on.shown == true and on.buttons[1] == "help",
+       "with BiS> now on, the block is shown and the help button is first")
+    on.buttons[1], on.tank = "edited", "edited"
+    local on2 = A.Now()
+    ok(on2.buttons[1] == "help" and on2.tank == "Tobi Three" and d.tank == "Tobi Three",
+       "Now() answers a copy")
+    d.now = false
+    FG.Layout(FG.anchor)
+    ok(A.Now().on == false and A.Now().shown == false and #A.Now().buttons == 0, "and off is off")
+
+    -- the two windows: OPENED, never toggled shut by a second ask
+    local win = FM.Window()
+    win:Hide()
+    ok(A.OpenBinds() == true and win:IsShown(), "OpenBinds() opens the bind window")
+    ok(A.OpenBinds() == true and win:IsShown(), "and asked again it stays open")
+    win:Hide()
+    local opt = NS.CFG.Build()
+    if opt then opt:Hide() end
+    ok(A.OpenOptions() == true and opt and opt:IsShown(), "OpenOptions() opens the options window")
+    ok(A.OpenOptions() == true and opt:IsShown(), "and asked again it stays open")
+    if opt then opt:Hide() end
+
+    -- events, by the roads the player takes
+    local heard = {}
+    ok(A.RegisterCallback("suite", "BiSHealing_BindsChanged", function(e) heard[#heard + 1] = e end) == true,
+       "RegisterCallback takes an owner, an event and a function")
+    ok(A.RegisterCallback("broken", "BiSHealing_BindsChanged", function() error("a listener's own bug") end),
+       "a second owner on the same event")
+    local r1, rw1 = A.RegisterCallback(nil, "BiSHealing_BindsChanged", print)
+    local r2, rw2 = A.RegisterCallback("suite", "BiSHealing_Nonsense", print)
+    local r3, rw3 = A.RegisterCallback("suite", "BiSHealing_Shown", "not a function")
+    ok(r1 == nil and rw1 == "bad owner" and r2 == nil and rw2 == "no such event"
+       and r3 == nil and rw3 == "not a function", "and refuses a bad owner, event or function with why")
+    local set = pcall(FM.Set, "", "middle", "Heal(Rank 2)")
+    ok(set and heard[1] == "BiSHealing_BindsChanged",
+       "dropping a spell on the mouse announces BiSHealing_BindsChanged - past a listener that throws")
+    FM.Clear("", "middle")
+    ok(#heard == 2, "and so does clearing one")
+    FM.SetTabTrinket("", 13, true)
+    FM.SetTabTrinket("", 13, false)
+    ok(#heard == 4, "and ticking a trinket tab")
+    ok(A.UnregisterCallback("suite", "BiSHealing_BindsChanged") == true, "UnregisterCallback lets go")
+    FM.Set("", "middle", "Heal(Rank 2)")
+    FM.Clear("", "middle")
+    ok(#heard == 4, "and a let-go listener hears nothing more")
+    local u1, uw1 = A.UnregisterCallback("suite", "BiSHealing_BindsChanged")
+    ok(u1 == nil and uw1 == "not registered", "letting go twice says not registered")
+    A.UnregisterCallback("broken", "BiSHealing_BindsChanged")
+
+    local shownHeard = {}
+    A.RegisterCallback("suite", "BiSHealing_Shown", function(e, v) shownHeard[#shownHeard + 1] = v end)
+    NS.DO.show(false)
+    NS.DO.show(true)
+    ok(shownHeard[1] == false and shownHeard[2] == true, "/bish hide and show announce BiSHealing_Shown")
+    A.UnregisterCallback("suite", "BiSHealing_Shown")
+
+    local tankHeard = { n = 0 }
+    A.RegisterCallback("suite", "BiSHealing_TankChanged", function(e, v) tankHeard.n = tankHeard.n + 1 tankHeard.v = v end)
+    d.tank = "Tobi Three"
+    FN.SetTank()                 -- nobody targeted: lets go
+    ok(tankHeard.n == 1 and tankHeard.v == nil and A.Tank() == nil,
+       "letting go of the tank announces BiSHealing_TankChanged with no name")
+    A.UnregisterCallback("suite", "BiSHealing_TankChanged")
+
+    -- THE ANSWERS NEVER THROW, even when the addon's insides do
+    local realSplit = FM.Split
+    FM.Split = function() error("an inside that changed") end
+    d.binds = { left = "Healing Wave(Rank 3)" }
+    local okB, bb = pcall(A.Binds)
+    ok(okB and bb and bb.left and bb.left.cast == "Healing Wave(Rank 3)",
+       "a throwing inside is pcalled: the answer is poorer, never an error")
+    FM.Split = realSplit
+
+    for k, v in pairs(was) do d[k] = v end
     FG.Layout(FG.anchor)
 end
 

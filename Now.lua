@@ -867,6 +867,7 @@ function FN.SetTank()
     end
     FN.ApplyTank()
     FN.MarkTankPlates()
+    if NS.Announce then NS.Announce("BiSHealing_TankChanged", name) end   -- API.lua
     return name
 end
 

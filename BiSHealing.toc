@@ -1,5 +1,5 @@
 ## Interface: 20506, 16001
-## Title: BiS Healing
+## Title: |cffb980ffBiS>|rHealing
 ## Category: |cffb980ffBiS>|rAddons
 ## Notes: Click-cast healing cells for any healer. The client draws what it will not let an addon read.
 ## Author: Kumlust

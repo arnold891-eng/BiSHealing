@@ -5154,6 +5154,13 @@ do
         ok(t1.Poison and not t1.Disease and t2.Disease and not t2.Poison,
            "the poison box lights for poison only, the disease box for disease only")
         ok(s1 and s1.cureGlow and s1.cureGlow.TOP, "the bright outline is made inside the client's marker - shown only when it is")
+        -- LOUDER (Arn, 17 Oct: "hard to see with our cross hairs ... make the little boxes flash more")
+        local glow = s1 and s1.cureGlowFrame
+        ok(glow and glow.wash, "a teal wash behind the icon, not just an edge")
+        local pulse = glow and glow.pulse
+        ok(pulse and pulse.playing and pulse.looping == "BOUNCE", "and it pulses - the client runs it, no Lua per frame")
+        local fade = pulse and pulse.anims[1]
+        ok(fade and fade.to >= 0.2 and fade.to < 1, "bright to dim, never to nothing", fade and fade.to)
         ok(s1 and s1.clicks == false, "and the marker takes no clicks: they go to the box under it")
 
         local b1, b2 = cell.cureBoxes and cell.cureBoxes[1], cell.cureBoxes and cell.cureBoxes[2]

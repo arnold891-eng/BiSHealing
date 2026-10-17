@@ -222,19 +222,20 @@ function FA.CureLeft(n)
     return x + box + 3
 end
 
-local function outline(parent, col, inset, layer)
+local function outline(parent, col, inset, layer, thick)
     local t = {}
+    thick = thick or 1
     for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
         local e = parent:CreateTexture(nil, layer or "OVERLAY", nil, 2)
         e:SetColorTexture(col[1], col[2], col[3], col[4])
         if side == "TOP" or side == "BOTTOM" then
             e:SetPoint(side .. "LEFT", parent, side .. "LEFT", -inset, side == "TOP" and inset or -inset)
             e:SetPoint(side .. "RIGHT", parent, side .. "RIGHT", inset, side == "TOP" and inset or -inset)
-            e:SetHeight(1)
+            e:SetHeight(thick)
         else
             e:SetPoint("TOP" .. side, parent, "TOP" .. side, side == "LEFT" and -inset or inset, inset)
             e:SetPoint("BOTTOM" .. side, parent, "BOTTOM" .. side, side == "LEFT" and -inset or inset, -inset)
-            e:SetWidth(1)
+            e:SetWidth(thick)
         end
         t[side] = e
     end
@@ -252,9 +253,39 @@ local function curePip(colour)
         -- the click belongs to the box underneath, never to the marker
         if auraButton.EnableMouse then pcall(auraButton.EnableMouse, auraButton, false) end
         if auraButton.SetMouseClickEnabled then pcall(auraButton.SetMouseClickEnabled, auraButton, false) end
-        auraButton.cureGlow = outline(auraButton, CURE_BRIGHT, 2)
+        -- LOUDER (Arn, 17 Oct: "its a little hard to see with our cross hairs and or maybe make the
+        -- little boxes flash more"): a 2 px outline and a teal wash behind the icon, on a frame of
+        -- their own that BREATHES - the client runs the pulse, no Lua per frame, and only while it
+        -- shows the marker, which is only while there is something to cure.
+        local ok, glow = pcall(CreateFrame, "Frame", nil, auraButton)
+        if not ok or not glow then
+            auraButton.cureGlow = outline(auraButton, CURE_BRIGHT, 2, "OVERLAY", 2)
+            return
+        end
+        glow:SetAllPoints(auraButton)
+        local wash = glow:CreateTexture(nil, "BACKGROUND")
+        wash:SetPoint("TOPLEFT", auraButton, "TOPLEFT", -2, 2)
+        wash:SetPoint("BOTTOMRIGHT", auraButton, "BOTTOMRIGHT", 2, -2)
+        wash:SetColorTexture(CURE_BRIGHT[1], CURE_BRIGHT[2], CURE_BRIGHT[3], 0.35)
+        glow.wash = wash
+        auraButton.cureGlow = outline(glow, CURE_BRIGHT, 2, "OVERLAY", 2)
+        if glow.CreateAnimationGroup then
+            local okA, pulse = pcall(glow.CreateAnimationGroup, glow)
+            if okA and pulse then
+                local fade = pulse:CreateAnimation("Alpha")
+                fade:SetFromAlpha(1)
+                fade:SetToAlpha(FA.CURE_PULSE_LOW)
+                fade:SetDuration(FA.CURE_PULSE_SECONDS)
+                if fade.SetSmoothing then fade:SetSmoothing("IN_OUT") end
+                pulse:SetLooping("BOUNCE")
+                pulse:Play()
+                glow.pulse = pulse
+            end
+        end
+        auraButton.cureGlowFrame = glow
     end
 end
+FA.CURE_PULSE_LOW, FA.CURE_PULSE_SECONDS = 0.25, 0.4    -- never down to nothing: a box that vanishes is one you look past
 
 --- The secure boxes on a cell, one per cure. Out of combat only (the caller's rule, like the
 --- attributes); a box beyond the cures this character has is hidden, not destroyed.

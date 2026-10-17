@@ -7302,11 +7302,18 @@ do
         ok(FN.HEADER_MIN < cellW, "but still narrower than a cell", tostring(FN.HEADER_MIN))
         ok(FN.BlockWidth(2) == 2 * cellH + pad, "two is two, with the grid's gap between",
            tostring(FN.BlockWidth(2)))
-        for _, n in ipairs({ 2, 3, 7 }) do
+        for _, n in ipairs({ 2, 3, 5 }) do
             ok(FN.BlockWidth(n) == n * cellH + (n - 1) * pad,
                ("%d buttons take exactly the room %d buttons need"):format(n, n),
                tostring(FN.BlockWidth(n)))
         end
+        -- ROWS OF FIVE (Arn, 17 Oct: "okay at 4-5 buttons a row then we should make another row")
+        local c5, r5 = FN.Grid(5)
+        local c6, r6 = FN.Grid(6)
+        local c11, r11 = FN.Grid(11)
+        ok(c5 == 5 and r5 == 1, "five: one row")
+        ok(c6 == 5 and r6 == 2, "six: five, and a second row", c6 .. "x" .. r6)
+        ok(c11 == 5 and r11 == 3, "eleven: three rows of five at most")
     end
 
     ok(FN.Place("help") == 1, "the help button starts first")

@@ -542,6 +542,16 @@ end
 --- comfortably, this is the smallest that keeps "BiS> now" whole.
 FN.HEADER_MIN = 62
 
+--- ROWS OF FIVE (Arn, 17 Oct 2026: "the bis now is okay at 4-5 buttons a row then we should make
+--- another row"). n buttons -> columns, rows: one row up to FN.ROW_MAX, then the next row under it,
+--- filled left to right in the learned order.
+FN.ROW_MAX = 5
+function FN.Grid(n)
+    n = math.max(1, n or 1)
+    local cols = math.min(n, FN.ROW_MAX)
+    return cols, math.ceil(n / cols)
+end
+
 function FN.BlockWidth(n)
     local w, _, pad = dims()
     local content = n * w + math.max(0, n - 1) * pad
@@ -1534,8 +1544,10 @@ function FN.Layout(anchor)
         if key == "shield" then FN.ArmShield(b) end -- a no-op unless the buff or its ranks changed
         if key == "res" then FN.ArmRes(b) end       -- aimed at whoever is next, every layout
         b:ClearAllPoints()
-        local w, _, pad = dims()
-        b:SetPoint("TOPLEFT", a, "TOPLEFT", (i - 1) * (w + pad), 0)
+        local w, h, pad = dims()
+        local cols = FN.Grid(#mine)
+        local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+        b:SetPoint("TOPLEFT", a, "TOPLEFT", col * (w + pad), -row * (h + pad))
         b:Show()
     end
     for key, b in pairs(FN.buttons) do
@@ -1549,8 +1561,9 @@ function FN.Layout(anchor)
     -- sized to what is in it, in whole cells: one cell wide, two when a second button arrives,
     -- with the grid's own gap between them so it reads as part of the grid
     local w, h, pad = dims()
-    local width = FN.BlockWidth(#mine)
-    a:SetSize(width, h)
+    local cols, rows = FN.Grid(#mine)
+    local width = FN.BlockWidth(cols)
+    a:SetSize(width, rows * h + (rows - 1) * pad)
     FN.PlaceBlock(a, anchor)
     FN.Paint()
     return true, #mine

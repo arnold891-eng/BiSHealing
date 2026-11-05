@@ -1,7 +1,12 @@
-# BiS Healing — CurseForge page text (0.11.0)
+# BiS Healing — CurseForge page text (0.16.0)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.11.0 text (5 Nov, 0.16.0): the buff buttons in BiS> now (after Weapon oil);
+`/bish buffs` in the command table; "Click a corpse to res it" brought up to 0.15.0 (any click, Revive
+for druids, never Rebirth - the old line still listed Rebirth). 0.14.0's "Mana for mana" was already on
+the page; the rest of 0.12.0-0.15.x were fixes and the shared lib.
 
 Changed since the 0.8.5 text (17 Oct, 0.11.0 - big features only, Arn: "only for the big things"):
 the cure boxes replace the dispel-marker line in "The cells"; click a corpse to res joins "No double
@@ -91,7 +96,7 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
 - **Marker size**, 6 to 20 pixels.
 - **Dimmed when they're out of range** of your longest-reaching heal — every heal you have bound, plus your class's own — **including during a fight**, which is when you need it. The game keeps "can you reach them" secret in combat, so it is handed back to the game to pick the brightness from; the addon never learns who is reachable. You and your target are never dimmed. **How far it dims is yours**: `out of range` in the options, 20% to 90% (30% on a fresh install).
-- **Click a corpse to res it.** Out of combat, any heal click on someone dead casts your res instead (Ancestral Spirit, Resurrection, Redemption, Rebirth). In a fight the click is the heal it always was, so a druid's Rebirth is never spent by accident. `/bish res off` turns it off.
+- **Click a corpse to res it.** Out of combat, every click on a dead player's cell (any button, any modifier, even one with nothing bound) casts your res: Ancestral Spirit, Resurrection, Redemption, and for druids **Revive**, Forever's out-of-combat res. Rebirth is never cast for you; its long cooldown stays yours for a battle res. The moment they're up, or a fight starts, the cell is your binds again. `/bish res off` turns it off.
 - **No double res.** When another BiS healer starts a res, the corpse's cell says who: `rez: Chain`, until it lands or fails. Your own res casts are told to them the same way. Inside an instance fight the game hides these messages, and the cell just says DEAD.
 - **Role icons**, and the raid's Main Tank counts as a tank.
 - **A pyramid** (`/bish pyramid`): tanks on top, then damage, healers at the bottom. Melee sit above casters inside each band, and the bottom rows go half-width so a 40-man still reads as a pyramid.
@@ -140,6 +145,17 @@ More buttons arrive as you need them. Each earns its place the first time its mo
 
 **Weapon oil.** With a mana or wizard oil in your bags, an **Oil** button appears wearing its icon. One click puts your best oil on your main hand. It is lit while the weapon has none and dims once it does. Hover it for what the oil gives, read from the game itself, and how long it has left.
 
+**Buff buttons, for the group's buffs.** Type `/bish buffs` and BiS> now gets a button for each group buff you have trained: Power Word: Fortitude, Divine Spirit and Shadow Protection for a priest, Mark of the Wild and Thorns for a druid, Arcane Intellect for a mage. Your spellbook decides which, never your class, so a button turns up the day you train the spell.
+
+- **Only when it is needed.** A button shows out of combat, while someone in reach is missing that buff or has under 5 minutes of it left. Everyone covered: it goes.
+- **One click, the right person.** Missing it before running low, then tanks, then healers. Hover it to see who it is aimed at. Anyone AFK still gets the buff, but last.
+- **The rank they can take**, so a low-level player doesn't get "Target is too low level".
+- **Only in reach.** The game casts a buff on *you* when the person it was aimed at is out of range, and says nothing. So a button only aims at someone the game says you can reach, and looks again as people move.
+- **Thorns on tanks, Intellect and Spirit on mana users.** Shadow Protection is off until you want it (`/bish buffs shadow on`); any of them can be switched off the same way.
+- **Never a guess.** If the game is hiding someone's buffs, they count as "we cannot tell", not "missing". No button for a buff that might already be up.
+
+Off by default. Paladins are left out on purpose: Pally Power does blessings.
+
 ## The header talks to you
 
 **Out of combat, the buff you keep forgetting.** `no Water Shield`, right there — one per healing class to start with, and only if you have actually trained it. `/bish buff <name>` watches something else. With BiS> now switched on, its shield button shows this instead, live, so the header stays quiet about it.
@@ -168,6 +184,7 @@ Any click on the minimap button opens the options window — two columns, everyt
 | `/bish clique` | let Clique handle the clicks, or take them back |
 | `/bish trinkets shift both` | trinkets first on a modifier tab — `1`, `2`, `both`, `off` |
 | `/bish now` | the BiS> now block |
+| `/bish buffs` | the buff buttons in BiS> now — `on`, `off`, or one buff: `fort`, `spirit`, `shadow`, `mark`, `thorns`, `int` with `on` or `off` |
 | `/bish cures` · `/bish res` | the cure boxes, and click-a-corpse-to-res: `on` or `off` |
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
 | `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |

@@ -78,6 +78,16 @@ FN.BUTTONS = {
     -- There only out of combat, only while someone is dead and you have a res; skips anyone another
     -- BiS healer has claimed (Rez.lua), anyone released, anyone with a res already coming.
     { id = 7, key = "res", word = "Res", ready = true, always = true, res = true },
+    -- THE BUFFS (4 Nov 2026, Buffs.lua). Arn: "make it smart for classes each get their buff buttons". One per
+    -- buff, shown only when this character has trained it, the helper is on (/bish buffs) and somebody in reach
+    -- needs it. Ids 10+ have no digit in the macro's order row: they simply join at the end, which is fine for
+    -- buttons that are never earned by a fight.
+    { id = 8,  key = "fort",   word = "Fortitude", ready = true, always = true, buff = true },
+    { id = 9,  key = "spirit", word = "Spirit",    ready = true, always = true, buff = true },
+    { id = 10, key = "shadow", word = "Shadow",    ready = true, always = true, buff = true },
+    { id = 11, key = "mark",   word = "Mark",      ready = true, always = true, buff = true },
+    { id = 12, key = "thorns", word = "Thorns",    ready = true, always = true, buff = true },
+    { id = 13, key = "int",    word = "Intellect", ready = true, always = true, buff = true },
 }
 
 --------------------------------------------------------------------- the res --
@@ -507,7 +517,8 @@ function FN.Mine()
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
            and (not b.tank or (FN.TankReady() and not FN.InDungeon())) -- the tank: not off, not in a dungeon
-           and (not b.res or FN.ResTarget() ~= nil) then                -- the res: someone to res, out of combat
+           and (not b.res or FN.ResTarget() ~= nil)                     -- the res: someone to res, out of combat
+           and (not b.buff or (NS.FU and NS.FU.Show(k))) then           -- a buff: on, trained, someone needs it
             out[#out + 1] = k
         end
     end
@@ -1483,6 +1494,7 @@ local function makeButton(parent, key)
         end
     end
     if def and def.tank then FN.ArmTank(b) end
+    if def and def.buff and NS.FU then NS.FU.Arm(b, key) end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -1517,6 +1529,7 @@ function FN.Paint()
             elseif key == "oil" then FN.PaintOil(b)
             elseif key == "shield" then             -- painted by the client, never by us
             elseif key == "tank" then FN.PaintTank(b)
+            elseif (FN.Button(key) or {}).buff then  -- only there while someone needs it: always lit
             else FN.PaintNeed(b, key) end
         end
     end
@@ -1584,6 +1597,7 @@ function FN.Layout(anchor)
         if key == "oil" then FN.ArmOil(b) end      -- the best oil may have changed since it was built
         if key == "shield" then FN.ArmShield(b) end -- a no-op unless the buff or its ranks changed
         if key == "res" then FN.ArmRes(b) end       -- aimed at whoever is next, every layout
+        if b.buffKey and NS.FU then NS.FU.Aim(b) end -- and a buff, at whoever needs it most
         b:ClearAllPoints()
         local w, h, pad = dims()
         local cols = FN.Grid(#mine)

@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 0.16.0
+
+- **Buff buttons in BiS> now.** Type `/bish buffs` and BiS> now gets a button for each group buff you have trained: Power Word: Fortitude, Divine Spirit and Shadow Protection for a priest, Mark of the Wild and Thorns for a druid, Arcane Intellect for a mage. A button shows only out of combat, and only while someone in reach is missing that buff or has under 5 minutes of it left. One click buffs the best person: missing it before running low, tanks first, then healers. It picks the rank they can take, so a low-level player doesn't get "Target is too low level". Thorns goes on tanks only, Intellect and Spirit on mana users only. Shadow Protection is off until you want it (`/bish buffs shadow on`); any buff can be switched off the same way. Off by default. Paladins are left out: Pally Power does blessings.
+
 ## 0.15.3
 
 - **The Deeprun Tram's timetable, for the whole guild.** With the shared BiS lib's new version, riding the Deeprun Tram with any BiS addon times it for your guild, the way the zeppelins and boats already are - BiS Tools' ride card and BiS Shell's TRAM-TRAK read it.

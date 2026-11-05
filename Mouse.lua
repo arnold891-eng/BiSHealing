@@ -203,6 +203,13 @@ local function db()
                         NS.FN.Decode(settings.nowOrder)
                     end
                 end
+                -- the buff buttons (4 Nov 2026): on, and which buffs; "I=1" with nothing after = the defaults
+                if settings.buffs == true then
+                    d.buffs = true
+                    if settings.buffFams and settings.buffFams ~= "" and NS.FU then
+                        d.buffFam = NS.FU.DecodeFams(settings.buffFams)
+                    end
+                end
                 -- the pets, which never used to come back at all
                 if settings.pets then
                     d.pets = settings.pets

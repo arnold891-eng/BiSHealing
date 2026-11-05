@@ -214,6 +214,7 @@ end
 
 --- THE BEST PERSON TO BUFF NOW, for one buff: unit, rank, and how many still need it (in reach / out of reach).
 --- Missing it beats running low; tanks, then healers, then group order; the soonest to run out among the rest.
+--- Anyone AFK comes after all of that, but still comes.
 function FU.Target(fam)
     if InCombatLockdown and InCombatLockdown() then return nil end
     if type(fam) == "string" then fam = FU.Family(fam) end
@@ -226,13 +227,15 @@ function FU.Target(fam)
             if left and left < FU.SOON then
                 local fits = (fam.who ~= "tank" or isTank(u)) and (fam.who ~= "mana" or usesMana(u))
                 if fits and (not UnitIsConnected or plainTrue(UnitIsConnected, u))
-                   and not plainTrue(UnitIsDeadOrGhost, u) and not plainTrue(UnitIsAFK, u) then
+                   and not plainTrue(UnitIsDeadOrGhost, u) then
                     if inRange(u, fam) then
                         near = near + 1
                         local role = plain(ask(UnitGroupRolesAssigned, u))
                         local who = isTank(u) and 0 or (role == "HEALER" and 1 or 2)
-                        -- missing first, then by role, then the least time left, then group order
-                        local key = (left <= 0 and 0 or 1) * 1e9 + who * 1e7 + math.max(0, left) * 10 + i
+                        -- AFK last, never skipped (Arn, 5 Nov: "group buffs will get them either way"); a hidden
+                        -- AFK counts as here. Then missing first, then by role, the least time left, group order.
+                        local afk = plainTrue(UnitIsAFK, u) and 1 or 0
+                        local key = afk * 1e10 + (left <= 0 and 0 or 1) * 1e9 + who * 1e7 + math.max(0, left) * 10 + i
                         if not bestKey or key < bestKey then best, bestKey = u, key end
                     else
                         far = far + 1

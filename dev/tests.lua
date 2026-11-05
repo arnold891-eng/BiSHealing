@@ -9230,8 +9230,19 @@ do
     HIDDEN.party1 = nil
     FU.Forget()
     ok(FU.Target("fort") == "party1", "readable again: party1 needs it")
+    -- AFK: LAST, NOT SKIPPED (Arn, 5 Nov: "buff afk people last ... group buffs will get them either way")
     STATE.afk.party1 = true
-    ok(FU.Target("fort") == nil, "AFK: skipped")
+    ok(FU.Target("fort") == "party1", "AFK and the only one left: still buffed")
+    WEAR.party3 = { [1243] = now + 100 }
+    FU.Forget()
+    ok(FU.Target("fort") == "party3", "AFK and missing it comes after someone here who is only running low")
+    local _, _, nearAfk = FU.Target("fort")
+    ok(nearAfk == 2, "the AFK one still counts as needing it", tostring(nearAfk))
+    STATE.afkSecret = true
+    ok(FU.Target("fort") == "party1", "a hidden AFK counts as here: missing beats low again")
+    STATE.afkSecret = false
+    WEAR.party3 = { [1243] = now + 2000 }
+    FU.Forget()
     STATE.afk.party1, STATE.dead.party1 = nil, true
     ok(FU.Target("fort") == nil, "dead: skipped")
     STATE.dead.party1, STATE.offline.party1 = nil, true

@@ -179,6 +179,12 @@ local function settingRows(settings)
             end
         end
     end
+    -- THE BUFF BUTTONS (I, the last free letter; 4 Nov 2026): on, and after the colon which buffs are on as
+    -- digits (Buffs.lua FU.FAMILIES slots). Off is the default and writes nothing.
+    if settings.buffs == true then
+        local fams = type(settings.buffFams) == "string" and settings.buffFams:match("^%d*$") or ""
+        out[#out + 1] = "I=1" .. (fams ~= "" and (":" .. fams) or "")
+    end
     if settings.me == true then
         out[#out + 1] = "Y=" .. (SPOTCODE[settings.meAt or ""] or 3)
         local z = settings.mePos
@@ -344,6 +350,9 @@ function FK.Decode(body)
             settings.nowAt = CODESPOT[tonumber(idx)]
             -- the button order rides after the colon; digits or nothing
             if type(rank) == "string" and rank:match("^%d+$") then settings.nowOrder = rank end
+        elseif code == "I" then
+            settings.buffs = tonumber(idx) == 1
+            settings.buffFams = rank
         elseif code == "X" and tonumber(idx) and tonumber(rank) then
             settings.nowPos = { x = tonumber(idx) - FK.POS_ZERO, y = tonumber(rank) - FK.POS_ZERO }
         elseif code == "Y" then
@@ -510,6 +519,8 @@ function FK.Save(binds)
                                              groupBuff = t.groupBuff,
                                              -- the now block and the order its buttons are in
                                              now = t.now == true, nowAt = t.nowAt, nowPos = t.nowPos,
+                                             buffs = t.buffs == true,
+                                             buffFams = (NS.FU and NS.FU.EncodeFams and NS.FU.EncodeFams()) or nil,
                                              nowOrder = (NS.FN and NS.FN.Encode and NS.FN.Encode()) or nil })
     if not body then return false, "nothing to write" end
 

@@ -398,6 +398,43 @@ function NS.DO.now(arg)
     return d.now
 end
 
+--- BiS> NOW'S BUFF BUTTONS (4 Nov 2026, Buffs.lua). Off by default. `on`/`off`/nothing for the whole helper;
+--- a buff's key and on/off for one of them (`/bish buffs shadow on`). Turning it on turns BiS> now on too: the
+--- buttons live there, and a switch that shows nothing is a switch that looks broken.
+function NS.DO.buffs(arg, onoff)
+    local d = DB()
+    local FU = NS.FU
+    if not FU then return nil end
+    local fam = arg and FU.Family(arg)
+    if fam then
+        d.buffFam = type(d.buffFam) == "table" and d.buffFam or {}
+        local on = onoff == "on" or (onoff ~= "off" and not FU.FamilyOn(fam))
+        d.buffFam[fam.key] = on
+        if on and not d.buffs then d.buffs = true end
+    elseif arg == "on" then d.buffs = true
+    elseif arg == "off" then d.buffs = false
+    elseif arg == nil then d.buffs = not d.buffs
+    else
+        Print("buffs: on, off, or one of: fort spirit shadow mark thorns int (+ on/off)")
+        return d.buffs
+    end
+    if d.buffs and d.now ~= true then d.now = true end
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    FU.Forget()
+    if NS.FN and NS.FN.Layout then NS.FN.Layout() end
+    Print("BiS> now buffs are %s", d.buffs and "|cff4fd0cfon|r" or "|cfff08cb0off|r")
+    if d.buffs then
+        local known = {}
+        for _, f in ipairs(FU.FAMILIES) do
+            if FU.Knows(f) then
+                known[#known + 1] = f.key .. (FU.FamilyOn(f) and "" or " (off)")
+            end
+        end
+        Print("  yours: |cffb980ff%s|r", #known > 0 and table.concat(known, ", ") or "none trained yet")
+    end
+    return d.buffs
+end
+
 --- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
 ---
 --- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
@@ -1951,6 +1988,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.now()
     elseif msg:match("^now%s+%a+$") then
         NS.DO.now(msg:match("^now%s+(%a+)$"))
+    elseif msg == "buffs" then
+        NS.DO.buffs()
+    elseif msg:match("^buffs%s+%a+") then
+        NS.DO.buffs(msg:match("^buffs%s+(%a+)"), msg:match("^buffs%s+%a+%s+(%a+)$"))
     elseif msg == "hits" then
         NS.DO.hits()
     elseif msg == "hits reset" then

@@ -9141,6 +9141,200 @@ do
     FN.Layout()
 end
 
+print("BiS> now: the buff buttons (4 Nov 2026)")
+do
+    -- Arn: "a button in bis now that chooses the best target to buff" ... "make it smart for classes each get
+    -- their buff buttons". The client as probe round 1 measured it (dev/BUFFS.md section 7): out of combat a buff
+    -- answers with a plain expirationTime, duration and sourceUnit; in a fight it is secret. Range is a plain
+    -- BOOLEAN from C_Spell.IsSpellInRange (false for party1 far away), never 1/0.
+    local FN, FU, FK = NS.FN, NS.FU, NS.FK
+    local d = NS.DB()
+    local keep = { units = STATE.units, roles = STATE.roles, dead = STATE.dead, afk = STATE.afk,
+                   offline = STATE.offline, auras = _G.C_UnitAuras, range = _G.C_Spell.IsSpellInRange,
+                   level = _G.UnitLevel, power = _G.UnitPowerType, raid = _G.IsInRaid,
+                   now = d.now, shown = d.shown, buffs = d.buffs, fam = d.buffFam, tank = d.tank, me = d.me }
+    local SLOTS = { 40, 41, 42, 43, 44 }
+    local keptPages = {}
+    for _, s in ipairs(SLOTS) do keptPages[s] = BOOK[s] end
+    STATE.units = { player = true, party1 = true, party2 = true, party3 = true }
+    STATE.roles, STATE.dead, STATE.afk, STATE.offline = { party2 = "TANK" }, {}, {}, {}
+    local WEAR, HIDDEN = {}, {}              -- WEAR[unit][spellId] = expirationTime; HIDDEN[unit] = a secret answer
+    _G.C_UnitAuras = setmetatable({ GetUnitAuraBySpellID = function(unit, id)
+        if type(id) ~= "number" then error("bad argument #2", 2) end
+        if STATE.inCombat or HIDDEN[unit] then return secret() end
+        local e = WEAR[unit] and WEAR[unit][id]
+        if not e then return nil end
+        return { spellId = id, expirationTime = e, duration = 3600, sourceUnit = "player" }
+    end }, { __index = keep.auras })
+    local FAR, rangeAsked = {}, {}
+    _G.C_Spell.IsSpellInRange = function(spell, unit)
+        if type(spell) ~= "string" and type(spell) ~= "number" then error("bad argument #1", 2) end
+        rangeAsked[#rangeAsked + 1] = unit
+        if STATE.inCombat then return secret() end
+        return not FAR[unit]
+    end
+    local LEVEL = { player = 40, party1 = 40, party2 = 40, party3 = 40 }
+    _G.UnitLevel = function(u) return LEVEL[u] or 1 end
+    local POWER = { player = 0, party1 = 0, party2 = 1, party3 = 3 }     -- party2 a warrior, party3 a rogue
+    _G.UnitPowerType = function(u) return POWER[u] or 0 end
+    d.now, d.shown, d.buffs, d.buffFam, d.tank, d.me = true, true, nil, nil, nil, nil
+    FU.Forget()
+    local now = GetTime()
+
+    ok(not FU.Show("fort"), "off by default: no buff button")
+    d.buffs = true
+    ok(not FU.Show("fort"), "on, but Fortitude not in the book: no button - the spellbook decides, never the class")
+    BOOK[40] = { name = "Power Word: Fortitude", rank = "Rank 1" }
+    BOOK[41] = { name = "Power Word: Fortitude", rank = "Rank 2" }
+    bookSaid()
+    FU.Forget()
+    ok(FU.Show("fort"), "Fortitude trained, nobody wearing it: the button comes")
+    local u, rank, near, far = FU.Target("fort")
+    ok(u == "party2", "the tank first", u)
+    ok(rank == "Rank 2" and near == 4 and far == 0, "the highest rank fitting them, four in reach need it",
+       tostring(rank) .. " " .. tostring(near))
+
+    -- THE PROBE'S TRAP: out of reach, a [@party1] cast landed on the priest. Never aimed at.
+    FAR.party2 = true
+    u, rank, near, far = FU.Target("fort")
+    ok(u ~= "party2" and far == 1 and near == 3, "the tank out of reach: skipped, counted as out of reach", u)
+    FAR.party2 = nil
+
+    -- wearing it, any rank, from anyone - the raid version counts too
+    WEAR.party2 = { [1244] = now + 3000 }
+    WEAR.player = { [21562] = now + 3000 }                              -- Prayer of Fortitude
+    FU.Forget()
+    ok(FU.Target("fort") == "party1", "the tank and I have it (the group one counts): party1 next")
+
+    -- A MACRO CAST DOES NOT DOWNRANK: a level 1 gets the rank it may wear
+    LEVEL.party1 = 1
+    u, rank = FU.Target("fort")
+    ok(u == "party1" and rank == "Rank 1", "a level 1: rank 1 (rank 2 is learned at 12)", tostring(rank))
+    LEVEL.party1 = 40
+
+    -- missing beats running low; under five minutes left is running low
+    WEAR.party1 = { [1243] = now + 100 }
+    FU.Forget()
+    ok(FU.Target("fort") == "party3", "missing beats running low")
+    WEAR.party3 = { [1243] = now + 2000 }
+    FU.Forget()
+    ok(FU.Target("fort") == "party1", "and then under five minutes left")
+    WEAR.party1 = { [1243] = now + 2000 }
+    FU.Forget()
+    ok(not FU.Show("fort"), "everyone has it: the button goes")
+
+    -- an unreadable answer is "don't know", never "missing"
+    WEAR.party1, HIDDEN.party1 = nil, true
+    FU.Forget()
+    ok(FU.Target("fort") == nil, "a secret answer is never taken for a missing buff")
+    HIDDEN.party1 = nil
+    FU.Forget()
+    ok(FU.Target("fort") == "party1", "readable again: party1 needs it")
+    -- AFK: LAST, NOT SKIPPED (Arn, 5 Nov: "buff afk people last ... group buffs will get them either way")
+    STATE.afk.party1 = true
+    ok(FU.Target("fort") == "party1", "AFK and the only one left: still buffed")
+    WEAR.party3 = { [1243] = now + 100 }
+    FU.Forget()
+    ok(FU.Target("fort") == "party3", "AFK and missing it comes after someone here who is only running low")
+    local _, _, nearAfk = FU.Target("fort")
+    ok(nearAfk == 2, "the AFK one still counts as needing it", tostring(nearAfk))
+    STATE.afkSecret = true
+    ok(FU.Target("fort") == "party1", "a hidden AFK counts as here: missing beats low again")
+    STATE.afkSecret = false
+    WEAR.party3 = { [1243] = now + 2000 }
+    FU.Forget()
+    STATE.afk.party1, STATE.dead.party1 = nil, true
+    ok(FU.Target("fort") == nil, "dead: skipped")
+    STATE.dead.party1, STATE.offline.party1 = nil, true
+    ok(FU.Target("fort") == nil, "offline: skipped")
+    STATE.offline.party1 = nil
+    STATE.inCombat = true
+    ok(FU.Target("fort") == nil and not FU.Show("fort"), "in a fight: nothing (auras are secret there)")
+    STATE.inCombat = false
+
+    -- THE BUTTON, aimed, re-aimed at the click, and nothing changes in a fight
+    FU.Forget()
+    FN.Layout()
+    local b = FN.buttons and FN.buttons.fort
+    ok(b and b:IsShown(), "BiS> now shows the Fortitude button")
+    ok(b and b:GetAttribute("*macrotext1") == "/cast [@party1] Power Word: Fortitude(Rank 2)",
+       "aimed at party1 with the rank", b and b:GetAttribute("*macrotext1"))
+    ok(b and b.__hooked and b.__hooked.OnEnter, "hooked, never set: the secure template keeps its own scripts")
+    WEAR.party3 = { [1243] = now + 100 }                    -- running low: second in line, after missing party1
+    fire(FU.watcher, "UNIT_AURA", "party3")
+    ok(b:GetAttribute("*macrotext1") == "/cast [@party1] Power Word: Fortitude(Rank 2)", "a buff event re-aims: missing still first")
+    -- RANGE FIRES NO EVENT: party1 walks off. The click itself must look again (PreClick).
+    local pre = b:GetScript("PreClick")
+    ok(pre ~= nil, "it aims in PreClick")
+    FAR.party1 = true
+    STATE.inCombat = true
+    pre(b, "LeftButton")
+    ok(b:GetAttribute("*macrotext1") == "/cast [@party1] Power Word: Fortitude(Rank 2)", "in a fight the aim is left alone")
+    STATE.inCombat = false
+    pre(b, "LeftButton")
+    ok(b:GetAttribute("*macrotext1") == "/cast [@party3] Power Word: Fortitude(Rank 2)",
+       "out of it the click goes to whoever is in reach and needs it now", b:GetAttribute("*macrotext1"))
+    FAR.party1 = nil
+    WEAR.party1 = { [1243] = now + 3000 }
+    WEAR.party3 = { [1243] = now + 3000 }
+    fire(FU.watcher, "UNIT_AURA", "party1")
+    fire(FU.watcher, "UNIT_AURA", "party3")
+    ok(not b:IsShown(), "the last one buffed: the button goes")
+
+    -- EACH CLASS ITS OWN: Intellect for mana users, Thorns for tanks, Shadow Protection off until asked
+    BOOK[42] = { name = "Arcane Intellect", rank = "Rank 1" }
+    BOOK[43] = { name = "Thorns", rank = "Rank 1" }
+    BOOK[44] = { name = "Shadow Protection", rank = "Rank 1" }
+    bookSaid()
+    FU.Forget()
+    u, rank, near = FU.Target("int")
+    ok(near == 2, "Arcane Intellect: only the two mana users (the warrior and the rogue are left out)", near)
+    u, rank, near = FU.Target("thorns")
+    ok(u == "party2" and near == 1, "Thorns: the tank only", u)
+    ok(not FU.Show("shadow"), "Shadow Protection is off until asked for")
+    NS.DO.buffs("shadow", "on")
+    ok(FU.Show("shadow"), "/bish buffs shadow on: there")
+    NS.DO.buffs("int", "off")
+    ok(not FU.Show("int"), "/bish buffs int off: gone")
+    ok(FU.EncodeFams() == "12345", "the switches as macro digits (int off)", FU.EncodeFams())
+
+    -- REMEMBERED IN THE MACRO (SavedVariables did not come back on this client): row I
+    local body = FK.Encode({}, { buffs = true, buffFams = "13" })
+    local _, settings = FK.Decode(body)
+    ok(body and body:find("I=1:13", 1, true) and settings and settings.buffs == true and settings.buffFams == "13",
+       "the macro carries the buff switches and gives them back", body)
+    local t = FU.DecodeFams("13")
+    ok(t.fort == true and t.shadow == true and t.spirit == false and t.int == false, "digits back to switches")
+    local off = FK.Encode({}, { buffs = false })
+    ok(not (off or ""):find("I=", 1, true), "off writes nothing")
+
+    -- LEAN: a fully buffed 40-raid looked at again costs about a call a person - the answers are kept
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    _G.IsInRaid = function() return true end
+    for i = 1, 40 do
+        local r = "raid" .. i
+        STATE.units[r] = true
+        WEAR[r] = { [1244] = now + 3000 }
+    end
+    WEAR.player = { [1244] = now + 3000 }
+    FU.Forget()
+    local first = Cost.Count(function() FU.Target("fort") end)
+    local n, by = Cost.Count(function() FU.Target("fort") end)
+    print(("   cost: Fortitude over a buffed 40-raid = %d calls first, %d after (%s)"):format(first, n, Cost.Top(by, 3)))
+    ok(n <= 41 * 2 + 4, "looked at again, a buffed raid costs about two calls a person (the roster and us): " .. n, Cost.Top(by, 4))
+    ok(first <= 40 * 12, "and the first look a few a person: " .. first)
+
+    for i = 1, 40 do STATE.units["raid" .. i] = nil end
+    _G.IsInRaid = keep.raid
+    STATE.units, STATE.roles, STATE.dead, STATE.afk, STATE.offline = keep.units, keep.roles, keep.dead, keep.afk, keep.offline
+    _G.C_UnitAuras, _G.C_Spell.IsSpellInRange, _G.UnitLevel, _G.UnitPowerType = keep.auras, keep.range, keep.level, keep.power
+    for _, s in ipairs(SLOTS) do BOOK[s] = keptPages[s] end
+    d.now, d.shown, d.buffs, d.buffFam, d.tank, d.me = keep.now, keep.shown, keep.buffs, keep.fam, keep.tank, keep.me
+    bookSaid()
+    FU.Forget()
+    FN.Layout()
+end
+
 -- THE GROUP CHANGES MID-FIGHT (Arn, 19 Oct 2026: "shaman are suppose to be blue but some are priest
 -- white might be bug when they leave during combat" - and a poison box lit on his own cell for someone
 -- else's poison). The client moves everyone up a slot; the cells may not be re-pointed in a fight, so

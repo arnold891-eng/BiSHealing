@@ -112,6 +112,26 @@ the other addons later, like BiS> in). Shaped like BiS> in (lib 17, `lib.BISIN`)
 5. `issecretvalue(UnitIsAFK("party1"))` while they are AFK; and in combat.
 6. The water item ids in a real bag (Forever may have new ones).
 
+### Answers, round 1 (4 Nov 2026, Forever 1.60.1.70532, open world, out of combat; Arn's level 4 priest + party1, level 4)
+
+Probe: `_bisdev/audit/BiSProbe/Buffs.lua` (`BiSBuffProbe()`), bisdev branch probe/buffs.
+
+1. **CONFIRMED plain, open world:** `C_UnitAuras.GetUnitAuraBySpellID(party1, 1243)` gave `expirationTime` (a GetTime
+   number), `duration` 3600, `sourceUnit` "player" - all plain. Same on "player". **Still open: inside a dungeon.**
+2. **CONFIRMED plain:** `UnitLevel` for player and party1; `GetUnitName(party1, false)` the whole name.
+3. **Not answerable yet** - only rank 1 is known at level 4. Needs rank 2 (level 12) and a target under ~level 2-3,
+   or later ranks. **Found instead:** with party1 out of range (check 4 said false), `/cast [@party1] Power Word:
+   Fortitude` succeeded and the buff landed **on the priest** (fresh 3596 s on "player", party1's older buff untouched).
+   So the button must test range BEFORE it aims at someone, never trust the cast to refuse. (UNVERIFIED cause: likely
+   the client's self-cast fallback.)
+4. **CONFIRMED plain:** `C_Spell.IsSpellInRange(1243, party1)` false (plain boolean), `C_Spell.IsSpellUsable(1243)`
+   true, noMana false. **Still open:** the noMana half answering true (a Smite earlier gave "Not enough mana" - the
+   probe did not read usable at that moment).
+5. **Half:** `UnitIsAFK(party1)` plain false - but party1 was not AFK. **Still open:** while AFK, and in combat.
+6. **CONFIRMED in a bag:** 159 Refreshing Spring Water, 4540 Tough Hunk of Bread, 11584 Cactus Apple Surprise, 117
+   Tough Jerky - classic ids, `classID` 0 subclass 5 (food & drink). **New on Forever:** 247841 "Wild Harvest",
+   consumable subclass 8 (what it restores: unknown).
+
 ## 8. Cost (lean and mean)
 
 Nothing runs while the switch is off. On: UNIT_AURA for roster units only, out of combat only, each unit's few ids

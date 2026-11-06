@@ -9647,6 +9647,19 @@ do
     face:GetScript("PreClick")(face, "LeftButton")
     ok(face:GetAttribute("*macrotext1") == "" and said("out of reach"), "out of reach: aimed at nobody, and it says so",
        face:GetAttribute("*macrotext1"))
+    -- AND NO CLAIM (Arn's first live run, 5 Nov: "is out of reach - walk closer" then "claimed Chainheal Ryangosling's
+    -- ask - Fortitude on its way" - nothing was cast, but the asker would have been told someone was coming)
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-9", "fort")
+    local claims = 0
+    for _, s in ipairs(sent) do if s.mod == "IN" and s.cmd == "CLAIM" then claims = claims + 1 end end
+    face:GetScript("PreClick")(face, "LeftButton")
+    face:GetScript("PostClick")(face, "LeftButton")
+    local after = 0
+    for _, s in ipairs(sent) do if s.mod == "IN" and s.cmd == "CLAIM" then after = after + 1 end end
+    ok(after == claims and not said("on its way"), "out of reach: nothing cast, so nothing claimed")
+    ok(face:GetAlpha() == 1, "and the ask stays open, the face still lit")
+    lib:BisInCancel("KumlustWildhammer-1-9")
+    lib.bisin.reqs["KumlustWildhammer-1-9"] = nil
     FAR.party1 = nil
     face:GetScript("PreClick")(face, "LeftButton")
 

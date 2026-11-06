@@ -299,6 +299,10 @@ function FI.Claim(b)
     if not (FI.on and l and b) then return false end
     local r = openFrom(b.inName)
     if not r then return false end
+    -- OUT OF REACH, NOTHING WAS CAST - so nothing is claimed (Arn's first live run, 5 Nov: "out of reach - walk closer"
+    -- then "claimed ... Fortitude on its way"). The ask stays open for whoever can reach them. In a fight reach is the
+    -- client's secret, so a click there claims as before.
+    if b.inFar and not (InCombatLockdown and InCombatLockdown()) then return false end
     local mine = l:BisInClaim(r.id)
     if mine then say("claimed |cffffd100%s|r's ask - Fortitude on its way", tostring(b.inName)) end
     FI.Soon()

@@ -194,7 +194,16 @@ function FI.Status()
     out[#out + 1] = ("givers of Fortitude here: %s (%d ready)"):format(#givers > 0 and table.concat(givers, ", ") or "none", ready)
     local names = {}
     for _, a in ipairs(l:BisInAskers()) do
-        names[#names + 1] = a.name .. (FI.UnitOf(a.name) and "" or " (not found in the group)")
+        local u = FI.UnitOf(a.name)
+        local v = u and FI.Visible(u)
+        local sight = not u and " (not found in the group)"
+            or (" (" .. u .. ", the game " .. (v == true and "can see them" or v == false and "can't see them" or "hides whether it can see them") .. ")")
+        names[#names + 1] = a.name .. sight
+    end
+    local FN = NS.FN
+    local b = FN and FN.buttons and FN.buttons.inface
+    if b and b:IsShown() then
+        out[#out + 1] = ("face: %s - %s"):format(tostring(b.inName or "nobody"), b.modelSeen and "drawn" or "the icon, trying again every " .. FI.RETRY .. " s")
     end
     out[#out + 1] = ("askers here: %s"):format(#names > 0 and table.concat(names, ", ") or "none")
     return out
@@ -263,34 +272,41 @@ function FI.Aim(b)
     return true
 end
 
---- Their face, in 3D, on the button: drawn once per person (a model on a hidden frame may never load, so this runs
---- after the button is shown). Someone the game cannot draw right now keeps Fortitude's icon.
+--- Can the game draw this person right now? true / false, or nil when it will not say (a hidden answer).
+function FI.Visible(unit)
+    local v = ask(UnitIsVisible, unit)
+    if NS.Secret and NS.Secret(v) then return nil end
+    return v == true
+end
+
+--- THEIR FACE, MADE EARLY AND KEPT (Arn, 5 Nov, looking at the icon where Chainheal's face should be: "it should make
+--- their face becuase we cant do it in combat, so we have to generate every person face first"). The model is asked for
+--- as soon as the person is in the test, whatever the distance, and Fortitude's icon shows behind it until the game has
+--- drawn them once while it could see them; after that the face stays, near or far. A model is not a secure frame, so
+--- this may run in a fight too - only the aim is frozen there. Runs after the button is shown (a model on a hidden frame
+--- may never load), at every look, and every FI.RETRY seconds until they have been seen.
 function FI.Face(b)
     if not (b and b.model) then return false end
     local unit = b.inUnit
     if not unit then
         b.model:Hide()
         if b.art then b.art:Show() end
-        b.modelFor = nil
+        b.modelFor, b.modelSeen = nil, nil
         return false
     end
-    local seen = plain(ask(UnitIsVisible, unit))
-    if seen ~= true then
-        b.model:Hide()
-        if b.art then b.art:Show() end
-        b.modelFor = nil
-        return false
-    end
-    if b.modelFor ~= b.inName then
+    local seen = FI.Visible(unit) == true
+    if b.modelFor ~= b.inName or (seen and not b.modelSeen) then
         b.model:Show()
         pcall(b.model.ClearModel, b.model)
         pcall(b.model.SetUnit, b.model, unit)
         if b.model.SetPortraitZoom then pcall(b.model.SetPortraitZoom, b.model, 1) end
-        b.modelFor = b.inName
+        b.modelFor, b.modelSeen = b.inName, seen or nil
     end
     b.model:Show()
-    if b.art then b.art:Hide() end
-    return true
+    if b.art then
+        if b.modelSeen then b.art:Hide() else b.art:Show() end      -- the icon shows through until the face is real
+    end
+    return b.modelSeen == true
 end
 
 --- The click on the face: the secure half casts (written out of combat); this half claims the ask.
@@ -427,4 +443,18 @@ do
     for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_REGEN_ENABLED" }) do pcall(w.RegisterEvent, w, e) end
     w:SetScript("OnEvent", function() if FI.on then FI.Soon() end end)
     FI.watcher = w
+    -- a face not drawn yet is tried again every FI.RETRY seconds (someone walking into sight fires no event); one look
+    -- at one button, and only while the test is on and that face is still the icon
+    FI.RETRY = 2
+    if C_Timer and C_Timer.NewTicker then
+        FI.ticker = C_Timer.NewTicker(FI.RETRY, function() FI.Retry() end)
+    end
+end
+
+function FI.Retry()
+    if not FI.on then return false end
+    local FN = NS.FN
+    local b = FN and FN.buttons and FN.buttons.inface
+    if not (b and b:IsShown() and b.inUnit and not b.modelSeen) then return false end
+    return FI.Face(b)
 end

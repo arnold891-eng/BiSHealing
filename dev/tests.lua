@@ -9672,13 +9672,37 @@ do
     ok(face:GetAttribute("*macrotext1") == aimed, "and the click does not re-aim in a fight")
     STATE.inCombat = false
 
-    -- someone the game cannot draw right now keeps the icon
+    -- MADE EARLY AND KEPT (Arn, 5 Nov: "it should make their face becuase we cant do it in combat, so we have to generate
+    -- every person face first"). Out of sight: the model is asked for anyway, the icon shows through behind it.
     VISIBLE.party1 = nil
-    face.modelFor = nil
+    face.modelFor, face.modelSeen = nil, nil
+    face.model.unit = nil
     FI.Face(face)
-    ok(not face.model:IsShown() and face.art:IsShown(), "out of sight: Fortitude's icon instead of a blank model")
+    ok(face.model:IsShown() and face.model.unit == "party1" and face.art:IsShown(),
+       "out of sight: the face is asked for anyway, the icon behind it until it draws")
+    ok(FI.Retry() == false and face.art:IsShown(), "the retry: still out of sight, still the icon")
+    VISIBLE.party1 = true
+    local cleared = face.model.cleared or 0
+    ok(FI.Retry() == true and not face.art:IsShown() and (face.model.cleared or 0) == cleared + 1,
+       "he walks into sight: the retry draws him for real, the icon goes")
+    ok(FI.Retry() == false and (face.model.cleared or 0) == cleared + 1, "drawn: the retry leaves it alone")
+    VISIBLE.party1 = nil
+    FI.Face(face)
+    ok(face.model:IsShown() and face.model.unit == "party1" and not face.art:IsShown(),
+       "out of sight again: the face he had stays - it is never thrown away")
+    -- a fight changes nothing for the model: it is not a secure frame
+    STATE.inCombat = true
+    face.modelFor, face.modelSeen = nil, nil
     VISIBLE.party1 = true
     FI.Face(face)
+    ok(face.modelSeen and not face.art:IsShown(), "in a fight the face can still be drawn (only the aim is frozen)")
+    STATE.inCombat = false
+    -- a hidden "can you see them" is not a yes
+    _G.UnitIsVisible = function() return secret() end
+    ok(FI.Visible("party1") == nil, "a hidden answer to UnitIsVisible: nil, never true")
+    _G.UnitIsVisible = function(u) return VISIBLE[u] == true end
+    ok(table.concat(FI.Status(), "\n"):find("the game can see them", 1, true), "/bish intest status says whether the game can see them",
+       table.concat(FI.Status(), " / "))
 
     -- THE ASKER'S SIDE: this client unlearns Fortitude, so only the priest across the wire gives it
     BOOK[45] = keep.page

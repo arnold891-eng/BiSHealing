@@ -46,10 +46,6 @@ FI.SOUND_KIT = FI.SOUNDS.click.kit
 function FI.Sound(name)
     local s = FI.SOUNDS[name]
     if not s then return nil end
-    -- a game sound picked in the explorer (/bish sounds) takes over from Arn's .ogg at once
-    if s.picked and PlaySound then
-        if pcall(PlaySound, s.picked, "SFX") then return "picked" end
-    end
     if PlaySoundFile then
         local ok, will = pcall(PlaySoundFile, s.file, "SFX")
         if ok and will then return "file" end

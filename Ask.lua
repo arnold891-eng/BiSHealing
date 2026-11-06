@@ -30,6 +30,7 @@ NS.FI = FI
 FI.SPELL = "fort"
 FI.ID, FI.NAME = 1243, "Power Word: Fortitude"     -- rank 1, measured on Forever 4 Nov (Buffs.lua)
 FI.on = false
+FI.EDGE = 3        -- the gold frame round a face that is asking, in pixels; the model sits inside it
 
 local function plain(v)
     if NS.Plain then return NS.Plain(v) end
@@ -358,10 +359,36 @@ function FI.Arm(b, key)
             b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         end
     elseif key == "inface" then
+        -- LIT, SO YOU CAN SEE IT (Arn's run, 5 Nov: the ask arrived, "negative not bright"). A 3D model barely follows
+        -- its button's alpha, so dim and lit looked the same on a face. A gold frame round it, drawn on the button and
+        -- left uncovered by the model (inset FI.EDGE), says "they are asking"; its alpha is all that changes, which is
+        -- legal in a fight.
+        if not b.lit and b.CreateTexture then
+            b.lit = {}
+            for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+                local t = b:CreateTexture(nil, "OVERLAY")
+                t:SetColorTexture(1, 0.82, 0, 1)
+                t:SetAlpha(0)
+                b.lit[side] = t
+            end
+            local e, w = b.lit, FI.EDGE
+            e.top:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+            e.top:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, 0)
+            e.top:SetHeight(w)
+            e.bottom:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
+            e.bottom:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 0, 0)
+            e.bottom:SetHeight(w)
+            e.left:SetPoint("TOPLEFT", b, "TOPLEFT", 0, 0)
+            e.left:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
+            e.left:SetWidth(w)
+            e.right:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, 0)
+            e.right:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 0, 0)
+            e.right:SetWidth(w)
+        end
         if not b.model and CreateFrame then
             local m = CreateFrame("PlayerModel", nil, b)
-            m:SetPoint("TOPLEFT", b, "TOPLEFT", 2, -2)
-            m:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -2, 2)
+            m:SetPoint("TOPLEFT", b, "TOPLEFT", FI.EDGE, -FI.EDGE)
+            m:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -FI.EDGE, FI.EDGE)
             if m.EnableMouse then m:EnableMouse(false) end           -- the click is the button's
             m:Hide()
             b.model = m
@@ -387,7 +414,12 @@ function FI.Paint(b)
     if not b then return end
     local l = lib()
     if b.inKey == "inface" then
-        b:SetAlpha(openFrom(b.inName) and 1 or 0.35)
+        local asking = openFrom(b.inName) ~= nil
+        b:SetAlpha(asking and 1 or 0.35)
+        for _, t in pairs(b.lit or {}) do t:SetAlpha(asking and 1 or 0) end
+        -- the model's own transparency, where the client has it (the button's alpha barely reaches a 3D model)
+        if b.model and b.model.SetModelAlpha then pcall(b.model.SetModelAlpha, b.model, asking and 1 or 0.45) end
+        b.asking = asking
     elseif b.inKey == "inask" then
         local ready = l and l:BisInReady(FI.SPELL) or 0
         if b.word then b.word:SetText(ready > 0 and tostring(ready) or "") end

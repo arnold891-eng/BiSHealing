@@ -643,6 +643,11 @@ _G.CreateFrame = function(kind, name, parent, template)
             self.zoom = z
         end
         function m:EnableMouse(v) self.mouse = v and true or false end
+        -- the model's own transparency: the button's alpha barely reaches what the model draws (Arn's run, 5 Nov)
+        function m:SetModelAlpha(a)
+            if type(a) ~= "number" then error("SetModelAlpha wants a number", 2) end
+            self.modelAlpha = a
+        end
         return m
     end
     if kind == "AuraContainer" then
@@ -9628,6 +9633,15 @@ do
     mark = #SAID
     lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-1", "fort")
     ok(face:GetAlpha() == 1, "he asked: the face is lit", face:GetAlpha())
+    -- A MODEL BARELY FOLLOWS ITS BUTTON'S ALPHA (Arn's run, 5 Nov: the ask arrived, "negative not bright"): the gold
+    -- frame round the face is what says it
+    local function goldShown()
+        if not face.lit then return false end
+        for _, t in pairs(face.lit) do if (t:GetAlpha() or 0) < 1 then return false end end
+        return true
+    end
+    ok(goldShown(), "he asked: a gold frame round his face")
+    ok(face.model.modelAlpha == 1, "and the model itself at full", tostring(face.model.modelAlpha))
     ok(said("asks for Fortitude"), "and the priest is told who asks")
     -- a REQ for a spell this client does not know is dropped (the test spell is only known where the test runs)
     lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-2", "nosuchspell")
@@ -9640,6 +9654,7 @@ do
     local claim = lastSent("CLAIM")
     ok(claim and claim[1] == "KumlustWildhammer-1-1", "the click claims his ask (CLAIM to the group)", claim and claim[1])
     ok(face:GetAlpha() < 0.5, "claimed: the face dims again")
+    ok(not goldShown() and face.model.modelAlpha < 1, "and the gold frame goes, the model dims")
 
     -- OUT OF REACH: out of combat the click aims at nobody and says so (the probe's trap: the buff landed on the priest)
     FAR.party1 = true

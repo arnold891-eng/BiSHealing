@@ -461,6 +461,13 @@ function NS.DO.intest(arg)
     return now
 end
 
+--- THE SOUND EXPLORER (5 Nov 2026, Sounds.lua): Arn's two test .ogg files beside every sound the game names.
+function NS.DO.sounds()
+    local FX = NS.FX
+    if not FX then return nil end
+    return FX.Toggle()
+end
+
 --- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
 ---
 --- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
@@ -2014,6 +2021,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.now()
     elseif msg:match("^now%s+%a+$") then
         NS.DO.now(msg:match("^now%s+(%a+)$"))
+    elseif msg == "sounds" then
+        NS.DO.sounds()
     elseif msg == "intest" then
         NS.DO.intest()
     elseif msg:match("^intest%s+%a+$") then

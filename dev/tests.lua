@@ -9798,6 +9798,88 @@ do
 
 end
 
+print("the sound explorer (5 Nov 2026)")
+do
+    -- Arn: "i want a sound explorer for wow sounds where i can play the sound i uploaded and then i click on a in game
+    -- sound to see if they sound similar" - his .ogg files stay on his PC; the picks are game kits.
+    local FX, FI = NS.FX, NS.FI
+    local keep = { kits = _G.SOUNDKIT, ps = _G.PlaySound, psf = _G.PlaySoundFile, shift = _G.IsShiftKeyDown,
+                   ctrl = _G.IsControlKeyDown }
+    local played, FILE_OK = {}, true
+    _G.PlaySound = function(kit, ch)
+        if type(kit) ~= "number" then error("PlaySound wants a kit id", 2) end
+        played[#played + 1] = { kit = kit, ch = ch } return true, 1
+    end
+    _G.PlaySoundFile = function(file, ch) played[#played + 1] = { file = file, ch = ch } if FILE_OK then return true, 2 end return false end
+    local SHIFT, CTRL = false, false
+    _G.IsShiftKeyDown, _G.IsControlKeyDown = function() return SHIFT end, function() return CTRL end
+    -- the game's own table, as Blizzard's UI carries it: NAME = kit id (two names may share one id)
+    _G.SOUNDKIT = { IG_MAINMENU_OPTION_CHECKBOX_ON = 856, TELL_MESSAGE = 3081, RAID_WARNING = 8959,
+                    UI_BELL_TOLL = 1234, UI_BELL_TOLL_ALIAS = 1234, U_CHAT_SCROLL_BUTTON = 1115 }
+    for i = 1, 20 do _G.SOUNDKIT["ZZ_FILLER_" .. string.format("%02d", i)] = 20000 + i end
+    FX.all, FX.filter, FX.offset, FX.typed, FX.picks = nil, "", 0, nil, {}
+    local mark = #SAID
+    local function said(word)
+        for i = mark + 1, #SAID do if tostring(SAID[i]):find(word, 1, true) then return true end end
+        return false
+    end
+
+    ok(NS.DO.sounds() == true and FX.win:IsShown(), "/bish sounds opens the explorer")
+    local f = FX.win
+    local all = FX.All()
+    ok(#all == 25 + 2, "every named kit once (one id under two names counts once), plus the few heard ones not named",
+       #all)
+    ok(all[1].name < all[2].name, "by name")
+    ok(f.rows[1]:IsShown() and f.rows[FX.ROWS]:IsShown() and f.rows[1].name.__text == all[1].name, "the first rows painted")
+    -- search
+    f.find:GetScript("OnTextChanged")({ GetText = function() return "bell" end })
+    local shown = FX.Shown()
+    ok(#shown == 1 and shown[1].id == 1234 and f.rows[1].entry.id == 1234 and not f.rows[2]:IsShown(), "search 'bell': the bell only")
+    -- click a row: hear it, on SFX
+    played = {}
+    f.rows[1]:GetScript("OnClick")(f.rows[1], "LeftButton")
+    ok(played[1] and played[1].kit == 1234 and played[1].ch == "SFX", "a click plays that kit on the effects channel")
+    -- shift-click: use for click; the BiS> in test's click uses it at once instead of his .ogg
+    SHIFT = true
+    f.rows[1]:GetScript("OnClick")(f.rows[1], "LeftButton")
+    SHIFT = false
+    ok(FI.SOUNDS.click.picked == 1234 and said("click") and said("1234"), "shift-click: picked for click, and said with its id")
+    played = {}
+    ok(FI.Click() == "picked" and #played == 1 and played[1].kit == 1234, "the test's click is the picked kit now, not the .ogg")
+    -- ctrl-click: use for request
+    f.find:GetScript("OnTextChanged")({ GetText = function() return "tell" end })
+    CTRL = true
+    f.rows[1]:GetScript("OnClick")(f.rows[1], "LeftButton")
+    CTRL = false
+    ok(FI.SOUNDS.request.picked == 3081, "ctrl-click: picked for request")
+    ok(f.picked.__text:find("TELL_MESSAGE 3081", 1, true) and f.picked.__text:find("UI_BELL_TOLL", 1, true), "the foot says both picks",
+       f.picked.__text)
+    -- any id, typed
+    f.id:GetScript("OnEnterPressed")({ GetText = function() return "55555" end, ClearFocus = function() end })
+    ok(FX.typed == 55555 and f.rows[1].entry.typed and f.rows[1].entry.id == 55555 and played[#played].kit == 55555,
+       "a typed id: played, and on top of the list to pick")
+    FX.typed = nil
+    -- his own files
+    played, FILE_OK = {}, true
+    ok(FX.PlayMine("click") and played[1].file:find("Media\\click.ogg", 1, true), "play your click: his file")
+    FILE_OK = false
+    mark = #SAID
+    ok(not FX.PlayMine("request") and said("restarted"), "a file the game has not found: says to check the folder and restart")
+    -- the wheel
+    f.find:GetScript("OnTextChanged")({ GetText = function() return "" end })
+    f:GetScript("OnMouseWheel")(f, -1)
+    ok(FX.offset == 3 and f.rows[1].entry == FX.Shown()[4], "the wheel scrolls three at a time")
+    for _ = 1, 20 do f:GetScript("OnMouseWheel")(f, -1) end
+    ok(FX.offset == #FX.Shown() - FX.ROWS, "and stops at the last page", FX.offset)
+    NS.DO.sounds()
+    ok(not f:IsShown(), "/bish sounds again: closed")
+
+    FI.SOUNDS.click.picked, FI.SOUNDS.request.picked = nil, nil
+    FX.all, FX.filter, FX.offset, FX.picks, FX.last = nil, "", 0, {}, nil
+    _G.SOUNDKIT, _G.PlaySound, _G.PlaySoundFile = keep.kits, keep.ps, keep.psf
+    _G.IsShiftKeyDown, _G.IsControlKeyDown = keep.shift, keep.ctrl
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

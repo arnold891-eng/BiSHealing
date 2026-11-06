@@ -34,6 +34,8 @@ Now.lua
 Buffs.lua
 # the BiS> in test (`/bish intest`): after Buffs, it borrows FU.RankFor
 Ask.lua
+# the sound explorer (`/bish sounds`): after Ask, it picks Ask's sounds
+Sounds.lua
 # the heals probe (`/bish heals`), read only
 Heals.lua
 # last before the UI-only files: BiSHealingAPI, for other addons (playbook 5a)

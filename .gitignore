@@ -3,3 +3,5 @@ release/
 *.bak
 .DS_Store
 Thumbs.db
+# Arn's own test sounds (5 Nov 2026): on his PC only, never published - the shipped sounds are in-game kits
+Media/

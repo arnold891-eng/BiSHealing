@@ -435,6 +435,32 @@ function NS.DO.buffs(arg, onoff)
     return d.buffs
 end
 
+--- THE BiS> IN TEST (5 Nov 2026, Ask.lua): `/bish intest` toggles, `on`/`off`, `status` says who is in. Not saved -
+--- every login starts off. Both characters type it: the asker gets "Ask" in BiS> now, the priest the asker's face.
+function NS.DO.intest(arg)
+    local FI = NS.FI
+    if not FI then return nil end
+    if arg == "status" then
+        for _, line in ipairs(FI.Status()) do Print("BiS> in test: %s", line) end
+        return FI.on
+    end
+    local on
+    if arg == "on" then on = true elseif arg == "off" then on = false
+    elseif arg == nil then on = not FI.on
+    else
+        Print("intest: on, off or status")
+        return FI.on
+    end
+    local now, why = FI.Set(on)
+    if now == nil then
+        Print("BiS> in test: can't - %s", tostring(why))
+        return nil
+    end
+    Print("BiS> in test is %s", now and "|cff4fd0cfon|r - the other character types /bish intest too; you need a group"
+        or "|cfff08cb0off|r")
+    return now
+end
+
 --- A BUFF TO WATCH ON THE GROUP, by name, from your own spellbook (1 Oct 2026).
 ---
 --- `/bish buff` watches something on YOU. This watches something on everyone, and it exists
@@ -1988,6 +2014,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.now()
     elseif msg:match("^now%s+%a+$") then
         NS.DO.now(msg:match("^now%s+(%a+)$"))
+    elseif msg == "intest" then
+        NS.DO.intest()
+    elseif msg:match("^intest%s+%a+$") then
+        NS.DO.intest(msg:match("^intest%s+(%a+)$"))
     elseif msg == "buffs" then
         NS.DO.buffs()
     elseif msg:match("^buffs%s+%a+") then

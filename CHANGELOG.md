@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 0.16.1
+
+- **A test of asking for a spell (`/bish intest`).** The first working piece of "BiS> in", where a mana user asks for Innervate and the druid answers. Power Word: Fortitude stands in for Innervate for now. Both characters type `/bish intest` in a group. The asker gets an **Ask** button in BiS> now; the priest gets the asker's 3D face, dim until they ask, lit while they do. One click on the face casts Fortitude on them, and the asker is told who is coming. Off at every login; nothing changes for anyone who doesn't type it.
+
 ## 0.16.0
 
 - **Buff buttons in BiS> now.** Type `/bish buffs` and BiS> now gets a button for each group buff you have trained: Power Word: Fortitude, Divine Spirit and Shadow Protection for a priest, Mark of the Wild and Thorns for a druid, Arcane Intellect for a mage. A button shows only out of combat, and only while someone in reach is missing that buff or has under 5 minutes of it left. One click buffs the best person: missing it before running low, tanks first, then healers. It picks the rank they can take, so a low-level player doesn't get "Target is too low level". Anyone AFK still gets the buff, but last. Thorns goes on tanks only, Intellect and Spirit on mana users only. Shadow Protection is off until you want it (`/bish buffs shadow on`); any buff can be switched off the same way. Off by default. Paladins are left out: Pally Power does blessings.

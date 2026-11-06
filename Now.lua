@@ -88,6 +88,10 @@ FN.BUTTONS = {
     { id = 11, key = "mark",   word = "Mark",      ready = true, always = true, buff = true },
     { id = 12, key = "thorns", word = "Thorns",    ready = true, always = true, buff = true },
     { id = 13, key = "int",    word = "Intellect", ready = true, always = true, buff = true },
+    -- BiS> IN, THE TEST (5 Nov 2026, Ask.lua). Arn: "click a button on the bis now and it askes the priest and shows a
+    -- 3d face of me that it can click to try and cast fortitude as if its innervate". Only while /bish intest is on.
+    { id = 14, key = "inask",  word = "Ask",       ready = true, always = true, bisin = true },
+    { id = 15, key = "inface", word = "Face",      ready = true, always = true, bisin = true },
 }
 
 --------------------------------------------------------------------- the res --
@@ -518,7 +522,8 @@ function FN.Mine()
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
            and (not b.tank or (FN.TankReady() and not FN.InDungeon())) -- the tank: not off, not in a dungeon
            and (not b.res or FN.ResTarget() ~= nil)                     -- the res: someone to res, out of combat
-           and (not b.buff or (NS.FU and NS.FU.Show(k))) then           -- a buff: on, trained, someone needs it
+           and (not b.buff or (NS.FU and NS.FU.Show(k)))                -- a buff: on, trained, someone needs it
+           and (not b.bisin or (NS.FI and NS.FI.Show(k))) then          -- the BiS> in test: on, someone to ask / answer
             out[#out + 1] = k
         end
     end
@@ -1495,6 +1500,7 @@ local function makeButton(parent, key)
     end
     if def and def.tank then FN.ArmTank(b) end
     if def and def.buff and NS.FU then NS.FU.Arm(b, key) end
+    if def and def.bisin and NS.FI then NS.FI.Arm(b, key) end
     if key == "help" then
         if b.SetAttribute then
             b:SetAttribute("*type1", "macro")
@@ -1530,6 +1536,7 @@ function FN.Paint()
             elseif key == "shield" then             -- painted by the client, never by us
             elseif key == "tank" then FN.PaintTank(b)
             elseif (FN.Button(key) or {}).buff then  -- only there while someone needs it: always lit
+            elseif (FN.Button(key) or {}).bisin then if NS.FI then NS.FI.Paint(b) end
             else FN.PaintNeed(b, key) end
         end
     end
@@ -1604,6 +1611,8 @@ function FN.Layout(anchor)
         local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
         b:SetPoint("TOPLEFT", a, "TOPLEFT", col * (w + pad), -row * (h + pad))
         b:Show()
+        -- the BiS> in face: aimed, and its 3D model drawn only once the button is shown (a hidden model may never load)
+        if b.inKey == "inface" and NS.FI then NS.FI.Aim(b) NS.FI.Face(b) end
     end
     for key, b in pairs(FN.buttons) do
         local still = false

@@ -631,6 +631,20 @@ _G.CreateFrame = function(kind, name, parent, template)
         b.__scripts.OnEnter = function(self) self.__wasMouseover = true end
         return b
     end
+    -- A 3D MODEL (5 Nov 2026, the BiS> in face). The client's PlayerModel takes a unit and a portrait zoom; recorded
+    -- here, so "whose face is drawn" has an answer - the auto no-op would have said yes to everything and remembered
+    -- nothing. A zoom that is not a number is refused, as the client refuses it.
+    if kind == "PlayerModel" or kind == "DressUpModel" then
+        local m = newFrame(kind, name, parent)
+        function m:ClearModel() self.unit, self.cleared = nil, (self.cleared or 0) + 1 end
+        function m:SetUnit(u) self.unit = u end
+        function m:SetPortraitZoom(z)
+            if type(z) ~= "number" then error("SetPortraitZoom wants a number", 2) end
+            self.zoom = z
+        end
+        function m:EnableMouse(v) self.mouse = v and true or false end
+        return m
+    end
     if kind == "AuraContainer" then
         local c = newFrame(kind, nil, parent)
         c.slots, c.unit, c.enabled = {}, nil, false
@@ -9543,6 +9557,159 @@ do
     NS.FM.BookIds = keep.ids
     C_Spell.GetSpellPowerCost, C_Spell.GetSpellInfo, C_Spell.GetSpellDescription = keep.cost, keep.info, keep.desc
     _G.GetSpellBonusHealing = keep.bonus
+end
+
+print("BiS> in: the test - ask the priest, his face for you (5 Nov 2026)")
+do
+    -- Arn, 5 Nov, both accounts logged in: "click a button on the bis now and it askes the priest and shows a 3d face
+    -- of me that it can click to try and cast fortitude as if its innervate". The lib's real protocol (minor 17), the
+    -- other client played by its messages arriving here; Fortitude standing in for Innervate.
+    local FN, FI, lib = NS.FN, NS.FI, _G.LibBiSComm
+    local d = NS.DB()
+    local keep = { units = STATE.units, gun = _G.GetUnitName, vis = _G.UnitIsVisible, range = _G.C_Spell.IsSpellInRange,
+                   sendTo = lib.SendTo, now = d.now, shown = d.shown, buffs = d.buffs, page = BOOK[45],
+                   chat = _G.DEFAULT_CHAT_FRAME, bisin = lib.bisin }
+    -- what the addon said since `mark` (the suite's NS.Print records into SAID)
+    local mark = #SAID
+    local function said(word)
+        for i = mark + 1, #SAID do if tostring(SAID[i]):find(word, 1, true) then return true end end
+        return false
+    end
+    local sent = {}
+    lib.SendTo = function(_, _, mod, cmd, ...) sent[#sent + 1] = { mod = mod, cmd = cmd, ... } return true end
+    local function lastSent(cmd)
+        for i = #sent, 1, -1 do if sent[i].mod == "IN" and sent[i].cmd == cmd then return sent[i] end end
+        return nil
+    end
+    local NAMES = { player = "Gnarly Holyfist", party1 = "Kumlust Wildhammer" }
+    _G.GetUnitName = function(u) return NAMES[u] end
+    local VISIBLE, FAR = { party1 = true }, {}
+    _G.UnitIsVisible = function(u) return VISIBLE[u] == true end
+    _G.C_Spell.IsSpellInRange = function(spell, unit)
+        if type(spell) ~= "string" and type(spell) ~= "number" then error("bad argument #1", 2) end
+        if STATE.inCombat then return secret() end
+        return not FAR[unit]
+    end
+    STATE.units = { player = true, party1 = true }
+    d.now, d.shown, d.buffs = true, true, false
+    lib.bisin = nil
+
+    -- THE COLD START: off at every login, nothing in BiS> now
+    ok(FI and FI.on == false, "the test is off at login - never saved")
+    FN.Layout()
+    ok(not (FN.buttons and FN.buttons.inask and FN.buttons.inask:IsShown()) and not (FN.buttons.inface and FN.buttons.inface:IsShown()),
+       "off: no Ask, no face")
+
+    -- THE PRIEST'S SIDE. He knows Fortitude (the spellbook decides): he gives it, and asks like everyone in the test.
+    BOOK[45] = { name = "Power Word: Fortitude", rank = "Rank 1" }
+    bookSaid()
+    NS.DO.intest("on")
+    local m = lib:BisInMe()
+    ok(FI.on and m.on and m.give.fort and m.ask, "/bish intest on: in, giving Fortitude, asking too")
+    ok(lib.BISIN.fort and lib.BISIN.fort.id == 1243, "the lib was taught the test spell (rank 1 Fortitude, 1243)")
+    local opt = lastSent("OPT")
+    ok(opt and opt[1] == "1" and tostring(opt[2]):find("fort", 1, true) and opt[3] == "1", "and told the group: OPT on, gives fort, asks",
+       opt and table.concat({ tostring(opt[1]), tostring(opt[2]), tostring(opt[3]) }, "|"))
+    ok(not (FN.buttons.inface and FN.buttons.inface:IsShown()), "nobody else in yet: no face")
+
+    -- Kumlust's client says he is in (a warrior - the test asks on anyone's behalf)
+    lib.handlers.IN.OPT("Kumlust Wildhammer", "1", "", "1", "WARRIOR", "")
+    local face = FN.buttons.inface
+    ok(face and face:IsShown(), "Kumlust opted in: his face comes to the priest's BiS> now")
+    ok(face and tostring(face:GetAttribute("*macrotext1")):find("^/cast %[@party1%] Power Word: Fortitude"),
+       "pre-aimed at party1 with Fortitude", face and face:GetAttribute("*macrotext1"))
+    ok(face and face.model and face.model.unit == "party1" and face.model.zoom == 1 and face.model:IsShown()
+       and not face.art:IsShown(), "his 3D face, close: the model on party1, the icon hidden")
+    ok(face and face.model and face.model.mouse == false, "the model takes no clicks - the button does")
+    ok(face and face:GetAlpha() < 0.5, "dim until he asks", face and face:GetAlpha())
+    ok(not (FN.buttons.inask and FN.buttons.inask:IsShown()), "the priest sees no Ask: nobody else gives Fortitude")
+
+    -- HE ASKS: the face lights, the priest is told
+    mark = #SAID
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-1", "fort")
+    ok(face:GetAlpha() == 1, "he asked: the face is lit", face:GetAlpha())
+    ok(said("asks for Fortitude"), "and the priest is told who asks")
+    -- a REQ for a spell this client does not know is dropped (the test spell is only known where the test runs)
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-2", "nosuchspell")
+    ok(lib:BisInRequest("KumlustWildhammer-1-2") == nil, "an unknown spell's ask is dropped")
+
+    -- THE CLICK: PreClick aims afresh, the secure half casts, PostClick claims
+    face:GetScript("PreClick")(face, "LeftButton")
+    ok(tostring(face:GetAttribute("*macrotext1")):find("^/cast %[@party1%]"), "the click re-aims at him")
+    face:GetScript("PostClick")(face, "LeftButton")
+    local claim = lastSent("CLAIM")
+    ok(claim and claim[1] == "KumlustWildhammer-1-1", "the click claims his ask (CLAIM to the group)", claim and claim[1])
+    ok(face:GetAlpha() < 0.5, "claimed: the face dims again")
+
+    -- OUT OF REACH: out of combat the click aims at nobody and says so (the probe's trap: the buff landed on the priest)
+    FAR.party1 = true
+    mark = #SAID
+    face:GetScript("PreClick")(face, "LeftButton")
+    ok(face:GetAttribute("*macrotext1") == "" and said("out of reach"), "out of reach: aimed at nobody, and it says so",
+       face:GetAttribute("*macrotext1"))
+    FAR.party1 = nil
+    face:GetScript("PreClick")(face, "LeftButton")
+
+    -- IN A FIGHT: an ask still lights the face (alpha is legal), the aim is left alone
+    STATE.inCombat = true
+    local aimed = face:GetAttribute("*macrotext1")
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-3", "fort")
+    ok(face:GetAlpha() == 1 and face:GetAttribute("*macrotext1") == aimed, "in a fight: lit by his ask, the aim untouched")
+    face:GetScript("PreClick")(face, "LeftButton")
+    ok(face:GetAttribute("*macrotext1") == aimed, "and the click does not re-aim in a fight")
+    STATE.inCombat = false
+
+    -- someone the game cannot draw right now keeps the icon
+    VISIBLE.party1 = nil
+    face.modelFor = nil
+    FI.Face(face)
+    ok(not face.model:IsShown() and face.art:IsShown(), "out of sight: Fortitude's icon instead of a blank model")
+    VISIBLE.party1 = true
+    FI.Face(face)
+
+    -- THE ASKER'S SIDE: this client unlearns Fortitude, so only the priest across the wire gives it
+    BOOK[45] = keep.page
+    bookSaid()
+    NS.DO.intest("off")
+    ok(not FI.on and not lib:BisInMe().on, "/bish intest off: out")
+    FN.Layout()
+    ok(not face:IsShown(), "and the face is gone")
+    NAMES.party1 = "Gnarly Holyfist"
+    NAMES.player = "Kumlust Wildhammer"
+    NS.DO.intest("on")
+    ok(FI.on and not lib:BisInMe().give.fort, "the asker: in, gives nothing")
+    ok(not (FN.buttons.inask and FN.buttons.inask:IsShown()), "no priest in yet: no Ask button")
+    lib.handlers.IN.OPT("Gnarly Holyfist", "1", "fort", "1", "PRIEST", "")
+    local askB = FN.buttons.inask
+    ok(askB and askB:IsShown(), "the priest opted in: Ask comes to BiS> now")
+    ok(askB and askB.word and askB.word.__text == "1", "one ready")
+    ok(not (FN.buttons.inface and FN.buttons.inface:IsShown()), "the asker gets no face: he gives nothing")
+    mark = #SAID
+    askB:GetScript("PostClick")(askB, "LeftButton")
+    local req = lastSent("REQ")
+    ok(req and req[2] == "fort" and FI.myReq == req[1], "the click asks the group (REQ fort)", req and req[1])
+    ok(said("asked") and said("Gnarly Holyfist"), "and says who it asked")
+    STATE.inCombat = true
+    local n = #sent
+    askB:GetScript("PostClick")(askB, "LeftButton")
+    ok(#sent == n and said("already asked"), "asked twice: waits, no second REQ (and nothing secure, so a fight is fine)")
+    STATE.inCombat = false
+    -- the priest clicks: his CLAIM comes back, we're told who is coming, the ask is taken back
+    mark = #SAID
+    lib.handlers.IN.CLAIM("Gnarly Holyfist", FI.myReq or req[1], "100")
+    ok(said("Gnarly Holyfist") and said("is casting Fortitude on you"), "the claim: who is coming")
+    local cancel = lastSent("CANCEL")
+    ok(cancel and cancel[1] == req[1] and FI.myReq == nil, "and the ask is taken back (CANCEL)", cancel and cancel[1])
+
+    NS.DO.intest("off")
+    FN.Layout()
+    lib.bisin = keep.bisin
+    lib.SendTo = keep.sendTo
+    STATE.units, _G.GetUnitName, _G.UnitIsVisible, _G.C_Spell.IsSpellInRange = keep.units, keep.gun, keep.vis, keep.range
+    d.now, d.shown, d.buffs = keep.now, keep.shown, keep.buffs
+    BOOK[45] = keep.page
+    bookSaid()
+
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

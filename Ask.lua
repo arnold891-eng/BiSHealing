@@ -36,19 +36,26 @@ FI.EDGE = 3        -- the gold frame round a face that is asking, in pixels; the
 --- .ogg in the addon folder plays on Forever (heard 23 Oct, FojjiCore's 01.ogg); only the GAME's file paths are silent.
 --- So Media\click.ogg is tried first, and until it is there PlaySoundFile says no and the game's own click plays. SFX,
 --- never Master: muting sound effects mutes this too.
-FI.SOUND_FILE = "Interface\\AddOns\\BiSHealing\\Media\\click.ogg"
-FI.SOUND_KIT = 856      -- SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON, the options window's tick
-function FI.Click()
+--- Arn's two (5 Nov): click.ogg when anyone clicks these buttons, request.ogg for the giver when someone asks.
+FI.SOUNDS = {
+    click   = { file = "Interface\\AddOns\\BiSHealing\\Media\\click.ogg",   kit = 856 },   -- the options window's tick
+    request = { file = "Interface\\AddOns\\BiSHealing\\Media\\request.ogg", kit = 3081 },  -- a whisper's bell
+}
+FI.SOUND_FILE = FI.SOUNDS.click.file
+FI.SOUND_KIT = FI.SOUNDS.click.kit
+function FI.Sound(name)
+    local s = FI.SOUNDS[name]
+    if not s then return nil end
     if PlaySoundFile then
-        local ok, will = pcall(PlaySoundFile, FI.SOUND_FILE, "SFX")
+        local ok, will = pcall(PlaySoundFile, s.file, "SFX")
         if ok and will then return "file" end
     end
     if PlaySound then
-        local kit = (SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON) or FI.SOUND_KIT
-        if pcall(PlaySound, kit, "SFX") then return "kit" end
+        if pcall(PlaySound, s.kit, "SFX") then return "kit" end
     end
     return nil
 end
+function FI.Click() return FI.Sound("click") end
 
 local function plain(v)
     if NS.Plain then return NS.Plain(v) end
@@ -477,7 +484,10 @@ function FI.Event(what, r)
         if l then l:BisInCancel(r.id, "claimed") end
     elseif what == "ask" and type(r) == "table" and r.owner ~= mine and r.spell == FI.SPELL then
         local m = l and l:BisInMe()
-        if m and m.give[FI.SPELL] then say("|cffffd100%s|r asks for Fortitude - their face is lit in BiS> now", tostring(r.owner)) end
+        if m and m.give[FI.SPELL] then
+            FI.Sound("request")
+            say("|cffffd100%s|r asks for Fortitude - their face is lit in BiS> now", tostring(r.owner))
+        end
     end
     FI.Soon()
 end

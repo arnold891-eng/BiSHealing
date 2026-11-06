@@ -9672,6 +9672,17 @@ do
        and played[2].channel == "SFX", "the click clicks: no .ogg yet, so the game's own tick, on SFX")
     OGG, played = true, {}
     ok(FI.Click() == "file" and #played == 1 and played[1].channel == "SFX", "with Arn's click.ogg in the folder: his sound, nothing else")
+    -- request.ogg (Arn: "for the the people getting request"): the giver hears it when someone asks
+    played = {}
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-5", "fort")
+    ok(played[1] and played[1].file == "Interface\\AddOns\\BiSHealing\\Media\\request.ogg" and played[1].channel == "SFX",
+       "someone asks: the giver hears request.ogg")
+    lib.bisin.reqs["KumlustWildhammer-1-5"] = nil
+    OGG, played = false, {}
+    lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-6", "fort")
+    ok(played[2] and played[2].kit == 3081, "no request.ogg in the folder: a whisper's bell instead")
+    lib.bisin.reqs["KumlustWildhammer-1-6"] = nil
+    FI.Soon()
     OGG = false
     _G.PlaySoundFile, _G.PlaySound = nil, nil
     ok(FI.Click() == nil, "a client with no sound calls: silence, no error")

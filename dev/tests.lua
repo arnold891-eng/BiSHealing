@@ -9647,12 +9647,35 @@ do
     lib.handlers.IN.REQ("Kumlust Wildhammer", "KumlustWildhammer-1-2", "nosuchspell")
     ok(lib:BisInRequest("KumlustWildhammer-1-2") == nil, "an unknown spell's ask is dropped")
 
+    -- CLICKY (Arn: "add clicky sounds when i click the stuff" / "if i give you an ogg can we use that?"): his .ogg
+    -- first; while it is not in the folder the client says it will not play, and the game's own click plays instead
+    local played = {}
+    local keepPSF, keepPS = _G.PlaySoundFile, _G.PlaySound
+    local OGG = false
+    _G.PlaySoundFile = function(file, channel)
+        played[#played + 1] = { file = file, channel = channel }
+        if OGG then return true, 77 end
+        return false
+    end
+    _G.PlaySound = function(kit, channel)
+        if type(kit) ~= "number" then error("PlaySound wants a kit id", 2) end
+        played[#played + 1] = { kit = kit, channel = channel }
+        return true, 78
+    end
     -- THE CLICK: PreClick aims afresh, the secure half casts, PostClick claims
     face:GetScript("PreClick")(face, "LeftButton")
     ok(tostring(face:GetAttribute("*macrotext1")):find("^/cast %[@party1%]"), "the click re-aims at him")
     face:GetScript("PostClick")(face, "LeftButton")
     local claim = lastSent("CLAIM")
     ok(claim and claim[1] == "KumlustWildhammer-1-1", "the click claims his ask (CLAIM to the group)", claim and claim[1])
+    ok(#played == 2 and played[1].file == "Interface\\AddOns\\BiSHealing\\Media\\click.ogg" and played[2].kit == 856
+       and played[2].channel == "SFX", "the click clicks: no .ogg yet, so the game's own tick, on SFX")
+    OGG, played = true, {}
+    ok(FI.Click() == "file" and #played == 1 and played[1].channel == "SFX", "with Arn's click.ogg in the folder: his sound, nothing else")
+    OGG = false
+    _G.PlaySoundFile, _G.PlaySound = nil, nil
+    ok(FI.Click() == nil, "a client with no sound calls: silence, no error")
+    _G.PlaySoundFile, _G.PlaySound = keepPSF, keepPS
     ok(face:GetAlpha() < 0.5, "claimed: the face dims again")
     ok(not goldShown() and face.model.modelAlpha < 1, "and the gold frame goes, the model dims")
 

@@ -32,6 +32,24 @@ FI.ID, FI.NAME = 1243, "Power Word: Fortitude"     -- rank 1, measured on Foreve
 FI.on = false
 FI.EDGE = 3        -- the gold frame round a face that is asking, in pixels; the model sits inside it
 
+--- CLICKY (Arn, 5 Nov: "add clicky sounds when i click the stuff" - "if i give you an ogg can we use that?"). Our own
+--- .ogg in the addon folder plays on Forever (heard 23 Oct, FojjiCore's 01.ogg); only the GAME's file paths are silent.
+--- So Media\click.ogg is tried first, and until it is there PlaySoundFile says no and the game's own click plays. SFX,
+--- never Master: muting sound effects mutes this too.
+FI.SOUND_FILE = "Interface\\AddOns\\BiSHealing\\Media\\click.ogg"
+FI.SOUND_KIT = 856      -- SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON, the options window's tick
+function FI.Click()
+    if PlaySoundFile then
+        local ok, will = pcall(PlaySoundFile, FI.SOUND_FILE, "SFX")
+        if ok and will then return "file" end
+    end
+    if PlaySound then
+        local kit = (SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON) or FI.SOUND_KIT
+        if pcall(PlaySound, kit, "SFX") then return "kit" end
+    end
+    return nil
+end
+
 local function plain(v)
     if NS.Plain then return NS.Plain(v) end
     return v
@@ -354,7 +372,7 @@ function FI.Arm(b, key)
         end
         if b.HookScript and not b.inHooked then
             b.inHooked = true
-            b:HookScript("PostClick", function() FI.Ask() end)
+            b:HookScript("PostClick", function() FI.Click() FI.Ask() end)
             b:HookScript("OnEnter", askTip)
             b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         end
@@ -401,7 +419,7 @@ function FI.Arm(b, key)
                     say("%s is out of reach - walk closer", tostring(self.inName))
                 end
             end)
-            b:HookScript("PostClick", function(self) FI.Claim(self) end)
+            b:HookScript("PostClick", function(self) FI.Click() FI.Claim(self) end)
             b:HookScript("OnEnter", faceTip)
             b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
         end

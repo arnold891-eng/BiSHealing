@@ -37,6 +37,40 @@ local function texture(parent, layer, r, g, b, a)
     return t
 end
 
+-- HOVER POP (Arn, 6 Nov 2026, every BiS addon: "hovering over all time and it no glow to let me know im good
+-- to click it"). Every button in this window lights under the mouse: an accent wash, a 2 px accent bar
+-- along its foot, its label at full brightness - and all of it back when the mouse leaves. Built once with
+-- the button; OnEnter/OnLeave only, nothing per frame. The healing cells are not these buttons and keep
+-- their own look. BiSTools' Processing window is the pattern (P.GLOW 0.35).
+FM.GLOW = 0.32
+--- Give a button its light. `layer` is where the wash sits: under the label ("BORDER") on a text button,
+--- over the picture ("OVERLAY") on an icon that fills the button.
+function FM.Pop(b, label, layer)
+    local r, g, bl = rgb("accent")
+    b.wash = texture(b, layer or "BORDER", r, g, bl, 1)
+    b.wash:SetAllPoints()
+    b.wash:SetAlpha(0)
+    b.bar = texture(b, "OVERLAY", r, g, bl, 1)
+    b.bar:SetHeight(2)
+    b.bar:SetPoint("BOTTOMLEFT", 0, 0)
+    b.bar:SetPoint("BOTTOMRIGHT", 0, 0)
+    b.bar:Hide()
+    b.popLabel = label
+    return b
+end
+--- Light it (true) or put it back (false). The label goes back to `b.rest`, the colour Refresh last gave it.
+function FM.Lit(b, on)
+    b.lit = on and true or nil
+    if b.wash then b.wash:SetAlpha(on and FM.GLOW or 0) end
+    if b.bar then if on then b.bar:Show() else b.bar:Hide() end end
+    if b.popLabel then b.popLabel:SetTextColor(rgb(on and "ink" or (b.rest or "muted"))) end
+end
+--- A label's colour from Refresh: kept as the one to go back to, and not painted over a lit button.
+local function rest(b, colour)
+    b.rest = colour
+    if b.popLabel and not b.lit then b.popLabel:SetTextColor(rgb(colour)) end
+end
+
 --- The icon for a bind. Ask WITHOUT the rank: "Healing Wave(Rank 3)" is a cast string, not a
 --- spell name, and the client answers nothing for it - which is why a ranked bind showed as text.
 local function spellIcon(cast)
@@ -223,6 +257,7 @@ local function makeSlot(parent, slot)
     f.rankBtn:SetPoint("BOTTOMRIGHT", 2, -2)
     f.rank = f.rankBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     f.rank:SetPoint("CENTER")
+    FM.Pop(f.rankBtn, f.rank)
     f.rankBtn:SetScript("OnClick", function()
         local was = FM.Get(parent.mod, slot.key)
         local now = FM.CycleRank(parent.mod, slot.key)
@@ -233,6 +268,7 @@ local function makeSlot(parent, slot)
         end
     end)
     f.rankBtn:SetScript("OnEnter", function(self)
+        FM.Lit(self, true)
         if not GameTooltip then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("click for the next rank", rgb("accent"))
@@ -242,7 +278,10 @@ local function makeSlot(parent, slot)
                             rgb("muted"))
         GameTooltip:Show()
     end)
-    f.rankBtn:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    f.rankBtn:SetScript("OnLeave", function(self)
+        FM.Lit(self, false)
+        if GameTooltip then GameTooltip:Hide() end
+    end)
     f.slot = slot
 
     local function take()
@@ -336,7 +375,9 @@ function FM.Window()
     if FM.win then return FM.win end
 
     local w = CreateFrame("Frame", "BiSHealingMouse", UIParent)
-    w:SetSize(250, 374)             -- 330 + the heal palette (8 Oct) + the trinket row (10 Oct)
+    -- 330 + the heal palette (8 Oct) + the trinket row (10 Oct) + the version line at the foot (6 Nov):
+    -- everything pinned to the bottom moved up the same 12 px, so nothing moved against anything else
+    w:SetSize(250, 386)
     -- 20% BIGGER, ALL OF IT (10 Oct 2026, Arn: "make the mouse bind window 20% bigger make sure
     -- nothing get out of place"). A scale on the whole window, not 30 sizes changed by hand: every
     -- piece grows together, so nothing moves against anything else. The options window did the same.
@@ -459,6 +500,7 @@ function FM.Window()
         b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         b.text:SetPoint("LEFT", b.box, "RIGHT", 4, 0)
         b.text:SetText("trinket " .. i)
+        FM.Pop(b, b.text)
         b.slotId = s
         b:SetScript("OnClick", function(self)
             local on = false
@@ -468,6 +510,7 @@ function FM.Window()
             w:Refresh()
         end)
         b:SetScript("OnEnter", function(self)
+            FM.Lit(self, true)
             if not GameTooltip then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine("trinket " .. i .. (i == 1 and " (top slot)" or " (bottom slot)"), rgb("accent"))
@@ -475,7 +518,10 @@ function FM.Window()
             GameTooltip:AddLine("a trinket with nothing to use is skipped", rgb("muted"))
             GameTooltip:Show()
         end)
-        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        b:SetScript("OnLeave", function(self)
+            FM.Lit(self, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         w.trinketTicks[i] = b
     end
 
@@ -490,10 +536,13 @@ function FM.Window()
         t.text = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         t.text:SetPoint("CENTER")
         t.text:SetText(m.label)
+        FM.Pop(t, t.text)
         t:SetScript("OnClick", function()
             w.mod = m.key
             w:Refresh()
         end)
+        t:SetScript("OnEnter", function(self) FM.Lit(self, true) end)
+        t:SetScript("OnLeave", function(self) FM.Lit(self, false) end)
         w.tabs[i] = t
     end
 
@@ -547,7 +596,7 @@ function FM.Window()
     -- which is the only road open after SendMacroPing came back forbidden (/bish ping, 1 Oct).
     w.pings = {}
     local pingHint = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    pingHint:SetPoint("BOTTOMLEFT", 8, 36)
+    pingHint:SetPoint("BOTTOMLEFT", 8, 48)
     pingHint:SetText("pings:")
     pingHint:SetTextColor(rgb("muted"))
     -- FOUR ACROSS, INSIDE THE WINDOW. They were 52 wide on a 52 step from x=44, so the fourth ended
@@ -555,7 +604,7 @@ function FM.Window()
     for i, p in ipairs(FM.PINGS or {}) do
         local b = CreateFrame("Button", nil, w)
         b:SetSize(50, 16)
-        b:SetPoint("BOTTOMLEFT", 44 + ((i - 1) % 4) * 51, 36)
+        b:SetPoint("BOTTOMLEFT", 44 + ((i - 1) % 4) * 51, 48)
         b.bg = texture(b, "BACKGROUND", SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.9)
         b.bg:SetAllPoints()
         b.text = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -573,6 +622,7 @@ function FM.Window()
             if okA then b.icon:Show() b.text:Hide() end
         end
         b.ping = p.key
+        FM.Pop(b, b.text)
         b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
         b:SetScript("OnClick", function(self, button)
             FM.held = (button == "RightButton" or FM.held == self.ping) and nil or self.ping
@@ -596,6 +646,7 @@ function FM.Window()
             end
         end)
         b:SetScript("OnEnter", function(self)
+            FM.Lit(self, true)
             if not GameTooltip then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(p.word .. " ping", rgb("accent"))
@@ -603,7 +654,10 @@ function FM.Window()
             GameTooltip:AddLine("the cell you click is who it pings", rgb("muted"))
             GameTooltip:Show()
         end)
-        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        b:SetScript("OnLeave", function(self)
+            FM.Lit(self, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         w.pings[i] = b
     end
 
@@ -615,9 +669,10 @@ function FM.Window()
     for i = 1, FM.PALETTE_MAX do
         local b = CreateFrame("Button", nil, w)
         b:SetSize(PAL, PAL)
-        b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * PSTEP, 58)
+        b:SetPoint("BOTTOMLEFT", 8 + (i - 1) * PSTEP, 70)
         b.icon = b:CreateTexture(nil, "ARTWORK")
         b.icon:SetAllPoints()
+        FM.Pop(b, nil, "OVERLAY")           -- the icon fills the button: the wash goes over it
         b:RegisterForDrag("LeftButton")
         b:RegisterForClicks("LeftButtonUp")
         local function pick(self)
@@ -626,6 +681,7 @@ function FM.Window()
         b:SetScript("OnDragStart", pick)
         b:SetScript("OnClick", pick)
         b:SetScript("OnEnter", function(self)
+            FM.Lit(self, true)
             if not (GameTooltip and self.spell) then return end
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip:AddLine(self.spell.name, rgb("accent"))
@@ -640,15 +696,29 @@ function FM.Window()
             end
             GameTooltip:Show()
         end)
-        b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+        b:SetScript("OnLeave", function(self)
+            FM.Lit(self, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
         b:Hide()
         w.palette[i] = b
     end
 
     local foot = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    foot:SetPoint("BOTTOM", 0, 8)
+    foot:SetPoint("BOTTOM", 0, 20)
     foot:SetWidth(230)
     foot:SetText("binds are written out of combat")
+
+    -- THE VERSION MARK (Arn, 6 Nov 2026: so you know which build you are on), faint, in the bottom-right
+    -- corner on a line of its own under the foot. Not in the header: one bar, one label - the title owns
+    -- that bar. "0.16.0", or "0.16.0  9e52109+ 1106-1841" on a copy deploy.sh stamped (NS.Mark).
+    local mark = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mark:SetPoint("BOTTOMRIGHT", -8, 6)
+    mark:SetJustifyH("RIGHT")
+    mark:SetTextColor(rgb("muted"))
+    mark:SetAlpha(0.7)
+    mark:SetText(NS.Mark and NS.Mark() or "")
+    w.mark = mark
 
     -- SAID WHERE IT IS SEEN. An empty button targets the person (FM.ApplyTo, 0.4.1), and nothing
     -- on the drawing says so. Arn, 22 Sep: "write on the bottom of the window anything not bound
@@ -670,14 +740,14 @@ function FM.Window()
             self.tabs[i].bg:SetVertexColor(on and SLOT_ON[1] or SLOT_BG[1],
                                            on and SLOT_ON[2] or SLOT_BG[2],
                                            on and SLOT_ON[3] or SLOT_BG[3], on and 1 or 0.9)
-            self.tabs[i].text:SetTextColor(rgb(on and "accent" or "muted"))
+            rest(self.tabs[i], on and "accent" or "muted")
         end
         for _, b in ipairs(self.pings or {}) do
             local on = (FM.held == b.ping)
             b.bg:SetVertexColor(on and SLOT_ON[1] or SLOT_BG[1],
                                 on and SLOT_ON[2] or SLOT_BG[2],
                                 on and SLOT_ON[3] or SLOT_BG[3], on and 1 or 0.9)
-            b.text:SetTextColor(rgb(on and "accent" or "muted"))
+            rest(b, on and "accent" or "muted")
         end
         for key, f in pairs(self.slots) do
             local spell = FM.Get(self.mod, key)
@@ -717,7 +787,7 @@ function FM.Window()
             if not ping then
                 -- "Rank 3" -> "3": the slot is 30 pixels wide and you already know what it means
                 f.rank:SetText(rank and (rank:match("%d+") or rank) or (spell and "-" or ""))
-                f.rank:SetTextColor(rgb(rank and "accent" or "muted"))
+                rest(f.rankBtn, rank and "accent" or "muted")
                 if spell then f.rankBtn:Show() else f.rankBtn:Hide() end
             end
             -- the left half: the booster's icon, or - with no booster - the first trinket's
@@ -739,7 +809,7 @@ function FM.Window()
         for _, s in ipairs(FM.TabTrinkets(self.mod)) do onTab[s] = true end
         for _, b in ipairs(self.trinketTicks or {}) do
             if onTab[b.slotId] then b.tick:Show() else b.tick:Hide() end
-            b.text:SetTextColor(rgb(onTab[b.slotId] and "good" or "muted"))
+            rest(b, onTab[b.slotId] and "good" or "muted")
         end
         -- the heal palette: this character's trained heals, top rank each (FM.Palette)
         local pal = FM.Palette()
@@ -764,6 +834,7 @@ function FM.Window()
         foot:SetText((InCombatLockdown and InCombatLockdown())
             and "in combat: binds wait for the fight to end"
             or "binds are written out of combat")
+        mark:SetText(NS.Mark and NS.Mark() or "")
     end
 
     -- Runs whether or not the prompt is there: it paints the header AND asks where the window

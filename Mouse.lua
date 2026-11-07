@@ -331,6 +331,7 @@ end
 function FM.CursorSpell()
     if not GetCursorInfo then return nil end
     local kind, a, b, c = GetCursorInfo()
+    if kind == "macro" then return FM.CursorMacro(a) end
     if kind ~= "spell" then return nil end
 
     -- The clients disagree about what comes back, and Forever disagrees with both: it hands
@@ -357,6 +358,31 @@ function FM.CursorSpell()
     if plain then return FM.Cast(plain), plain, nil end
     return nil
 end
+
+-- MACROS ON A BIND (Arn, 8 Nov 2026: "can drag macros also on the binds"). A macro off the macro window rides
+-- the cursor as ("macro", index); the bind keeps its NAME ("macro:<name>"), because an index moves when the
+-- player adds or deletes one, and the name is what the client's secure `macro` attribute takes. The macro picks
+-- its own target - write [@mouseover] in it to aim at the cell. A name the save macro cannot carry (its own
+-- separators ; # = : or brackets) is refused rather than mangled.
+FM.MACRO = "macro:"
+function FM.CursorMacro(index)
+    if not GetMacroInfo then return nil end
+    local ok, name = pcall(GetMacroInfo, index)
+    if not ok or type(name) ~= "string" or name == "" or (NS.Secret and NS.Secret(name)) then return nil end
+    if name:find("[;#=:%(%)]") then return nil end
+    return FM.MACRO .. name, name, nil
+end
+
+--- The macro's name when this bind is a macro, else nil.
+function FM.MacroOf(cast)
+    if type(cast) ~= "string" then return nil end
+    return cast:match("^macro:(.+)$")
+end
+
+-- HOSTILE BINDS (Arn, 8 Nov 2026: "can drag harmful spells and if a cell is a hostile target use the hostile binds
+-- on them"). A second mouse, kept beside the first under keys "harm:" .. modifier .. slot - so the save macro, the
+-- API copy and every bind call carry it with nothing new to learn: FM.Get(FM.HARM .. "shift-", "left").
+FM.HARM = "harm:"
 
 --- What goes into the secure attribute. "Healing Wave(Rank 3)" is what the client understands,
 --- and what a macro would say; a bare name means max rank, which is a different spell in practice.
@@ -689,7 +715,7 @@ function FM.RangeSpell()
     -- 0.7.2 and 0.7.5 were spent on, and it would have come back through a new door.
     local function spellAt(mod, key)
         local c = FM.Get(mod, key)
-        if c and FM.PingOf(c) then return nil end
+        if c and (FM.PingOf(c) or FM.MacroOf(c)) then return nil end   -- a macro has no range to ask
         return c
     end
     -- THE LONGEST REACH OF EVERY HEAL YOU KNOW (7 Oct 2026). Arn: "now that we know more about
@@ -1059,6 +1085,58 @@ local function cliqueRegister(cell, on)
     end
 end
 
+--- One button's hostile half on a cell (FM.HARM). The client's own secure click code does the switching: on a unit
+--- it may attack, `<mod>harmbutton<n>` renames the button to "harm<n>", and every attribute is then read with the
+--- suffix "-harm<n>" - so an enemy under the click casts the hostile bind and a friend the heal, with nothing of
+--- ours running at the click (and so nothing refused in combat). No hostile bind: nothing renamed, the heal's own.
+local function harmTo(cell, prefix, attr, modKey, slotKey)
+    local hb = "harm" .. attr
+    local harm = FM.Get(FM.HARM .. modKey, slotKey)
+    local kind, spell, text, macro
+    if harm then
+        local ping = FM.PingOf(harm)
+        if ping then
+            kind, text = "macro", "/ping [@mouseover] " .. ping
+        elseif FM.MacroOf(harm) then
+            kind, macro = "macro", FM.MacroOf(harm)
+        elseif FM.FirstLines(harm, FM.HARM .. modKey) ~= "" then
+            -- a booster or a trinket in front: one macro, guarded the hostile way round
+            local _, nuke = FM.Boost(harm)
+            kind = "macro"
+            text = "/stopmacro [@mouseover,noexists][@mouseover,noharm][@mouseover,dead]\n"
+                .. FM.FirstLines(harm, FM.HARM .. modKey) .. "/cast [@mouseover] " .. nuke
+        else
+            kind, spell = "spell", harm
+        end
+    end
+    cell:SetAttribute(prefix .. "harmbutton" .. attr, harm and hb or nil)
+    cell:SetAttribute(prefix .. "type-" .. hb, kind)
+    cell:SetAttribute(prefix .. "spell-" .. hb, spell)
+    cell:SetAttribute(prefix .. "macrotext-" .. hb, text)
+    cell:SetAttribute(prefix .. "macro-" .. hb, macro)
+    return harm and 1 or 0
+end
+
+--- Everything of ours off one cell: the heal half, the macro names and the hostile half.
+local function clearOurs(cell, keepType)
+    for _, slot in ipairs(FM.SLOTS) do
+        if slot.attr then
+            for _, m in ipairs(FM.MODS) do
+                local prefix = m.key == "" and "*" or m.key
+                if not keepType then
+                    cell:SetAttribute(prefix .. "type" .. slot.attr, nil)
+                    cell:SetAttribute(prefix .. "spell" .. slot.attr, nil)
+                end
+                cell:SetAttribute(prefix .. "macrotext" .. slot.attr, nil)
+                cell:SetAttribute(prefix .. "macro" .. slot.attr, nil)
+                cell:SetAttribute(prefix .. "harmbutton" .. slot.attr, nil)
+                local hb = "-harm" .. slot.attr
+                for _, a in ipairs({ "type", "spell", "macrotext", "macro" }) do cell:SetAttribute(prefix .. a .. hb, nil) end
+            end
+        end
+    end
+end
+
 function FM.ApplyTo(cell)
     if InCombatLockdown and InCombatLockdown() then return false end
     if not cell or not cell.SetAttribute then return false end
@@ -1067,13 +1145,13 @@ function FM.ApplyTo(cell)
     local res = not FM.CliqueOn() and FM.ResNow(cell)
     cell.__res = res and true or nil
     if res then
+        clearOurs(cell, true)
         for _, slot in ipairs(FM.SLOTS) do
             if slot.attr then
                 for _, m in ipairs(FM.MODS) do
                     local prefix = m.key == "" and "*" or m.key
                     cell:SetAttribute(prefix .. "type" .. slot.attr, "spell")
                     cell:SetAttribute(prefix .. "spell" .. slot.attr, res)
-                    cell:SetAttribute(prefix .. "macrotext" .. slot.attr, nil)
                 end
             end
         end
@@ -1082,16 +1160,7 @@ function FM.ApplyTo(cell)
     end
     if FM.CliqueOn() then
         -- clear everything of ours first, so nothing of ours is left for Clique to fight
-        for _, slot in ipairs(FM.SLOTS) do
-            if slot.attr then
-                for _, m in ipairs(FM.MODS) do
-                    local prefix = m.key == "" and "*" or m.key
-                    cell:SetAttribute(prefix .. "type" .. slot.attr, nil)
-                    cell:SetAttribute(prefix .. "spell" .. slot.attr, nil)
-                    cell:SetAttribute(prefix .. "macrotext" .. slot.attr, nil)
-                end
-            end
-        end
+        clearOurs(cell)
         cliqueRegister(cell, true)
         return true, 0
     end
@@ -1107,9 +1176,12 @@ function FM.ApplyTo(cell)
                 -- "target" does nothing; the SecureUnitButton path honours "target" for buttons 1
                 -- and 2 only. So 1-2 keep the built-in action, and 3-5 get a secure macro that does
                 -- the same thing through the one unit the cursor is on.
-                local kind, text, cast = nil, nil, spell
+                local kind, text, cast, macro = nil, nil, spell, nil
                 local ping = FM.PingOf(spell)
-                if ping then
+                if FM.MacroOf(spell) then
+                    -- a macro: the client runs it by name; it aims itself (write [@mouseover] in it)
+                    kind, cast, macro = "macro", nil, FM.MacroOf(spell)
+                elseif ping then
                     -- `[@mouseover]` IS THE WHOLE THING (measured 1 Oct 2026). Without it the ping
                     -- fires at wherever the cursor is in the WORLD, so clicking a person's cell
                     -- pings the floor at your feet - which Arn saw, and which is worse than no
@@ -1136,7 +1208,9 @@ function FM.ApplyTo(cell)
                 cell:SetAttribute(prefix .. "type" .. slot.attr, kind)
                 cell:SetAttribute(prefix .. "spell" .. slot.attr, cast or nil)
                 cell:SetAttribute(prefix .. "macrotext" .. slot.attr, text)
+                cell:SetAttribute(prefix .. "macro" .. slot.attr, macro)
                 if spell then n = n + 1 end
+                n = n + harmTo(cell, prefix, slot.attr, m.key, slot.key)
             end
         end
     end
@@ -1156,7 +1230,9 @@ function FM.ApplyWheel(owner)
     for _, slot in ipairs(FM.SLOTS) do
         if slot.bind then
             for _, m in ipairs(FM.MODS) do
-                local spell = FM.Get(m.key, slot.key)
+                local heal = FM.Get(m.key, slot.key)
+                local harm = FM.Get(FM.HARM .. m.key, slot.key)
+                local spell = heal or harm
                 local name = "BiSHealWheel" .. m.key:gsub("%-", "") .. slot.key
                 local b = wheelButtons[name]
                 if spell and not b then
@@ -1165,7 +1241,6 @@ function FM.ApplyWheel(owner)
                     wheelButtons[name] = b
                 end
                 if b then
-                    b:SetAttribute("type", spell and "macro" or nil)
                     -- A PING ON THE WHEEL (1 Oct 2026). Arn: "the ping system we build does not
                     -- work with mouse wheel up or down". It could not: the wheel is not a click,
                     -- so it never goes through ApplyTo where ping binds are turned into /ping -
@@ -1175,22 +1250,38 @@ function FM.ApplyWheel(owner)
                     -- The guard is narrower than the cast one: a ping may go at anything you can
                     -- see, friend or enemy, so only "nothing under the cursor" stops it. `nohelp`
                     -- would make Attack pings impossible on the one bind that matters most.
-                    local ping = FM.PingOf(spell)
-                    local text
-                    if ping then
-                        text = "/stopmacro [@mouseover,noexists]\n/ping [@mouseover] " .. ping
-                    elseif spell then
+                    --
+                    -- THE WHEEL HAS NO UNIT TO SWITCH ON (8 Nov 2026, hostile binds), so its one macro asks: a
+                    -- hostile SPELL goes first, for an enemy under the cursor, and stops there; anything else falls
+                    -- through to the heal side. A macro cannot ride inside another macro: a macro on the wheel runs
+                    -- alone - the heal side's when it has one (it aims itself), else the hostile side's.
+                    local nuke = harm and not FM.PingOf(harm) and not FM.MacroOf(harm) and select(2, FM.Boost(harm)) or nil
+                    local cast = heal or (not nuke and harm) or nil      -- what the macro does after the hostile line
+                    local front = nuke and ("/cast [@mouseover,harm,nodead] " .. nuke .. (cast and "\n/stopmacro [@mouseover,harm]\n" or "")) or ""
+                    local ping = FM.PingOf(cast)
+                    local text, macro
+                    if FM.MacroOf(cast) then
+                        macro = FM.MacroOf(cast)
+                    elseif not cast then
+                        text = front ~= "" and front or nil
+                    elseif ping then
+                        text = front .. "/stopmacro [@mouseover,noexists]\n/ping [@mouseover] " .. ping
+                    else
+                        spell = cast
                         -- [@mouseover] is what makes a wheel turn land on the cell under the
                         -- cursor; the stopmacro keeps it quiet when the cursor is over nothing
                         -- healable. A booster rides between the two: after the guard, so Nature's
                         -- Swiftness is never spent on a wheel turn over nobody.
-                        local _, heal = FM.Boost(spell)
-                        text = "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
+                        local _, healCast = FM.Boost(spell)
+                        text = front .. "/stopmacro [@mouseover,noexists][@mouseover,nohelp][@mouseover,dead]\n"
                             .. FM.FirstLines(spell, m.key)
-                            .. "/cast [@mouseover] " .. heal
+                            .. "/cast [@mouseover] " .. healCast
                     end
+                    b:SetAttribute("type", (text or macro) and "macro" or nil)
                     b:SetAttribute("macrotext", text)
+                    b:SetAttribute("macro", macro)
                 end
+                spell = heal or harm
                 if spell and SetOverrideBindingClick then
                     local key = (m.key == "" and "" or m.key:upper():gsub("%-", "-")) .. slot.bind
                     pcall(SetOverrideBindingClick, owner, true, key, name, "LeftButton")
@@ -1254,6 +1345,10 @@ function FM.Apply()
     FM.pending = false
     local cells = 0
     for _, cell in ipairs((NS.FG and NS.FG.frames) or {}) do
+        if FM.ApplyTo(cell) then cells = cells + 1 end
+    end
+    -- PvP mode's team-target cells (Grid.lua): the same binds, the hostile half doing the work there
+    for _, cell in ipairs((NS.FG and NS.FG.pvpCells) or {}) do
         if FM.ApplyTo(cell) then cells = cells + 1 end
     end
     FM.ApplyWheel()

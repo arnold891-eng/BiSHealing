@@ -50,12 +50,26 @@ for k, v in pairs(MODCODE) do if v ~= "" then CODEMOD[v] = k end end
 
 --- Every bind key, in one settled order, so the same mouse always encodes to the same string and
 --- "what got dropped" is a question with an answer.
+-- THE HOSTILE MOUSE (8 Nov 2026) rides in the same rows, each code THREE letters: "x", the modifier ("n" for none),
+-- the slot - "xnl" = hostile left, "xsu" = hostile shift-wheelup. Never two: an older copy reads "xl" as modifier
+-- "x", finds none, falls back to NO modifier and puts the bolt on its plain left click (the suite caught exactly
+-- that). A three-letter code its row pattern never matches at all, so an old copy sees the heal binds and nothing
+-- else. And they come LAST, so a full macro sheds a hostile bind before any heal.
+FK.HARMCODE, FK.HARMNONE = "x", "n"
 local function eachKey()
     local out, FM = {}, NS.FM
-    for _, m in ipairs((FM and FM.MODS) or {}) do
-        for _, s in ipairs((FM and FM.SLOTS) or {}) do
-            local code = (MODCODE[m.key] or "") .. (SLOTCODE[s.key] or "")
-            if code ~= "" then out[#out + 1] = { key = m.key .. s.key, code = code } end
+    for _, set in ipairs({ "", "harm" }) do
+        for _, m in ipairs((FM and FM.MODS) or {}) do
+            for _, s in ipairs((FM and FM.SLOTS) or {}) do
+                local code = (MODCODE[m.key] or "") .. (SLOTCODE[s.key] or "")
+                if code ~= "" and set == "" then
+                    out[#out + 1] = { key = m.key .. s.key, code = code }
+                elseif code ~= "" then
+                    local mc = MODCODE[m.key] ~= "" and MODCODE[m.key] or FK.HARMNONE
+                    out[#out + 1] = { key = ((FM and FM.HARM) or "harm:") .. m.key .. s.key,
+                                      code = FK.HARMCODE .. mc .. (SLOTCODE[s.key] or "") }
+                end
+            end
         end
     end
     return out
@@ -311,7 +325,7 @@ function FK.Decode(body)
     local out, n, settings = {}, 0, {}
     for row in (rest or ""):gmatch("[^;]+") do
         row = row:match("^%s*(.-)%s*$") or row      -- and per row, for anything hand-edited
-        local code, idx, rank = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        local code, idx, rank = row:match("^(x?%a?%w)=(%d+):?(%d*)$")
         if code == "S" then
             -- a setting, not a bind: the scale, as a whole percentage
             settings.scale = tonumber(idx) and (tonumber(idx) / 100) or nil
@@ -391,11 +405,19 @@ function FK.Decode(body)
             -- same way a bind does, as an index into the leading spell list. 1 Oct 2026.
             settings.groupBuff = spells[tonumber(idx)]
         elseif code then
-            local slot = CODESLOT[code:sub(-1)]
-            local mod  = #code > 1 and CODEMOD[code:sub(1, 1)] or ""
+            local set = ""
+            if #code == 3 and code:sub(1, 1) == FK.HARMCODE then
+                set, code = (NS.FM and NS.FM.HARM) or "harm:", code:sub(2)
+                if code:sub(1, 1) == FK.HARMNONE then code = code:sub(2) end
+            elseif #code == 3 then
+                code = nil                                -- a three-letter code we do not know: skipped
+            end
+            local slot = code and CODESLOT[code:sub(-1)]
+            -- a modifier letter we do not know is a row we skip - never read as "no modifier"
+            local mod  = code and (#code > 1 and (CODEMOD[code:sub(1, 1)] or false) or "")
             local name = spells[tonumber(idx)]
             if slot and mod and name then
-                out[mod .. slot] = (NS.FM and NS.FM.Cast)
+                out[set .. mod .. slot] = (NS.FM and NS.FM.Cast)
                     and NS.FM.Cast(name, rank ~= "" and ("Rank " .. rank) or nil)
                     or name
                 n = n + 1

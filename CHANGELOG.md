@@ -2,6 +2,8 @@
 
 ## 1.0.0 - Forever 1.0
 
+- **Hostile binds.** The mouse binds window has a **heal | hostile** switch at the top. On the hostile side (tinted red) drop damage spells - Lightning Bolt, Smite, Wrath, Hex - and a click on an **enemy** under the cursor casts those instead of your heals. Friends still get your heals, same buttons. The wheel works too: an enemy under the cursor gets the hostile spell, anyone else the heal.
+- **Macros on a bind.** Drag a macro from your macro window (Esc > Macros) onto any button, heal side or hostile side. Write `[@mouseover]` in the macro to aim it at the cell you click.
 - **The minimap button is the same as every BiS addon now: left-click opens your mouse binds, right-click opens the options.** This swaps the two clicks from 0.17.0 (where right-click was the binds), so if your hand is used to the old way: the binds moved to the LEFT button. Hover the button and the tooltip says which is which.
 - **One home for the options: Esc > Options > AddOns > BiS>.** Every BiS addon you have is listed there with what it has on, and BiS> Healing has a button to the options window, plus a big "mouse binds" button.
 - Minimap right-click opens the options window again (click again to close); the BiS> page no longer squeezes that window inside it.

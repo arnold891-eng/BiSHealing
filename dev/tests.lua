@@ -6252,7 +6252,7 @@ do
             FM.Set("shift-", "wheelup", "Nature's Swiftness+Healing Wave(Rank 3)")
             ok(FM.BoostTip() == nil, "once a bind carries it, the tip is gone for good")
             w:Refresh()
-            ok(w.hint.__text == "drop a spell or a ping on a button", "and the hint line is the usual one again")
+            ok(w.hint.__text == "drop a spell, macro or ping on a button", "and the hint line is the usual one again")
             BOOK[30] = nil
             ok(FM.BoostTip() == nil, "and a class with no booster never sees it")
             for k in pairs(NS.DB().binds) do NS.DB().binds[k] = nil end
@@ -10112,6 +10112,174 @@ do
     local okMe, who = pcall(NS.Me)
     _G.UnitName = realName
     ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
+end
+
+-- ============================================================== HOSTILE BINDS AND MACROS (8 Nov 2026)
+-- Arn: "hostile mode > can drag harmful spells and if a cell is a hostile target use the hostile binds on them.
+-- can drag macros also on the binds." The hostile set is a second mouse; the client's own secure click code
+-- switches to it on an enemy (harmbutton), so nothing of ours runs at the click.
+do
+    local FM, FK, FG = NS.FM, NS.FK, NS.FG
+    -- A CLICK RESOLVED THE WAY BLIZZARD'S SecureActionButton DOES IT: the button number, remapped through
+    -- `harmbutton` when the unit is an enemy; then each attribute looked up with the held modifier's prefix, the
+    -- "*" wildcard, then bare. A remapped button is no number, so its suffix is "-" .. the new name.
+    local function resolve(cell, button, mod, hostile)
+        local function get(name, suffix)
+            for _, p in ipairs({ mod, "*", "" }) do
+                local v = cell.__attrs[p .. name .. suffix]
+                if v ~= nil then return v end
+            end
+        end
+        local b = button
+        if hostile then b = get("harmbutton", button) or button end
+        local suffix = tonumber(b) and b or ("-" .. b)
+        return get("type", suffix), get("spell", suffix), get("macro", suffix), get("macrotext", suffix)
+    end
+    local wasLeft = FM.Get("", "left")
+    FM.Set("", "left", "Healing Wave(Rank 3)")
+    FM.Set("harm:", "left", "Lightning Bolt(Rank 2)")
+    FM.Set("harm:shift-", "right", "Earth Shock(Rank 1)")
+    FM.Apply()
+    local cell = FG.frames[1]
+    local ty, sp = resolve(cell, "1", "", true)
+    ok(ty == "spell" and sp == "Lightning Bolt(Rank 2)", "a left click on an ENEMY casts the hostile bind", tostring(sp))
+    ty, sp = resolve(cell, "1", "", false)
+    ok(sp == "Healing Wave(Rank 3)", "on a friend: the heal, as before", tostring(sp))
+    ty, sp = resolve(cell, "2", "shift-", true)
+    ok(sp == "Earth Shock(Rank 1)", "shift-right on an enemy: its own hostile bind", tostring(sp))
+    ty, sp = resolve(cell, "2", "", true)
+    ok(cell.__attrs["*harmbutton2"] == nil, "a button with no hostile bind is not switched on an enemy")
+    FM.Clear("harm:", "left")
+    FM.Apply()
+    ok(cell.__attrs["*harmbutton1"] == nil and cell.__attrs["*type-harm1"] == nil and cell.__attrs["*spell-harm1"] == nil,
+       "a cleared hostile bind leaves nothing behind on the cell")
+    ok(FM.Get("", "left") == "Healing Wave(Rank 3)", "and the heal set never noticed")
+    -- the binds are their own: the range check and the heal palette read the heal set only
+    ok(FM.RangeSpell() ~= "Earth Shock" and FM.RangeSpell() ~= "Earth Shock(Rank 1)", "the range check never asks a hostile bind")
+
+    -- MACROS ON A BIND. The cursor carries ("macro", index) - the client's shape for a macro off the macro window.
+    MACROS[7] = { name = "Purge it", icon = 136075, body = "/cast [@mouseover] Purge" }
+    MACROS[8] = { name = "a;b", icon = 1, body = "/say hi" }
+    CURSOR = { kind = "macro", a = 7 }
+    local cast = FM.CursorSpell()
+    ok(cast == "macro:Purge it", "a macro picked up from the macro window is a bind: by its name", tostring(cast))
+    CURSOR = { kind = "macro", a = 8 }
+    ok(FM.CursorSpell() == nil, "a macro whose name would break the save is refused, not mangled")
+    CURSOR = { kind = "macro", a = 99 }
+    ok(FM.CursorSpell() == nil, "a macro index the client does not know: nothing")
+    CURSOR = {}
+    FM.Set("harm:", "middle", "macro:Purge it")
+    FM.Set("", "button4", "macro:Purge it")
+    FM.Apply()
+    local mty, msp, mmac, mtext = resolve(cell, "3", "", true)
+    ok(mty == "macro" and mmac == "Purge it" and msp == nil and mtext == nil,
+       "a hostile macro: the cell runs that macro on an enemy", tostring(mty) .. " " .. tostring(mmac))
+    mty, msp, mmac, mtext = resolve(cell, "4", "", false)
+    ok(mty == "macro" and mmac == "Purge it" and mtext == nil, "a macro on a heal bind runs on a friend too")
+    local rs = FM.RangeSpell()
+    ok(type(rs) ~= "string" or not rs:find("macro:", 1, true), "the range check never asks a macro its range", tostring(rs))
+    -- the save macro: hostile rows and macros survive the client's round trip (it adds a newline)
+    local binds = { left = "Healing Wave(Rank 3)", ["harm:left"] = "Lightning Bolt(Rank 2)",
+                    ["harm:shift-right"] = "macro:Purge it", ["shift-left"] = "macro:Purge it" }
+    local body = FK.Encode(binds)
+    local back = FK.Decode(body .. "\n")
+    ok(back and back["harm:left"] == "Lightning Bolt(Rank 2)" and back["harm:shift-right"] == "macro:Purge it"
+       and back.left == "Healing Wave(Rank 3)" and back["shift-left"] == "macro:Purge it",
+       "hostile binds and macros come back from the save macro", tostring(body))
+    -- AN OLDER COPY (1.0 before this, or 0.x) reading the new macro must see the heal binds and nothing else:
+    -- its row reader, verbatim - a one-letter modifier it knows (s c a) and a slot letter
+    local OLDSLOT = { l = "left", r = "right", u = "wheelup", d = "wheeldown", m = "middle", ["4"] = "button4", ["5"] = "button5" }
+    local OLDMOD = { s = "shift-", c = "ctrl-", a = "alt-" }
+    local old, n = {}, 0
+    local rest = body:match("#(.*)$") or ""
+    for row in rest:gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and not code:match("^%u$") then
+            local slot = OLDSLOT[code:sub(-1)]
+            local mod = #code > 1 and OLDMOD[code:sub(1, 1)] or ""
+            if slot and mod then old[mod .. slot] = true n = n + 1 end
+        end
+    end
+    ok(n == 2 and old.left and old["shift-left"], "an older copy reading it sees only the heal binds - never a bolt on its left click", n)
+    -- a full macro sheds the hostile set before any heal (rows go from the end)
+    local fat = {}
+    local nth = 0
+    for _, m in ipairs(FM.MODS) do for _, s in ipairs(FM.SLOTS) do
+        nth = nth + 1
+        fat[m.key .. s.key] = "Lesser Healing Wave Number " .. nth .. "(Rank 6)"
+    end end
+    fat["harm:left"] = "Lightning Bolt(Rank 9)"
+    local fatBody, dropped = FK.Encode(fat)
+    local fatBack = FK.Decode(fatBody)
+    ok(dropped > 0 and fatBack["harm:left"] == nil, "a full macro drops a hostile bind before a heal", dropped)
+
+    -- THE WHEEL has no unit to switch on, so its one macro asks: an enemy under the cursor gets the hostile spell
+    FM.Set("", "wheelup", "Healing Wave(Rank 1)")
+    FM.Set("harm:", "wheelup", "Lightning Bolt(Rank 2)")
+    FM.Apply()
+    local wb = _G["BiSHealWheelwheelup"]
+    local text = wb and wb:GetAttribute("macrotext") or ""
+    local hpos, gpos = text:find("/cast [@mouseover,harm,nodead] Lightning Bolt(Rank 2)", 1, true), text:find("nohelp", 1, true)
+    ok(hpos and gpos and hpos < gpos and text:find("Healing Wave(Rank 1)", 1, true),
+       "the wheel: the hostile spell on an enemy first, then the heal's guard and the heal", text)
+    FM.Clear("", "wheelup")
+    FM.Apply()
+    text = wb:GetAttribute("macrotext") or ""
+    ok(text:find("Lightning Bolt", 1, true) and not text:find("nohelp", 1, true), "a hostile wheel with no heal: just the bolt")
+    FM.Clear("harm:", "wheelup")
+    FM.Set("", "wheeldown", "macro:Purge it")
+    FM.Apply()
+    local wd = _G["BiSHealWheelwheeldown"]
+    ok(wd and wd:GetAttribute("type") == "macro" and wd:GetAttribute("macro") == "Purge it" and wd:GetAttribute("macrotext") == nil,
+       "a macro on the wheel: the wheel runs that macro")
+    FM.Clear("", "wheeldown")
+
+    -- CLIQUE OWNS THE CLICKS: nothing hostile of ours left on the cell either
+    local d = NS.DB()
+    d.clique = true
+    FM.Apply()
+    ok(cell.__attrs["*harmbutton3"] == nil and cell.__attrs["*type-harm3"] == nil and cell.__attrs["*macro4"] == nil,
+       "Clique on: our hostile and macro attributes are gone too")
+    d.clique = nil
+    FM.Apply()
+    ok(resolve(cell, "3", "", true) == "macro", "Clique off: they come back")
+
+    -- THE WINDOW: a HEAL / HOSTILE switch; the hostile mouse is its own, tinted, and takes drops
+    local w = FM.Window()
+    ok(w.sets and #w.sets == 2, "the bind window has a heal / hostile switch")
+    w.sets[2]:Click()
+    ok(w.set == "harm:" and w:Key() == "harm:", "the hostile side picked")
+    CURSOR = { kind = "macro", a = 7 }
+    w.slots.right.take()
+    ok(FM.Get("harm:", "right") == "macro:Purge it" and FM.Get("", "right") ~= "macro:Purge it",
+       "a drop on the hostile mouse is a hostile bind; the heal under it untouched")
+    w.tabs[2]:Click()
+    ok(w:Key() == "harm:shift-", "a modifier tab on the hostile side is a hostile modifier")
+    w.tabs[1]:Click()
+    w:Refresh()
+    ok(w.slots.right.empty:GetText() == "Purg" or w.slots.right.icon:IsShown(), "the hostile mouse shows what is on it")
+    ok(not w.trinketTicks[1]:IsShown(), "no trinket ticks on the hostile side (they are a heal's)")
+    w.sets[1]:Click()
+    ok(w.set == "" and w.trinketTicks[1]:IsShown(), "back to the heal side: the ticks again")
+    for _, s in ipairs(w.sets) do
+        s:GetScript("OnEnter")(s)
+        ok(s.lit == true and s.wash:GetAlpha() > 0, "the switch lights under the mouse")
+        s:GetScript("OnLeave")(s)
+        ok(not s.lit, "and goes out")
+    end
+    -- PVP TARGET CELLS get every bind too, when a bind changes (Grid.lua keeps them in FG.pvpCells)
+    local extra = CreateFrame("Button", nil, UIParent, "SecureUnitButtonTemplate")
+    extra:SetAttribute("unit", "party1target")
+    FG.pvpCells = { extra }
+    FM.Apply()
+    ok(extra.__attrs["*spell1"] == "Healing Wave(Rank 3)" and extra.__attrs["*macro-harm2"] == "Purge it",
+       "a PvP target cell carries the heal and hostile binds after a change")
+    FG.pvpCells = nil
+    for _, k in ipairs({ "harm:shift-right", "harm:middle", "harm:right", "button4" }) do NS.DB().binds[k] = nil end
+    NS.DB().binds.left = wasLeft
+    MACROS[7], MACROS[8] = nil, nil
+    CURSOR = {}
+    FM.Apply()
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

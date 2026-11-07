@@ -27,6 +27,15 @@ local function rgb(name)
     return f[1], f[2], f[3]
 end
 local BODY, SLOT_BG, SLOT_ON = { 0.11, 0.09, 0.14 }, { 0.16, 0.14, 0.20 }, { 0.20, 0.16, 0.30 }
+-- the hostile mouse's slots: a dark red, so the side you are binding is never in doubt (8 Nov 2026)
+local HARM_BG = { 0.30, 0.10, 0.13 }
+
+--- A slot at rest, in its side's colour.
+function FM.SlotRest(f)
+    local w = f and f:GetParent()
+    local c = (w and w.set and w.set ~= "") and HARM_BG or SLOT_BG
+    if f and f.bg then f.bg:SetVertexColor(c[1], c[2], c[3], 0.95) end
+end
 
 FM.SCALE = 1.2                  -- the bind window, 20% bigger (10 Oct 2026)
 
@@ -259,8 +268,8 @@ local function makeSlot(parent, slot)
     f.rank:SetPoint("CENTER")
     FM.Pop(f.rankBtn, f.rank)
     f.rankBtn:SetScript("OnClick", function()
-        local was = FM.Get(parent.mod, slot.key)
-        local now = FM.CycleRank(parent.mod, slot.key)
+        local was = FM.Get(parent:Key(), slot.key)
+        local now = FM.CycleRank(parent:Key(), slot.key)
         parent:Refresh()
         FM.Apply()
         if was and now == was and parent.Say then
@@ -272,7 +281,7 @@ local function makeSlot(parent, slot)
         if not GameTooltip then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine("click for the next rank", rgb("accent"))
-        local name = FM.Split(FM.Get(parent.mod, slot.key))
+        local name = FM.Split(FM.Get(parent:Key(), slot.key))
         local n = name and #FM.Ranks(name) or 0
         GameTooltip:AddLine(n > 1 and (n .. " ranks trained") or "only one rank trained",
                             rgb("muted"))
@@ -287,7 +296,7 @@ local function makeSlot(parent, slot)
     local function take()
         -- a held ping first: it is the only payload the real cursor cannot carry
         if FM.held then
-            FM.Set(parent.mod, slot.key, FM.PingBind(FM.held))
+            FM.Set(parent:Key(), slot.key, FM.PingBind(FM.held))
             FM.held = nil
             if ClearCursor then ClearCursor() end
             parent:Refresh()
@@ -298,11 +307,11 @@ local function makeSlot(parent, slot)
         -- anything that is not a heal it is not a bind at all, and the drop is refused.
         local tslot = FM.CursorTrinket and FM.CursorTrinket()
         if tslot then
-            local had = FM.Get(parent.mod, slot.key)
+            local had = FM.Get(parent:Key(), slot.key)
             local slots, boost, heal = FM.Front(had)
             if not heal or FM.PingOf(heal) then return false end
             slots[#slots + 1] = tslot
-            FM.Set(parent.mod, slot.key, FM.Compose(slots, boost, heal))
+            FM.Set(parent:Key(), slot.key, FM.Compose(slots, boost, heal))
             if ClearCursor then ClearCursor() end
             parent:Refresh()
             FM.Apply()
@@ -315,13 +324,13 @@ local function makeSlot(parent, slot)
         -- ping, or another booster is an ordinary drop. A heal dropped on a boosted slot replaces
         -- both - drop the heal again to go back to a plain heal.
         local dropped = FM.Split(spell)
-        local had = FM.Get(parent.mod, slot.key)
+        local had = FM.Get(parent:Key(), slot.key)
         local _, hadHeal = FM.Boost(had)
         if FM.BOOSTERS[dropped] and hadHeal and not FM.PingOf(hadHeal)
            and not FM.BOOSTERS[(FM.Split(hadHeal))] then
             spell = FM.WithBoost(dropped, hadHeal)
         end
-        FM.Set(parent.mod, slot.key, spell)
+        FM.Set(parent:Key(), slot.key, spell)
         if ClearCursor then ClearCursor() end
         parent:Refresh()
         FM.Apply()
@@ -332,7 +341,7 @@ local function makeSlot(parent, slot)
     f:SetScript("OnMouseUp", function(_, button)
         if take() then return end
         if button == "RightButton" then
-            FM.Clear(parent.mod, slot.key)
+            FM.Clear(parent:Key(), slot.key)
             parent:Refresh()
             FM.Apply()
         end
@@ -342,7 +351,7 @@ local function makeSlot(parent, slot)
         if not GameTooltip then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:AddLine(slot.label, rgb("accent"))
-        local spell = FM.Get(parent.mod, slot.key)
+        local spell = FM.Get(parent:Key(), slot.key)
         local name, rank = FM.Split(spell)
         -- an empty CLICK targets the person (FM.ApplyTo); an empty wheel does nothing of ours
         local tslots, boost = FM.Front(spell)
@@ -365,7 +374,7 @@ local function makeSlot(parent, slot)
         GameTooltip:Show()
     end)
     f:SetScript("OnLeave", function(self)
-        self.bg:SetVertexColor(SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.95)
+        FM.SlotRest(self)
         if GameTooltip then GameTooltip:Hide() end
     end)
     return f
@@ -397,6 +406,10 @@ function FM.Window()
         FM.SavePos(self)
     end)
     w.mod = ""
+    -- WHICH MOUSE (8 Nov 2026, hostile binds): "" = the heals, FM.HARM = what a click does on an ENEMY. Every slot
+    -- reads and writes w:Key() = side .. modifier, so the whole drawing serves both.
+    w.set = ""
+    function w:Key() return self.set .. self.mod end
 
     local bg = texture(w, "BACKGROUND", BODY[1], BODY[2], BODY[3], 0.94)
     bg:SetAllPoints()
@@ -481,6 +494,7 @@ function FM.Window()
     -- even different for each modifier". Two ticks under the hint, for whichever tab is open;
     -- every bind on that tab uses the ticked trinkets before its heal (FM.TabTrinkets).
     local firstLabel = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    w.firstLabel = firstLabel
     firstLabel:SetPoint("TOPLEFT", 12, -78)
     firstLabel:SetText("first:")
     firstLabel:SetTextColor(rgb("muted"))
@@ -523,6 +537,41 @@ function FM.Window()
             if GameTooltip then GameTooltip:Hide() end
         end)
         w.trinketTicks[i] = b
+    end
+
+    -- HEAL | HOSTILE, top right beside the X: which mouse the drawing shows. The hostile one is tinted red so it is
+    -- never mistaken for the heals.
+    w.sets = {}
+    for i, s in ipairs({ { key = "", word = "heal" }, { key = FM.HARM, word = "hostile" } }) do
+        local t = CreateFrame("Button", nil, w)
+        t:SetSize(44, 15)
+        t:SetPoint("TOPRIGHT", -26 - (2 - i) * 46, -10)
+        t.bg = texture(t, "BACKGROUND", SLOT_BG[1], SLOT_BG[2], SLOT_BG[3], 0.9)
+        t.bg:SetAllPoints()
+        t.text = t:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        t.text:SetPoint("CENTER")
+        t.text:SetText(s.word)
+        FM.Pop(t, t.text)
+        t.key = s.key
+        t:SetScript("OnClick", function(self)
+            w.set = self.key
+            FM.held = nil
+            w:Refresh()
+        end)
+        t:SetScript("OnEnter", function(self)
+            FM.Lit(self, true)
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(s.key == "" and "your heals" or "hostile binds", rgb("accent"))
+            GameTooltip:AddLine(s.key == "" and "what a click does on a friend"
+                or "what a click does on an ENEMY under the cursor - drop damage spells or macros here", rgb("muted"), nil, nil, true)
+            GameTooltip:Show()
+        end)
+        t:SetScript("OnLeave", function(self)
+            FM.Lit(self, false)
+            if GameTooltip then GameTooltip:Hide() end
+        end)
+        w.sets[i] = t
     end
 
     -- the modifier tabs
@@ -735,6 +784,18 @@ function FM.Window()
     end
 
     function w:Refresh()
+        local hostile = self.set ~= ""
+        for _, t in ipairs(self.sets or {}) do
+            local on = (t.key == self.set)
+            local r, g, b = SLOT_BG[1], SLOT_BG[2], SLOT_BG[3]
+            if on then r, g, b = SLOT_ON[1], SLOT_ON[2], SLOT_ON[3] end
+            if on and t.key ~= "" then r, g, b = HARM_BG[1], HARM_BG[2], HARM_BG[3] end
+            t.bg:SetVertexColor(r, g, b, on and 1 or 0.9)
+            rest(t, on and (t.key ~= "" and "warn" or "accent") or "muted")
+        end
+        for _, f in pairs(self.slots) do FM.SlotRest(f) end
+        for _, b in ipairs(self.trinketTicks or {}) do if hostile then b:Hide() else b:Show() end end
+        if self.firstLabel then if hostile then self.firstLabel:Hide() else self.firstLabel:Show() end end
         for i, m in ipairs(FM.MODS) do
             local on = (m.key == self.mod)
             self.tabs[i].bg:SetVertexColor(on and SLOT_ON[1] or SLOT_BG[1],
@@ -750,10 +811,17 @@ function FM.Window()
             rest(b, on and "accent" or "muted")
         end
         for key, f in pairs(self.slots) do
-            local spell = FM.Get(self.mod, key)
+            local spell = FM.Get(self:Key(), key)
             local name, rank = FM.Split(spell)
             local ping = FM.PingOf(spell)
             local icon = not ping and spellIcon(spell) or nil
+            -- a macro: its own icon from the macro list, its name's first letters when it has none
+            local macro = FM.MacroOf(spell)
+            if macro then
+                local okM, _, mIcon = pcall(GetMacroInfo or function() end, macro)
+                icon = okM and mIcon or nil
+                name, rank = macro, nil
+            end
             if ping then
                 -- the client's own art if it has it, the first four letters if not. No rank
                 -- either way: showing "-" where a rank goes reads as "rank unknown" on something
@@ -821,11 +889,17 @@ function FM.Window()
         -- a client without BiSTheme) and does not rotate away before it is read.
         local tip = FM.BoostTip and FM.BoostTip(pal)
         if self.hint then
-            self.hint:SetText(tip or "drop a spell or a ping on a button")
-            self.hint:SetTextColor(rgb(tip and "good" or "muted"))
+            if hostile then
+                self.hint:SetText("on an ENEMY: drop damage spells or macros")
+                self.hint:SetTextColor(rgb("warn"))
+            else
+                self.hint:SetText(tip or "drop a spell, macro or ping on a button")
+                self.hint:SetTextColor(rgb(tip and "good" or "muted"))
+            end
         end
+        -- the palette is your HEALS: not on the hostile side
         for i, b in ipairs(self.palette or {}) do
-            local s = pal[i]
+            local s = not hostile and pal[i] or nil
             b.spell = s
             local tex = s and spellIcon(s.name)
             if s and tex then b.icon:SetTexture(tex) b:Show() else b:Hide() end

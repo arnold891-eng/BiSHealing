@@ -224,22 +224,35 @@ end
 -- 1.43:1, the family's window shape (standing order, 14 Oct)
 FE.W, FE.H = 572, 400
 
---- ESCAPE CLOSES THEM (Arn, 6 Nov 2026, every BiS window). The client closes the frames NAMED in
---- UISpecialFrames on Escape - and also when a panel such as the spellbook opens (CloseAllWindows). That
---- second part is why the bind window handles Escape itself (MouseUI.lua: it sits BESIDE the spellbook on
---- purpose). These two do not: the probe box is a copy-and-go, and the mana window gives its spell by drag.
---- Neither holds a secure child (plain buttons, a scroll, an edit box), so the client may hide them at
---- any time, in a fight too. Listed once, when built.
-local function escapes(name)
-    if not (UISpecialFrames and name) then return end
-    for _, n in ipairs(UISpecialFrames) do if n == name then return end end
-    table.insert(UISpecialFrames, name)
+--- ESCAPE CLOSES THEM (Arn, 6 Nov 2026, every BiS window) - handled HERE, the bind window's way (MouseUI.lua),
+--- never through UISpecialFrames: the client also empties that list when a panel such as the spellbook opens
+--- (CloseAllWindows), and Arn met that surprise once already ("if the bind window is open and i open the spell
+--- book it closes the bind window"). Escape is swallowed while one is up; every other key passes on, so chat still
+--- types. Not in a fight: SetPropagateKeyboardInput is protected then (21 Sep, ADDON_ACTION_BLOCKED) - every key
+--- passes through, and Escape still closes the window.
+local function escapes(f)
+    local function propagate(on)
+        if InCombatLockdown and InCombatLockdown() then return false end
+        if f.SetPropagateKeyboardInput then f:SetPropagateKeyboardInput(on) end
+        return true
+    end
+    if f.EnableKeyboard then f:EnableKeyboard(true) end
+    propagate(true)
+    f:SetScript("OnKeyDown", function(self, key)
+        if key == "ESCAPE" then
+            propagate(false)
+            self:Hide()
+        else
+            propagate(true)
+        end
+    end)
+    f:HookScript("OnHide", function() propagate(true) end)
 end
 
 function FE.Box()
     if FE.box then return FE.box end
     local f = CreateFrame("Frame", "BiSHealingProbe", UIParent)
-    escapes("BiSHealingProbe")
+    escapes(f)
     f:SetSize(FE.W, FE.H)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
@@ -301,7 +314,7 @@ end
 function FE.Win()
     if FE.win then return FE.win end
     local f = CreateFrame("Frame", "BiSHealingHeals", UIParent)
-    escapes("BiSHealingHeals")
+    escapes(f)
     f:SetSize(FE.W, FE.H)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")

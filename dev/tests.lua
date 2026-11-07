@@ -9715,15 +9715,26 @@ do
     local m = FE.Win()
     pops(m.pick, nil, "the mana window's spell to drag")
 
-    -- 3. ESCAPE: the two Heals.lua windows have names, and the client closes them on Escape. They hold
-    -- no secure children, so the list that also closes them when a panel opens costs nothing.
+    -- 3. ESCAPE: the two Heals.lua windows have names and close on Escape - handled HERE, as the bind window
+    -- does, never through UISpecialFrames: that list is also emptied when a panel like the spellbook opens
+    -- (CloseAllWindows), and Arn has met that surprise once already ("if the bind window is open and i open the
+    -- spell book it closes the bind window"). Review, 6 Nov.
     local box = FE.Box()
     ok(box.__name == "BiSHealingProbe" and m.__name == "BiSHealingHeals",
        "the probe box and the mana window have names", tostring(box.__name) .. " " .. tostring(m.__name))
     local listed = {}
     for _, n in ipairs(_G.UISpecialFrames) do listed[n] = true end
-    ok(listed.BiSHealingProbe and listed.BiSHealingHeals, "and Escape closes them (UISpecialFrames)")
-    ok(not listed.BiSHealingMouse, "the bind window still handles Escape itself: off the list the spellbook empties")
+    ok(not listed.BiSHealingProbe and not listed.BiSHealingHeals and not listed.BiSHealingMouse,
+       "none of them on the list the spellbook empties")
+    for _, w in ipairs({ box, m }) do
+        w:Show()
+        local key = w:GetScript("OnKeyDown")
+        ok(key ~= nil, "it listens for Escape itself: " .. tostring(w.__name))
+        if key then key(w, "ENTER") end
+        ok(w:IsShown(), "another key leaves it open (and passes on to chat)")
+        if key then key(w, "ESCAPE") end
+        ok(not w:IsShown(), "Escape closes it: " .. tostring(w.__name))
+    end
 end
 
 -- 4. THE VERSION MARK: the bind window says which build it is, faintly, in its own line at the foot -

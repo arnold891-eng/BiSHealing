@@ -1932,7 +1932,7 @@ end
 -- repaints the one cell that changed, and because the client sends no UNIT_HEALTH for a "raid7target"
 -- token, every target cell is repainted four times a second (FG.PVP_EVERY).
 
-FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
+FG.PVP_W = math.floor(FRAME_W / 2)       -- half a member cell: about square (Arn, 8 Nov: "more square less rectagle")
 
 -- IS THEIR TARGET CASTING? (Arn, 8 Nov 2026: "class appropriate interrupt icon and un alpha it when they are casting
 -- or channeling"). Forever hides WHAT another unit casts, never THAT it casts: UnitCastingDuration /
@@ -1944,7 +1944,7 @@ FG.KICK = {
     WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
 }
 FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
-FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 14, 1.35
+FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 20, 1.35
 
 --- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
 --- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
@@ -1984,8 +1984,13 @@ end
 function FG.ArmKick(c, tok, cast)
     local b = c and c.kickFx
     if not b or (InCombatLockdown and InCombatLockdown()) then return false end
-    b:SetAttribute("type", cast and "spell" or nil)
-    b:SetAttribute("spell", cast)
+    -- ENEMIES ONLY (Arn, 8 Nov: a friend's cell shows no interrupt icon): the cast rides the client's own hostile
+    -- switch - on a unit you can attack, button 1 becomes "kick" - so a click on a friend casts nothing at all
+    b:SetAttribute("type", nil)
+    b:SetAttribute("spell", nil)
+    b:SetAttribute("*harmbutton1", cast and "kick" or nil)
+    b:SetAttribute("*type-kick", cast and "spell" or nil)
+    b:SetAttribute("*spell-kick", cast)
     b:SetAttribute("unit", cast and tok or nil)
     if b.EnableMouse then b:EnableMouse(cast and true or false) end
     b.cast = cast
@@ -2027,7 +2032,7 @@ function FG.Casting(tok)
     return false
 end
 FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
-FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
+FG.PVP_CHARS = 6                         -- letters of a name a target cell holds (6 since it is half a cell wide)
 FG.PVP_BAR_H = nil                       -- (was a 6 px strip; since 8 Nov the health fills the cell)
 FG.PVP_FRIEND = { 0.20, 0.75, 0.30 }     -- green: a friend; the red is FG.HOSTILE, as on the target cell
 FG.PVP_GOLD = { 1.00, 0.78, 0.20 }       -- the team's focus, the gold the grid already uses for "you"
@@ -2159,6 +2164,7 @@ function FG.MakePvP(i, parent)
     c.kick:SetAlpha(FG.KICK_DIM)
     -- it lights under the mouse (the family rule) and says what a click does
     c.kickFx:SetScript("OnEnter", function(self)
+        if c.kickFriend then return end             -- a friend's cell has no icon to light or explain
         c.kickGlow:Show()
         if not (GameTooltip and self.cast) then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2332,8 +2338,10 @@ function FG.PaintPvPCell(c)
     local okN, name = pcall(UnitName, tok)
     if okN then c.label:SetText(FG.PvPName(name)) end
     if c.kick then
-        local lit = FG.Casting(tok)
-        c.kick:SetAlpha(lit and 1 or FG.KICK_DIM)
+        -- a FRIEND's target cell carries no interrupt icon, and a friend's casting is not even asked (Arn, 8 Nov)
+        c.kickFriend = friend
+        local lit = not friend and FG.Casting(tok)
+        c.kick:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM))
         -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
         if lit ~= c.kickLit then
             c.kickLit = lit

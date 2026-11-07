@@ -1,5 +1,10 @@
 # BiS Healing
 
+## 1.0.2
+
+- **PvP mode: the interrupt icon is for enemies only.** When a teammate is targeting a friend, the small cell stays (click it to heal who they're on), but it shows no interrupt icon, doesn't light up when that friend casts, and a click on that spot casts nothing.
+- **PvP mode: bigger, squarer target cells.** Each teammate's target cell is now half a cell wide instead of a quarter - about square - with six letters of the name and a bigger interrupt icon.
+
 ## 1.0.1
 
 - **PvP mode: see when their target is casting.** Each teammate's target cell now carries your class's interrupt icon - Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot (a plain kick icon until you've trained yours). It sits dim, and lights up the moment that target starts casting or channelling, so you know who to stop - with a gold glow, a bounce, or both (your pick: "cast alert" in the options, under PvP mode). **Click the icon** and it casts your interrupt (its cheapest rank) at that target, no bind needed. The game keeps the spell itself hidden; this only tells you a cast is happening.

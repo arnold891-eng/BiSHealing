@@ -10483,7 +10483,10 @@ do
     NS.FM.ApplyTo = keep.apply
     local W, PAD, H = FG.CELL_W, FG.CELL_PAD, FG.CELL_H + FG.NAME_BAND
     local SW = FG.PVP_W
-    ok(SW == math.floor(W / 4), "a target cell is a quarter of a member cell's width", SW)
+    -- MORE SQUARE (Arn, 8 Nov: "double the size of it more square less rectagle"): half a member cell wide, so with
+    -- the cell's height (the name band and all) it is about as wide as it is tall
+    ok(SW == math.floor(W / 2), "a target cell is half a member cell's width", SW)
+    ok(math.abs(SW - H) <= 6, "and close to square: " .. SW .. " x " .. H)
     ok(#FG.pvpCells == 3, "three members, three target cells", #FG.pvpCells)
     local want = { player = "target", party1 = "party1target", party2 = "party2target" }
     local allRight, allApplied, allWatched = true, true, true
@@ -10628,7 +10631,9 @@ do
     ok(isSecret(c1.bar.__max), "and the max too")
     ok(c1.bar.__color and c1.bar.__color[1] == FG.HOSTILE[1] and c1.bar.__color[2] == FG.HOSTILE[2],
        "red for something you can attack")
-    ok(c1.label and c1.label.__text == "Gore", "a four-letter name: Gore", c1.label and tostring(c1.label.__text))
+    ok(c1.label and c1.label.__text == "Goreho", "six letters of the name, now the cell is wider: Goreho",
+       c1.label and tostring(c1.label.__text))
+    ok(c1.kickFx.__w == FG.KICK_SIZE and FG.KICK_SIZE == 20, "and a bigger interrupt icon to go with it", FG.KICK_SIZE)
     STATE.hostile.raid1target = nil
     FG.PaintPvPCell(c1)
     ok(c1.bar.__color and c1.bar.__color[1] == FG.PVP_FRIEND[1] and c1.bar.__color[2] == FG.PVP_FRIEND[2],

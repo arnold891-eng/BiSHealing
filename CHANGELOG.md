@@ -3,6 +3,7 @@
 ## 1.0.2
 
 - **PvP mode: the interrupt icon is for enemies only.** When a teammate is targeting a friend, the small cell stays (click it to heal who they're on), but it shows no interrupt icon, doesn't light up when that friend casts, and a click on that spot casts nothing.
+- **PvP mode: bigger, squarer target cells.** Each teammate's target cell is now half a cell wide instead of a quarter - about square - with six letters of the name and a bigger interrupt icon.
 
 ## 1.0.1
 

@@ -1932,7 +1932,7 @@ end
 -- repaints the one cell that changed, and because the client sends no UNIT_HEALTH for a "raid7target"
 -- token, every target cell is repainted four times a second (FG.PVP_EVERY).
 
-FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
+FG.PVP_W = math.floor(FRAME_W / 2)       -- half a member cell: about square (Arn, 8 Nov: "more square less rectagle")
 
 -- IS THEIR TARGET CASTING? (Arn, 8 Nov 2026: "class appropriate interrupt icon and un alpha it when they are casting
 -- or channeling"). Forever hides WHAT another unit casts, never THAT it casts: UnitCastingDuration /
@@ -1944,7 +1944,7 @@ FG.KICK = {
     WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
 }
 FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
-FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 14, 1.35
+FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 20, 1.35
 
 --- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
 --- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
@@ -2032,7 +2032,7 @@ function FG.Casting(tok)
     return false
 end
 FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
-FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
+FG.PVP_CHARS = 6                         -- letters of a name a target cell holds (6 since it is half a cell wide)
 FG.PVP_BAR_H = nil                       -- (was a 6 px strip; since 8 Nov the health fills the cell)
 FG.PVP_FRIEND = { 0.20, 0.75, 0.30 }     -- green: a friend; the red is FG.HOSTILE, as on the target cell
 FG.PVP_GOLD = { 1.00, 0.78, 0.20 }       -- the team's focus, the gold the grid already uses for "you"

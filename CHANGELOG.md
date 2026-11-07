@@ -8,6 +8,7 @@
 - **The mouse bind window lights up under the mouse.** The modifier tabs, the little rank number on a button, the trinket ticks, the pings and the heals along the bottom all light up when you point at them, so you can see what a click will hit. So does the spell to drag in the mana-for-mana window.
 - **Which version you have, on the mouse bind window.** Its bottom-right corner shows the version faintly (and, on a test copy, which build it is).
 - **Escape closes the mana-for-mana window and the `/bish heals` box.**
+- **The Tank button only shows in a group.** Alone there is no tank to find, so it leaves BiS> now until you join a party or raid.
 
 ## 0.16.0
 

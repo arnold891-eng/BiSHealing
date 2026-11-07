@@ -7523,6 +7523,13 @@ do
         _G.IsInInstance = function() return true, "pvp" end
         ok(hasTank(), "a battleground keeps it")
         _G.IsInInstance = keepII
+        -- NO TANK BUTTON ALONE (Arn, 6 Nov: "if im not in a party dont show this button")
+        local keepIG = _G.IsInGroup
+        _G.IsInGroup = function() return false end
+        ok(not hasTank(), "not in a group: no Tank button")
+        _G.IsInGroup = function() return true end
+        ok(hasTank(), "in a party or a raid: back")
+        _G.IsInGroup = keepIG
         d.tankSize, d.tankLift = 999, -999
         ok(FN.TankSize(d) == 200 and FN.TankLift(d) == -40, "out-of-range settings are held to the stepper's ends")
         local keys = {}

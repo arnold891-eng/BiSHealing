@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 0.17.0
 
 - **Right-click the minimap button for your mouse binds.** Left-click still opens the options window.
 - **Clearer windows.** In the options window (and the minimap menu) every button, box and row lights up under the mouse, the window is 20% bigger, and the bottom strip shows which version you are on until you hover a setting.

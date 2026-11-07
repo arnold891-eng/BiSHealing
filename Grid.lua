@@ -2393,6 +2393,15 @@ function FG.MakePvP(i, parent)
     if c.kick.SetTexCoord then c.kick:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
     c.kick:SetTexture(FG.KickIcon())
     c.kick:SetAlpha(FG.KICK_DIM)
+    -- ITS COOLDOWN (Arn, 8 Nov: "i interuppt bit it still looks like i can click it again"): a sweep over the icon, run
+    -- by the client from the duration object it hands us for our own spell (FG.PvPCooldown) - no number read
+    local okCd, cd = pcall(CreateFrame, "Cooldown", nil, c.kickFx, "CooldownFrameTemplate")
+    if okCd and cd then
+        cd:SetAllPoints(c.kickFx)
+        if cd.SetDrawBling then cd:SetDrawBling(false) end
+        if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+        c.kickCd = cd
+    end
     -- it lights under the mouse (the family rule) and says what a click does
     c.kickFx:SetScript("OnEnter", function(self)
         if c.kickFriend then return end             -- a friend's cell has no icon to light or explain
@@ -2631,6 +2640,7 @@ end
 --- Somebody changed target. That one cell and the focus; a unit we cannot read means all of them.
 function FG.PvPHeard(event, unit)
     if not FG.pvpShowing then return end
+    if event == "SPELL_UPDATE_COOLDOWN" then return FG.PvPCooldown() end
     if event == "PLAYER_TARGET_CHANGED" then unit = "player" end
     local u = NS.Plain(unit)
     local c = type(u) == "string" and FG.pvpByUnit[u] or nil
@@ -2655,10 +2665,27 @@ function FG.PvPListen(on)
         ev:SetScript("OnEvent", function(_, event, unit) FG.PvPHeard(event, unit) end)
         FG.pvpEvents = ev
     end
-    for _, e in ipairs({ "UNIT_TARGET", "PLAYER_TARGET_CHANGED" }) do
+    -- SPELL_UPDATE_COOLDOWN: your interrupt's sweep on every target cell (FG.PvPCooldown), heard only while PvP shows
+    for _, e in ipairs({ "UNIT_TARGET", "PLAYER_TARGET_CHANGED", "SPELL_UPDATE_COOLDOWN" }) do
         if on then pcall(ev.RegisterEvent, ev, e) else pcall(ev.UnregisterEvent, ev, e) end
     end
+    if on then FG.PvPCooldown() end
     return on
+end
+
+--- Your interrupt's cooldown, on every target cell's icon: one ask of the client (a duration object for our own spell,
+--- secret or not), handed to each sweep untouched. Nothing trained: nothing asked. The client runs the sweep.
+function FG.PvPCooldown()
+    local name = FG.KickSpell()
+    local get = C_Spell and C_Spell.GetSpellCooldownDuration
+    if not (name and get) then return false end
+    local ok, dur = pcall(get, name)
+    if not ok then return false end
+    for _, c in ipairs(FG.pvpCells or {}) do
+        local cd = c.kickCd
+        if cd and cd.SetCooldownFromDurationObject then pcall(cd.SetCooldownFromDurationObject, cd, dur) end
+    end
+    return true
 end
 
 ---------------------------------------------------------------------- paint --

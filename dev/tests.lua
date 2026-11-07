@@ -741,6 +741,16 @@ _G.CreateFrame = function(kind, name, parent, template)
     end
     local made = realCreateFrame(kind, name, parent, template)
     if type(made) == "table" then made.__template = template end      -- which template, so a suite can ask
+    -- A COOLDOWN FRAME, as the client's: it takes a duration object (secret or not) and runs the sweep itself
+    if type(made) == "table" and kind == "Cooldown" then
+        function made:SetCooldownFromDurationObject(o) self.__durObj = o end
+        function made:SetCooldown(s, d) self.__start, self.__dur = s, d end
+        function made:Clear() self.__durObj, self.__start, self.__dur = nil, nil, nil end
+        function made:SetDrawBling(v) self.__bling = v end
+        function made:SetDrawEdge(v) self.__edgeOn = v end
+        function made:SetHideCountdownNumbers(v) self.__noNumbers = v end
+        function made:SetSwipeColor(...) self.__swipe = { ... } end
+    end
     return made
 end
 
@@ -10866,6 +10876,23 @@ do
        tostring(kb:GetAttribute("*spell-kick")))
     ok(kb:GetAttribute("unit") == tok, "at that teammate's target", tostring(kb:GetAttribute("unit")))
     ok(kb.__mouse ~= false, "and it takes the click")
+    -- ITS COOLDOWN SHOWS (Arn, 8 Nov: "right now i interuppt bit it still looks like i can click it again ... no cooldown
+    -- indicator"): a sweep over the icon, run by the client from a duration object it hands us for our own spell -
+    -- never a number read. Asked when the client says a cooldown changed (SPELL_UPDATE_COOLDOWN), only while PvP shows.
+    local durAsked, durObj = {}, { duration = 12 }
+    local keepDur = _G.C_Spell.GetSpellCooldownDuration
+    _G.C_Spell.GetSpellCooldownDuration = function(s) durAsked[#durAsked + 1] = s return durObj end
+    ok(kc.kickCd and kc.kickCd.__kind == "Cooldown", "the icon carries a cooldown sweep")
+    local ev = FG.pvpEvents
+    ok(ev and ev.__events and ev.__events.SPELL_UPDATE_COOLDOWN, "PvP mode listens for cooldown changes while it shows")
+    ev.__scripts.OnEvent(ev, "SPELL_UPDATE_COOLDOWN")
+    ok(durAsked[1] == "Earth Shock" and kc.kickCd.__durObj == durObj,
+       "your interrupt's cooldown handed to the sweep as the client gave it", tostring(durAsked[1]))
+    local hiddenObj = secretString()
+    _G.C_Spell.GetSpellCooldownDuration = function() return hiddenObj end
+    ok(pcall(ev.__scripts.OnEvent, ev, "SPELL_UPDATE_COOLDOWN") and kc.kickCd.__durObj == hiddenObj,
+       "a hidden answer is handed on untouched, never tested")
+    _G.C_Spell.GetSpellCooldownDuration = keepDur
     kb.__scripts.OnEnter(kb)
     ok(kc.kickGlow:IsShown(), "under the mouse it lights (the family rule)")
     kb.__scripts.OnLeave(kb)

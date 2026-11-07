@@ -9,6 +9,7 @@
   - Missing health as **amber digits** on the right, just above the tape.
   - Heals on their way in **cyan**, the shield in white, overheal in **orange**.
   - Your target marked in **magenta**; DEAD in red, OFFLINE in amber.
+- **PvP mode: the interrupt icon shows its cooldown.** After you interrupt, a sweep runs over the icon on every target cell until it's ready again, so you can see at a glance when you can't kick yet.
 - Prefer the old look? **Options > look: classic** (or `/bish look classic`) puts every cell back as it was, at once.
 
 ## 1.0.2

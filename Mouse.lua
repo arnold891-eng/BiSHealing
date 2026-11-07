@@ -1303,6 +1303,9 @@ end
 --- back).
 function FM.ResNow(cell)
     if FM.fighting or (InCombatLockdown and InCombatLockdown()) then return nil end
+    -- a PvP team-target cell (Grid.lua): its token is whoever a teammate has targeted, an enemy as often as not and
+    -- someone else a second later - the all-res, written once out of combat, has no place on it
+    if cell and cell.__pvp then return nil end
     local unit = cell and (cell.unit or (cell.GetAttribute and cell:GetAttribute("unit")))
     if type(unit) ~= "string" or (NS.Secret and NS.Secret(unit)) then return nil end
     local okP, player = pcall(UnitIsPlayer, unit)

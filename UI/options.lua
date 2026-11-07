@@ -190,6 +190,12 @@ function CFG.Sections()
                       DO.layout((v == "across" and "rows") or (v == "tanks" and "pyramid") or "columns")
                   end
               end },
+            -- PVP MODE (Arn, 8 Nov 2026): three answers, one row - off, only in battlegrounds and
+            -- arenas, or always. Starts off for everyone.
+            { key = "pvp", kind = "seg", label = "PvP mode", help = "Columns of 5, and beside each player a small cell with whoever they are targeting - click it to cast your binds on it. A gold edge marks the enemy most of your team is on. bg: only in battlegrounds and arenas.",
+              values = { "off", "bg", "on" },
+              get = function() return (NS.FG and NS.FG.PvPMode and NS.FG.PvPMode()) or "off" end,
+              set = function(_, v) if DO.pvp then DO.pvp(v) end end },
         } },
         -- "this client" held two diagnostics. "test the debuff marker" gave way to a setting on
         -- 22 Sep and "what can I see?" on the 23rd, when a player's three requests arrived at once.
@@ -471,6 +477,7 @@ function CFG.Status()
         say("crosshair", db.hover ~= false),
         say("LOS flash", db.flash ~= false),
         say("buff sound", sound and true or false),
+        "PvP " .. ((NS.FG and NS.FG.PvPMode and NS.FG.PvPMode()) or "off"),
     }, "  -  ")
 end
 

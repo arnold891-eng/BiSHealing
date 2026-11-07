@@ -122,6 +122,10 @@ local DEFAULTS = {
     color   = "class",   -- the bar: "class" colour, or "health" - red, amber, green as they drop
     scale   = 1,         -- the whole grid, 0.6 to 1.6; 1 is the size it was designed at
     buffQuiet = false,   -- no noise when a watched buff drops; it keeps the chosen id for later
+    -- PVP MODE (8 Nov 2026): columns of 5 and each member's target in a small cell beside them.
+    -- "off", "bg" (battlegrounds and arenas only) or "on". A new feature starts off - for a new
+    -- install and an existing save alike, and a nil reads "off" (NS.FG.PvPMode).
+    pvp     = "off",
     now     = false,     -- BiS> now: the block of buttons that matter right now, help first
     nowAt   = "under",   -- where it sits: top / left / right / under, or "free" once dragged
     nowPos  = nil,       -- where it was dragged to, from the middle of the screen
@@ -1565,6 +1569,45 @@ function NS.DO.pets(how)
     return want
 end
 
+--- PVP MODE (Arn, 8 Nov 2026): the grid in columns of 5, and beside each player a small cell with
+--- whoever THEY have targeted - click it and your binds cast on it. off / bg (battlegrounds and
+--- arenas only) / on. No argument walks the three, like the options row.
+local PVP_WORDS = { off = "off", none = "off", no = "off", [false] = "off",
+                    bg = "bg", battleground = "bg", battlegrounds = "bg", arena = "bg", pvp = "bg",
+                    on = "on", always = "on", [true] = "on" }
+local PVP_NEXT = { off = "bg", bg = "on", on = "off" }
+local PVP_SAID = {
+    off = "PvP mode off - the grid as usual",
+    bg  = "PvP mode in battlegrounds and arenas: columns of 5, and beside each player their target - click it to cast on it",
+    on  = "PvP mode everywhere: columns of 5, and beside each player their target - click it to cast on it",
+}
+
+function NS.DO.pvp(how)
+    local d = DB()
+    local FG = NS.FG
+    local was = FG and FG.PvPMode and FG.PvPMode() or "off"
+    local want
+    if how == nil or how == "" then
+        want = PVP_NEXT[was] or "off"
+    else
+        want = PVP_WORDS[type(how) == "string" and how:lower() or how]
+        if not want then
+            Print("pvp: %s, %s or %s", "|cffb980ffoff|r", "|cffb980ffbg|r", "|cffb980ffon|r")
+            return was
+        end
+    end
+    d.pvp = want
+    local done = false
+    if not (InCombatLockdown and InCombatLockdown()) and FG and FG.Layout then
+        done = FG.Layout() and true or false
+    end
+    -- into the macro, the one place this client gives back (refused in a fight; the next save carries it)
+    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    -- nothing to queue in a fight: the grid lays out again the moment it ends, and reads d.pvp then
+    Print((PVP_SAID[want] or want) .. (done and "" or " - after this fight"))
+    return want
+end
+
 --- A cell for whoever you have targeted, under the grid. A player's request (paszczyszyn, 22 Sep).
 --- No argument flips it.
 function NS.DO.target(on)
@@ -1923,6 +1966,8 @@ function NS.DO.help()
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980fftot|r  and one for your target's target, beside it")
     Print("  |cffb980ffmana|r  the other healers' mana, in a block of its own")
+    Print("  |cffb980ffpvpmode|r |cffb980ffoff|r |cffb980ffbg|r |cffb980ffon|r  columns of 5, each player's"
+        .. " target beside them to click (bg = battlegrounds and arenas only)")
     Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
         .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
@@ -1968,6 +2013,7 @@ NS.SHORT = {
     buffsound = "bsnd", buffs = "bufs", markers = "mark", cures = "cure", trinkets = "trin",
     hover = "hov", flash = "flsh", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
     across = "rows", saved = "db", macro = "keep",
+    pvpmode = "pvp",
 }
 local LONG = {}
 for long, short in pairs(NS.SHORT) do LONG[short] = long end
@@ -2022,6 +2068,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.pets()
     elseif msg:match("^pets?%s+%a+$") then
         NS.DO.pets(msg:match("^pets?%s+(%a+)$"))
+    elseif msg == "pvpmode" or msg == "pvp" then
+        NS.DO.pvp()
+    elseif msg:match("^pvpmode%s+%a+$") or msg:match("^pvp%s+%a+$") then
+        NS.DO.pvp(msg:match("^%a+%s+(%a+)$"))
     elseif msg == "target" or msg == "targetcell" then
         NS.DO.target()
     elseif msg:match("^target%s+%a+$") then

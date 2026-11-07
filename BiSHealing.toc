@@ -3,7 +3,7 @@
 ## Category: |cffb980ffBiS>|rAddons
 ## Notes: Click-cast healing cells for any healer. The client draws what it will not let an addon read.
 ## Author: Kumlust
-## Version: 0.17.1
+## Version: 1.0.0
 ## OptionalDeps: BiSTheme, Blizzard_AuraContainer
 ## SavedVariables: BiSHealingDB
 ## SavedVariablesPerCharacter: BiSHealingCharDB
@@ -15,6 +15,7 @@
 Libs\BiSTheme\Console.lua
 Libs\BiSTheme\Options.lua
 Libs\BiSTheme\Minimap.lua
+Libs\BiSTheme\Settings.lua
 Libs\RezComm-1.0\RezComm-1.0.lua
 Libs\LibBiSComm-1.0\LibBiSComm-1.0.lua
 

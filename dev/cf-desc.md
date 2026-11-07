@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (0.16.0)
+# BiS Healing — CurseForge page text (1.0.0)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 0.16.0 text (7 Nov, 1.0.0 - Forever 1.0): the mouse section says LEFT-click for
+the binds; "Settings" says right-click for the options, names the BiS> home in the game's options,
+and says a new install starts quiet (crosshair, LOS flash, buff sound and reminder off).
 
 Changed since the 0.11.0 text (5 Nov, 0.16.0): the buff buttons in BiS> now (after Weapon oil);
 `/bish buffs` in the command table; "Click a corpse to res it" brought up to 0.15.0 (any click, Revive
@@ -51,7 +55,7 @@ Forty names on the screen and one of them is about to die. You do not want a spe
 
 ## Your mouse, or Clique — your choice
 
-**Use ours:** click the minimap button (mouse binds are the first row) or type `/bish mouse`. You get a drawn mouse: drop a spell on the button you want to press. Left, right, middle, two thumb buttons, wheel up and wheel down, each with no modifier, Shift, Ctrl or Alt: 28 places.
+**Use ours:** left-click the minimap button or type `/bish mouse`. You get a drawn mouse: drop a spell on the button you want to press. Left, right, middle, two thumb buttons, wheel up and wheel down, each with no modifier, Shift, Ctrl or Alt: 28 places.
 
 - **Your heals, ready to drag.** A row of your trained healing spells sits in the window, each at your highest rank — drag one onto a button.
 - **Ranks are kept.** Drop Rank 4 and you get Rank 4, not the biggest one you know — the same bar for a third of the mana. Click the little number on a slot to step through your ranks.
@@ -110,7 +114,7 @@ Thick corner brackets with a tick in from each side, outlined so they read on an
 - **White on whoever your mouse is on** — hover a party or raid member's character in the world and their cell lights up, so you can see who that is on your frames.
 - **Target and mouse on the same person**: the corners stay red and the four ticks turn white.
 
-All of it keeps working inside dungeons and raids, where the game will not tell an addon who anyone is: the question is handed to the game and the game draws the mark. `/bish hover off` turns the mouse crosshair off.
+All of it keeps working inside dungeons and raids, where the game will not tell an addon who anyone is: the question is handed to the game and the game draws the mark. The mouse crosshair starts off on a new install: "mouse crosshair" in the options, or `/bish hover on`.
 
 ## Cells you can add
 
@@ -174,7 +178,11 @@ One exception, and it is there so you are never left guessing: on some PCs the g
 
 ## Settings
 
-Any click on the minimap button opens the options window — two columns, everything in it. Or type:
+Left-click the minimap button for your mouse binds, right-click it for the options — two columns, everything in it, also under **Esc > Options > AddOns > BiS> > BiS> Healing**, beside every other BiS addon you have.
+
+**A new install starts quiet:** only the main job is on — the cells, your binds, cure boxes, your heals over time, click-a-dead-friend res and the gold ring. The mouse crosshair, the LOS flash, the buff-drop sound and the buff reminder start off, each one a switch away in the options. Already using it? Everything you had stays as it was.
+
+Or type:
 
 | command | does |
 |---|---|

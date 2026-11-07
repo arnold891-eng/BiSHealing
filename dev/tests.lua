@@ -16,11 +16,13 @@
 -- that peeks fails this suite instead of a raid.
 
 local fail, checks = 0, 0
-local function ok(cond, what)
+local function ok(cond, what, ...)
     checks = checks + 1
     if not cond then
         fail = fail + 1
-        print("!! FOREVER: " .. what)
+        -- the third argument many checks pass is what was seen: print it beside the line
+        local seen = select("#", ...) > 0 and ("  [" .. tostring((...)) .. "]") or ""
+        print("!! FOREVER: " .. what .. seen)
     end
 end
 
@@ -119,8 +121,14 @@ local function newFrame(kind, name, parent)
     -- a frame laid over another remembers which (8 Oct 2026): the cell's ink layer covers the bar,
     -- and the fit check has to follow it there to measure the words on it
     function f:SetAllPoints(rel) self.__allpoints = rel or true end
-    function f:ClearAllPoints() self.points = {} end
+    -- and ClearAllPoints takes that away too, as the client's does (8 Nov 2026, the BiS> dashboard kit)
+    function f:ClearAllPoints() self.points = {} self.__allpoints = nil end
     function f:GetNumPoints() return #self.points end
+    -- WHAT A FRAME LISTENS TO, recorded (8 Nov 2026, the dashboard). A Button the client was not told
+    -- RegisterForClicks("RightButtonUp") never sees a right-click, and an auto no-op could not say so.
+    function f:EnableMouse(v) self.__mouse = v and true or false end
+    function f:IsMouseEnabled() return self.__mouse == true end
+    function f:RegisterForClicks(...) self.__clicks = { ... } end
     function f:GetPoint(i)
         local p = self.points[i or #self.points]
         if not p then return nil end
@@ -240,8 +248,9 @@ local function newFrame(kind, name, parent)
     -- no answer at all - which is how a bar could be drawn at any width and pass (23 Sep).
     function f:SetWidth(w) self.__w = w end
     function f:SetHeight(h) self.__h = h end
-    function f:GetWidth() return self.__w end
-    function f:GetHeight() return self.__h end
+    -- an unsized frame answers 0, as the client's does - never nil (8 Nov 2026, the BiS> page kit)
+    function f:GetWidth() return self.__w or 0 end
+    function f:GetHeight() return self.__h or 0 end
     function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
@@ -342,7 +351,7 @@ local function newFrame(kind, name, parent)
                 if type(a) == "table" then t.__point = { p, c or 0, d or 0 }
                 else t.__point = { p, a or 0, b or 0 } end
             end,
-            ClearAllPoints = function(t) t.points = {} end,
+            ClearAllPoints = function(t) t.points = {} t.__allpoints = nil end,
             __parent = self,
         })
     end
@@ -369,6 +378,7 @@ local function newFrame(kind, name, parent)
             GetText = function(self2) return self2.__text end,
             -- recorded (17 Oct 2026): "is the name centred beside the cure column" needs an answer
             SetJustifyH = function(self2, j) self2.__justify = j end,
+            SetJustifyV = function(self2, j) self2.__justifyV = j end,
             -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
             -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
             -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
@@ -483,6 +493,23 @@ STATE.hostileSecret = false
 _G.UnitCanAttack = function(_, u)
     if STATE.hostileSecret then return secret() end
     return STATE.hostile[u] and true or false
+end
+-- WHO IS IT (8 Nov 2026, PvP mode's team focus). The client answers a GUID for a unit that exists and
+-- NIL for one that does not: "party1target" while party1 targets nobody is nil, never "". Inside an
+-- instance it can be secret like a name (a string to type(), refusing everything else).
+-- STATE.guids[unit] is that unit's GUID; STATE.guidSecret[unit] hands back a secret one instead.
+STATE.guids, STATE.guidSecret = {}, {}
+_G.UnitGUID = function(u)
+    if not STATE.units[u] then return nil end
+    if STATE.guidSecret[u] then return secretString() end
+    return STATE.guids[u] or ("Player-0-" .. tostring(u))
+end
+-- WHERE YOU ARE, in the client's two answers: inside an instance or not, and which kind - "none",
+-- "pvp" (a battleground), "arena", "party", "raid". STATE.instance is the kind; nil is the open world.
+STATE.instance = nil
+_G.IsInInstance = function()
+    if STATE.instance then return true, STATE.instance end
+    return false, "none"
 end
 -- IS THIS PERSON EVEN HERE? EllesmereUI's raid frames say of this pair: "UnitIsDeadOrGhost /
 -- UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret)" - which is
@@ -6249,7 +6276,7 @@ do
             FM.Set("shift-", "wheelup", "Nature's Swiftness+Healing Wave(Rank 3)")
             ok(FM.BoostTip() == nil, "once a bind carries it, the tip is gone for good")
             w:Refresh()
-            ok(w.hint.__text == "drop a spell or a ping on a button", "and the hint line is the usual one again")
+            ok(w.hint.__text == "drop a spell, macro or ping on a button", "and the hint line is the usual one again")
             BOOK[30] = nil
             ok(FM.BoostTip() == nil, "and a class with no booster never sees it")
             for k in pairs(NS.DB().binds) do NS.DB().binds[k] = nil end
@@ -6453,17 +6480,19 @@ do
     ok(ran and b ~= nil, "the minimap button builds", tostring(b))
     if b then
         local click = b:GetScript("OnClick")
-        ok(click == NS.MM.Click, "the button's click is ours, not the shared menu")
-        -- RIGHT-CLICK, THE BINDS (Arn, 6 Nov: "right click opens binds window pls"). Left stays the options
-        -- window (binds still its first row); right goes straight to the mouse binds.
+        -- ONE STANDARD FOR THE FAMILY (Forever 1.0, Arn 7 Nov: "sometimes left click does one thing, sometimes
+        -- right click does another ... we gotta get everything on the same page"): the shared button's own
+        -- click, left = the main window (the mouse binds), right = the options. This SWAPS the 6 Nov order
+        -- ("right click opens binds window pls").
+        ok(NS.MM.Click == nil, "the click is the shared button's own, not one of ours")
         local realOptions, realMouse, opened, binds = NS.DO.options, NS.DO.mouse, 0, 0
         NS.DO.options = function() opened = opened + 1 end
         NS.DO.mouse = function() binds = binds + 1 end
         click(b, "LeftButton")
-        ok(opened == 1 and binds == 0, "left click: the options window", opened)
+        ok(binds == 1 and opened == 0, "left click: the mouse binds window", binds)
         click(b, "RightButton")
         NS.DO.options, NS.DO.mouse = realOptions, realMouse
-        ok(opened == 1 and binds == 1, "right click: the mouse binds window", binds)
+        ok(opened == 1 and binds == 1, "right click (no BiS> page on this client): the options window", opened)
         local lines = {}
         local keepTT = _G.GameTooltip
         _G.GameTooltip = { SetOwner = function() end, Show = function() end,
@@ -6471,7 +6500,7 @@ do
         b:GetScript("OnEnter")(b)
         _G.GameTooltip = keepTT
         local tip = table.concat(lines, "|")
-        ok(tip:find("right%-click  mouse binds") and tip:find("left%-click  options"), "the tooltip says which is which", tip)
+        ok(tip:find("left%-click  mouse binds") and tip:find("right%-click  options"), "the tooltip says which is which", tip)
         ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
         -- OUR click replaces the shared one, so it must ask for the shared unbury itself (Arn,
         -- 14 Oct: "bis healing stay dark after click" - EllesmereUI's backing over the icon)
@@ -6633,10 +6662,16 @@ do
             local c = sec.column or 1
             tall[c] = tall[c] + 1 + #sec.options
         end
-        ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- FIFTEEN ON THE RIGHT (8 Nov 2026, PvP mode, which Arn asked for in 1.0): one seg row, three
+        -- answers (off / bg / on), under "groups" where the grid's shape is chosen. Column 2 was at 14.
+        ok(tall[1] <= 14 and tall[2] <= 15, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
-        ok(#NS.UI.Rows() <= 21, "and the whole window has no more than twenty-one rows: " .. #NS.UI.Rows())
+        -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
+        -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
+        -- player can find - so the LOS flash and the buff reminder got rows
+        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above
+        ok(#NS.UI.Rows() <= 24, "and the whole window has no more than twenty-four rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -8557,7 +8592,7 @@ do
     ok(body:find("J=0") and type(back) == "table" and back.hover == false,
        "off is written into the macro and read back - it survives a login", body)
     ok(not NS.FK.Encode({}, {}):find("J="), "on is the default and writes nothing")
-    ok(NS.DO.hover("on") == true and d.hover == nil, "/bish hover on")
+    ok(NS.DO.hover("on") == true and d.hover == true, "/bish hover on (stored as true since 1.0: nil never means on)")
     hoverIs = nil
     _G.UnitExists = keepUE
     _G.UnitIsUnit = keepIsUnit
@@ -9784,6 +9819,1035 @@ do
     _G.__BUILD = nil
     w:Refresh()
     w:Hide()
+end
+
+-- ============================================================== FOREVER 1.0 (7 Nov 2026)
+-- Arn: "every new user that we get will have every module turned off ... that includes like sounds,
+-- crosshairs" - BUT "all the main functionalities start on". And: "everybody that already has the addons
+-- installed, I don't wanna change default settings that they have on".
+--
+-- Driven through the REAL event handler, as a login is: ADDON_LOADED (the raw table, before anything
+-- merges defaults), then PLAYER_LOGIN with no user action. The server macro is the third witness: a
+-- client that hands back no saved file still has it.
+do
+    local FS, FG, FK = NS.FS, NS.FG, NS.FK
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    local heard = {}
+    local function said(p)
+        for _, l in ipairs(heard) do if l:find(p, 1, true) then return true end end
+        return false
+    end
+    local keptMacros = {}
+    for i, m in pairs(MACROS) do keptMacros[i] = m end
+    local function noMacro() for i in pairs(MACROS) do MACROS[i] = nil end end
+    local function ourMacro()
+        noMacro()
+        MACROS[121] = { name = "BiSHealing", icon = 134400,
+                        body = asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, {})) }
+    end
+    local keepDB, keepChar, keepRead = _G.BiSHealingDB, _G.BiSHealingCharDB, FK.read
+    local keepUE, keepIU = _G.UnitExists, _G.UnitIsUnit
+    -- the mouse is on party1: a crosshair, if it is on, is drawn on their cell
+    _G.UnitExists = function(u) if u == "mouseover" then return true end return keepUE(u) end
+    _G.UnitIsUnit = function(a, b)
+        if b == "mouseover" then return a == "party1" end
+        return keepIU(a, b)
+    end
+    local cell
+    for _, f in ipairs(FG.frames or {}) do if f.unit == "party1" and f.hoverMark then cell = f end end
+    local function login(db, char)
+        _G.BiSHealingDB, _G.BiSHealingCharDB = db, char
+        heard = {}
+        _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = tostring(t) end }
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        fire(NS.events, "PLAYER_LOGIN")
+        _G.DEFAULT_CHAT_FRAME = realChat
+        return NS.DB()
+    end
+
+    -- (a) A NEW INSTALL: no account file, no per-character copy, no macro - and the list is in, so
+    -- "no macro" is an answer
+    noMacro()
+    FK.read = true
+    local d = login(nil, nil)
+    ok(d.forever10 == true, "a new install is stamped, once")
+    ok(d.hover == false and d.flash == false and d.buffQuiet == true,
+       "a new install starts quiet: no crosshair, no LOS flash, no buff-drop sound",
+       tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet))
+    ok(FS.Watching() == false and #FS.List() == 0 and FS.Word() == nil,
+       "and no buff reminder in the header")
+    ok(FS.Quiet() and select(2, FS.Sounds()) == "off", "the sound is not registered at all")
+    ok(cell and FG.PaintHover(cell, "party1") == false and not cell.hoverMark.__shown,
+       "LIVE after the login: the mouse on a cell draws no crosshair")
+    ok(d.shown == true and d.hots == true and d.ring == "me" and d.cures ~= false and d.resClick ~= false,
+       "the core is on: the cells, your HoTs, the gold ring, cure boxes, click-a-dead-friend res")
+    ok(NS.FM.Get("", "left") ~= nil, "and the mouse is seeded with the class's heals", tostring(NS.FM.Get("", "left")))
+    ok(d.between == false and d.now == false and d.buffs ~= true and d.target == false and d.tot == false
+       and d.me == false and d.mana == false and d.pets == "off",
+       "every other extra is off: reminders in chat, BiS> now, buff buttons, target/tot/me/mana, pets")
+    ok(not said("did not hand back"), "and no red warning: a new install had no file to lose")
+    -- (c) a second load changes nothing - and what the player switched on since stays on
+    NS.DO.hover("on")
+    d = login(_G.BiSHealingDB, _G.BiSHealingCharDB)
+    ok(d.hover == true and d.flash == false and d.buffQuiet == true and d.forever10 == true,
+       "the next login changes nothing: the crosshair the player turned on stays on, the rest stays quiet",
+       tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet) .. " " .. tostring(d.forever10))
+    -- AN ALT THAT HAS NEVER LOGGED OUT (no per-character copy): it takes its own per-character things
+    -- (NS.Claim) - and the account's SETTINGS stay. Claim used to copy the copy's `dbver` too, which an
+    -- alt without one handed back as nil: the next DB() ran the migration again, dropped every setting
+    -- and moved the stamp to the attic, so the quiet new install came back loud on its first alt.
+    d.owner = "Mainchar-Realm"
+    d.hover, d.flash = false, false
+    d = login(_G.BiSHealingDB, nil)
+    ok(d.owner == NS.Me() and d.forever10 == true and d.hover == false and d.flash == false and d.buffQuiet == true,
+       "logging into a new alt keeps the account's quiet settings and its stamp",
+       tostring(d.forever10) .. " " .. tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet))
+    ok(d.dbver == NS.DBVER, "and the table's version", tostring(d.dbver))
+
+    -- (b) AN EXISTING SAVE, from before 1.0: nil meant ON for the crosshair and the LOS flash. They are
+    -- written down as on, so a nil can never be read any other way again
+    local old = { dbver = 1, owner = NS.Me(), savedAt = 1700000000, saves = 12, shown = true,
+                  binds = { left = "Chain Heal" }, bindsSeeded = true, buffQuiet = false }
+    d = login(old, nil)
+    ok(d.forever10 == true and d.hover == true and d.flash == true,
+       "an existing save keeps the crosshair and the LOS flash on - frozen as true",
+       tostring(d.hover) .. " " .. tostring(d.flash))
+    ok(d.buffQuiet == false and FS.Watching() and FS.List()[1] == "Water Shield",
+       "its buff sound and its header reminder stay exactly as they were")
+    ok(d.binds.left == "Chain Heal", "and its binds")
+    ok(cell and FG.PaintHover(cell, "party1") == true, "LIVE: its crosshair still draws after the login")
+    ok(not said("did not hand back"), "a file that came back: no warning")
+    -- an existing save that had things OFF keeps them off
+    d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, hover = false, flash = false, buffQuiet = true,
+                selfBuffs = { "Inner Fire" } }, nil)
+    ok(d.hover == false and d.flash == false and d.buffQuiet == true and FS.List()[1] == "Inner Fire",
+       "an existing save with things switched off keeps them off, and its own buff list")
+    local snap = { d.hover, d.flash, d.buffQuiet, d.selfBuffs and d.selfBuffs[1] }
+    d = login(_G.BiSHealingDB, nil)
+    ok(d.hover == snap[1] and d.flash == snap[2] and d.buffQuiet == snap[3] and d.selfBuffs[1] == snap[4],
+       "(c) and its second 1.0 login changes nothing either")
+
+    -- (d) THE CLIENT LOST THE ACCOUNT FILE but the per-character copy came back: an existing user
+    d = login(nil, { binds = { left = "Healing Wave(Rank 2)" }, bindsSeeded = true, savedAt = 5, saves = 2 })
+    ok(d.hover == true and d.flash == true and d.buffQuiet == false,
+       "a per-character copy and no account file = an EXISTING user, never quietened")
+    ok(said("did not hand back"), "and the red warning says the file was lost")
+
+    -- (e) BOTH FILES LOST, the macro still on the server: an existing user too
+    ourMacro()
+    d = login(nil, nil)
+    ok(d.forever10 == true and d.hover == true and d.flash == true and d.buffQuiet == false,
+       "only the server macro left = an EXISTING user")
+    ok(said("did not hand back"), "and the warning fires for them")
+
+    -- (f) THE MACRO LIST NOT IN YET at login: "no macro" is not an answer, so nothing is decided -
+    -- the old behaviour stands until the client says the list is in
+    noMacro()
+    FK.read = false
+    d = login(nil, nil)
+    ok(d.forever10 == nil and d.hover == nil, "the macro list not in yet: nothing decided, nothing written",
+       tostring(d.forever10))
+    ok(not said("did not hand back"), "and no warning on a guess")
+    ourMacro()
+    heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = tostring(t) end }
+    fire(NS.events, "UPDATE_MACROS")
+    _G.DEFAULT_CHAT_FRAME = realChat
+    ok(d.forever10 == true and d.hover == true, "the list arrives holding our macro: existing, frozen on")
+    ok(said("did not hand back"), "and only now the warning")
+    noMacro()
+    FK.read = false
+    d = login(nil, nil)
+    fire(NS.events, "UPDATE_MACROS")
+    ok(d.forever10 == true and d.hover == false and d.buffQuiet == true,
+       "the list arrives with no macro of ours: a new install, quiet")
+
+    -- THE SWITCHES STORE WHAT THEY SAY: nil never means "on" again
+    ok(NS.DO.hover("on") == true and d.hover == true, "/bish hover on stores true", tostring(d.hover))
+    ok(NS.DO.hover("off") == false and d.hover == false, "/bish hover off stores false")
+    ok(NS.DO.flash("on") == true and d.flash == true, "/bish flash on stores true", tostring(d.flash))
+    ok(NS.DO.flash("off") == false and d.flash == false, "/bish flash off stores false")
+
+    -- EVERY QUIETED THING HAS A SWITCH IN THE OPTIONS WINDOW, so a new player can turn it on
+    local keys = {}
+    for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = o end
+    ok(keys.hover and keys.flash and keys.buffsound and keys.buffwatch,
+       "the options window has the crosshair, the LOS flash, the buff sound and the buff reminder")
+    if keys.flash and keys.buffwatch then
+        keys.flash.set(d, true)
+        ok(keys.flash.get(NS.DB()) == true and d.flash == true, "the LOS flash row turns it on")
+        d.selfBuffs = { "Inner Fire" }
+        keys.buffwatch.set(d, false)
+        ok(keys.buffwatch.get(NS.DB()) == false and #FS.List() == 0 and d.selfBuffs[1] == "Inner Fire",
+           "the reminder row turns it off - and keeps the player's own list for later")
+        keys.buffwatch.set(d, true)
+        ok(keys.buffwatch.get(NS.DB()) == true and FS.List()[1] == "Inner Fire", "and on again: the same list")
+        NS.DO.buff("off")
+        ok(FS.Watching() == false, "/bish buff off")
+        NS.DO.buff("on")
+        ok(FS.Watching() == true and FS.List()[1] == "Inner Fire", "/bish buff on")
+        d.selfBuffs = { none = true }
+        keys.buffwatch.set(d, true)
+        ok(d.selfBuffs == nil and FS.List()[1] == "Water Shield", "on with no list of its own: the class's usual")
+    end
+
+    -- THE BiS> PAGE in the game's options (Esc > Options > AddOns > BiS> > BiS> Healing). The game's
+    -- Settings stands in the way BiSTheme's own suite stands it in: a subcategory needs a registered
+    -- parent, and every category answers GetID.
+    local T = BiSTheme
+    local reg, opened, nextId = {}, {}, 0
+    local function Category(name)
+        nextId = nextId + 1
+        local c = { name = name, id = nextId }
+        function c:GetID() return self.id end
+        reg[c.id] = c
+        return c
+    end
+    _G.Settings = {
+        RegisterCanvasLayoutCategory = function(frame, name) local c = Category(name) c.frame = frame return c, {} end,
+        RegisterAddOnCategory = function(c) c.addon = true end,
+        RegisterCanvasLayoutSubcategory = function(parent, frame, name)
+            if not (parent and parent.addon) then error("parent category is not registered") end
+            local c = Category(name) c.frame, c.parentCat = frame, parent
+            return c, {}
+        end,
+        OpenToCategory = function(id) if not reg[id] then return false end opened[#opened + 1] = reg[id].name return true end,
+    }
+    if not (T and T.SettingsPage) then
+        local loaded, why = pcall(function() assert(loadfile("Libs/BiSTheme/Settings.lua"))() end)
+        ok(loaded, "the shared Settings kit loads headless", tostring(why))
+        T = BiSTheme
+    end
+    T.settingsRoot, T.settingsPages, T.settingsOrder = nil, {}, {}
+    ok(NS.CFG.events and NS.CFG.events.__events and NS.CFG.events.__events.PLAYER_LOGIN,
+       "the page is registered at PLAYER_LOGIN")
+    fire(NS.CFG.events, "PLAYER_LOGIN")
+    local page = T.settingsPages.BiSHealing
+    local spec = page and page.spec
+    ok(page and page.category and page.category.name == "BiS> Healing", "BiS> Healing is a page under BiS>")
+    ok(spec and spec.title == "Healing" and spec.open and spec.open.label == "mouse binds"
+       and spec.api and spec.api.name == "BiSHealingAPI", "its title, its big button (mouse binds) and its API")
+    d.shown, d.hover, d.flash, d.buffQuiet = true, false, false, true
+    local status = spec and spec.status and spec.status()
+    ok(type(status) == "string" and status:find("frames on", 1, true) and status:find("crosshair off", 1, true),
+       "status says what is on, in a few words", tostring(status))
+    local opened0 = 0
+    local realMouse = NS.DO.mouse
+    NS.DO.mouse = function() opened0 = opened0 + 1 end
+    if spec and spec.open then spec.open.func() end
+    NS.DO.mouse = realMouse
+    ok(opened0 == 1, "its big button opens the mouse binds")
+    -- THE PAGE NEVER TAKES THE WINDOW (kit minor 2, Arn 7 Nov: "dont just shrink remake them all"): the
+    -- options window stays where it is, its own size, hidden - the page offers a button to it instead
+    local win = NS.CFG.Build()
+    ok(win ~= nil, "the options window builds")
+    if win then
+        win:Hide()
+        local parent0, scale0, points0 = win:GetParent(), win:GetScale(), win:GetNumPoints()
+        T.ShowSettingsPage("BiSHealing")
+        ok(win:GetParent() == parent0 and win:GetScale() == scale0 and win:GetNumPoints() == points0,
+           "showing the page leaves the options window's parent, scale and place alone",
+           tostring(win:GetScale()) .. " was " .. tostring(scale0))
+        ok(not win:IsShown(), "and leaves it hidden")
+        -- THE DASHBOARD (kit minor 3, the family rule - Arn, 8 Nov: "it looks way way better do it for the
+        -- other ones"): every section down the left, the picked one's settings big on the right
+        ok(spec and type(spec.build) == "function" and type(spec.refresh) == "function",
+           "the page draws the kit's dashboard: build and refresh")
+        local body = page and page.frame and page.frame.body
+        local dash = body and body.dash
+        local entries = (NS.CFG.Entries and NS.CFG.Entries()) or {}
+        ok(dash ~= nil and #dash.rows == #entries and #entries >= 4 and #entries <= 12,
+           "showing the page builds the dashboard: one row per section", dash and #dash.rows)
+        ok(not (page.frame.optBtn and page.frame.optBtn:IsShown()), "no stand-in button to the window any more")
+        if dash then
+            local function entryRow(key)
+                for _, r in ipairs(dash.rows) do if r.entry.key == key then return r end end
+            end
+            local function dashRow(key, opt)
+                for _, r in ipairs(dash.pages[key] or {}) do if r.opt.key == opt then return r end end
+            end
+            local titles = {}
+            for i, r in ipairs(dash.rows) do titles[i] = r.entry.title end
+            local all = table.concat(titles, " | ")
+            ok(all:find("frames", 1, true) and all:find("binds & clicks", 1, true) and all:find("layout", 1, true)
+               and all:find("BiS> now", 1, true), "the sections: " .. all)
+            local hears, ownSize = true, true
+            for _, r in ipairs(dash.rows) do
+                local right = false
+                for _, c in ipairs(r.__clicks or {}) do if c == "RightButtonUp" then right = true end end
+                if not right then hears = false end
+                if r.lamp.__allpoints or r.bar.__allpoints then ownSize = false end
+            end
+            ok(hears and ownSize, "every list row hears a right-click; its lamp and bar are their own size")
+            -- EVERY SECTION BUILDS: the kit has four kinds, and the window's `cells` row arrives as four toggles
+            for _, e in ipairs(dash.entries) do
+                local okP, why = pcall(dash.Select, dash, e.key)
+                ok(okP and #(dash.pages[e.key] or {}) == #(e.options or {}) and type(e.desc) == "string" and e.desc ~= "",
+                   "a section builds, with its words: " .. tostring(e.title), tostring(why))
+            end
+            -- PICKING ONE shows its rows, and only its rows
+            dash:Select("layout")
+            local labels, shown = {}, true
+            for i, r in ipairs(dash.pages.layout or {}) do labels[i] = r.opt.label if not r:IsShown() then shown = false end end
+            ok(shown and table.concat(labels, "|"):find("PvP mode", 1, true), "layout shows its rows, PvP mode among them",
+               table.concat(labels, "|"))
+            ok(dash.pages.frames and not dash.pages.frames[1]:IsShown(), "the section picked before puts its rows away")
+            -- A SETTING FLIPPED ON THE PAGE is the window's own setting: the same table, the same saved value
+            local pvp = dashRow("layout", "pvp")
+            local winRow
+            for _, r in ipairs(win.rows or {}) do if r.opt and r.opt.key == "pvp" then winRow = r end end
+            ok(pvp and winRow and pvp.opt == winRow.opt, "the page's PvP row is the window's row")
+            if pvp and winRow then
+                local keepPvP = NS.FG.PvPMode()
+                pvp.segs[2]:Click()                                  -- "bg"
+                ok(NS.FG.PvPMode() == "bg" and NS.UI.Get("pvp") == "bg", "PvP mode set to bg from the page",
+                   tostring(NS.FG.PvPMode()))
+                win:Paint()
+                ok(winRow.ctl[2].edge.name == "accent" and winRow.ctl[1].edge.name ~= "accent",
+                   "and the window's row says bg after its paint")
+                winRow.ctl[1]:Click()                                -- "off", from the window
+                dash:Paint()
+                ok(NS.FG.PvPMode() == "off" and pvp.segs[1].on and not pvp.segs[2].on, "set back in the window: the page follows")
+                NS.DO.pvp(keepPvP)
+            end
+            -- the window's `colour` setting from the page: the saved value the window reads
+            dash:Select("look")
+            local colour = dashRow("look", "colour")
+            local was = NS.DB().color
+            if colour then colour.sw:Click() end
+            ok(colour and NS.UI.Get("colour") == (was ~= "health") and colour.sw.on == (was ~= "health"),
+               "bar colour by health flipped on the page: saved, and the switch says so")
+            if colour then colour.sw:Click() end
+            -- A SECTION SWITCH goes through the slash command's own door (NS.DO.show)
+            local calls = {}
+            local realShow = NS.DO.show
+            NS.DO.show = function(on) calls[#calls + 1] = on return realShow(on) end
+            dash:Select("frames")
+            dash.detail.switch:Click()
+            local fr = entryRow("frames")
+            ok(#calls == 1 and calls[1] == false and NS.DB().shown == false and fr and fr.state:GetText() == "off",
+               "the frames switch: NS.DO.show(false), saved, the list says off", #calls)
+            ok(dash.pages.frames[1].dim == true, "its settings grey while the cells are hidden")
+            SlashCmdList.BISHEALING("show")
+            T.ShowSettingsPage("BiSHealing")                         -- the page shown again: refresh paints it
+            ok(#calls == 2 and calls[2] == true and NS.DB().shown == true and fr.state:GetText() == "ON"
+               and dash.detail.switch.on == true, "/bish show goes through the same door, and the page follows")
+            NS.DO.show = realShow
+            -- RIGHT-CLICK in the list switches BiS> now, through NS.DO.now
+            local nowCalls = {}
+            local realNow = NS.DO.now
+            NS.DO.now = function(a) nowCalls[#nowCalls + 1] = a return realNow(a) end
+            local nowWas = NS.DB().now == true
+            local nr = entryRow("now")
+            if nr then nr:Click("RightButton") end
+            ok(nr and nowCalls[1] == (nowWas and "off" or "on") and (NS.DB().now == true) == not nowWas,
+               "right-click on BiS> now switches it through /bish now", tostring(nowCalls[1]))
+            if nr then nr:Click("RightButton") end
+            ok((NS.DB().now == true) == nowWas, "and back")
+            NS.DO.now = realNow
+            -- binds & clicks: its window button is the mouse binds; a button row that opens a window puts the
+            -- game's options away first, and the mana window opens free, not hung off a hidden options window
+            dash:Select("clicks")
+            local binds = 0
+            NS.DO.mouse = function() binds = binds + 1 end
+            local panelUp = true
+            _G.SettingsPanel = { IsShown = function() return panelUp end, Hide = function() panelUp = false end }
+            dash.detail.open:Click()
+            ok(binds == 1 and panelUp == false and dash.detail.open:IsShown(), "its window button: the mouse binds, game options away")
+            NS.DO.mouse = realMouse
+            local eff = dashRow("clicks", "efficiency")
+            panelUp = true
+            if eff then eff.btn:Click() end
+            local fw = NS.FE and NS.FE.win
+            ok(eff and panelUp == false and fw and fw:IsShown() and fw:GetParent() == UIParent,
+               "which heal, from the page: game options away, the mana window free in the middle")
+            if fw then fw:Hide() end
+            _G.SettingsPanel = nil
+        end
+        ok(not win:IsShown() and win:GetParent() == parent0 and win:GetScale() == scale0 and win:GetNumPoints() == points0,
+           "after all of it the options window is where it was, its own size, hidden")
+        win:Show()
+        T.HideSettingsPage("BiSHealing")
+        ok(win:IsShown() and win:GetParent() == parent0, "leaving the page does not touch the window")
+        win:Hide()
+    end
+
+    -- THE MINIMAP, ONE STANDARD: left = the mouse binds, right = the addon's OWN options window, a toggle
+    -- (Arn 7 Nov: "when i right click the minimap again it should close that option window"). The game's
+    -- options are never opened by it, even with the BiS> page registered.
+    local b = NS.MM.Build()
+    ok(b ~= nil, "the minimap button builds")
+    if b and win then
+        local click = b:GetScript("OnClick")
+        local binds = 0
+        NS.DO.mouse = function() binds = binds + 1 end
+        local n0 = #opened
+        click(b, "RightButton")
+        ok(win:IsShown() and #opened == n0 and binds == 0,
+           "right-click: the options window shows - the game's options do not open", #opened - n0)
+        click(b, "RightButton")
+        ok(not win:IsShown() and #opened == n0, "right-click again: it closes")
+        click(b, "LeftButton")
+        ok(binds == 1 and not win:IsShown() and #opened == n0, "left-click: the mouse binds")
+        NS.DO.mouse = realMouse
+    end
+
+    _G.Settings = nil
+    T.settingsRoot, T.settingsPages, T.settingsOrder = nil, {}, {}
+    _G.UnitExists, _G.UnitIsUnit = keepUE, keepIU
+    noMacro()
+    for i, m in pairs(keptMacros) do MACROS[i] = m end
+    FK.read = keepRead
+    _G.BiSHealingDB, _G.BiSHealingCharDB = keepDB, keepChar
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+end
+
+-- BUGS FROM THE 7 NOV SWEEP
+do
+    -- (1) A REFUSED AURA BUTTON. FA.Placed noticed a refusal and then ran the marker's styling anyway -
+    -- outside any pcall - on a button the client had just refused. The styling (GetRegions,
+    -- CreateTexture, SetMouseMotionEnabled) is the same client's object: a refusal there threw out of
+    -- the client's own hand-over, every time an aura arrived.
+    local FA = NS.FA
+    local styled = 0
+    local forbidden = setmetatable({}, { __index = function(_, k)
+        error("Attempt to access forbidden object from code tainted by an AddOn (" .. tostring(k) .. ")", 2)
+    end })
+    FA.initRefused = nil
+    local init = FA.Placed(function(btn) styled = styled + 1 return btn:CreateTexture() end, 10, "LEFT", UIParent, 2, 0)
+    local ran, why = pcall(init, forbidden)
+    ok(ran, "a refused aura button never throws out of the client's hand-over", tostring(why))
+    ok(FA.initRefused and styled == 0, "the refusal is kept, and the styling is not run on it", styled)
+    -- a button that takes the size but refuses its art: the styling's throw stays inside
+    FA.initRefused = nil
+    local half = newFrame("Button")
+    half.CreateTexture = function() error("Attempt to access forbidden object from code tainted by an AddOn", 2) end
+    ran, why = pcall(init, half)
+    ok(ran and FA.initRefused, "a refusal inside the styling is caught and kept", tostring(why))
+    -- and a plain button is styled as always
+    FA.initRefused, styled = nil, 0
+    ran = pcall(init, newFrame("Button"))
+    ok(ran and styled == 1 and not FA.initRefused, "an ordinary button is sized, placed and styled")
+    FA.initRefused = nil
+
+    -- (2) THE HIDDEN CHECK FIRST. A secret string refuses a comparison on the client (`n == ""`); Lua 5.1
+    -- cannot make a table refuse `==` against a string, so the mock cannot be that client here. The
+    -- order is read from the source instead: the secret test before any comparison.
+    local function body(file, startPat)
+        local fh = assert(io.open(file))
+        local src = fh:read("*a")
+        fh:close()
+        local s = src:find(startPat)
+        return s and src:sub(s, s + 600) or ""
+    end
+    local me = body("Core.lua", "local function me%(%)")
+    local sec, cmp = me:find("issecretvalue", 1, true) or me:find("NS.Secret", 1, true), me:find('n == ""', 1, true)
+    ok(sec and cmp and sec < cmp, "me(): the name's hidden check comes before n == \"\"", tostring(sec) .. " " .. tostring(cmp))
+    local oil = body("Now.lua", "function FN%.OilEffect")
+    local osec, ocmp = oil:find("NS.Secret", 1, true), oil:find('text == ""', 1, true)
+    ok(osec and ocmp and osec < ocmp, "FN.OilEffect: the hidden check comes before text == \"\"",
+       tostring(osec) .. " " .. tostring(ocmp))
+    local realName = _G.UnitName
+    _G.UnitName = function(u) if u == "player" then return secretString() end return realName(u) end
+    local okMe, who = pcall(NS.Me)
+    _G.UnitName = realName
+    ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
+end
+
+-- ============================================================== HOSTILE BINDS AND MACROS (8 Nov 2026)
+-- Arn: "hostile mode > can drag harmful spells and if a cell is a hostile target use the hostile binds on them.
+-- can drag macros also on the binds." The hostile set is a second mouse; the client's own secure click code
+-- switches to it on an enemy (harmbutton), so nothing of ours runs at the click.
+do
+    local FM, FK, FG = NS.FM, NS.FK, NS.FG
+    -- A CLICK RESOLVED THE WAY BLIZZARD'S SecureActionButton DOES IT: the button number, remapped through
+    -- `harmbutton` when the unit is an enemy; then each attribute looked up with the held modifier's prefix, the
+    -- "*" wildcard, then bare. A remapped button is no number, so its suffix is "-" .. the new name.
+    local function resolve(cell, button, mod, hostile)
+        local function get(name, suffix)
+            for _, p in ipairs({ mod, "*", "" }) do
+                local v = cell.__attrs[p .. name .. suffix]
+                if v ~= nil then return v end
+            end
+        end
+        local b = button
+        if hostile then b = get("harmbutton", button) or button end
+        local suffix = tonumber(b) and b or ("-" .. b)
+        return get("type", suffix), get("spell", suffix), get("macro", suffix), get("macrotext", suffix)
+    end
+    local wasLeft = FM.Get("", "left")
+    FM.Set("", "left", "Healing Wave(Rank 3)")
+    FM.Set("harm:", "left", "Lightning Bolt(Rank 2)")
+    FM.Set("harm:shift-", "right", "Earth Shock(Rank 1)")
+    FM.Apply()
+    local cell = FG.frames[1]
+    local ty, sp = resolve(cell, "1", "", true)
+    ok(ty == "spell" and sp == "Lightning Bolt(Rank 2)", "a left click on an ENEMY casts the hostile bind", tostring(sp))
+    ty, sp = resolve(cell, "1", "", false)
+    ok(sp == "Healing Wave(Rank 3)", "on a friend: the heal, as before", tostring(sp))
+    ty, sp = resolve(cell, "2", "shift-", true)
+    ok(sp == "Earth Shock(Rank 1)", "shift-right on an enemy: its own hostile bind", tostring(sp))
+    ty, sp = resolve(cell, "2", "", true)
+    ok(cell.__attrs["*harmbutton2"] == nil, "a button with no hostile bind is not switched on an enemy")
+    FM.Clear("harm:", "left")
+    FM.Apply()
+    ok(cell.__attrs["*harmbutton1"] == nil and cell.__attrs["*type-harm1"] == nil and cell.__attrs["*spell-harm1"] == nil,
+       "a cleared hostile bind leaves nothing behind on the cell")
+    ok(FM.Get("", "left") == "Healing Wave(Rank 3)", "and the heal set never noticed")
+    -- the binds are their own: the range check and the heal palette read the heal set only
+    ok(FM.RangeSpell() ~= "Earth Shock" and FM.RangeSpell() ~= "Earth Shock(Rank 1)", "the range check never asks a hostile bind")
+
+    -- MACROS ON A BIND. The cursor carries ("macro", index) - the client's shape for a macro off the macro window.
+    MACROS[7] = { name = "Purge it", icon = 136075, body = "/cast [@mouseover] Purge" }
+    MACROS[8] = { name = "a;b", icon = 1, body = "/say hi" }
+    CURSOR = { kind = "macro", a = 7 }
+    local cast = FM.CursorSpell()
+    ok(cast == "macro:Purge it", "a macro picked up from the macro window is a bind: by its name", tostring(cast))
+    CURSOR = { kind = "macro", a = 8 }
+    ok(FM.CursorSpell() == nil, "a macro whose name would break the save is refused, not mangled")
+    CURSOR = { kind = "macro", a = 99 }
+    ok(FM.CursorSpell() == nil, "a macro index the client does not know: nothing")
+    CURSOR = {}
+    FM.Set("harm:", "middle", "macro:Purge it")
+    FM.Set("", "button4", "macro:Purge it")
+    FM.Apply()
+    local mty, msp, mmac, mtext = resolve(cell, "3", "", true)
+    ok(mty == "macro" and mmac == "Purge it" and msp == nil and mtext == nil,
+       "a hostile macro: the cell runs that macro on an enemy", tostring(mty) .. " " .. tostring(mmac))
+    mty, msp, mmac, mtext = resolve(cell, "4", "", false)
+    ok(mty == "macro" and mmac == "Purge it" and mtext == nil, "a macro on a heal bind runs on a friend too")
+    local rs = FM.RangeSpell()
+    ok(type(rs) ~= "string" or not rs:find("macro:", 1, true), "the range check never asks a macro its range", tostring(rs))
+    -- the save macro: hostile rows and macros survive the client's round trip (it adds a newline)
+    local binds = { left = "Healing Wave(Rank 3)", ["harm:left"] = "Lightning Bolt(Rank 2)",
+                    ["harm:shift-right"] = "macro:Purge it", ["shift-left"] = "macro:Purge it" }
+    local body = FK.Encode(binds)
+    local back = FK.Decode(body .. "\n")
+    ok(back and back["harm:left"] == "Lightning Bolt(Rank 2)" and back["harm:shift-right"] == "macro:Purge it"
+       and back.left == "Healing Wave(Rank 3)" and back["shift-left"] == "macro:Purge it",
+       "hostile binds and macros come back from the save macro", tostring(body))
+    -- AN OLDER COPY (1.0 before this, or 0.x) reading the new macro must see the heal binds and nothing else:
+    -- its row reader, verbatim - a one-letter modifier it knows (s c a) and a slot letter
+    local OLDSLOT = { l = "left", r = "right", u = "wheelup", d = "wheeldown", m = "middle", ["4"] = "button4", ["5"] = "button5" }
+    local OLDMOD = { s = "shift-", c = "ctrl-", a = "alt-" }
+    local old, n = {}, 0
+    local rest = body:match("#(.*)$") or ""
+    for row in rest:gmatch("[^;]+") do
+        local code = row:match("^(%a?%w)=(%d+):?(%d*)$")
+        if code and not code:match("^%u$") then
+            local slot = OLDSLOT[code:sub(-1)]
+            local mod = #code > 1 and OLDMOD[code:sub(1, 1)] or ""
+            if slot and mod then old[mod .. slot] = true n = n + 1 end
+        end
+    end
+    ok(n == 2 and old.left and old["shift-left"], "an older copy reading it sees only the heal binds - never a bolt on its left click", n)
+    -- a full macro sheds the hostile set before any heal (rows go from the end)
+    local fat = {}
+    local nth = 0
+    for _, m in ipairs(FM.MODS) do for _, s in ipairs(FM.SLOTS) do
+        nth = nth + 1
+        fat[m.key .. s.key] = "Lesser Healing Wave Number " .. nth .. "(Rank 6)"
+    end end
+    fat["harm:left"] = "Lightning Bolt(Rank 9)"
+    local fatBody, dropped = FK.Encode(fat)
+    local fatBack = FK.Decode(fatBody)
+    ok(dropped > 0 and fatBack["harm:left"] == nil, "a full macro drops a hostile bind before a heal", dropped)
+
+    -- THE WHEEL has no unit to switch on, so its one macro asks: an enemy under the cursor gets the hostile spell
+    FM.Set("", "wheelup", "Healing Wave(Rank 1)")
+    FM.Set("harm:", "wheelup", "Lightning Bolt(Rank 2)")
+    FM.Apply()
+    local wb = _G["BiSHealWheelwheelup"]
+    local text = wb and wb:GetAttribute("macrotext") or ""
+    local hpos, gpos = text:find("/cast [@mouseover,harm,nodead] Lightning Bolt(Rank 2)", 1, true), text:find("nohelp", 1, true)
+    ok(hpos and gpos and hpos < gpos and text:find("Healing Wave(Rank 1)", 1, true),
+       "the wheel: the hostile spell on an enemy first, then the heal's guard and the heal", text)
+    FM.Clear("", "wheelup")
+    FM.Apply()
+    text = wb:GetAttribute("macrotext") or ""
+    ok(text:find("Lightning Bolt", 1, true) and not text:find("nohelp", 1, true), "a hostile wheel with no heal: just the bolt")
+    FM.Clear("harm:", "wheelup")
+    FM.Set("", "wheeldown", "macro:Purge it")
+    FM.Apply()
+    local wd = _G["BiSHealWheelwheeldown"]
+    ok(wd and wd:GetAttribute("type") == "macro" and wd:GetAttribute("macro") == "Purge it" and wd:GetAttribute("macrotext") == nil,
+       "a macro on the wheel: the wheel runs that macro")
+    FM.Clear("", "wheeldown")
+
+    -- CLIQUE OWNS THE CLICKS: nothing hostile of ours left on the cell either
+    local d = NS.DB()
+    d.clique = true
+    FM.Apply()
+    ok(cell.__attrs["*harmbutton3"] == nil and cell.__attrs["*type-harm3"] == nil and cell.__attrs["*macro4"] == nil,
+       "Clique on: our hostile and macro attributes are gone too")
+    d.clique = nil
+    FM.Apply()
+    ok(resolve(cell, "3", "", true) == "macro", "Clique off: they come back")
+
+    -- THE WINDOW: a HEAL / HOSTILE switch; the hostile mouse is its own, tinted, and takes drops
+    local w = FM.Window()
+    ok(w.sets and #w.sets == 2, "the bind window has a heal / hostile switch")
+    w.sets[2]:Click()
+    ok(w.set == "harm:" and w:Key() == "harm:", "the hostile side picked")
+    CURSOR = { kind = "macro", a = 7 }
+    w.slots.right.take()
+    ok(FM.Get("harm:", "right") == "macro:Purge it" and FM.Get("", "right") ~= "macro:Purge it",
+       "a drop on the hostile mouse is a hostile bind; the heal under it untouched")
+    -- THE HOSTILE PALETTE (Arn, 8 Nov live: "maybe we put the hostile spells at the bottom of the window like how we
+    -- put healing spells so they can drag and not have to open spellbook"): your trained damage and control spells,
+    -- top rank, along the bottom - on the hostile side only
+    local keepB1, keepB2 = BOOK[41], BOOK[42]
+    BOOK[41] = { name = "Lightning Bolt", rank = "Rank 1" }
+    BOOK[42] = { name = "Lightning Bolt", rank = "Rank 2" }
+    w:Refresh()
+    local shown = {}
+    for _, b in ipairs(w.palette) do if b:IsShown() and b.spell then shown[b.spell.name] = b.spell.rank end end
+    ok(shown["Lightning Bolt"] == "Rank 2", "the hostile side's palette: your damage spells, at the top rank you have",
+       tostring(shown["Lightning Bolt"]))
+    ok(not shown["Healing Wave"], "and no heals on it")
+    local function bodyRed()
+        local v = w.mouseParts[1].t.__vertex
+        return v and v[1] > v[3] * 2
+    end
+    ok(bodyRed(), "the whole mouse drawing is red on the hostile side, not only its little slots")
+    BOOK[41], BOOK[42] = keepB1, keepB2
+    w.tabs[2]:Click()
+    ok(w:Key() == "harm:shift-", "a modifier tab on the hostile side is a hostile modifier")
+    w.tabs[1]:Click()
+    w:Refresh()
+    ok(w.slots.right.empty:GetText() == "Purg" or w.slots.right.icon:IsShown(), "the hostile mouse shows what is on it")
+    ok(not w.trinketTicks[1]:IsShown(), "no trinket ticks on the hostile side (they are a heal's)")
+    w.sets[1]:Click()
+    ok(w.set == "" and w.trinketTicks[1]:IsShown(), "back to the heal side: the ticks again")
+    ok(not bodyRed(), "and the mouse is its own purple again")
+    for _, s in ipairs(w.sets) do
+        s:GetScript("OnEnter")(s)
+        ok(s.lit == true and s.wash:GetAlpha() > 0, "the switch lights under the mouse")
+        s:GetScript("OnLeave")(s)
+        ok(not s.lit, "and goes out")
+    end
+    -- PVP TARGET CELLS get every bind too, when a bind changes (Grid.lua keeps them in FG.pvpCells)
+    local extra = CreateFrame("Button", nil, UIParent, "SecureUnitButtonTemplate")
+    extra:SetAttribute("unit", "party1target")
+    local keepCells = FG.pvpCells
+    FG.pvpCells = { extra }
+    FM.Apply()
+    ok(extra.__attrs["*spell1"] == "Healing Wave(Rank 3)" and extra.__attrs["*macro-harm2"] == "Purge it",
+       "a PvP target cell carries the heal and hostile binds after a change")
+    FG.pvpCells = keepCells
+    -- A TEAM-TARGET CELL NEVER TURNS INTO "EVERY CLICK RESURRECTS" (the PvP helper's catch, 8 Nov): its token is
+    -- whoever a teammate has targeted - a dead enemy player now, someone else in a second - so the dead-friend
+    -- res, which is written once out of combat, has no place on it
+    local keepUIP, keepBook = _G.UnitIsPlayer, BOOK[28]
+    _G.UnitIsPlayer = function() return true end
+    BOOK[28] = { name = "Ancestral Spirit", rank = "" }
+    STATE.dead.party1 = true
+    local control = CreateFrame("Button", nil, UIParent, "SecureUnitButtonTemplate")
+    control:SetAttribute("unit", "party1")
+    ok(FM.ResNow(control) == "Ancestral Spirit", "(control: an ordinary cell over a dead friend IS all-res)")
+    local tc = FG.MakePvP(99, UIParent)
+    tc:SetAttribute("unit", "party1")
+    ok(FM.ResNow(tc) == nil, "a PvP target cell over a dead player is not made all-res")
+    FM.ApplyTo(tc)
+    ok(not tc.__res and tc.__attrs["*spell1"] ~= "Ancestral Spirit" and tc.__attrs["*type1"] ~= nil,
+       "it keeps the binds", tostring(tc.__attrs["*spell1"]))
+    STATE.dead.party1 = nil
+    _G.UnitIsPlayer, BOOK[28] = keepUIP, keepBook
+    for _, k in ipairs({ "harm:shift-right", "harm:middle", "harm:right", "button4" }) do NS.DB().binds[k] = nil end
+    NS.DB().binds.left = wasLeft
+    MACROS[7], MACROS[8] = nil, nil
+    CURSOR = {}
+    FM.Apply()
+end
+
+-- ============================================================== PVP MODE (8 Nov 2026)
+-- Arn: "pvp mode, collums of 5 and you can see all of your teams targets in a small 1/4 side frame next
+-- to your team so you can see what your whole team is targeting and can click them to cast harmful
+-- spells" - the target cell NEXT TO EACH PERSON, same row. "put it in 1.0".
+do
+    local FG, FK = NS.FG, NS.FK
+    local d = NS.DB()
+    local keep = { raid = _G.IsInRaid, info = _G.GetRaidRosterInfo, gun = _G.GetUnitName, apply = NS.FM.ApplyTo,
+                   un = _G.UnitName,
+                   layout = d.layout, me = d.me, pvp = d.pvp, target = d.target, shown = d.shown }
+    -- STATE.names[unit] answers when a test needs a real-looking name (the target cells' four letters)
+    _G.UnitName = function(u)
+        if STATE.names and u and STATE.names[u] ~= nil then return STATE.names[u] end
+        return keep.un(u)
+    end
+    local function tick(s) s = s or 0.1 TICK(s) FG.anchor.__scripts.OnUpdate(FG.anchor, s) end
+    local function at(f) local p = f and f.points[1] return p and p[4], p and p[5] end
+    local function isSecret(v) return getmetatable(v) == secretMeta end
+    d.layout, d.me, d.target, d.shown = "columns", false, false, true
+    STATE.instance = nil
+
+    -- THE SETTING: off for everyone - a new feature starts off, and nil reads off
+    ok(d.pvp == "off", "pvp mode starts off, new install or old save", tostring(d.pvp))
+    d.pvp = nil
+    ok(FG.PvPMode and FG.PvPMode() == "off", "nil reads off")
+    d.pvp = "off"
+
+    -- (1) OFF = THE GRID EXACTLY AS IT WAS
+    FG.Layout(FG.anchor)
+    local function snap()
+        local s = {}
+        for i, f in ipairs(FG.frames) do
+            if f.unit then local x, y = at(f) s[#s + 1] = f.unit .. "@" .. tostring(x) .. "," .. tostring(y) .. ":" .. tostring(f.__w) end
+        end
+        return table.concat(s, " ") .. " anchor " .. tostring(FG.anchor.__w) .. "x" .. tostring(FG.anchor.__h)
+    end
+    local before = snap()
+    ok(FG.pvpCells and #FG.pvpCells == 0, "off: no target cells at all", FG.pvpCells and #FG.pvpCells)
+
+    -- (2) "bg": only in a battleground or an arena
+    ok(NS.DO.pvp and NS.DO.pvp("bg") == "bg" and d.pvp == "bg", "/bish pvp bg stores bg", tostring(d.pvp))
+    ok(FG.PvPActive() == false, "bg in the open world: not active")
+    ok(snap() == before and #FG.pvpCells == 0, "and the grid is laid out exactly as with pvp off", snap())
+    STATE.instance = "party"
+    ok(FG.PvPActive() == false, "bg in a dungeon: not active")
+    STATE.instance = "raid"
+    ok(FG.PvPActive() == false, "bg in a raid: not active")
+    STATE.instance = "arena"
+    ok(FG.PvPActive() == true, "bg in an arena: active")
+    STATE.instance = "pvp"
+    ok(FG.PvPActive() == true, "bg in a battleground: active")
+    -- the client says so at PLAYER_ENTERING_WORLD; the grid lays out on its next tick
+    fire(FG.events, "PLAYER_ENTERING_WORLD")
+    tick()
+    ok(#FG.pvpCells == 3, "inside the battleground, after the zone-in: one target cell per member", #FG.pvpCells)
+    STATE.instance = nil
+    fire(FG.events, "PLAYER_ENTERING_WORLD")
+    tick()
+    ok(#FG.pvpCells == 0 and snap() == before, "out again: gone, the grid as before")
+
+    -- (3) "on" in a party: ONE COLUMN, a target cell beside each member, ApplyTo on every one
+    local applied = {}
+    NS.FM.ApplyTo = function(c, ...) applied[c] = (applied[c] or 0) + 1 return keep.apply(c, ...) end
+    NS.DO.pvp("on")
+    NS.FM.ApplyTo = keep.apply
+    local W, PAD, H = FG.CELL_W, FG.CELL_PAD, FG.CELL_H + FG.NAME_BAND
+    local SW = FG.PVP_W
+    ok(SW == math.floor(W / 4), "a target cell is a quarter of a member cell's width", SW)
+    ok(#FG.pvpCells == 3, "three members, three target cells", #FG.pvpCells)
+    local want = { player = "target", party1 = "party1target", party2 = "party2target" }
+    local allRight, allApplied, allWatched = true, true, true
+    for _, f in ipairs(FG.frames) do
+        if f.unit then
+            local c = FG.pvpByUnit[f.unit]
+            local fx, fy = at(f)
+            local cx, cy = at(c)
+            if not (c and c:GetAttribute("unit") == want[f.unit] and c.unit == want[f.unit]
+                    and fx == 0 and cx == W + PAD and cy == fy and c.__w == SW and c.__h == f.__h) then
+                allRight = false
+            end
+            if not (c and applied[c]) then allApplied = false end
+            if not (c and WATCHED[c]) then allWatched = false end
+        end
+    end
+    ok(allRight, "each target cell sits on its member's right, same row, same height, unit <member>target")
+    -- THE WHOLE CELL IS THE HEALTH (Arn, 8 Nov live: "make the small window next to the friendly target be full red
+    -- not just a small sliver at the bottom"): the bar runs from the cell's top-left to its bottom-right
+    local tcell = FG.pvpCells[1]
+    local corners = {}
+    for _, p in ipairs(tcell.bar.points or {}) do corners[p[1]] = true end
+    ok(corners.TOPLEFT and corners.BOTTOMRIGHT and tcell.bar.__h == nil,
+       "a target cell's health fills the whole cell, not a sliver along its foot")
+    ok(allApplied, "and every one was handed to FM.ApplyTo - the grid's own binds, hostile ones included")
+    ok(allWatched, "and every one is under the client's unit watch")
+    ok(FG.pvpCells[1] and FG.pvpCells[1].__kind == "Button" and FG.pvpCells[1].__scripts.OnEnter
+       and FG.pvpCells[1].__scripts.OnEnter ~= nil, "a secure unit button, like the grid's cells")
+    ok(FG.anchor.__w == W + PAD + SW, "the grid is one column of member + target wide", FG.anchor.__w)
+
+    -- the unit watch: an empty target hides by itself, even in a fight
+    STATE.units.party1target = true
+    STATE.inCombat = true
+    WATCH_TICK()
+    ok(FG.pvpByUnit.party1:IsShown() and not FG.pvpByUnit.party2:IsShown() and not FG.pvpByUnit.player:IsShown(),
+       "in a fight the client shows party1's target cell (they have one) and hides the empty ones")
+    STATE.inCombat = false
+
+    -- (4) A RAID: COLUMNS OF 5, one per subgroup present, in group order
+    local groupOf = {}
+    for i = 1, 3 do groupOf[i] = 2 end          -- raid1-3 joined first, in group 2
+    for i = 4, 8 do groupOf[i] = 1 end          -- raid4-8, group 1
+    for i = 9, 12 do groupOf[i] = 4 end         -- raid9-12, group 4 (no group 3)
+    for i = 1, 12 do STATE.units["raid" .. i] = true end
+    _G.IsInRaid = function() return true end
+    _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, groupOf[i] end
+    d.layout = "columns"                         -- "down", the default: columns of 5
+    FG.Layout(FG.anchor)
+    local stride = W + PAD + SW + PAD
+    local colOK, rowsOK = true, true
+    local colOf = { [1] = 0, [2] = 1, [4] = 2 }
+    local deep = {}
+    for i = 1, 12 do
+        local f = FG.byUnit["raid" .. i]
+        local c = FG.pvpByUnit["raid" .. i]
+        local fx, fy = at(f)
+        local cx, cy = at(c)
+        local col = colOf[groupOf[i]]
+        deep[col] = (deep[col] or 0) + 1
+        if not (f and fx == col * stride and c and cx == col * stride + W + PAD and cy == fy
+                and c:GetAttribute("unit") == "raid" .. i .. "target") then colOK = false end
+    end
+    for _, n in pairs(deep) do if n > 5 then rowsOK = false end end
+    ok(colOK, "three groups, three columns in group order (1, 2, 4), each member's target cell on its right")
+    ok(rowsOK and #FG.pvpCells == 12, "no column deeper than 5, twelve target cells", #FG.pvpCells)
+    ok(FG.anchor.__w == 3 * stride - PAD and FG.anchor.__h == 5 * (H + PAD) - PAD,
+       "the grid is three columns wide and five deep", tostring(FG.anchor.__w) .. "x" .. tostring(FG.anchor.__h))
+    -- PVP MODE FOLLOWS YOUR LAYOUT (Arn, 8 Nov: forcing columns was "a little confusing ... what happens when people
+    -- select down or tank"). Tanks (the pyramid) and across keep their shape; a target cell sits beside every
+    -- person, and no target cell lies over the next person's cell
+    local function besideAll(label)
+        local okB, clear = true, true
+        local spots = {}
+        for i = 1, 12 do
+            local f, c = FG.byUnit["raid" .. i], FG.pvpByUnit["raid" .. i]
+            local fx, fy = at(f)
+            local cx, cy = at(c)
+            if not (f and c and cx == fx + f.__w + PAD and cy == fy and c.__h == f.__h) then okB = false end
+            spots[#spots + 1] = { x = fx, y = fy, w = f.__w, h = f.__h }
+            spots[#spots + 1] = { x = cx, y = cy, w = c.__w, h = c.__h }
+        end
+        for a = 1, #spots do for b = a + 1, #spots do
+            local p, q = spots[a], spots[b]
+            if p.x < q.x + q.w and q.x < p.x + p.w and p.y > q.y - q.h and q.y > p.y - p.h then clear = false end
+        end end
+        ok(okB, label .. ": every person's target cell on their right, as tall as them")
+        ok(clear, label .. ": nothing lies over anything else")
+    end
+    d.layout = "pyramid"
+    FG.Layout(FG.anchor)
+    ok(FG.frames[1].__w == 2 * W + PAD and #FG.pvpCells == 12, "tanks with PvP on: still the pyramid (its apex two cells wide)",
+       FG.frames[1].__w)
+    besideAll("tanks")
+    d.layout = "rows"
+    FG.Layout(FG.anchor)
+    local r1x, r1y = at(FG.byUnit["raid4"])
+    local r2x, r2y = at(FG.byUnit["raid5"])
+    ok(r1y == r2y and r2x == r1x + stride, "across with PvP on: a group is a row, each step leaves room for the target cell")
+    besideAll("across")
+    ok(FG.anchor.__w == 5 * stride - PAD, "and the grid is five people (and their targets) wide", FG.anchor.__w)
+    d.layout = "pyramid"
+    FG.Layout(FG.anchor)
+    -- and off again, the pyramid is still the pyramid - with no room left for target cells
+    NS.DO.pvp("off")
+    ok(#FG.pvpCells == 0 and FG.pvpByUnit["raid1"] == nil, "off: the list is emptied")
+    local hidden = true
+    for _, c in ipairs(FG.pvpPool or {}) do if c:IsShown() or WATCHED[c] then hidden = false end end
+    ok(hidden, "and every target cell is hidden and off the unit watch")
+    ok(FG.frames[1].__w == 2 * W + PAD, "off again: the saved pyramid is back (its apex is two cells wide)",
+       FG.frames[1].__w)
+    d.layout = "columns"
+    FG.Layout(FG.anchor)
+
+    -- (5) IN A FIGHT A TARGET CELL'S UNIT IS NEVER RE-SET
+    NS.DO.pvp("on")
+    local sets, realSet = 0, {}
+    for _, c in ipairs(FG.pvpCells) do
+        local real = c.SetAttribute
+        realSet[c] = real
+        c.SetAttribute = function(self, k, v) if k == "unit" then sets = sets + 1 end return real(self, k, v) end
+    end
+    STATE.inCombat = true
+    groupOf[1] = 3                               -- someone moves group mid-fight
+    fire(FG.events, "GROUP_ROSTER_UPDATE")
+    fire(FG.pvpEvents, "UNIT_TARGET", "raid2")
+    for _ = 1, 5 do tick() end
+    ok(FG.Layout(FG.anchor) == false, "layout is refused in a fight")
+    ok(sets == 0, "and no target cell's unit attribute was touched in the fight", sets)
+    STATE.inCombat = false
+    groupOf[1] = 2
+    for c, real in pairs(realSet) do c.SetAttribute = real end   -- back to the frame's own method
+    FG.Layout(FG.anchor)
+
+    -- (6) THE PAINT: secret health handed on untouched, red for a foe, green for a friend, a short name
+    local c1 = FG.pvpByUnit.raid1
+    STATE.units.raid1target = true
+    STATE.hostile.raid1target = true
+    STATE.names = { raid1target = "Gorehowl Bloodfist" }
+    local painted, why = pcall(FG.PaintPvPCell, c1)
+    ok(painted, "painting a target cell with secret health never throws", tostring(why))
+    ok(isSecret(c1.bar.__value), "the health went to the bar untouched (a secret, as the client gave it)")
+    ok(isSecret(c1.bar.__max), "and the max too")
+    ok(c1.bar.__color and c1.bar.__color[1] == FG.HOSTILE[1] and c1.bar.__color[2] == FG.HOSTILE[2],
+       "red for something you can attack")
+    ok(c1.label and c1.label.__text == "Gore", "a four-letter name: Gore", c1.label and tostring(c1.label.__text))
+    STATE.hostile.raid1target = nil
+    FG.PaintPvPCell(c1)
+    ok(c1.bar.__color and c1.bar.__color[1] == FG.PVP_FRIEND[1] and c1.bar.__color[2] == FG.PVP_FRIEND[2],
+       "green for a friend")
+    STATE.hostileSecret = true
+    painted, why = pcall(FG.PaintPvPCell, c1)
+    ok(painted and c1.bar.__color and isSecret(c1.bar.__color[1]),
+       "in a fight 'can I attack it' is secret: the client picks the colour", tostring(why))
+    STATE.hostileSecret = false
+    local hidden1 = secretString()
+    STATE.names.raid1target = hidden1
+    painted = pcall(FG.PaintPvPCell, c1)
+    ok(painted and c1.label.__text == hidden1, "a hidden name is handed to the label whole, never cut")
+    STATE.names.raid1target = "Gorehowl Bloodfist"
+
+    -- the hover POPS (wash + left bar) and the tooltip has the whole name
+    _G.GetUnitName = function(u) return STATE.names and STATE.names[u] or "Name-" .. tostring(u) end
+    c1.__scripts.OnEnter(c1)
+    ok(c1.wash and c1.wash:IsShown() and c1.lbar and c1.lbar:IsShown(), "under the mouse the target cell pops")
+    ok(c1.__wasMouseover, "and the secure template's own OnEnter still ran (hooked, not replaced)")
+    local tipHas = false
+    for _, l in ipairs(TIP.lines) do if l == "Gorehowl Bloodfist" then tipHas = true end end
+    ok(tipHas, "the tooltip says the whole name", table.concat(TIP.lines, " / "))
+    c1.__scripts.OnLeave(c1)
+    ok(not c1.wash:IsShown() and not c1.lbar:IsShown(), "and goes back when the mouse leaves")
+    _G.GetUnitName = keep.gun
+
+    -- (7) THE TEAM'S FOCUS: the same enemy on 2+ target cells, and the most of any -> gold on each
+    for i = 1, 12 do STATE.units["raid" .. i .. "target"] = true STATE.hostile["raid" .. i .. "target"] = true end
+    for i = 1, 12 do STATE.guids["raid" .. i .. "target"] = "Player-9-" .. i end   -- everyone on someone else
+    STATE.guids.raid1target, STATE.guids.raid5target, STATE.guids.raid9target = "Player-9-A", "Player-9-A", "Player-9-A"
+    STATE.guids.raid2target, STATE.guids.raid6target = "Player-9-B", "Player-9-B"
+    WATCH_TICK()
+    FG.PaintPvP()
+    local function gold(u) local c = FG.pvpByUnit[u] return c and c.focus and c.focus:IsShown() end
+    ok(gold("raid1") and gold("raid5") and gold("raid9"), "three on the same enemy: gold on all three of its cells")
+    ok(not gold("raid2") and not gold("raid6") and not gold("raid3"), "two on another: no gold - three is the most")
+    ok(FG.pvpFocus == "Player-9-A", "the focus is that enemy", tostring(FG.pvpFocus))
+    -- a SECRET GUID simply does not count
+    STATE.guidSecret.raid9target, STATE.guidSecret.raid5target = true, true
+    painted, why = pcall(FG.PaintPvP)
+    ok(painted, "a secret GUID never throws", tostring(why))
+    ok(gold("raid2") and gold("raid6") and not gold("raid1") and not gold("raid5") and not gold("raid9")
+       and FG.pvpFocus == "Player-9-B",
+       "two of A's three hidden: only one readable on A, two on B - B is the focus, the hidden ones count for nothing")
+    STATE.guidSecret.raid9target, STATE.guidSecret.raid5target = nil, nil
+    -- a tie is no focus, and a friend is never one
+    STATE.guids.raid1target, STATE.guids.raid5target, STATE.guids.raid9target = "Player-9-C", "Player-9-C", "Player-9-X"
+    FG.PaintPvP()
+    ok(not gold("raid2") and not gold("raid1") and FG.pvpFocus == nil, "two on B, two on C: a tie, no gold")
+    STATE.guids.raid1target, STATE.guids.raid5target = nil, nil
+    STATE.hostile.raid2target, STATE.hostile.raid6target = nil, nil
+    FG.PaintPvP()
+    ok(not gold("raid2") and FG.pvpFocus == nil, "two healing the same friend: no gold, a friend is not a focus")
+    STATE.hostile.raid2target, STATE.hostile.raid6target = true, true
+
+    -- (8) UPDATES: UNIT_TARGET repaints that one cell; the 4-a-second repaint only while pvp is showing
+    local hits = {}
+    local realCell = FG.PaintPvPCell
+    FG.PaintPvPCell = function(c, ...) hits[#hits + 1] = c return realCell(c, ...) end
+    local function clear() local n = #hits for i = n, 1, -1 do hits[i] = nil end return n end
+    ok(FG.pvpEvents and FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET
+       and FG.pvpEvents.__events.PLAYER_TARGET_CHANGED, "while pvp mode shows, it listens for UNIT_TARGET")
+    clear()
+    fire(FG.pvpEvents, "UNIT_TARGET", "raid3")
+    ok(#hits == 1 and hits[1] == FG.pvpByUnit.raid3, "raid3 changed target: raid3's target cell is repainted, alone", #hits)
+    clear()
+    fire(FG.pvpEvents, "UNIT_TARGET", secret())
+    ok(#hits == 12, "a unit the client hides: every target cell, never a guess", #hits)
+    clear()
+    for _ = 1, 10 do tick() end
+    local passes = clear() / 12
+    ok(passes >= 3 and passes <= 5, "a second of ticks repaints the target cells about 4 times", passes)
+    NS.DO.pvp("off")
+    clear()
+    for _ = 1, 10 do tick() end
+    ok(#hits == 0, "pvp off: nothing repaints them, nothing ticks for them", #hits)
+    ok(not (FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET), "and UNIT_TARGET is not even heard")
+    FG.PaintPvPCell = realCell
+
+    -- (9) THE COST of one repaint pass over a 40-man where everyone has a target
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    for i = 1, 40 do
+        STATE.units["raid" .. i] = true
+        STATE.units["raid" .. i .. "target"] = true
+        STATE.hostile["raid" .. i .. "target"] = true
+        groupOf[i] = math.floor((i - 1) / 5) + 1
+    end
+    NS.DO.pvp("on")
+    WATCH_TICK()
+    ok(#FG.pvpCells == 40, "40 in the raid, 40 target cells", #FG.pvpCells)
+    local n, by = Cost.Count(function() FG.PaintPvP() end)
+    STATE.costPvP = n
+    -- THE BUDGET, a little above what was measured on 8 Nov: 320 for one pass over 40 shown target cells
+    -- (8 a cell: max, health, can-attack, name, GUID and three hidden-checks). Four a second while pvp
+    -- mode shows - about 1,300 a second in a full 40 - and nothing at all when it does not.
+    local PVP = 360
+    ok(n <= PVP, "one repaint pass of a 40-man's target cells asks the client at most " .. PVP .. " things: " .. n,
+       Cost.Top(by, 6))
+    print(("   cost: pvp target cells, 40-man pass = %d calls (%s)"):format(n, Cost.Top(by, 4)))
+
+    -- (10) THE OPTIONS ROW and the words
+    local row
+    for _, o in ipairs(NS.UI.Rows()) do if o.key == "pvp" then row = o end end
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "off,bg,on" and row.help,
+       "the options window has a PvP row: off, bg, on - with its help")
+    if row then
+        row.set(d, "bg")
+        ok(d.pvp == "bg" and row.get(d) == "bg", "picking bg stores bg")
+        row.set(d, "off")
+        ok(d.pvp == "off" and row.get(d) == "off", "and off")
+    end
+    SlashCmdList.BISHEALING("pvp on")
+    ok(d.pvp == "on", "/bish pvp on", tostring(d.pvp))
+    SlashCmdList.BISHEALING("pvpmode bg")
+    ok(d.pvp == "bg", "/bish pvpmode bg (the long word)", tostring(d.pvp))
+    SlashCmdList.BISHEALING("pvp off")
+    ok(d.pvp == "off", "/bish pvp off")
+    ok(NS.SHORT.pvpmode == "pvp", "the short word is pvp")
+    local status = NS.CFG.Status()
+    ok(status:find("PvP off", 1, true), "the BiS> page's status line says PvP off", status)
+
+    -- (11) IT RIDES THE MACRO, the one thing this client always hands back
+    local body = FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "on" })
+    local _, back = FK.Decode(asTheClientStoresIt(body))
+    ok(back and back.pvp == "on", "pvp on rides the macro and reads back", body)
+    _, back = FK.Decode(asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "bg" })))
+    ok(back and back.pvp == "bg", "and bg")
+    ok(not FK.Encode({}, { pvp = "off" }):find("PV=", 1, true), "off, the default, writes nothing")
+
+    -- (12) THE COLD START: a login with pvp = "on" saved, no user action -> the target cells are there
+    NS.DO.pvp("off")
+    ok(#FG.pvpCells == 0, "(nothing laid out before the login)")
+    local keepDB, keepChar = _G.BiSHealingDB, _G.BiSHealingCharDB
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
+    _G.BiSHealingDB = { dbver = NS.DBVER, owner = NS.Me(), savedAt = 1, forever10 = true, shown = true,
+                        pvp = "on", binds = { left = "Healing Wave(Rank 2)" }, bindsSeeded = true }
+    _G.BiSHealingCharDB = nil
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+    fire(NS.events, "PLAYER_LOGIN")
+    fire(FG.events, "PLAYER_ENTERING_WORLD")     -- what the client always says after the login
+    tick()
+    _G.DEFAULT_CHAT_FRAME = realChat
+    ok(NS.DB().pvp == "on" and #FG.pvpCells == 40 and FG.pvpByUnit.raid7
+       and FG.pvpByUnit.raid7:GetAttribute("unit") == "raid7target",
+       "LIVE after a login with pvp on saved: 40 target cells laid out, nobody clicked anything", #FG.pvpCells)
+    ok(FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET, "and listening")
+    -- the client lost the file: the macro brings it back (Keep, the road the mouse already takes)
+    NS.DB().pvp = "off"
+    FG.Layout(FG.anchor)
+    local keptMacros = {}
+    for i, m in pairs(MACROS) do keptMacros[i] = m end
+    for i in pairs(MACROS) do MACROS[i] = nil end
+    MACROS[121] = { name = "BiSHealing", icon = 134400,
+                    body = asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "on" })) }
+    FK.Load()
+    ok(NS.DB().pvp == "on" and #FG.pvpCells == 40, "a macro that says pvp on: restored and laid out", #FG.pvpCells)
+    for i in pairs(MACROS) do MACROS[i] = nil end
+    for i, m in pairs(keptMacros) do MACROS[i] = m end
+    _G.BiSHealingDB, _G.BiSHealingCharDB = keepDB, keepChar
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+
+    -- put the world back
+    d = NS.DB()
+    d.pvp, d.layout, d.me, d.target, d.shown = "off", keep.layout, keep.me, keep.target, keep.shown
+    for i = 1, 40 do
+        STATE.units["raid" .. i] = nil
+        STATE.units["raid" .. i .. "target"] = nil
+        STATE.hostile["raid" .. i .. "target"] = nil
+        STATE.guids["raid" .. i .. "target"] = nil
+    end
+    STATE.units.party1target, STATE.names, STATE.instance = nil, nil, nil
+    _G.IsInRaid, _G.GetRaidRosterInfo, _G.UnitName = keep.raid, keep.info, keep.un
+    FG.Layout(FG.anchor)
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

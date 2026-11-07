@@ -41,8 +41,16 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.MINIMAP_MINOR or 0) >= 3 then return end
-T.MINIMAP_MINOR = 3   -- 2: a click puts a minimap collector's backing back under the icon (b:Unbury)
+if (T.MINIMAP_MINOR or 0) >= 5 then return end
+T.MINIMAP_MINOR = 5   -- 5: right = the addon's OWN options window (opts.onRight, a toggle: right-click again closes it),
+                      --    its page under BiS> only when it has no window of its own (Arn, 7 Nov live: "i liked these
+                      --    old option windows that opened without opening the game option window, we keep them
+                      --    opening how they used to")
+                      -- 4: ONE STANDARD (Arn, 7 Nov: "sometimes left click does one thing, sometimes right click does
+                      --    another ... we gotta get everything on the same page"): left = the addon's main window
+                      --    (opts.onLeft, labelled opts.leftLabel; the menu when it has none), right = its options -
+                      --    its page under BiS> in the game's options (Settings.lua) when it has one, else opts.onRight
+                      -- 2: a click puts a minimap collector's backing back under the icon (b:Unbury)
                       -- 3: a menu row POPS under the mouse - an accent wash and a bar (Arn, 6 Nov: "it should pop")
 
 -- palette fallback: only when this file is embedded and no other BiSTheme file ran. Duplicated on
@@ -503,8 +511,10 @@ function T.Minimap(key, opts)
       local level = (self.GetFrameLevel and self:GetFrameLevel()) or 1
       local strata = self.GetFrameStrata and self:GetFrameStrata()
       for _, child in ipairs({ self:GetChildren() }) do
-        if strata then pcall(child.SetFrameStrata, child, strata) end
-        pcall(child.SetFrameLevel, child, math.max(0, level - 1))
+        -- somebody else's frame: the method LOOKUP goes inside the pcall too (solved.md: a forbidden frame throws
+        -- on the lookup itself, before the call - 7 Nov sweep)
+        if strata then pcall(function() child:SetFrameStrata(strata) end) end
+        pcall(function() child:SetFrameLevel(math.max(0, level - 1)) end)
       end
     end)
     return true
@@ -512,9 +522,17 @@ function T.Minimap(key, opts)
 
   b:SetScript("OnClick", function(s, click)
     s:Unbury()
-    if click == "RightButton" and type(s.opts.onRight) == "function" then
+    if click == "RightButton" then
       s:CloseMenu()
-      s.opts.onRight()
+      -- the addon's own options window (a toggle); its page under BiS> only when it has no window of its own
+      if type(s.opts.onRight) == "function" then s.opts.onRight() return end
+      if T.OpenSettings and T.settingsPages and T.settingsPages[s.key] and T.OpenSettings(s.key) then return end
+      s:ToggleMenu()
+      return
+    end
+    if type(s.opts.onLeft) == "function" then
+      s:CloseMenu()
+      s.opts.onLeft()
       return
     end
     s:ToggleMenu()
@@ -531,8 +549,10 @@ function T.Minimap(key, opts)
     for _, line in ipairs(s.opts.tooltip or {}) do
       GameTooltip:AddLine(line, T.rgb("muted"))
     end
-    GameTooltip:AddLine("left-click  the menu", T.rgb("muted"))
-    if s.opts.onRight then GameTooltip:AddLine("right-click  options", T.rgb("muted")) end
+    GameTooltip:AddLine("left-click  " .. (s.opts.onLeft and tostring(s.opts.leftLabel or "open") or "the menu"), T.rgb("muted"))
+    if s.opts.onRight or (T.settingsPages and T.settingsPages[s.key]) then
+      GameTooltip:AddLine("right-click  options", T.rgb("muted"))
+    end
     GameTooltip:AddLine("drag  move me round the edge", T.rgb("muted"))
     GameTooltip:Show()
   end)

@@ -46,8 +46,10 @@ FS.CLASS = {
 function FS.List()
     local d = NS.DB and NS.DB()
     local own = type(d) == "table" and d.selfBuffs or nil
-    if type(own) == "table" and #own > 0 then return own end
+    -- `none` FIRST (1.0): the reminder switched off keeps the player's names under it, for when it
+    -- is switched on again. Before 1.0 `none` only ever sat on an empty list, so this reads it the same.
     if type(own) == "table" and own.none then return {} end
+    if type(own) == "table" and #own > 0 then return own end
     local class = UnitClass and NS.Plain(select(2, UnitClass("player"))) or nil
     return FS.CLASS[class or ""] or {}
 end
@@ -570,6 +572,36 @@ function FS.Add(name)
     FS.Sounds()                       -- the new list, and nothing left over from the old one
     FS.Badge()
     return name
+end
+
+--- THE REMINDER'S SWITCH (Forever 1.0, 7 Nov 2026: a new install starts with it off - "anything that
+--- would make a new user go like okay, this add-on is just ... putting random stuff on my screen").
+--- Off watches nothing - no header word, no sound - and keeps the player's own names for later; on
+--- brings them back, or the class's usual when there were none.
+function FS.Watching()
+    local d = NS.DB and NS.DB()
+    local own = type(d) == "table" and d.selfBuffs or nil
+    return not (type(own) == "table" and own.none) and true or false
+end
+
+function FS.SetWatching(on)
+    local d = NS.DB and NS.DB()
+    if type(d) ~= "table" then return false end
+    local own = type(d.selfBuffs) == "table" and d.selfBuffs or nil
+    if on then
+        if own then
+            own.none = nil
+            if #own == 0 then d.selfBuffs = nil end      -- nothing of their own: the class's usual
+        end
+    elseif own then
+        own.none = true
+    else
+        d.selfBuffs = { none = true }
+    end
+    FS.Forget()
+    FS.Sounds()
+    FS.Badge()
+    return FS.Watching()
 end
 
 function FS.Reset()

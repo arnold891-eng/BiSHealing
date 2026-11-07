@@ -24,6 +24,24 @@ local CFG = {}
 NS.CFG = CFG
 CFG.SCALE = 1.25          -- the options window is drawn 25% larger than the shared kit's size
 
+--- THE SAVED VARIABLES, ALWAYS THE LIVE ONES (8 Nov 2026, the BiS> dashboard). The dashboard is drawn once
+--- and keeps the `db` it was handed; NS.DB() can hand back a different table later (a login, an alt's copy
+--- claimed), so the dashboard is handed this instead: every read and write lands on NS.DB() as it is now.
+--- It also tells a button row which door it was pressed from (fromPage below).
+CFG.LIVE = setmetatable({}, {
+    __index = function(_, k) return NS.DB()[k] end,
+    __newindex = function(_, k, v) NS.DB()[k] = v end,
+})
+
+--- Pressed on the BiS> page (the dashboard hands its rows CFG.LIVE): the game's options go away first,
+--- so the window a button opens is not left behind them. From the options window: false, nothing done.
+local function fromPage(db)
+    if db ~= CFG.LIVE then return false end
+    local T = BiSTheme
+    if T and T.CloseSettingsPanel then T.CloseSettingsPanel() end
+    return true
+end
+
 --- The rows. A function, not a table: `get` is asked every time the window
 --- paints, so a switch shows what is true now rather than what was true at
 --- login.
@@ -38,11 +56,16 @@ function CFG.Sections()
             -- MANA FOR MANA (Arn, 19 Oct: "i want a window in the option that breaks down the mana
             -- efficiency of my healing spells")
             { key = "efficiency", kind = "button", label = "which heal, mana for mana", help = "Every rank of your heals with your gear right now: how much each heals, per mana and per second, how long spamming it lasts - and which one heals the most in a fight of 15 seconds to 5 minutes.", button = "open",
-              -- docked off the options' right edge, where the tank mark's preview rolls out
-              action = function()
+              -- docked off the options' right edge, where the tank mark's preview rolls out; from the
+              -- BiS> page, where the options window is not up, free in the middle
+              action = function(db)
                   local fe = NS.FE
                   if fe and fe.Docked and fe.Docked() then fe.win:Hide() return end   -- a second press closes it
-                  if DO.efficiency then DO.efficiency(CFG.frame) end
+                  if fromPage(db) then
+                      if DO.efficiency then DO.efficiency() end
+                  elseif DO.efficiency then
+                      DO.efficiency(CFG.frame)
+                  end
               end },
             -- one owner of the clicks: ours, or Clique's (Arn, 22 Sep: "im a clique user")
             { key = "clique", kind = "toggle", label = "let Clique handle clicks", help = "If you use Clique, let it own the clicks on our cells; our own binds step aside.",
@@ -88,7 +111,10 @@ function CFG.Sections()
             -- has no room"). So the number lives in a drawer that unrolls under the window, built
             -- here out of the lib's own primitives - the copy under Libs\ is never edited.
             { key = "buffsoundid", kind = "button", label = "sound id", help = "Which sound plays when your buff drops: type a sound id in the drawer that opens.", button = "change",
-              action = function() CFG.Drawer() end },
+              -- the drawer hangs under the options window, so from the BiS> page the window comes up with it
+              action = function(db)
+                  if fromPage(db) then CFG.Open() CFG.Drawer(true) else CFG.Drawer() end
+              end },
         } },
         -- THE RIGHT-HAND COLUMN (7 Oct 2026). The window was at its fourteen-row cap and a player
         -- asked for two more settings; Arn: "can we make two colums". How the cells LOOK, and
@@ -203,6 +229,13 @@ function CFG.Sections()
         -- for the sound rows the same way on the 23rd: the grid rescans on every roster event by
         -- itself, so the button was for a bug, and /bish rescan still presses it.
     }
+end
+
+--- The rows the window was built from, made once and kept: the BiS> page's dashboard is handed these
+--- very tables, so the two can never hold two copies of one setting.
+function CFG.Tables()
+    if not CFG.tables then CFG.tables = CFG.Sections() end
+    return CFG.tables
 end
 
 ------------------------------------------------------- the cells row --
@@ -412,7 +445,7 @@ function CFG.Build()
     local heights = {}
     for c = 1, 2 do
         if columns then f._y = 0 end
-        for _, section in ipairs(CFG.Sections()) do
+        for _, section in ipairs(CFG.Tables()) do
             if (section.column or 1) == c then
                 local first = #f.rows + 1
                 f:Section(section.title)
@@ -481,6 +514,131 @@ function CFG.Status()
     }, "  -  ")
 end
 
+--- THE DASHBOARD'S SECTIONS (8 Nov 2026, the family rule: every BiS> page is the kit's T.Dashboard).
+--- The settings are the window's own rows (CFG.Tables), picked by key and sorted into sections by what
+--- they are about; a section with an on/off of its own gets a switch through the same NS.DO door the
+--- slash command uses. Only the shared kit's four kinds reach the page: the window's `cells` row (four
+--- switches drawn by hand) arrives as four toggles over the very same get/set.
+local CELL_WORDS = {
+    target = { "a cell for your target", "A cell for whoever you have targeted, beside the grid. /bish target left|right|top|under, or drag its header." },
+    tot    = { "your target's target", "And one for your target's target, beside it." },
+    me     = { "a cell for yourself", "A cell for you, out of the group's order. /bish me left|right|top|under, or drag its header." },
+    mana   = { "the healers' mana", "The other healers' mana, in a block of its own." },
+}
+
+function CFG.Entries()
+    local DO = NS.DO or {}
+    local db = CFG.LIVE
+    local o = {}
+    for _, sec in ipairs(CFG.Tables()) do
+        for _, opt in ipairs(sec.options) do o[opt.key] = opt end
+    end
+    local function pick(...)
+        local out = {}
+        for _, k in ipairs({ ... }) do if o[k] then out[#out + 1] = o[k] end end
+        return out
+    end
+    -- the cells row's four switches, one toggle each, then the pets
+    local extra = {}
+    for _, part in ipairs((o.cells and o.cells.parts) or {}) do
+        local words = CELL_WORDS[part.key] or { part.label, o.cells.help }
+        extra[#extra + 1] = { key = "cell" .. part.key, kind = "toggle", label = words[1], help = words[2],
+                              get = part.get, set = function(_, on) part.set(on) end }
+    end
+    if o.pets then extra[#extra + 1] = o.pets end
+    -- BiS> now's buff buttons, one per buff (Buffs.lua): the same /bish buffs <key> on|off
+    local FU = NS.FU
+    local buffs = {}
+    for _, fam in ipairs((FU and FU.FAMILIES) or {}) do
+        buffs[#buffs + 1] = { key = "buff" .. fam.key, kind = "toggle", label = fam.name,
+            help = fam.name .. ": its button shows in BiS> now once you have trained it, and finds who lacks it.",
+            get = function() return FU.FamilyOn(fam) and true or false end,
+            set = function(_, on) if DO.buffs then DO.buffs(fam.key, on and "on" or "off") end end }
+    end
+
+    local list = {
+        { key = "frames", title = "frames",
+          desc = "The healing cells themselves: whether they show, how big they are, and the LOS flash on a cell your heal could not see. Off hides every cell - nothing is drawn and nothing is clicked.",
+          switch = { get = function() return NS.DB().shown ~= false end,
+                     set = function(on) if NS.DO.show then NS.DO.show(on) end end },
+          options = pick("scale", "center", "flash"), db = db,
+          usage = "/bish show  -  /bish hide  -  /bish center  -  /bish scale 90  -  /bish flash" },
+        { key = "clicks", title = "binds & clicks",
+          desc = "What a click on a cell casts. Drag a spell onto a mouse button in the binds window - or, if you use Clique, let it own the clicks.",
+          open = { label = "mouse binds", func = function() if NS.DO.mouse then NS.DO.mouse() end end },
+          options = pick("clique", "efficiency", "minimap"), db = db,
+          usage = "/bish mouse  -  /bish clique  -  /bish efficiency" },
+        { key = "look", title = "look",
+          desc = "What each cell shows: the number on it, the bar colour, the gold ring, the mouse crosshair, how far it dims out of range and the size of the debuff markers.",
+          options = pick("number", "colour", "ring", "hover", "dim", "markers"), db = db,
+          usage = "/bish number  -  /bish colour  -  /bish ring me|target  -  /bish hover  -  /bish dim 40  -  /bish markers 12" },
+        { key = "layout", title = "layout",
+          desc = "How the groups sit: a column each, a row each, or tanks on top. PvP mode puts everyone in columns of 5 with whoever they are targeting beside them, to click.",
+          options = pick("layout", "pvp"), db = db,
+          usage = "/bish layout columns|across|pyramid  -  /bish pvpmode off|bg|on" },
+        { key = "cells", title = "target & pets",
+          desc = "Extra cells beside the grid - your target, its target, yourself, the other healers' mana - and where pets go.",
+          options = extra, db = db,
+          usage = "/bish target  -  /bish tot  -  /bish me  -  /bish mana  -  /bish pets grid|own|off" },
+        { key = "now", title = "BiS> now",
+          desc = "The block of buttons that matter right now, beside the grid. Its Tank button puts a teal mark over your tank, shaped and sized here.",
+          switch = { get = function() return NS.DB().now == true end,
+                     set = function(on) if NS.DO.now then NS.DO.now(on and "on" or "off") end end },
+          options = pick("tanklook", "tanksize", "tanklift"), db = db,
+          usage = "/bish now on|off  -  /bish now left|right|top|under" },
+        { key = "buffs", title = "buff buttons",
+          desc = "BiS> now's buff buttons: one click puts your group buff on whoever lacks it. Only buffs you have trained show. Switching them on switches BiS> now on too.",
+          switch = { get = function() return NS.DB().buffs == true end,
+                     set = function(on) if NS.DO.buffs then NS.DO.buffs(on and "on" or "off") end end },
+          options = buffs, db = db,
+          usage = "/bish buffs on|off  -  /bish buffs fort on|off" },
+    }
+    if o.buffwatch then
+        list[#list + 1] = { key = "reminders", title = "buff reminder",
+          desc = "Your own buff (Water Shield, Inner Fire...) named in the grid's header when it is not on you, and a sound when it drops - the one thing the game lets an addon say mid-fight.",
+          switch = { get = function() return o.buffwatch.get(db) and true or false end,
+                     set = function(on) o.buffwatch.set(db, on) end },
+          options = pick("buffsound", "buffsoundid"), db = db,
+          usage = "/bish buff on|off  -  /bish buff Water Shield  -  /bish buffsound <id>|off|on|default|test" }
+    end
+    -- THE SHARED CHANNEL (LibBiSComm): its own switch, the one /biscomm on|off flips; kept here at logout
+    local lib = _G.LibBiSComm
+    if lib and lib.Enabled and lib.SetEnabled then
+        local share = {}
+        if lib.Sharing and lib.SetSharing then
+            share[1] = { key = "commshare", kind = "toggle", label = "share where I am",
+                help = "Lets your guild's BiS addons show where you are on their map. Off: you still hear the channel.",
+                get = function() return lib:Sharing() end,
+                set = function(_, on) lib:SetSharing(on) if NS.Comm then NS.Comm.Save() end end }
+        end
+        list[#list + 1] = { key = "channel", title = "the channel",
+          desc = "The hidden addon channel every BiS addon shares with your group and guild - never chat. Off: silent and deaf, and the cells still work on their own.",
+          switch = { get = function() return lib:Enabled() end,
+                     set = function(on)
+                         lib:SetEnabled(on)
+                         if on and lib.Hi then pcall(lib.Hi, lib) end
+                         if NS.Comm then NS.Comm.Save() end
+                     end },
+          options = share, db = db,
+          usage = "/biscomm on|off  -  /biscomm share on|off  -  /biscomm ver" }
+    end
+    return list
+end
+
+--- What the BiS> page draws: the kit's dashboard over the window's own rows.
+function CFG.Model()
+    return {
+        entries = CFG.Entries,
+        list = "SECTIONS",
+        idle = "Point at anything on this page to read what it does. Right-click a section in the list to switch it on or off.",
+        -- the options window, if it is up, shows the change too (the minimap's right-click keeps it open)
+        onChange = function()
+            local f = CFG.frame
+            if f and f.IsShown and f:IsShown() and f.Paint then f:Paint() end
+        end,
+    }
+end
+
 function CFG.Page()
     local T = BiSTheme
     if not (T and T.SettingsPage) then return nil end
@@ -490,8 +648,11 @@ function CFG.Page()
               .. "it on that player. A new install starts with the cells, your binds, cure boxes and your HoTs on - "
               .. "the crosshair, the LOS flash and the buff reminder wait here for you to switch them on.",
         status = CFG.Status,
-        window = function() return CFG.Build() end,
-        open   = { label = "mouse binds", func = function() if NS.DO and NS.DO.mouse then NS.DO.mouse() end end },
+        -- THE DASHBOARD (kit minor 3): drawn once over the page's body, painted every time it shows. The
+        -- options window is never taken in - it stays the minimap's right-click, as it always was.
+        build   = function(body) if T.Dashboard then CFG.dash = T.Dashboard(body, CFG.Model()) end end,
+        refresh = function() if CFG.dash then CFG.dash:Paint() end end,
+        open   ={ label = "mouse binds", func = function() if NS.DO and NS.DO.mouse then NS.DO.mouse() end end },
         api    = { name = "BiSHealingAPI", about = "what a click on a cell casts, the grid and BiS> now, the tank; "
               .. "opens the binds or the options" },
     })

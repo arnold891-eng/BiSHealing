@@ -121,8 +121,14 @@ local function newFrame(kind, name, parent)
     -- a frame laid over another remembers which (8 Oct 2026): the cell's ink layer covers the bar,
     -- and the fit check has to follow it there to measure the words on it
     function f:SetAllPoints(rel) self.__allpoints = rel or true end
-    function f:ClearAllPoints() self.points = {} end
+    -- and ClearAllPoints takes that away too, as the client's does (8 Nov 2026, the BiS> dashboard kit)
+    function f:ClearAllPoints() self.points = {} self.__allpoints = nil end
     function f:GetNumPoints() return #self.points end
+    -- WHAT A FRAME LISTENS TO, recorded (8 Nov 2026, the dashboard). A Button the client was not told
+    -- RegisterForClicks("RightButtonUp") never sees a right-click, and an auto no-op could not say so.
+    function f:EnableMouse(v) self.__mouse = v and true or false end
+    function f:IsMouseEnabled() return self.__mouse == true end
+    function f:RegisterForClicks(...) self.__clicks = { ... } end
     function f:GetPoint(i)
         local p = self.points[i or #self.points]
         if not p then return nil end
@@ -345,7 +351,7 @@ local function newFrame(kind, name, parent)
                 if type(a) == "table" then t.__point = { p, c or 0, d or 0 }
                 else t.__point = { p, a or 0, b or 0 } end
             end,
-            ClearAllPoints = function(t) t.points = {} end,
+            ClearAllPoints = function(t) t.points = {} t.__allpoints = nil end,
             __parent = self,
         })
     end
@@ -372,6 +378,7 @@ local function newFrame(kind, name, parent)
             GetText = function(self2) return self2.__text end,
             -- recorded (17 Oct 2026): "is the name centred beside the cure column" needs an answer
             SetJustifyH = function(self2, j) self2.__justify = j end,
+            SetJustifyV = function(self2, j) self2.__justifyV = j end,
             -- THE CLIENT REFUSES A COLOUR WITH A HOLE IN IT: "bad argument #1 to 'SetTextColor'
             -- (Usage: self:SetTextColor(color [, a]))". This used to record whatever it was
             -- handed, so `local r, g, b = (T.rgb(name))` - brackets that keep only the FIRST
@@ -10042,11 +10049,124 @@ do
            "showing the page leaves the options window's parent, scale and place alone",
            tostring(win:GetScale()) .. " was " .. tostring(scale0))
         ok(not win:IsShown(), "and leaves it hidden")
-        local btn = page and page.frame and page.frame.optBtn
-        ok(btn and btn:IsShown(), "the page has a button to the options window")
-        if btn then btn:Click() end
-        ok(win:IsShown() and win:GetParent() == parent0 and win:GetScale() == scale0,
-           "its click shows the options window, as it always was")
+        -- THE DASHBOARD (kit minor 3, the family rule - Arn, 8 Nov: "it looks way way better do it for the
+        -- other ones"): every section down the left, the picked one's settings big on the right
+        ok(spec and type(spec.build) == "function" and type(spec.refresh) == "function",
+           "the page draws the kit's dashboard: build and refresh")
+        local body = page and page.frame and page.frame.body
+        local dash = body and body.dash
+        local entries = (NS.CFG.Entries and NS.CFG.Entries()) or {}
+        ok(dash ~= nil and #dash.rows == #entries and #entries >= 4 and #entries <= 12,
+           "showing the page builds the dashboard: one row per section", dash and #dash.rows)
+        ok(not (page.frame.optBtn and page.frame.optBtn:IsShown()), "no stand-in button to the window any more")
+        if dash then
+            local function entryRow(key)
+                for _, r in ipairs(dash.rows) do if r.entry.key == key then return r end end
+            end
+            local function dashRow(key, opt)
+                for _, r in ipairs(dash.pages[key] or {}) do if r.opt.key == opt then return r end end
+            end
+            local titles = {}
+            for i, r in ipairs(dash.rows) do titles[i] = r.entry.title end
+            local all = table.concat(titles, " | ")
+            ok(all:find("frames", 1, true) and all:find("binds & clicks", 1, true) and all:find("layout", 1, true)
+               and all:find("BiS> now", 1, true), "the sections: " .. all)
+            local hears, ownSize = true, true
+            for _, r in ipairs(dash.rows) do
+                local right = false
+                for _, c in ipairs(r.__clicks or {}) do if c == "RightButtonUp" then right = true end end
+                if not right then hears = false end
+                if r.lamp.__allpoints or r.bar.__allpoints then ownSize = false end
+            end
+            ok(hears and ownSize, "every list row hears a right-click; its lamp and bar are their own size")
+            -- EVERY SECTION BUILDS: the kit has four kinds, and the window's `cells` row arrives as four toggles
+            for _, e in ipairs(dash.entries) do
+                local okP, why = pcall(dash.Select, dash, e.key)
+                ok(okP and #(dash.pages[e.key] or {}) == #(e.options or {}) and type(e.desc) == "string" and e.desc ~= "",
+                   "a section builds, with its words: " .. tostring(e.title), tostring(why))
+            end
+            -- PICKING ONE shows its rows, and only its rows
+            dash:Select("layout")
+            local labels, shown = {}, true
+            for i, r in ipairs(dash.pages.layout or {}) do labels[i] = r.opt.label if not r:IsShown() then shown = false end end
+            ok(shown and table.concat(labels, "|"):find("PvP mode", 1, true), "layout shows its rows, PvP mode among them",
+               table.concat(labels, "|"))
+            ok(dash.pages.frames and not dash.pages.frames[1]:IsShown(), "the section picked before puts its rows away")
+            -- A SETTING FLIPPED ON THE PAGE is the window's own setting: the same table, the same saved value
+            local pvp = dashRow("layout", "pvp")
+            local winRow
+            for _, r in ipairs(win.rows or {}) do if r.opt and r.opt.key == "pvp" then winRow = r end end
+            ok(pvp and winRow and pvp.opt == winRow.opt, "the page's PvP row is the window's row")
+            if pvp and winRow then
+                local keepPvP = NS.FG.PvPMode()
+                pvp.segs[2]:Click()                                  -- "bg"
+                ok(NS.FG.PvPMode() == "bg" and NS.UI.Get("pvp") == "bg", "PvP mode set to bg from the page",
+                   tostring(NS.FG.PvPMode()))
+                win:Paint()
+                ok(winRow.ctl[2].edge.name == "accent" and winRow.ctl[1].edge.name ~= "accent",
+                   "and the window's row says bg after its paint")
+                winRow.ctl[1]:Click()                                -- "off", from the window
+                dash:Paint()
+                ok(NS.FG.PvPMode() == "off" and pvp.segs[1].on and not pvp.segs[2].on, "set back in the window: the page follows")
+                NS.DO.pvp(keepPvP)
+            end
+            -- the window's `colour` setting from the page: the saved value the window reads
+            dash:Select("look")
+            local colour = dashRow("look", "colour")
+            local was = NS.DB().color
+            if colour then colour.sw:Click() end
+            ok(colour and NS.UI.Get("colour") == (was ~= "health") and colour.sw.on == (was ~= "health"),
+               "bar colour by health flipped on the page: saved, and the switch says so")
+            if colour then colour.sw:Click() end
+            -- A SECTION SWITCH goes through the slash command's own door (NS.DO.show)
+            local calls = {}
+            local realShow = NS.DO.show
+            NS.DO.show = function(on) calls[#calls + 1] = on return realShow(on) end
+            dash:Select("frames")
+            dash.detail.switch:Click()
+            local fr = entryRow("frames")
+            ok(#calls == 1 and calls[1] == false and NS.DB().shown == false and fr and fr.state:GetText() == "off",
+               "the frames switch: NS.DO.show(false), saved, the list says off", #calls)
+            ok(dash.pages.frames[1].dim == true, "its settings grey while the cells are hidden")
+            SlashCmdList.BISHEALING("show")
+            T.ShowSettingsPage("BiSHealing")                         -- the page shown again: refresh paints it
+            ok(#calls == 2 and calls[2] == true and NS.DB().shown == true and fr.state:GetText() == "ON"
+               and dash.detail.switch.on == true, "/bish show goes through the same door, and the page follows")
+            NS.DO.show = realShow
+            -- RIGHT-CLICK in the list switches BiS> now, through NS.DO.now
+            local nowCalls = {}
+            local realNow = NS.DO.now
+            NS.DO.now = function(a) nowCalls[#nowCalls + 1] = a return realNow(a) end
+            local nowWas = NS.DB().now == true
+            local nr = entryRow("now")
+            if nr then nr:Click("RightButton") end
+            ok(nr and nowCalls[1] == (nowWas and "off" or "on") and (NS.DB().now == true) == not nowWas,
+               "right-click on BiS> now switches it through /bish now", tostring(nowCalls[1]))
+            if nr then nr:Click("RightButton") end
+            ok((NS.DB().now == true) == nowWas, "and back")
+            NS.DO.now = realNow
+            -- binds & clicks: its window button is the mouse binds; a button row that opens a window puts the
+            -- game's options away first, and the mana window opens free, not hung off a hidden options window
+            dash:Select("clicks")
+            local binds = 0
+            NS.DO.mouse = function() binds = binds + 1 end
+            local panelUp = true
+            _G.SettingsPanel = { IsShown = function() return panelUp end, Hide = function() panelUp = false end }
+            dash.detail.open:Click()
+            ok(binds == 1 and panelUp == false and dash.detail.open:IsShown(), "its window button: the mouse binds, game options away")
+            NS.DO.mouse = realMouse
+            local eff = dashRow("clicks", "efficiency")
+            panelUp = true
+            if eff then eff.btn:Click() end
+            local fw = NS.FE and NS.FE.win
+            ok(eff and panelUp == false and fw and fw:IsShown() and fw:GetParent() == UIParent,
+               "which heal, from the page: game options away, the mana window free in the middle")
+            if fw then fw:Hide() end
+            _G.SettingsPanel = nil
+        end
+        ok(not win:IsShown() and win:GetParent() == parent0 and win:GetScale() == scale0 and win:GetNumPoints() == points0,
+           "after all of it the options window is where it was, its own size, hidden")
+        win:Show()
         T.HideSettingsPage("BiSHealing")
         ok(win:IsShown() and win:GetParent() == parent0, "leaving the page does not touch the window")
         win:Hide()

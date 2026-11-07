@@ -629,6 +629,16 @@ function FM.Window()
     local flank2 = texture(mouse, "BORDER", 0.30, 0.26, 0.40, 1)
     flank2:SetSize(16, 22)
     flank2:SetPoint("TOPLEFT", mouse, "TOP", -76, -120)
+    -- THE WHOLE MOUSE GOES RED on the hostile side (Arn's screenshot, 8 Nov: only the little slot boxes changed, so
+    -- at a glance the two sides looked the same). Each part: its heal colour, its hostile colour.
+    w.mouseParts = {
+        { t = body,      heal = { 0.24, 0.21, 0.31 }, harm = { 0.30, 0.10, 0.12 } },
+        { t = leftBtn,   heal = { 0.30, 0.26, 0.40 }, harm = { 0.42, 0.14, 0.17 } },
+        { t = rightBtn,  heal = { 0.30, 0.26, 0.40 }, harm = { 0.42, 0.14, 0.17 } },
+        { t = wheelWell, heal = { 0.17, 0.14, 0.23 }, harm = { 0.20, 0.06, 0.08 } },
+        { t = flank1,    heal = { 0.30, 0.26, 0.40 }, harm = { 0.42, 0.14, 0.17 } },
+        { t = flank2,    heal = { 0.30, 0.26, 0.40 }, harm = { 0.42, 0.14, 0.17 } },
+    }
 
     w.slots = {}
     for _, slot in ipairs(FM.SLOTS) do
@@ -794,6 +804,10 @@ function FM.Window()
             rest(t, on and (t.key ~= "" and "warn" or "accent") or "muted")
         end
         for _, f in pairs(self.slots) do FM.SlotRest(f) end
+        for _, p in ipairs(self.mouseParts or {}) do
+            local c = hostile and p.harm or p.heal
+            p.t:SetVertexColor(c[1], c[2], c[3], 1)
+        end
         for _, b in ipairs(self.trinketTicks or {}) do if hostile then b:Hide() else b:Show() end end
         if self.firstLabel then if hostile then self.firstLabel:Hide() else self.firstLabel:Show() end end
         for i, m in ipairs(FM.MODS) do

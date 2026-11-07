@@ -10405,6 +10405,11 @@ do
     ok(shown["Lightning Bolt"] == "Rank 2", "the hostile side's palette: your damage spells, at the top rank you have",
        tostring(shown["Lightning Bolt"]))
     ok(not shown["Healing Wave"], "and no heals on it")
+    local function bodyRed()
+        local v = w.mouseParts[1].t.__vertex
+        return v and v[1] > v[3] * 2
+    end
+    ok(bodyRed(), "the whole mouse drawing is red on the hostile side, not only its little slots")
     BOOK[41], BOOK[42] = keepB1, keepB2
     w.tabs[2]:Click()
     ok(w:Key() == "harm:shift-", "a modifier tab on the hostile side is a hostile modifier")
@@ -10414,6 +10419,7 @@ do
     ok(not w.trinketTicks[1]:IsShown(), "no trinket ticks on the hostile side (they are a heal's)")
     w.sets[1]:Click()
     ok(w.set == "" and w.trinketTicks[1]:IsShown(), "back to the heal side: the ticks again")
+    ok(not bodyRed(), "and the mouse is its own purple again")
     for _, s in ipairs(w.sets) do
         s:GetScript("OnEnter")(s)
         ok(s.lit == true and s.wash:GetAlpha() > 0, "the switch lights under the mouse")

@@ -1,5 +1,9 @@
 # BiS Healing
 
+## Unreleased
+
+- **The Tank button only shows in a group.** Alone there is no tank to find, so it leaves BiS> now until you join a party or raid.
+
 ## 0.16.0
 
 - **Buff buttons in BiS> now.** Type `/bish buffs` and BiS> now gets a button for each group buff you have trained: Power Word: Fortitude, Divine Spirit and Shadow Protection for a priest, Mark of the Wild and Thorns for a druid, Arcane Intellect for a mage. A button shows only out of combat, and only while someone in reach is missing that buff or has under 5 minutes of it left. One click buffs the best person: missing it before running low, tanks first, then healers. It picks the rank they can take, so a low-level player doesn't get "Target is too low level". Anyone AFK still gets the buff, but last. Thorns goes on tanks only, Intellect and Spirit on mana users only. Shadow Protection is off until you want it (`/bish buffs shadow on`); any buff can be switched off the same way. Off by default. Paladins are left out: Pally Power does blessings.

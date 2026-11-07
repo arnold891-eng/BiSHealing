@@ -3,6 +3,12 @@
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
 
+Changed since the 7 Nov text (8 Nov, 1.0.0 - Forever 1.0): a new "A second mouse, for enemies"
+section (the heal | hostile switch, the damage-spell palette, the wheel too); macros on a bind in
+the mouse section; a new "PvP mode" section (each teammate's target beside them, the gold edge);
+"Settings" now says the BiS> page in the game's options is a full-page dashboard and right-click
+again closes the options window; `/bish pvp` in the command table, `/bish mouse` says both sides.
+
 Changed since the 0.16.0 text (7 Nov, 1.0.0 - Forever 1.0): the mouse section says LEFT-click for
 the binds; "Settings" says right-click for the options, names the BiS> home in the game's options,
 and says a new install starts quiet (crosshair, LOS flash, buff sound and reminder off).
@@ -61,10 +67,19 @@ Forty names on the screen and one of them is about to die. You do not want a spe
 - **Ranks are kept.** Drop Rank 4 and you get Rank 4, not the biggest one you know — the same bar for a third of the mana. Click the little number on a slot to step through your ranks.
 - **Nature's Swiftness first, in one press.** Drop Nature's Swiftness onto a button that already holds a heal: that button pops it, then casts the heal on whoever you clicked. The slot shows half of each icon. On cooldown you simply get the normal heal; drop the heal again to take it off. Inner Focus (priest) and Divine Favor (paladin) work the same way.
 - **Trinkets first, in one press.** Each tab (no modifier, Shift, Ctrl, Alt) has two ticks: **trinket 1** and **trinket 2**. Tick them and every button on that tab uses those trinkets, then the heal. Or drag a trinket you wear onto one heal's button. It stacks with Nature's Swiftness. A trinket with nothing to use, or on cooldown, is skipped.
+- **Macros, too.** Drag a macro from your macro window (Esc > Macros) onto any button, heal side or hostile side. Write `[@mouseover]` in the macro to aim it at the cell you click.
 - **Anything not bound targets the unit.** Leave a button empty and clicking a name selects them, like Blizzard's own frames.
 - **Right-click a slot** to clear it.
 
 **Already use Clique?** Keep it. Tick **"let Clique handle clicks"** (or `/bish clique`) and BiS Healing steps aside entirely. Untick it and your own binds are back.
+
+## A second mouse, for enemies
+
+At the top of the mouse window sits a switch: **heal | hostile**. The hostile side is tinted red. Drop damage spells on it — Lightning Bolt, Smite, Wrath, Hex — and a click on an **enemy** casts those instead of your heals: a mob in your target cell, or an enemy in PvP mode. A friend still gets your heal, on the same button.
+
+- **The wheel too.** An enemy under the cursor gets the hostile spell, anyone else the heal.
+- **Your damage spells, ready to drag.** Along the bottom of the hostile side sit your trained damage and control spells (Lightning Bolt, Smite, Wrath, Hammer of Justice...) at their top rank. Drag one straight on, no spellbook needed.
+- **The game picks the side at the click**, from its own answer to "is that an enemy", so it works in every fight.
 
 ## Mana for mana: which heal to spam
 
@@ -127,6 +142,18 @@ Each is a block of its own with a small `BiS>` bar: **drag it anywhere**, or **s
 
 > The game keeps another player's mana secret from addons, even out of combat. This addon never learns the number — it asks the game for the percentage and hands it straight to the screen.
 
+## PvP mode: see what your team is hitting
+
+Switch on **PvP mode** in the options, or type `/bish pvp on` — or `/bish pvp bg` to have it only in battlegrounds and arenas.
+
+Beside each player's cell sits a small one with whoever **they** are targeting. Your groups keep the shape you picked: down (columns of 5), across or tanks.
+
+- **Click it and your binds cast on that target**, so you can hit what your team is hitting — your hostile binds on an enemy, your heals on a friend.
+- **Red for an enemy, green for a friend**, with the target's health on the bar. Hover it for the full name.
+- **The focus gets a gold edge.** When two or more of your team are on the same enemy, and more than on any other, that enemy's cells are edged in gold.
+
+Off by default for everyone. `/bish pvp off` turns it off.
+
 ## A buff to watch on the whole group
 
 `/bish watch Lightning Shield` names a spell **you have trained**, and between pulls the header tells you when it is not up on anyone. `/bish watch off` stops it. Nothing is watched until you ask, and it never nags about a spell you do not have.
@@ -178,7 +205,9 @@ One exception, and it is there so you are never left guessing: on some PCs the g
 
 ## Settings
 
-Left-click the minimap button for your mouse binds, right-click it for the options — two columns, everything in it, also under **Esc > Options > AddOns > BiS> > BiS> Healing**, beside every other BiS addon you have.
+Left-click the minimap button for your mouse binds, right-click it for the options window — two columns, everything in it. Right-click again to close it. Hover the button and it says which click is which.
+
+**Or find it in the game's options: Esc > Options > AddOns > BiS>.** Every BiS addon you have is listed there with what it has on. **BiS> Healing** has a full-page dashboard of its own: every section down the left — frames, binds & clicks, look, layout, target & pets, BiS> now, buff buttons, buff reminder, the channel — and the one you pick, big and readable on the right, with a big "mouse binds" button.
 
 **A new install starts quiet:** only the main job is on — the cells, your binds, cure boxes, your heals over time, click-a-dead-friend res and the gold ring. The mouse crosshair, the LOS flash, the buff-drop sound and the buff reminder start off, each one a switch away in the options. Already using it? Everything you had stays as it was.
 
@@ -187,7 +216,7 @@ Or type:
 | command | does |
 |---|---|
 | `/bish` | the options window |
-| `/bish mouse` | the mouse binds, and the ping chips |
+| `/bish mouse` | the mouse binds, heal and hostile side, and the ping chips |
 | `/bish efficiency` | mana for mana: every rank of your heals, and which one to spam |
 | `/bish clique` | let Clique handle the clicks, or take them back |
 | `/bish trinkets shift both` | trinkets first on a modifier tab — `1`, `2`, `both`, `off` |
@@ -197,6 +226,7 @@ Or type:
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
 | `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |
 | `/bish pets grid` · `own` · `off` | where pets go |
+| `/bish pvp on` · `bg` · `off` | PvP mode: each player's target beside them, always or only in battlegrounds and arenas |
 | `/bish buff Water Shield` | a buff on yourself: the shield button in BiS> now, or the header when that is off |
 | `/bish buffsound` | the sound when it drops — an id, `off`, `on`, `default`, `test` |
 | `/bish across` · `/bish grid` · `/bish pyramid` | groups across, down, or by role |

@@ -59,6 +59,9 @@ function MM.Click(_, click)
     if b and b.Unbury then b:Unbury() end
     if b and b.CloseMenu then b:CloseMenu() end
     if b and b.dragging then return end
+    -- RIGHT-CLICK, THE BINDS (Arn, 6 Nov: "right click opens binds window pls"): the one thing opened most,
+    -- one click away. Left stays the options window, whose first row is still the binds.
+    if click == "RightButton" then return act("mouse")() end
     act("options")()
 end
 
@@ -67,7 +70,8 @@ local function tooltip(s)
     if not GameTooltip then return end
     GameTooltip:SetOwner(s, "ANCHOR_LEFT")
     GameTooltip:AddLine("BiS> Healing")
-    GameTooltip:AddLine("click  mouse binds and options", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("left-click  options", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine("right-click  mouse binds", 0.6, 0.6, 0.6)
     GameTooltip:AddLine("drag  move me round the edge", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end

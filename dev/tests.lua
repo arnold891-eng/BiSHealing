@@ -6432,12 +6432,24 @@ do
     if b then
         local click = b:GetScript("OnClick")
         ok(click == NS.MM.Click, "the button's click is ours, not the shared menu")
-        local realOptions, opened = NS.DO.options, 0
+        -- RIGHT-CLICK, THE BINDS (Arn, 6 Nov: "right click opens binds window pls"). Left stays the options
+        -- window (binds still its first row); right goes straight to the mouse binds.
+        local realOptions, realMouse, opened, binds = NS.DO.options, NS.DO.mouse, 0, 0
         NS.DO.options = function() opened = opened + 1 end
+        NS.DO.mouse = function() binds = binds + 1 end
         click(b, "LeftButton")
+        ok(opened == 1 and binds == 0, "left click: the options window", opened)
         click(b, "RightButton")
-        NS.DO.options = realOptions
-        ok(opened == 2, "left AND right click open the options window", opened)
+        NS.DO.options, NS.DO.mouse = realOptions, realMouse
+        ok(opened == 1 and binds == 1, "right click: the mouse binds window", binds)
+        local lines = {}
+        local keepTT = _G.GameTooltip
+        _G.GameTooltip = { SetOwner = function() end, Show = function() end,
+                           AddLine = function(_, s) lines[#lines + 1] = tostring(s) end }
+        b:GetScript("OnEnter")(b)
+        _G.GameTooltip = keepTT
+        local tip = table.concat(lines, "|")
+        ok(tip:find("right%-click  mouse binds") and tip:find("left%-click  options"), "the tooltip says which is which", tip)
         ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
         -- OUR click replaces the shared one, so it must ask for the shared unbury itself (Arn,
         -- 14 Oct: "bis healing stay dark after click" - EllesmereUI's backing over the icon)

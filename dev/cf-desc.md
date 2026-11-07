@@ -1,7 +1,12 @@
-# BiS Healing — CurseForge page text (1.0.1)
+# BiS Healing — CurseForge page text (1.0.3)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 1.0.1 text (8 Nov, 1.0.3): a new "The cockpit look" section before "The cells" (the default look:
+dark tile, name and class lamp, health as a gauge tape, amber readout, cyan / white / orange bands, magenta target;
+`look: classic` to go back); "The cells" and "Who is who" say which colours are the classic look's; PvP mode's
+interrupt icon shows its cooldown.
 
 Changed since the 1.0.0 text (8 Nov, 1.0.1): PvP mode gains the interrupt icon (lights while their target
 casts, click to interrupt, cast alert glow / bounce / both); the "me" cell is gone from "Cells you can add" and
@@ -107,14 +112,27 @@ Open `/bish mouse` and there are four chips along the bottom: **Assist**, **Atta
 
 This client forgets addon settings at every restart, so BiS Healing keeps your binds and settings in a macro called `BiSHealing` in **each character's own macro tab**. Your druid and your priest never share, and everything comes back at login. Please don't rename it. (`/bish keep` shows what's in it.)
 
+## The cockpit look
+
+Every cell is drawn like one screen on an aircraft's instrument panel, with one colour rule: **green is fine, amber is a caution, red is a warning, cyan is information, magenta is what you've selected.**
+
+- **A dark screen** with a thin steel border.
+- **The name big on top**, in white, behind a small **lamp in their class colour**.
+- **Health as a gauge tape along the bottom**, in a dark track with quarter marks — **green, then amber, then red** as they get hurt.
+- **What they still need** in amber digits on the right, just above the tape.
+- **Heals on their way in cyan, a shield in white, overheal in orange** — all riding the tape.
+- **Your target in magenta**; **DEAD** in red, **OFFLINE** in amber.
+
+Prefer the look from before? **look: classic** in the options (or `/bish look classic`) puts every cell back, at once.
+
 ## The cells
 
 One per person, and the groups can run **down or across**. Options: **groups: down / across / tanks**.
 
 - **The first name on the top line** — "Kumlust", not "Kumlust Surname".
 - **A number on the bottom line: what they still need.** It counts heals already on their way, so two healers stop filling the same gap. Shortened (`3.2K`), and **blank at full health**. Prefer a **percentage**? Or nothing? Your choice.
-- **Heals on their way, and the overheal.** Incoming heals fill the missing health in green and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold magenta band over the end of their health, with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Mid-cast, cancel and re-cast until there is no magenta left - then every point of it lands.
-- **Bars in class colour — or coloured by health**: green, amber below 70%, red below 35%.
+- **Heals on their way, and the overheal.** Incoming heals fill the missing health (cyan in the cockpit look, green in classic) and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold band over the end of their health (orange in the cockpit look, magenta in classic), with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Mid-cast, cancel and re-cast until there is no magenta left - then every point of it lands.
+- **Coloured by health**: green, amber below 70%, red below 35% — always in the cockpit look; in classic, class colour or by health, your pick.
 - **Cure boxes, down the left edge.** One small box per cure you know: Cure Poison and Cure Disease for a shaman, Dispel Magic and Cure Disease for a priest, Remove Curse and Cure Poison for a druid, Cleanse for a paladin. Click the box to cure that person, mid-fight too. When they pick up something that box can remove, the game draws its icon in the box and the box pulses teal, with the stack count in the corner. On Forever a cure takes one stack off, so the number is how many clicks are left. Each box lights only for its own kind, so the one lit is the one to click. Your mouse buttons stay free for heals. `/bish cures off` puts back a single marker instead.
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.
 - **Marker size**, 6 to 20 pixels.
@@ -129,7 +147,7 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 
 Thick corner brackets with a tick in from each side, outlined so they read on any class colour.
 
-- **Gold on you** — or, with `/bish ring target` (**gold ring: me / target** in the options), **red on whoever you have targeted**: their raid cell, the target cell and the tot cell when they are the same person.
+- **Gold on you** — or, with `/bish ring target` (**gold ring: me / target** in the options), **on whoever you have targeted** (magenta in the cockpit look, red in classic): their raid cell, the target cell and the tot cell when they are the same person.
 - **White on whoever your mouse is on** — hover a party or raid member's character in the world and their cell lights up, so you can see who that is on your frames.
 - **Target and mouse on the same person**: the corners stay red and the four ticks turn white.
 
@@ -154,7 +172,7 @@ Beside each player's cell sits a small one with whoever **they** are targeting. 
 - **Click it and your binds cast on that target**, so you can hit what your team is hitting — your hostile binds on an enemy, your heals on a friend.
 - **Red for an enemy, green for a friend**, with the target's health on the bar. Hover it for the full name.
 - **The focus gets a gold edge.** When two or more of your team are on the same enemy, and more than on any other, that enemy's cells are edged in gold.
-- **Your interrupt, ready to press.** Each target cell carries your class's interrupt icon — Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot. It sits dim, and **lights up the moment that target starts casting or channelling** — with a gold glow, a bounce, or both (your pick: "cast alert" in the options). **Click the icon** and it casts your interrupt, at its cheapest rank, at that target — no bind needed. The game keeps the spell itself hidden from addons; this only tells you a cast is happening.
+- **Your interrupt, ready to press.** Each target cell carries your class's interrupt icon — Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot. It sits dim, and **lights up the moment that target starts casting or channelling** — with a gold glow, a bounce, or both (your pick: "cast alert" in the options). **Click the icon** and it casts your interrupt, at its cheapest rank, at that target — no bind needed. After you use it, a **cooldown sweep** runs over the icon until it's ready again. It only appears on enemies; a teammate targeting a friend keeps a plain cell. The game keeps the spell itself hidden from addons; this only tells you a cast is happening.
 
 Off by default for everyone. `/bish pvp off` turns it off.
 

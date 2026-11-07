@@ -3032,95 +3032,42 @@ do
     FG.Layout(FG.anchor)
 end
 
--- A CELL FOR YOURSELF, OUT OF THE GROUP. A player's request (paszczyszyn on CurseForge, 25 Sep
--- 2026): "optional (like target) self target? It may be nice option to lock yourself in one spot
--- outside groups just to get use to it and have it in same spot for solo/or raid groups?".
---
--- The spot never moving IS the feature, which is why switching it on takes you out of the grid.
+-- THE "ME" CELL IS RETIRED (Arn, 8 Nov 2026: "in the cells remove the me option" - picked "retire it"). It was a
+-- player's request (paszczyszyn, 25 Sep: a cell for yourself, out of the group); now you are always in your group's
+-- column, an old save or an old macro that had it on included, and /bish me only says so.
 do
     local d = NS.DB()
-    d.me = false
+    d.me, d.meAt = true, "left"                      -- a save from before, with the cell on
     FG.Layout(FG.anchor)
-    ok(FG.me == nil or not FG.me:IsShown(), "off by default: no cell of your own")
+    ok(FG.me == nil or not FG.me:IsShown(), "an old save with the cell on: no cell of your own")
     ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are in the group grid")
-
-    ok(NS.DO.me(true) == true, "/bish me turns it on")
-    local mine = FG.me
-    ok(mine ~= nil and mine:IsShown(), "the cell is there")
-    ok(mine:GetAttribute("unit") == "player", "and it is you", tostring(mine:GetAttribute("unit")))
-    ok(mine.__tall and mine:GetHeight() == FG.CELL_H + FG.NAME_BAND,
-       "tall like the grid: your name on top, your cure boxes under it", tostring(mine:GetHeight()))
-    ok(mine.__attrs["*type1"] ~= nil, "with the mouse binds on it, like any other cell")
-    ok(mine.handle and mine.handle.__fontstrings
-       and mine.handle.__fontstrings[1].__text == "BiS> me", "under a bar that says which cell it is",
-       mine.handle and mine.handle.__fontstrings and tostring(mine.handle.__fontstrings[1].__text))
-
-    -- THE POINT OF THE WHOLE THING: out of the roster, so the grid cannot reshape around you
-    local roster = table.concat(FG.Roster(), " ")
-    ok(not roster:find("player", 1, true), "and you are OUT of the group grid", roster)
-    ok(roster:find("party1", 1, true), "while everyone else is still in it", roster)
-
-    -- in a raid it is the same, and "which one is me" is the client's own answer
-    local realRaid, realIsUnit = _G.IsInRaid, _G.UnitIsUnit
-    _G.IsInRaid = function() return true end
-    STATE.units.raid1, STATE.units.raid2 = true, true
-    _G.UnitIsUnit = function(a, b) return a == "raid2" and b == "player" end
-    local raid = table.concat(FG.Roster(), " ")
-    ok(raid:find("raid1", 1, true) and not raid:find("raid2", 1, true),
-       "in a raid, the slot that IS you is the one left out", raid)
-    -- and an identity the client hides leaves the cell where it is, rather than dropping a raider
-    _G.UnitIsUnit = function() return secret() end
-    local hidden = table.concat(FG.Roster(), " ")
-    ok(hidden:find("raid1", 1, true) and hidden:find("raid2", 1, true),
-       "an identity it will not confirm leaves everybody in the raid", hidden)
-    _G.IsInRaid, _G.UnitIsUnit = realRaid, realIsUnit
-    STATE.units.raid1, STATE.units.raid2 = nil, nil
-
-    -- it has its own spot, so moving it does not move the target block
-    NS.DO.target("top")
-    local function spotOf(f)
-        local p = f and f.points and f.points[#f.points]
-        return p and (tostring(p[1]) .. "->" .. tostring(p[3])) or "nowhere"
-    end
-    ok(FG.SelfSpot() == "left", "it starts on the grid's left, away from the target block")
-    ok(spotOf(mine) == "TOPRIGHT->TOPLEFT", "which is where it is drawn", spotOf(mine))
-    NS.DO.me("right")
-    ok(FG.SelfSpot() == "right" and d.targetAt == "top",
-       "moving it leaves the target cell where it was", tostring(d.targetAt))
-
-    -- a drag on its bar writes ITS place, not the target's
-    local realUC = UIParent.GetCenter
-    UIParent.GetCenter = function() return 960, 540 end
-    mine.GetCenter = function() return 860, 590 end            -- 100 left, 50 up
-    local h = mine.handle
-    h.__scripts.OnDragStart(h)
-    h.__scripts.OnDragStop(h)
-    ok(d.meAt == "free" and d.mePos and d.mePos.x == -100 and d.mePos.y == 50,
-       "dragging it sets it free and remembers where",
-       d.mePos and ("%s,%s"):format(d.mePos.x, d.mePos.y))
-    ok(d.targetAt == "top" and d.targetPos == nil,
-       "and the target block is untouched by it", tostring(d.targetAt))
-    UIParent.GetCenter, mine.GetCenter = realUC, nil
-
-    -- AND IT SURVIVES A RESTART, which on this client means the macro
+    -- an old macro's "me" row (Y=1) is read and ignored
     MACROS = {}
     local keptBinds = d.binds
     d.binds = { ["wheelup"] = "Healing Wave(Rank 2)" }
-    NS.DO.me("under")
+    NS.FK.Save(d.binds)
     local body = GetMacroBody(GetMacroIndexByName(NS.FK.MACRO))
-    ok(body and body:find("Y=1", 1, true), "where it sits goes into the macro", body)
-    d.binds, d.bindsSeeded, NS.FM.asked, d.me, d.meAt = {}, nil, false, false, "left"
+    ok(body and not body:find("Y=", 1, true), "a new save writes no \"me\" row", body)
+    local idx = GetMacroIndexByName(NS.FK.MACRO)
+    MACROS[idx].body = MACROS[idx].body:gsub("#", "#Y=3;", 1)       -- what a 1.0.0 macro could hold
+    d.binds, d.bindsSeeded, NS.FM.asked, d.me = {}, nil, false, false
     NS.FM.Get("", "wheelup")
-    ok(d.me == true and d.meAt == "under", "and after a restart it is back, in the same place",
-       tostring(d.me) .. "/" .. tostring(d.meAt))
+    ok(d.me ~= true, "an old macro with the cell on does not bring it back", tostring(d.me))
     d.binds = keptBinds
     MACROS = {}
-
-    ok(NS.DO.me(false) == false, "/bish me turns it off")
-    ok(not FG.me:IsShown() and FG.me.unit == nil, "the cell goes")
-    WATCH_TICK()
-    ok(not FG.me:IsShown(), "and the client's watch does not bring it back")
-    ok(table.concat(FG.Roster(), " "):find("player", 1, true), "and you are back in the group grid")
+    -- the command only says so, and puts back anyone who still had it
+    d.me = true
+    local heardMe, realChatMe = {}, _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heardMe[#heardMe + 1] = t end }
+    ok(NS.DO.me() == false and d.me == false, "/bish me: retired, and switched off for an old save")
+    _G.DEFAULT_CHAT_FRAME = realChatMe
+    ok((heardMe[#heardMe] or ""):find("retired", 1, true), "and it says so", heardMe[#heardMe])
+    -- the options: the cells row is target, tot and mana
+    local parts = {}
+    for _, o in ipairs(NS.UI.Rows()) do
+        if o.key == "cells" then for _, p in ipairs(o.parts or {}) do parts[#parts + 1] = p.key end end
+    end
+    ok(table.concat(parts, ",") == "target,tot,mana", "the cells row has no \"me\"", table.concat(parts, ","))
     d.me = false
     FG.Layout(FG.anchor)
 end
@@ -3130,76 +3077,76 @@ end
 -- turn on me dont overlap them send them to the next available slot".
 do
     local d = NS.DB()
-    d.target, d.me, d.tot, d.pets = false, false, false, "off"
-    d.targetAt, d.meAt, d.petAt = "top", "left", "under"
+    d.target, d.mana, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.manaAt, d.petAt = "top", "left", "under"
     FG.Layout(FG.anchor)
 
     NS.DO.target("top")
-    NS.DO.me("top")                                  -- asking for a side that is already taken
+    NS.DO.mana("top")                                  -- asking for a side that is already taken
     ok(d.targetAt == "top", "the block that was there first keeps its place", tostring(d.targetAt))
-    ok(d.meAt ~= "top", "and the one arriving does not land on it", tostring(d.meAt))
-    ok(FG.TARGET_SPOTS[d.meAt], "it lands on a real side", tostring(d.meAt))
-    ok(d.meAt == "right", "the next one round the ring", tostring(d.meAt))
+    ok(d.manaAt ~= "top", "and the one arriving does not land on it", tostring(d.manaAt))
+    ok(FG.TARGET_SPOTS[d.manaAt], "it lands on a real side", tostring(d.manaAt))
+    ok(d.manaAt == "right", "the next one round the ring", tostring(d.manaAt))
 
     -- AND THE OTHER WAY ROUND: yours there first, the target arriving. Tested both ways because
     -- each block is a separate line in the "is anyone here?" question, and a test that only ever
     -- collides one pair one way leaves the other line free to be deleted.
     NS.DO.target(false)
-    NS.DO.me("top")
+    NS.DO.mana("top")
     NS.DO.target("top")
-    ok(d.meAt == "top" and d.targetAt ~= "top",
+    ok(d.manaAt == "top" and d.targetAt ~= "top",
        "yours first, and the target cell is the one that moves",
-       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+       ("mana %s, target %s"):format(tostring(d.manaAt), tostring(d.targetAt)))
 
     -- TWO SIDES TAKEN, so the walk has to step more than once. With only one in use, a ring walk
     -- that gives up immediately lands on the same answer as one that looks properly.
-    NS.DO.me("top")
+    NS.DO.mana("top")
     NS.DO.target("right")
     NS.DO.pets("own")
     d.petAt = "top"                                  -- and now ask it to sit on an occupied side
     NS.DO.pets("own")
     ok(d.petAt == "under",
        "with top and right in use, the third block walks past both",
-       ("pets %s, me %s, target %s"):format(tostring(d.petAt), tostring(d.meAt), tostring(d.targetAt)))
-    ok(d.petAt ~= d.targetAt and d.petAt ~= d.meAt,
+       ("pets %s, me %s, target %s"):format(tostring(d.petAt), tostring(d.manaAt), tostring(d.targetAt)))
+    ok(d.petAt ~= d.targetAt and d.petAt ~= d.manaAt,
        "and lands on a side neither of the others is on")
 
     -- SWITCHED ON WITH A PLAIN yes, which is what the options window sends: the remembered side
     -- may be somebody else's by now, and nothing in that path passes through a spot word.
-    NS.DO.me(false)
-    d.meAt = "right"                                 -- where the target block is sitting
-    NS.DO.me(true)
-    ok(d.meAt ~= "right", "switching it on with no side named still avoids the others",
-       ("me %s, target %s"):format(tostring(d.meAt), tostring(d.targetAt)))
+    NS.DO.mana(false)
+    d.manaAt = "right"                                 -- where the target block is sitting
+    NS.DO.mana(true)
+    ok(d.manaAt ~= "right", "switching it on with no side named still avoids the others",
+       ("mana %s, target %s"):format(tostring(d.manaAt), tostring(d.targetAt)))
     -- and the target cell, switched on the same way, onto a side yours is already using
     NS.DO.target(false)
-    d.targetAt = d.meAt
+    d.targetAt = d.manaAt
     NS.DO.target(true)
-    ok(d.targetAt ~= d.meAt, "and so does the target cell, switched on the same way",
-       ("target %s, me %s"):format(tostring(d.targetAt), tostring(d.meAt)))
+    ok(d.targetAt ~= d.manaAt, "and so does the target cell, switched on the same way",
+       ("target %s, me %s"):format(tostring(d.targetAt), tostring(d.manaAt)))
     -- AND THE PET BLOCK IS SOMETHING TO AVOID, not just something that avoids. It is the only
     -- block that is not a single cell, and it was the last line of the question to be written.
     NS.DO.pets("own")
-    NS.DO.me(false)
-    d.meAt = d.petAt
-    NS.DO.me(true)
-    ok(d.meAt ~= d.petAt, "a block is in the way of others, as well as avoiding them",
-       ("me %s, pets %s"):format(tostring(d.meAt), tostring(d.petAt)))
+    NS.DO.mana(false)
+    d.manaAt = d.petAt
+    NS.DO.mana(true)
+    ok(d.manaAt ~= d.petAt, "a block is in the way of others, as well as avoiding them",
+       ("mana %s, pets %s"):format(tostring(d.manaAt), tostring(d.petAt)))
     NS.DO.pets("off")
 
     -- a shift-click walks past an occupied side too, rather than stopping on it
-    local h = FG.me.handle
+    local h = FG.manaAnchor.handle
     STATE.shift = true
     h.dragged = nil
     h.__scripts.OnMouseUp(h, "LeftButton")
     STATE.shift = false
-    ok(d.meAt ~= d.targetAt and d.meAt ~= d.petAt,
+    ok(d.manaAt ~= d.targetAt and d.manaAt ~= d.petAt,
        "shift-clicking round the ring skips the sides in use",
-       ("me %s, target %s, pets %s"):format(tostring(d.meAt), tostring(d.targetAt), tostring(d.petAt)))
+       ("mana %s, target %s, pets %s"):format(tostring(d.manaAt), tostring(d.targetAt), tostring(d.petAt)))
 
     -- "FREE" IS NOT A SIDE, it is wherever a drag put it - so any number of blocks can be free at
     -- once and none of them is ever in another's way.
-    NS.DO.me(false)
+    NS.DO.mana(false)
     NS.DO.pets("off")
     NS.DO.target("top")                              -- one block in play, so the answer is its own
     ok(FG.SpotTaken("top", FG.PET_KEYS) == true, "a block ON a side is in the way")
@@ -3208,8 +3155,8 @@ do
     ok(FG.SpotTaken("top", FG.PET_KEYS) == false, "and one that was dragged away leaves its side")
     ok(FG.SpotTaken("free", FG.PET_KEYS) == false, "even to another block being dragged")
 
-    d.target, d.me, d.tot, d.pets = false, false, false, "off"
-    d.targetAt, d.meAt, d.petAt, d.mePos, d.targetPos = "top", "left", "under", nil, nil
+    d.target, d.mana, d.tot, d.pets = false, false, false, "off"
+    d.targetAt, d.manaAt, d.petAt, d.manaPos, d.targetPos = "top", "left", "under", nil, nil
     FG.Layout(FG.anchor)
 end
 
@@ -6541,9 +6488,10 @@ do
     do
         local parts = {}
         for _, part in ipairs((keys.cells or {}).parts or {}) do parts[part.key] = part end
-        for _, want in ipairs({ "target", "tot", "me", "mana" }) do
+        for _, want in ipairs({ "target", "tot", "mana" }) do       -- "me" retired 8 Nov 2026
             ok(parts[want], ("the cells row lost %q"):format(want))
         end
+        ok(parts.me == nil, "and the retired \"me\" is gone from it")
         ok(keys.pets and keys.pets.kind == "seg",
            "and pets is a row of its own, because it has three answers",
            keys.pets and keys.pets.kind)
@@ -6552,8 +6500,8 @@ do
         -- sensible: the wrong button simply lights up.
         local db, was = NS.DB(), {}
         for _, k in ipairs({ "target", "tot", "me", "mana" }) do was[k] = db[k] end
-        for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
-        for _, k in ipairs({ "target", "tot", "me", "mana" }) do
+        for _, k in ipairs({ "target", "tot", "mana" }) do db[k] = false end
+        for _, k in ipairs({ "target", "tot", "mana" }) do
             db[k] = true
             local lit = {}
             for name, part in pairs(parts) do
@@ -6613,18 +6561,17 @@ do
         end
         NS.CFG.Build()
         local row = NS.CFG and NS.CFG.cells
-        ok(row and row.ctl and #row.ctl == 4, "the row has its four buttons", row and #(row.ctl or {}))
+        ok(row and row.ctl and #row.ctl == 3, "the row has its three buttons (\"me\" retired 8 Nov)", row and #(row.ctl or {}))
         if row and row.ctl then
             for i, part in ipairs(keys.cells.parts) do
-                for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = false end
+                for _, k in ipairs({ "target", "tot", "mana" }) do db[k] = false end
                 local click = row.ctl[i].__scripts and row.ctl[i].__scripts.OnClick
                 if click then click(row.ctl[i], "LeftButton") end
                 ok(db[part.key] == true,
                    ("pressing %q switches %q on"):format(part.label, part.key),
                    tostring(db[part.key]))
             end
-            for _, k in ipairs({ "target", "tot", "me", "mana" }) do db[k] = was[k] end
-            NS.DO.me(was.me == true)
+            for _, k in ipairs({ "target", "tot", "mana" }) do db[k] = was[k] end
             FG.Layout(FG.anchor)
         end
     end
@@ -8220,9 +8167,9 @@ do
         FG.PaintRegen(h)
     end
     local was = { me = d.me, target = d.target, tot = d.tot, pets = d.pets }
-    NS.DO.me(true) NS.DO.target(true) NS.DO.tot(true) NS.DO.pets("solo")
+    NS.DO.target(true) NS.DO.tot(true) NS.DO.pets("solo")
     local headers = 0
-    for _, cell in ipairs({ FG.me, FG.target, FG.tot, FG.petAnchor }) do
+    for _, cell in ipairs({ FG.target, FG.tot, FG.petAnchor }) do
         if cell and cell.handle then
             cell:Show() cell.handle:Show()
             fitsIn(cell.handle, "the " .. tostring(cell.handle.word) .. " cell's header")

@@ -296,7 +296,8 @@ function FG.Roster()
     -- yourself in one spot outside groups"). Left in, you are first in a party and somewhere in
     -- the middle of a raid, and the grid reshapes around you every time the group changes - which
     -- is the thing that made him ask. Two cells for one person is also just two cells.
-    local mine = type(d) == "table" and d.me == true
+    -- RETIRED 8 Nov 2026 (Arn: "in the cells remove the me option" - picked: retire it): you are always in your group
+    local mine = false
     local function add(u) if UnitExists(u) then out[#out + 1] = u end end
     if IsInRaid and IsInRaid() then
         for i = 1, 40 do
@@ -874,7 +875,7 @@ function FG.LayoutSelf(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.me == true and d.shown ~= false
+    local want = false              -- the "me" cell is retired (8 Nov 2026): a cell left from before is hidden here
     if not want then
         if FG.me then
             FG.Unwatch(FG.me)
@@ -1075,12 +1076,6 @@ function FG.Healers()
             if ok and NS.Plain(role) == "HEALER" then out[#out + 1] = unit end
         end
     end
-    -- your own cell may be out of the roster (a cell of your own), and you are still a healer
-    local d = NS.DB and NS.DB()
-    if type(d) == "table" and d.me == true and UnitExists and UnitExists("player") then
-        local ok, role = pcall(UnitGroupRolesAssigned, "player")
-        if ok and NS.Plain(role) == "HEALER" then table.insert(out, 1, "player") end
-    end
     return out
 end
 
@@ -1193,7 +1188,6 @@ function FG.SpotTaken(at, mine)
     local d = NS.DB and NS.DB()
     if type(d) ~= "table" or at == "free" then return false end
     if mine ~= FG.TARGET_KEYS and d.target == true and FG.TargetSpot() == at then return true end
-    if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
     if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
     if mine ~= FG.MANA_KEYS and d.mana == true and FG.ManaSpot() == at then return true end
     -- BiS> now is a block like any other, and was not in this list for one build: Arn shift-clicked

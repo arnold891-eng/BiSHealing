@@ -1701,42 +1701,19 @@ end
 --- yourself in one spot outside groups just to get use to it and have it in same spot for solo/or
 --- raid groups". Switching it on takes you out of the grid, which is the whole point: a spot that
 --- moves when the group changes is not a spot you can learn.
-function NS.DO.me(on)
+---
+--- RETIRED 8 Nov 2026 (Arn: "in the cells remove the me option" - picked "retire it"): you are always in your group's
+--- column. The command stays only to say so, and to put back anyone who still had the cell on.
+function NS.DO.me()
     local d = DB()
-    if type(on) == "string" then
-        local where = on:lower()
-        if where == "bottom" or where == "below" then where = "under" end
-        if where == "above" then where = "top" end
-        if NS.FG and NS.FG.TARGET_SPOTS and NS.FG.TARGET_SPOTS[where] then
-            d.meAt = NS.FG.FreeSpot and NS.FG.FreeSpot(where, NS.FG.SELF_KEYS) or where
-            if where ~= "free" then d.mePos = nil end
-            on = true
-        else
-            on = nil
-        end
-    end
-    if on == nil then on = not d.me end
-    d.me = on and true or false
-    -- ARRIVING ON AN OCCUPIED SIDE MOVES YOU ALONG. Arn, 26 Sep, with both bars printed across
-    -- each other - "BiS> meget": "if target is already taking up the top and i also turn on me
-    -- dont overlap them send them to the next available slot". The block that has just been
-    -- switched on is the one that moves; whatever was already there keeps its place.
-    if d.me and NS.FG and NS.FG.FreeSpot then
-        d.meAt = NS.FG.FreeSpot(NS.FG.SelfSpot(), NS.FG.SELF_KEYS)
-    end
-    -- the whole grid is rebuilt, not just the cell: you leaving the roster changes every column
+    local had = d.me == true
+    d.me, d.meAt, d.mePos = false, nil, nil
     local done = true
-    if NS.FG and NS.FG.Layout then done = NS.FG.Layout() and true or false end
-    if NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
-    local where = (NS.FG and NS.FG.SelfSpot and NS.FG.SelfSpot()) or "left"
-    local said = { under = "under the grid", right = "to the right of the grid",
-                   left = "to the left of the grid", top = "above the grid",
-                   free = "where you dragged it" }
-    Print((d.me and ("a cell of your own, " .. (said[where] or "beside the grid")
-            .. " - and you are out of the group grid")
-        or "no cell of your own - you are back in the group grid")
-        .. (done and "" or " - after this fight"))
-    return d.me
+    if had and NS.FG and NS.FG.Layout then done = NS.FG.Layout() and true or false end
+    if had and NS.FK and NS.FK.Save then NS.FK.Save(d.binds or {}) end
+    Print("the separate \"me\" cell is retired - you sit in your group like everyone else"
+        .. ((had and not done) and " (after this fight)" or ""))
+    return false
 end
 
 --- How big the dispel marker and the heal-over-time icons are. A player's request (paszczyszyn):

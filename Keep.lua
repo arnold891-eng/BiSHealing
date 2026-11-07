@@ -550,7 +550,7 @@ function FK.Save(binds)
                                              trinketTabs = t.trinketTabs,
                                              clique = t.clique, layout = t.layout, pvp = t.pvp,
                                              target = t.target, markers = t.markers, tot = t.tot,
-                                             me = t.me, meAt = t.meAt, mePos = t.mePos,
+                                             -- (no "me" row since 8 Nov 2026: the "me" cell is retired)
                                              mana = t.mana, manaAt = t.manaAt, manaPos = t.manaPos,
                                              pets = (NS.FG and NS.FG.PetsMode and NS.FG.PetsMode()) or nil,
                                              petAt = t.petAt, petPos = t.petPos,

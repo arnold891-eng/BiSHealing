@@ -10753,6 +10753,48 @@ do
     ok(not (FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET), "and UNIT_TARGET is not even heard")
     FG.PaintPvPCell = realCell
 
+    -- (8b) IS THEIR TARGET CASTING? (Arn, 8 Nov: "class appropriate interrupt icon and un alpha it when they are
+    -- casting or channeling"). Forever hides WHAT another unit casts, not THAT it casts: the client hands a duration
+    -- object for a cast in progress (UnitCastingDuration / UnitChannelDuration), nil for none - and that answer may
+    -- itself come back secret, which still means "something is there". The stand-in: STATE.casting[token] = "cast" |
+    -- "channel" | "secret".
+    STATE.casting = {}
+    _G.UnitCastingDuration = function(u)
+        local c = STATE.casting[u]
+        if c == "secret" then return secretString() end
+        return c == "cast" and { duration = 1.5 } or nil
+    end
+    _G.UnitChannelDuration = function(u) return STATE.casting[u] == "channel" and { duration = 3 } or nil end
+    local keepBook = BOOK[43]
+    BOOK[43] = { name = "Earth Shock", rank = "Rank 1" }
+    NS.FM.BookChanged()                         -- the client's SPELLS_CHANGED, as a trained spell brings it
+    NS.DO.pvp("on")
+    WATCH_TICK()
+    local kc = FG.pvpByUnit.raid1 or FG.pvpCells[1]
+    ok(kc and kc.kick, "a target cell carries an interrupt icon")
+    ok(FG.KickSpell() == "Earth Shock", "a shaman's is Earth Shock (trained)", tostring(FG.KickSpell()))
+    local tok = kc.unit
+    STATE.casting[tok] = nil
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha and kc.kick.__alpha < 0.5, "their target not casting: the icon is dim", tostring(kc.kick.__alpha))
+    STATE.casting[tok] = "cast"
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha == 1, "casting: the icon at full strength")
+    STATE.casting[tok] = "channel"
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha == 1, "channelling: full strength too")
+    STATE.casting[tok] = "secret"
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha == 1, "a hidden answer still means a cast is there: full strength")
+    STATE.casting[tok] = nil
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha < 0.5, "the cast over: dim again")
+    BOOK[43] = keepBook
+    NS.FM.BookChanged()
+    FG.kickSpell = nil
+    ok(FG.KickSpell() == nil and FG.KickIcon() == FG.KICK_FALLBACK, "no interrupt trained: the plain kick icon")
+    NS.DO.pvp("off")
+
     -- (9) THE COST of one repaint pass over a 40-man where everyone has a target
     local Cost = dofile("../_bisdev/dev/cost.lua")
     for i = 1, 40 do
@@ -10769,7 +10811,9 @@ do
     -- THE BUDGET, a little above what was measured on 8 Nov: 320 for one pass over 40 shown target cells
     -- (8 a cell: max, health, can-attack, name, GUID and three hidden-checks). Four a second while pvp
     -- mode shows - about 1,300 a second in a full 40 - and nothing at all when it does not.
-    local PVP = 360
+    -- 8 Nov (the interrupt icon): +2 a cell - "is their target casting / channelling" (FG.Casting, no hidden-check:
+    -- type() reads nothing) - 400 measured, so 440. About 1,600 a second in a full 40 while it shows.
+    local PVP = 440
     ok(n <= PVP, "one repaint pass of a 40-man's target cells asks the client at most " .. PVP .. " things: " .. n,
        Cost.Top(by, 6))
     print(("   cost: pvp target cells, 40-man pass = %d calls (%s)"):format(n, Cost.Top(by, 4)))

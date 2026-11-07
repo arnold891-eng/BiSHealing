@@ -1939,6 +1939,56 @@ end
 -- token, every target cell is repainted four times a second (FG.PVP_EVERY).
 
 FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
+
+-- IS THEIR TARGET CASTING? (Arn, 8 Nov 2026: "class appropriate interrupt icon and un alpha it when they are casting
+-- or channeling"). Forever hides WHAT another unit casts, never THAT it casts: UnitCastingDuration /
+-- UnitChannelDuration hand a duration object for a cast in progress and nil for none - an answer that may itself be
+-- secret, which still means "something is there". Your class's interrupt, dim at rest, full while their target casts.
+FG.KICK = {
+    SHAMAN = { "Earth Shock" }, ROGUE = { "Kick" }, WARRIOR = { "Pummel", "Shield Bash" }, MAGE = { "Counterspell" },
+    PALADIN = { "Hammer of Justice" }, PRIEST = { "Silence", "Psychic Scream" }, DRUID = { "Bash" },
+    WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
+}
+FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
+FG.KICK_DIM, FG.KICK_SIZE = 0.2, 14
+
+--- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
+--- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
+function FG.KickSpell()
+    if FG.kickSpell ~= nil then return FG.kickSpell or nil end
+    local okC, _, class = pcall(UnitClass, "player")
+    class = okC and NS.Plain(class) or nil
+    for _, name in ipairs(FG.KICK[class or ""] or {}) do
+        if NS.FM and NS.FM.BookIds and #NS.FM.BookIds(name) > 0 then FG.kickSpell = name return name end
+    end
+    FG.kickSpell = false
+    return nil
+end
+
+function FG.KickIcon()
+    local name = FG.KickSpell()
+    local get = C_Spell and C_Spell.GetSpellTexture
+    if name and get then
+        local ok, tex = pcall(get, name)
+        if ok and tex and not NS.Secret(tex) then return tex end
+    end
+    return FG.KICK_FALLBACK
+end
+
+--- Is this unit casting or channelling? true / false. A secret answer counts as a cast: something is there.
+--- `type(v)` reads no value - a secret one says its type and never refuses - so "is there an answer at all" costs
+--- no hidden-check; the channel is asked only when there is no cast (lean: 1-2 calls a cell, Cost budget below).
+FG.CAST_ASKS = { "UnitCastingDuration", "UnitChannelDuration" }
+function FG.Casting(tok)
+    for _, name in ipairs(FG.CAST_ASKS) do
+        local f = rawget(_G, name)
+        if f then
+            local ok, v = pcall(f, tok)
+            if ok and type(v) ~= "nil" then return true end
+        end
+    end
+    return false
+end
 FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
 FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
 FG.PVP_BAR_H = nil                       -- (was a 6 px strip; since 8 Nov the health fills the cell)
@@ -2049,6 +2099,13 @@ function FG.MakePvP(i, parent)
     c.label:SetPoint("TOPRIGHT", -1, -4)
     c.label:SetJustifyH("CENTER")
     if c.label.SetWordWrap then c.label:SetWordWrap(false) end
+    -- YOUR INTERRUPT, at the foot under the name: dim, and full the moment their target casts (FG.PaintPvPCell)
+    c.kick = c.ink:CreateTexture(nil, "OVERLAY")
+    c.kick:SetSize(FG.KICK_SIZE, FG.KICK_SIZE)
+    c.kick:SetPoint("BOTTOM", c, "BOTTOM", 0, 3)
+    if c.kick.SetTexCoord then c.kick:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    c.kick:SetTexture(FG.KickIcon())
+    c.kick:SetAlpha(FG.KICK_DIM)
     -- THE TEAM'S FOCUS: a gold edge, 2 px, on a frame of its own so one Show/Hide does it
     c.focus = CreateFrame("Frame", nil, c)
     c.focus:SetAllPoints()
@@ -2112,6 +2169,8 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
     local cells, byUnit = FG.pvpCells, FG.pvpByUnit
     for i = #cells, 1, -1 do cells[i] = nil end            -- emptied in place: callers may hold the table
     for k in pairs(byUnit) do byUnit[k] = nil end
+    FG.kickSpell = nil                                      -- an interrupt learned since: asked again here
+    local kickIcon = FG.KickIcon()
     for i, unit in ipairs(roster) do
         local c = FG.pvpPool[i] or FG.MakePvP(i, anchor)
         local tok = FG.TargetOf(unit)
@@ -2123,6 +2182,7 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", anchor, "TOPLEFT", fx + fw + PAD, fy)
         c:SetSize(FG.PVP_W, fh)
+        if c.kick then c.kick:SetTexture(kickIcon) end
         c.unit, c.member = tok, unit
         c:SetAttribute("unit", tok)
         -- the grid's own binds, hostile ones included (Mouse.lua's ApplyTo owns what a click means)
@@ -2193,6 +2253,7 @@ function FG.PaintPvPCell(c)
     end
     local okN, name = pcall(UnitName, tok)
     if okN then c.label:SetText(FG.PvPName(name)) end
+    if c.kick then c.kick:SetAlpha(FG.Casting(tok) and 1 or FG.KICK_DIM) end
     -- WHO IT IS, for the focus: a plain GUID of somebody who is not a friend, or nothing
     local okG, guid = pcall(UnitGUID, tok)
     local g = okG and NS.Plain(guid) or nil

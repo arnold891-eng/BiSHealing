@@ -1944,7 +1944,7 @@ FG.KICK = {
     WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
 }
 FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
-FG.KICK_DIM, FG.KICK_SIZE = 0.2, 14
+FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 14, 1.35
 
 --- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
 --- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
@@ -2093,13 +2093,37 @@ function FG.MakePvP(i, parent)
     c.label:SetPoint("TOPRIGHT", -1, -4)
     c.label:SetJustifyH("CENTER")
     if c.label.SetWordWrap then c.label:SetWordWrap(false) end
-    -- YOUR INTERRUPT, at the foot under the name: dim, and full the moment their target casts (FG.PaintPvPCell)
-    c.kick = c.ink:CreateTexture(nil, "OVERLAY")
-    c.kick:SetSize(FG.KICK_SIZE, FG.KICK_SIZE)
-    c.kick:SetPoint("BOTTOM", c, "BOTTOM", 0, 3)
+    -- YOUR INTERRUPT, at the foot under the name: dim, and full the moment their target casts (FG.PaintPvPCell).
+    -- On a little frame of its own so it can MOVE (Arn, 8 Nov: "can it also add a glow or bounce animation"): a gold
+    -- glow behind it and a bounce while their target casts - the client runs the bounce, nothing of ours ticks for it.
+    c.kickFx = CreateFrame("Frame", nil, c.ink)
+    c.kickFx:SetSize(FG.KICK_SIZE, FG.KICK_SIZE)
+    c.kickFx:SetPoint("BOTTOM", c, "BOTTOM", 0, 3)
+    c.kickGlow = c.kickFx:CreateTexture(nil, "BACKGROUND")
+    c.kickGlow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    if c.kickGlow.SetBlendMode then c.kickGlow:SetBlendMode("ADD") end
+    c.kickGlow:SetVertexColor(FG.PVP_GOLD[1], FG.PVP_GOLD[2], FG.PVP_GOLD[3], 1)
+    c.kickGlow:SetSize(FG.KICK_SIZE * 2.4, FG.KICK_SIZE * 2.4)
+    c.kickGlow:SetPoint("CENTER", c.kickFx, "CENTER", 0, 0)
+    c.kickGlow:Hide()
+    c.kick = c.kickFx:CreateTexture(nil, "ARTWORK")
+    c.kick:SetAllPoints()
     if c.kick.SetTexCoord then c.kick:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
     c.kick:SetTexture(FG.KickIcon())
     c.kick:SetAlpha(FG.KICK_DIM)
+    if c.kickFx.CreateAnimationGroup then
+        local okG, g = pcall(c.kickFx.CreateAnimationGroup, c.kickFx)
+        if okG and g then
+            local up = g:CreateAnimation("Scale")
+            up:SetScaleFrom(1, 1) up:SetScaleTo(FG.KICK_BOUNCE, FG.KICK_BOUNCE)
+            up:SetOrigin("BOTTOM", 0, 0) up:SetDuration(0.22) up:SetOrder(1)
+            local down = g:CreateAnimation("Scale")
+            down:SetScaleFrom(FG.KICK_BOUNCE, FG.KICK_BOUNCE) down:SetScaleTo(1, 1)
+            down:SetOrigin("BOTTOM", 0, 0) down:SetDuration(0.22) down:SetOrder(2)
+            g:SetLooping("REPEAT")
+            c.kickBounce = g
+        end
+    end
     -- THE TEAM'S FOCUS: a gold edge, 2 px, on a frame of its own so one Show/Hide does it
     c.focus = CreateFrame("Frame", nil, c)
     c.focus:SetAllPoints()
@@ -2247,7 +2271,16 @@ function FG.PaintPvPCell(c)
     end
     local okN, name = pcall(UnitName, tok)
     if okN then c.label:SetText(FG.PvPName(name)) end
-    if c.kick then c.kick:SetAlpha(FG.Casting(tok) and 1 or FG.KICK_DIM) end
+    if c.kick then
+        local lit = FG.Casting(tok)
+        c.kick:SetAlpha(lit and 1 or FG.KICK_DIM)
+        -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
+        if lit ~= c.kickLit then
+            c.kickLit = lit
+            if lit then c.kickGlow:Show() else c.kickGlow:Hide() end
+            if c.kickBounce then if lit then c.kickBounce:Play() else c.kickBounce:Stop() end end
+        end
+    end
     -- WHO IT IS, for the focus: a plain GUID of somebody who is not a friend, or nothing
     local okG, guid = pcall(UnitGUID, tok)
     local g = okG and NS.Plain(guid) or nil

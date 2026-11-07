@@ -213,6 +213,11 @@ local function newFrame(kind, name, parent)
             function a:SetToAlpha(v) self.to = v end
             function a:SetDuration(v) self.duration = v end
             function a:SetSmoothing(v) self.smoothing = v end
+            -- a Scale animation's own setters (the interrupt icon's bounce, 8 Nov 2026)
+            function a:SetScaleFrom(x, y) self.scaleFrom = { x, y } end
+            function a:SetScaleTo(x, y) self.scaleTo = { x, y } end
+            function a:SetOrigin(p, x, y) self.origin = p end
+            function a:SetOrder(n) self.order = n end
             self.anims[#self.anims + 1] = a
             return a
         end
@@ -10724,9 +10729,20 @@ do
     STATE.casting[tok] = nil
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha and kc.kick.__alpha < 0.5, "their target not casting: the icon is dim", tostring(kc.kick.__alpha))
+    ok(kc.kickFx and not kc.kickGlow:IsShown() and not (kc.kickBounce and kc.kickBounce:IsPlaying()),
+       "at rest: no glow, no bounce")
     STATE.casting[tok] = "cast"
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha == 1, "casting: the icon at full strength")
+    -- AND IT MOVES (Arn, 8 Nov: "can it also add a glow or bounce animation"): a gold glow behind it, and the icon
+    -- bouncing - the client runs the bounce itself; nothing of ours ticks for it
+    ok(kc.kickGlow:IsShown(), "casting: a glow behind the icon")
+    local bounce = kc.kickBounce
+    local grows = bounce and bounce.anims[1] and bounce.anims[1].kind == "Scale" and bounce.anims[1].scaleTo
+                  and bounce.anims[1].scaleTo[1] > 1
+    ok(bounce and bounce:IsPlaying() and bounce.looping == "REPEAT" and grows, "and it bounces, over and over")
+    FG.PaintPvPCell(kc)
+    ok(bounce:IsPlaying(), "a repaint mid-cast leaves the bounce going (it is not restarted every quarter second)")
     STATE.casting[tok] = "channel"
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha == 1, "channelling: full strength too")
@@ -10736,6 +10752,7 @@ do
     STATE.casting[tok] = nil
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha < 0.5, "the cast over: dim again")
+    ok(not kc.kickGlow:IsShown() and not kc.kickBounce:IsPlaying(), "and the glow and the bounce stop")
     BOOK[43] = keepBook
     NS.FM.BookChanged()
     FG.kickSpell = nil

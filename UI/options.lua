@@ -218,7 +218,7 @@ function CFG.Sections()
               end },
             -- PVP MODE (Arn, 8 Nov 2026): three answers, one row - off, only in battlegrounds and
             -- arenas, or always. Starts off for everyone.
-            { key = "pvp", kind = "seg", label = "PvP mode", help = "Columns of 5, and beside each player a small cell with whoever they are targeting - click it to cast your binds on it. A gold edge marks the enemy most of your team is on. bg: only in battlegrounds and arenas.",
+            { key = "pvp", kind = "seg", label = "PvP mode", help = "Beside each player, a small cell with whoever they are targeting - click it to cast your binds on it. Your groups setting keeps the shape (down = columns of 5). A gold edge marks the enemy most of your team is on. bg: only in battlegrounds and arenas.",
               values = { "off", "bg", "on" },
               get = function() return (NS.FG and NS.FG.PvPMode and NS.FG.PvPMode()) or "off" end,
               set = function(_, v) if DO.pvp then DO.pvp(v) end end },
@@ -573,7 +573,7 @@ function CFG.Entries()
           options = pick("number", "colour", "ring", "hover", "dim", "markers"), db = db,
           usage = "/bish number  -  /bish colour  -  /bish ring me|target  -  /bish hover  -  /bish dim 40  -  /bish markers 12" },
         { key = "layout", title = "layout",
-          desc = "How the groups sit: a column each, a row each, or tanks on top. PvP mode puts everyone in columns of 5 with whoever they are targeting beside them, to click.",
+          desc = "How the groups sit: a column each, a row each, or tanks on top. PvP mode adds, beside everyone, whoever they are targeting, to click - in whichever of those shapes you picked.",
           options = pick("layout", "pvp"), db = db,
           usage = "/bish layout columns|across|pyramid  -  /bish pvpmode off|bg|on" },
         { key = "cells", title = "target & pets",

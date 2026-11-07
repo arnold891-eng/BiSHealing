@@ -1755,13 +1755,15 @@ function FG.Layout(anchor)
         return true, 0
     end
     if anchor.Show then anchor:Show() end
-    -- PVP MODE (8 Nov 2026) is always columns of five, whatever layout is saved: the target cells
-    -- sit beside each member, so a column is a member cell, a target cell and the gap after it.
-    -- Off, `colW` is the ordinary column and nothing below differs from before.
+    -- PVP MODE FOLLOWS YOUR LAYOUT (Arn, 8 Nov 2026: the first build forced columns of 5 whatever the layout said -
+    -- "a little confusing ... what happens when people select down or tank"). It only ADDS a target cell beside each
+    -- person: every layout leaves `extra` room on each cell's right for it. "down" (the default) is columns of 5;
+    -- across and tanks keep their shape. Off, `extra` is 0 and nothing below differs from before.
     local pvp = FG.PvPActive()
-    local colW = FRAME_W + PAD + (pvp and (FG.PVP_W + PAD) or 0)
-    local pyramid = not pvp and type(d) == "table" and d.layout == "pyramid"
-    local across = not pvp and type(d) == "table" and d.layout == "rows"      -- groups across, not down
+    local extra = pvp and (FG.PVP_W + PAD) or 0
+    local colW = FRAME_W + PAD + extra
+    local pyramid = type(d) == "table" and d.layout == "pyramid"
+    local across = type(d) == "table" and d.layout == "rows"      -- groups across, not down
     local place, span, grid, groups = nil, 0, nil, 0
     if not pyramid then
         roster, grid, groups = FG.ByGroup(roster)
@@ -1772,7 +1774,7 @@ function FG.Layout(anchor)
         -- the widest row sets the width, and every other row is centred in it
         for _, p in ipairs(place) do
             local w = p.w or (p.wide and FULL_W or HALF_W)
-            local rowW = p.count * w + (p.count - 1) * PAD
+            local rowW = p.count * (w + extra) + (p.count - 1) * PAD
             if rowW > span then span = rowW end
         end
     end
@@ -1784,9 +1786,11 @@ function FG.Layout(anchor)
             local p = place[i]
             w = p.w or (p.wide and FULL_W or HALF_W)
             h, tall = p.h or FRAME_H, p.tall or false
-            local rowW = p.count * w + (p.count - 1) * PAD
-            local x = (span - rowW) / 2 + (p.col - 1) * (w + PAD)
-            f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, -(p.y or (p.row - 1) * (FRAME_H + PAD)))
+            local rowW = p.count * (w + extra) + (p.count - 1) * PAD
+            local x = (span - rowW) / 2 + (p.col - 1) * (w + extra + PAD)
+            local y = -(p.y or (p.row - 1) * (FRAME_H + PAD))
+            f:SetPoint("TOPLEFT", anchor, "TOPLEFT", x, y)
+            f.cellX, f.cellY = x, y              -- where it sits: PvP mode's target cell goes on its right
         else
             -- ACROSS, OR DOWN. A player's request (paszczyszyn, 22 Sep): "Can we have an option to
             -- setup cells? vertically and horizontally?". A group is a COLUMN by default - five
@@ -1799,10 +1803,11 @@ function FG.Layout(anchor)
             -- TALL HERE TOO (Arn, 17 Oct: "do the same for the regular grid too"): the name has
             -- the top line, the cure boxes start under it
             h, tall = FRAME_H + NAME_BAND, true
-            f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                       (col - 1) * colW, -(row - 1) * (h + PAD))
+            f.cellX, f.cellY = (col - 1) * colW, -(row - 1) * (h + PAD)
+            f:SetPoint("TOPLEFT", anchor, "TOPLEFT", f.cellX, f.cellY)
         end
         f:SetSize(w, h)
+        f.cellW, f.cellH = w, h
         FG.FitCell(f, w, tall)          -- before Bind, which is what writes the name
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
@@ -1864,7 +1869,7 @@ function FG.Layout(anchor)
             for _, g in ipairs(grid) do if g.row > deep then deep = g.row end end
             -- turned on its side, the longest group is the WIDTH and the groups are the rows
             if across then
-                rows, w = groups, deep * (FRAME_W + PAD) - PAD
+                rows, w = groups, deep * colW - PAD
             else
                 rows, w = deep, groups * colW - PAD
             end
@@ -2105,14 +2110,17 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
     local cells, byUnit = FG.pvpCells, FG.pvpByUnit
     for i = #cells, 1, -1 do cells[i] = nil end            -- emptied in place: callers may hold the table
     for k in pairs(byUnit) do byUnit[k] = nil end
-    local h = FRAME_H + NAME_BAND
     for i, unit in ipairs(roster) do
         local c = FG.pvpPool[i] or FG.MakePvP(i, anchor)
-        local g = grid[i]
         local tok = FG.TargetOf(unit)
+        -- ON ITS PERSON'S RIGHT, whatever the layout (down, across or the tanks' pyramid): the cell is placed from
+        -- where its member's cell was just put, and as tall as it
+        local f = FG.byUnit[unit]
+        local fx, fy = f and f.cellX or 0, f and f.cellY or 0
+        local fw, fh = f and f.cellW or FRAME_W, f and f.cellH or (FRAME_H + NAME_BAND)
         c:ClearAllPoints()
-        c:SetPoint("TOPLEFT", anchor, "TOPLEFT", (g.col - 1) * colW + FRAME_W + PAD, -(g.row - 1) * (h + PAD))
-        c:SetSize(FG.PVP_W, h)
+        c:SetPoint("TOPLEFT", anchor, "TOPLEFT", fx + fw + PAD, fy)
+        c:SetSize(FG.PVP_W, fh)
         c.unit, c.member = tok, unit
         c:SetAttribute("unit", tok)
         -- the grid's own binds, hostile ones included (Mouse.lua's ApplyTo owns what a click means)

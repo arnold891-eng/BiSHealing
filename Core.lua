@@ -1578,8 +1578,8 @@ local PVP_WORDS = { off = "off", none = "off", no = "off", [false] = "off",
 local PVP_NEXT = { off = "bg", bg = "on", on = "off" }
 local PVP_SAID = {
     off = "PvP mode off - the grid as usual",
-    bg  = "PvP mode in battlegrounds and arenas: columns of 5, and beside each player their target - click it to cast on it",
-    on  = "PvP mode everywhere: columns of 5, and beside each player their target - click it to cast on it",
+    bg  = "PvP mode in battlegrounds and arenas: beside each player their target - click it to cast on it",
+    on  = "PvP mode everywhere: beside each player their target - click it to cast on it",
 }
 
 function NS.DO.pvp(how)
@@ -1966,8 +1966,8 @@ function NS.DO.help()
         .. " |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980fftot|r  and one for your target's target, beside it")
     Print("  |cffb980ffmana|r  the other healers' mana, in a block of its own")
-    Print("  |cffb980ffpvpmode|r |cffb980ffoff|r |cffb980ffbg|r |cffb980ffon|r  columns of 5, each player's"
-        .. " target beside them to click (bg = battlegrounds and arenas only)")
+    Print("  |cffb980ffpvpmode|r |cffb980ffoff|r |cffb980ffbg|r |cffb980ffon|r  each player's target beside"
+        .. " them to click, in your layout (bg = battlegrounds and arenas only)")
     Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
         .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")

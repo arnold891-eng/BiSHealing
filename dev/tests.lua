@@ -10548,7 +10548,7 @@ do
     for i = 1, 12 do STATE.units["raid" .. i] = true end
     _G.IsInRaid = function() return true end
     _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, groupOf[i] end
-    d.layout = "pyramid"                         -- a saved pyramid does not matter while pvp is on
+    d.layout = "columns"                         -- "down", the default: columns of 5
     FG.Layout(FG.anchor)
     local stride = W + PAD + SW + PAD
     local colOK, rowsOK = true, true
@@ -10569,7 +10569,42 @@ do
     ok(rowsOK and #FG.pvpCells == 12, "no column deeper than 5, twelve target cells", #FG.pvpCells)
     ok(FG.anchor.__w == 3 * stride - PAD and FG.anchor.__h == 5 * (H + PAD) - PAD,
        "the grid is three columns wide and five deep", tostring(FG.anchor.__w) .. "x" .. tostring(FG.anchor.__h))
-    -- and off again, the pyramid that was saved is the pyramid that comes back
+    -- PVP MODE FOLLOWS YOUR LAYOUT (Arn, 8 Nov: forcing columns was "a little confusing ... what happens when people
+    -- select down or tank"). Tanks (the pyramid) and across keep their shape; a target cell sits beside every
+    -- person, and no target cell lies over the next person's cell
+    local function besideAll(label)
+        local okB, clear = true, true
+        local spots = {}
+        for i = 1, 12 do
+            local f, c = FG.byUnit["raid" .. i], FG.pvpByUnit["raid" .. i]
+            local fx, fy = at(f)
+            local cx, cy = at(c)
+            if not (f and c and cx == fx + f.__w + PAD and cy == fy and c.__h == f.__h) then okB = false end
+            spots[#spots + 1] = { x = fx, y = fy, w = f.__w, h = f.__h }
+            spots[#spots + 1] = { x = cx, y = cy, w = c.__w, h = c.__h }
+        end
+        for a = 1, #spots do for b = a + 1, #spots do
+            local p, q = spots[a], spots[b]
+            if p.x < q.x + q.w and q.x < p.x + p.w and p.y > q.y - q.h and q.y > p.y - p.h then clear = false end
+        end end
+        ok(okB, label .. ": every person's target cell on their right, as tall as them")
+        ok(clear, label .. ": nothing lies over anything else")
+    end
+    d.layout = "pyramid"
+    FG.Layout(FG.anchor)
+    ok(FG.frames[1].__w == 2 * W + PAD and #FG.pvpCells == 12, "tanks with PvP on: still the pyramid (its apex two cells wide)",
+       FG.frames[1].__w)
+    besideAll("tanks")
+    d.layout = "rows"
+    FG.Layout(FG.anchor)
+    local r1x, r1y = at(FG.byUnit["raid4"])
+    local r2x, r2y = at(FG.byUnit["raid5"])
+    ok(r1y == r2y and r2x == r1x + stride, "across with PvP on: a group is a row, each step leaves room for the target cell")
+    besideAll("across")
+    ok(FG.anchor.__w == 5 * stride - PAD, "and the grid is five people (and their targets) wide", FG.anchor.__w)
+    d.layout = "pyramid"
+    FG.Layout(FG.anchor)
+    -- and off again, the pyramid is still the pyramid - with no room left for target cells
     NS.DO.pvp("off")
     ok(#FG.pvpCells == 0 and FG.pvpByUnit["raid1"] == nil, "off: the list is emptied")
     local hidden = true

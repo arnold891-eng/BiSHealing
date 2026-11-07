@@ -1750,12 +1750,18 @@ function FG.Layout(anchor)
     local d = NS.DB and NS.DB()
     if type(d) == "table" and d.shown == false then
         for _, f in ipairs(FG.frames) do FG.Unwatch(f); f:Hide() end
+        FG.HidePvP()                 -- the target cells beside them go with them
         if anchor.Hide then anchor:Hide() end
         return true, 0
     end
     if anchor.Show then anchor:Show() end
-    local pyramid = type(d) == "table" and d.layout == "pyramid"
-    local across = type(d) == "table" and d.layout == "rows"      -- groups across, not down
+    -- PVP MODE (8 Nov 2026) is always columns of five, whatever layout is saved: the target cells
+    -- sit beside each member, so a column is a member cell, a target cell and the gap after it.
+    -- Off, `colW` is the ordinary column and nothing below differs from before.
+    local pvp = FG.PvPActive()
+    local colW = FRAME_W + PAD + (pvp and (FG.PVP_W + PAD) or 0)
+    local pyramid = not pvp and type(d) == "table" and d.layout == "pyramid"
+    local across = not pvp and type(d) == "table" and d.layout == "rows"      -- groups across, not down
     local place, span, grid, groups = nil, 0, nil, 0
     if not pyramid then
         roster, grid, groups = FG.ByGroup(roster)
@@ -1794,7 +1800,7 @@ function FG.Layout(anchor)
             -- the top line, the cure boxes start under it
             h, tall = FRAME_H + NAME_BAND, true
             f:SetPoint("TOPLEFT", anchor, "TOPLEFT",
-                       (col - 1) * (FRAME_W + PAD), -(row - 1) * (h + PAD))
+                       (col - 1) * colW, -(row - 1) * (h + PAD))
         end
         f:SetSize(w, h)
         FG.FitCell(f, w, tall)          -- before Bind, which is what writes the name
@@ -1823,6 +1829,8 @@ function FG.Layout(anchor)
             f:Hide()
         end
     end
+    -- the team's targets, one small cell on each member's right - or none at all
+    if pvp then FG.LayoutPvP(anchor, roster, grid, colW) else FG.HidePvP() end
 
     FG.LayoutTarget(anchor)         -- the target's own cell, under the grid, when it is wanted
     FG.LayoutSelf(anchor)           -- and your own, out of the group, when it is wanted
@@ -1858,7 +1866,7 @@ function FG.Layout(anchor)
             if across then
                 rows, w = groups, deep * (FRAME_W + PAD) - PAD
             else
-                rows, w = deep, groups * (FRAME_W + PAD) - PAD
+                rows, w = deep, groups * colW - PAD
             end
         end
         anchor:SetSize(w, tallH or (rows * (FRAME_H + NAME_BAND + PAD) - PAD))
@@ -1899,6 +1907,361 @@ function FG.Layout(anchor)
     end
     if not ok then error(done, 0) end
     return done, n
+end
+
+------------------------------------------------------------------------ pvp --
+-- PVP MODE (Arn, 8 Nov 2026, for 1.0): "pvp mode, collums of 5 and you can see all of your teams
+-- targets in a small 1/4 side frame next to your team so you can see what your whole team is
+-- targeting and can click them to cast harmful spells". The target cell sits NEXT TO EACH PERSON,
+-- on the same row.
+--
+-- WHAT IT IS: one more secure unit button per member, a quarter of a cell wide, whose unit is that
+-- member's TARGET TOKEN - "target" for you, "party2target", "raid7target". The client re-points a
+-- token by itself every time somebody changes target, so the attribute is written once, at layout,
+-- out of combat, and never again. The client's own unit watch shows it while the token means
+-- somebody and hides it while it does not - in a fight too, where nothing of ours may.
+--
+-- WHAT IT PAINTS, by the rule this file keeps: the health goes from the client into a thin bar
+-- untouched; "can I attack it" is red or green, and the client's own ternary picks when that answer
+-- is secret; the name is cut to four letters only when it is a plain string.
+--
+-- THE TEAM'S FOCUS: the enemy most of you are on (two or more, and more than any other) gets a gold
+-- edge on each of its target cells. GUIDs are compared only when they are plain; a hidden one does
+-- not count, a friend is never a focus, and a tie is no focus at all - there is no "most" to show.
+--
+-- WHAT IT COSTS: nothing while it is off - no cells, no event, no tick. While it shows, UNIT_TARGET
+-- repaints the one cell that changed, and because the client sends no UNIT_HEALTH for a "raid7target"
+-- token, every target cell is repainted four times a second (FG.PVP_EVERY).
+
+FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
+FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
+FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
+FG.PVP_BAR_H = 6                         -- the thin health bar along its bottom
+FG.PVP_FRIEND = { 0.20, 0.75, 0.30 }     -- green: a friend; the red is FG.HOSTILE, as on the target cell
+FG.PVP_GOLD = { 1.00, 0.78, 0.20 }       -- the team's focus, the gold the grid already uses for "you"
+FG.PVP_MODES = { off = true, bg = true, on = true }
+FG.pvpCells = {}          -- the target cells in use, in layout order (Mouse.lua's FM.Apply walks this list)
+FG.pvpByUnit = {}         -- member unit -> its target cell
+FG.pvpPool = {}           -- every target cell ever made, in use or spare
+FG.pvpShowing = false
+FG.pvpFocus = nil
+
+--- "off", "bg" (battlegrounds and arenas only) or "on". Anything else, nil included, is "off".
+function FG.PvPMode()
+    local d = NS.DB and NS.DB()
+    local m = type(d) == "table" and d.pvp or nil
+    return FG.PVP_MODES[m or ""] and m or "off"
+end
+
+--- Is pvp mode laying the grid out right now? "bg" asks the client where you are.
+function FG.PvPActive()
+    local m = FG.PvPMode()
+    if m == "on" then return true end
+    if m ~= "bg" or not IsInInstance then return false end
+    local ok, _, kind = pcall(IsInInstance)
+    kind = ok and NS.Plain(kind) or nil
+    return kind == "pvp" or kind == "arena"
+end
+
+--- A member's target token. "player" is the one unit whose target is not "<unit>target".
+function FG.TargetOf(unit)
+    if unit == "player" then return "target" end
+    return tostring(unit) .. "target"
+end
+
+--- Up to `n` letters (characters, not bytes: an accented name is never cut through a letter).
+local function firstLetters(s, n)
+    local out, k = {}, 0
+    for ch in s:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+        k = k + 1
+        if k > n then break end
+        out[k] = ch
+    end
+    return table.concat(out)
+end
+
+--- The short name a target cell shows. A hidden name is handed back whole - the label may take a
+--- secret, a pattern may not. A plain one loses its realm and surname, then is cut to four letters.
+function FG.PvPName(name)
+    local plain = NS.Plain(name)
+    if type(plain) ~= "string" then return name end
+    local first = plain:match("^%s*([^%s%-]+)") or plain
+    return firstLetters(first, FG.PVP_CHARS)
+end
+
+--- The accent the family's rows wear under the mouse.
+local function accent()
+    local T = _G.BiSTheme
+    if T and T.rgb then
+        local ok, r, g, b = pcall(T.rgb, "accent")
+        if ok and type(r) == "number" and type(g) == "number" and type(b) == "number" then return r, g, b end
+    end
+    return 0.73, 0.50, 1.00
+end
+
+--- One target cell. A secure unit button, the same template the grid's cells are.
+function FG.MakePvP(i, parent)
+    local c = CreateFrame("Button", "BiSHealingPvPTarget" .. i, parent or UIParent, "SecureUnitButtonTemplate")
+    local h = FRAME_H + NAME_BAND
+    c:SetSize(FG.PVP_W, h)
+    c:RegisterForClicks("AnyDown")      -- as the grid's cells: bare LeftButtonDown no-ops on a secure button
+    c.bg = c:CreateTexture(nil, "BACKGROUND")
+    c.bg:SetAllPoints()
+    c.bg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
+    -- THE ROW POPS UNDER THE MOUSE (the family rule): an accent wash and a bar down the left edge
+    local r, g, b = accent()
+    c.wash = c:CreateTexture(nil, "ARTWORK")
+    c.wash:SetAllPoints()
+    c.wash:SetColorTexture(r, g, b, 0.30)
+    c.wash:Hide()
+    -- the health, thin, along the bottom: the client's numbers straight in, never read
+    c.bar = CreateFrame("StatusBar", nil, c)
+    c.bar:SetPoint("BOTTOMLEFT", 1, 1)
+    c.bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    c.bar:SetHeight(FG.PVP_BAR_H)
+    c.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    c.bar:SetMinMaxValues(0, 1)
+    c.bar:SetValue(1)
+    -- the words and the hover bar above the health
+    c.ink = CreateFrame("Frame", nil, c)
+    c.ink:SetAllPoints()
+    if c.ink.SetFrameLevel and c.GetFrameLevel then
+        local lvl = c:GetFrameLevel()
+        if type(lvl) == "number" then c.ink:SetFrameLevel(lvl + 3) end
+    end
+    c.lbar = c.ink:CreateTexture(nil, "OVERLAY")
+    c.lbar:SetPoint("TOPLEFT")
+    c.lbar:SetPoint("BOTTOMLEFT")
+    c.lbar:SetWidth(2)
+    c.lbar:SetColorTexture(r, g, b, 1)
+    c.lbar:Hide()
+    c.label = c.ink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    if c.label.SetFont then c.label:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 8, "") end
+    c.label:SetPoint("TOPLEFT", 1, -4)
+    c.label:SetPoint("TOPRIGHT", -1, -4)
+    c.label:SetJustifyH("CENTER")
+    if c.label.SetWordWrap then c.label:SetWordWrap(false) end
+    -- THE TEAM'S FOCUS: a gold edge, 2 px, on a frame of its own so one Show/Hide does it
+    c.focus = CreateFrame("Frame", nil, c)
+    c.focus:SetAllPoints()
+    if c.focus.SetFrameLevel and c.GetFrameLevel then
+        local lvl = c:GetFrameLevel()
+        if type(lvl) == "number" then c.focus:SetFrameLevel(lvl + 4) end
+    end
+    do
+        local gc = FG.PVP_GOLD
+        local function side(a, z, horizontal)
+            local t = c.focus:CreateTexture(nil, "OVERLAY")
+            t:SetColorTexture(gc[1], gc[2], gc[3], 1)
+            t:SetPoint(a) t:SetPoint(z)
+            if horizontal then t:SetHeight(2) else t:SetWidth(2) end
+        end
+        side("TOPLEFT", "TOPRIGHT", true)
+        side("BOTTOMLEFT", "BOTTOMRIGHT", true)
+        side("TOPLEFT", "BOTTOMLEFT", false)
+        side("TOPRIGHT", "BOTTOMRIGHT", false)
+    end
+    c.focus:Hide()
+    -- HOOKED, never replaced: the template's own OnEnter is what makes the cell the mouseover
+    c:HookScript("OnEnter", function(self)
+        FG.over = self                   -- the LOS flash finds the cell under the mouse this way
+        self.wash:Show()
+        self.lbar:Show()
+        if not (GameTooltip and self.unit) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        -- THE WHOLE NAME. On Forever UnitName is the first name only; GetUnitName(unit, false) is
+        -- "Name Surname". Either may be secret: then it goes to the tooltip whole, unread.
+        local name
+        if GetUnitName then
+            local ok, n = pcall(GetUnitName, self.unit, false)
+            if ok then name = n end
+        end
+        if not NS.Secret(name) and type(name) ~= "string" then
+            local ok, n = pcall(UnitName, self.unit)
+            name = ok and n or nil
+        end
+        if NS.Secret(name) or type(name) == "string" then pcall(GameTooltip.AddLine, GameTooltip, name, 1, 1, 1) end
+        GameTooltip:AddLine("their target - click: your binds on it", 0.59, 0.56, 0.68)
+        if self.focus and self.focus:IsShown() then
+            GameTooltip:AddLine("gold: the enemy most of your team is on", FG.PVP_GOLD[1], FG.PVP_GOLD[2], FG.PVP_GOLD[3])
+        end
+        GameTooltip:Show()
+    end)
+    c:HookScript("OnLeave", function(self)
+        if FG.over == self then FG.over = nil end
+        self.wash:Hide()
+        self.lbar:Hide()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    FG.pvpPool[i] = c
+    return c
+end
+
+--- Lay the target cells out beside the members. Called from the layout, OUT OF COMBAT ONLY: the
+--- unit attribute is written here and nowhere else. `grid` is FG.ByGroup's place for each member.
+function FG.LayoutPvP(anchor, roster, grid, colW)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local cells, byUnit = FG.pvpCells, FG.pvpByUnit
+    for i = #cells, 1, -1 do cells[i] = nil end            -- emptied in place: callers may hold the table
+    for k in pairs(byUnit) do byUnit[k] = nil end
+    local h = FRAME_H + NAME_BAND
+    for i, unit in ipairs(roster) do
+        local c = FG.pvpPool[i] or FG.MakePvP(i, anchor)
+        local g = grid[i]
+        local tok = FG.TargetOf(unit)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", anchor, "TOPLEFT", (g.col - 1) * colW + FRAME_W + PAD, -(g.row - 1) * (h + PAD))
+        c:SetSize(FG.PVP_W, h)
+        c.unit, c.member = tok, unit
+        c:SetAttribute("unit", tok)
+        -- the grid's own binds, hostile ones included (Mouse.lua's ApplyTo owns what a click means)
+        if NS.FM and NS.FM.ApplyTo then NS.FM.ApplyTo(c) end
+        if RegisterUnitWatch then RegisterUnitWatch(c) end
+        cells[#cells + 1] = c
+        byUnit[unit] = c
+    end
+    for i = #roster + 1, #FG.pvpPool do
+        local c = FG.pvpPool[i]
+        c.unit, c.member, c.__guid = nil, nil, nil
+        FG.Unwatch(c)
+        c:Hide()
+    end
+    FG.pvpShowing = #cells > 0
+    FG.PvPListen(FG.pvpShowing)
+    FG.PaintPvP()
+    return true, #cells
+end
+
+--- No target cells: the list emptied, every cell hidden and off the watch, nothing heard.
+function FG.HidePvP()
+    if InCombatLockdown and InCombatLockdown() then return false end
+    for i = #FG.pvpCells, 1, -1 do FG.pvpCells[i] = nil end
+    for k in pairs(FG.pvpByUnit) do FG.pvpByUnit[k] = nil end
+    for _, c in ipairs(FG.pvpPool) do
+        c.unit, c.member, c.__guid = nil, nil, nil
+        FG.Unwatch(c)
+        c:Hide()
+        if c.focus then c.focus:Hide() end
+    end
+    FG.pvpFocus = nil
+    FG.pvpShowing = false
+    FG.PvPListen(false)
+    return true
+end
+
+--- One target cell, painted. Nothing the client hands over is compared or added up here.
+function FG.PaintPvPCell(c)
+    local tok = c and c.unit
+    if not tok then return false end
+    if FG.maxOK then
+        local okM, max = pcall(UnitHealthMax, tok)
+        if okM and not pcall(c.bar.SetMinMaxValues, c.bar, 0, max) then FG.maxOK = false end
+    end
+    local okH, hp = pcall(UnitHealth, tok)
+    if okH then pcall(c.bar.SetValue, c.bar, hp) end
+    -- RED OR GREEN. A plain answer picks; a secret one goes through the client's own ternary (the
+    -- target cell's road, FG.PaintHostile) and is never tested here
+    local okA, foe = pcall(UnitCanAttack, "player", tok)
+    local friend = false
+    local F, H = FG.PVP_FRIEND, FG.HOSTILE
+    if okA and NS.Secret(foe) then
+        local curve = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+        local drew = false
+        if curve then
+            local o1, r = pcall(curve, foe, H[1], F[1])
+            local o2, g = pcall(curve, foe, H[2], F[2])
+            local o3, b = pcall(curve, foe, H[3], F[3])
+            drew = o1 and o2 and o3 and pcall(c.bar.SetStatusBarColor, c.bar, r, g, b)
+        end
+        if not drew then c.bar:SetStatusBarColor(0.5, 0.5, 0.5) end      -- no guess: grey
+    elseif okA and foe == true then
+        c.bar:SetStatusBarColor(H[1], H[2], H[3])
+    else
+        c.bar:SetStatusBarColor(F[1], F[2], F[3])
+        friend = okA and foe == false
+    end
+    local okN, name = pcall(UnitName, tok)
+    if okN then c.label:SetText(FG.PvPName(name)) end
+    -- WHO IT IS, for the focus: a plain GUID of somebody who is not a friend, or nothing
+    local okG, guid = pcall(UnitGUID, tok)
+    local g = okG and NS.Plain(guid) or nil
+    c.__guid = (type(g) == "string" and not friend) and g or nil
+    return true
+end
+
+--- The enemy most of the team is on: at least two target cells, and more than any other. Reads the
+--- GUIDs the paints kept - no client call here. Gold on its cells, off everywhere else.
+function FG.PvPFocus()
+    local count, best, top, tie = {}, nil, 1, false
+    for _, c in ipairs(FG.pvpCells) do
+        local g = c.__guid
+        if g then
+            local n = (count[g] or 0) + 1
+            count[g] = n
+            if n > top then best, top, tie = g, n, false
+            elseif n == top and g ~= best and n >= 2 then tie = true end
+        end
+    end
+    if tie then best = nil end
+    FG.pvpFocus = best
+    for _, c in ipairs(FG.pvpCells) do
+        if c.focus then
+            if best and c.__guid == best then c.focus:Show() else c.focus:Hide() end
+        end
+    end
+    return best, best and top or 0
+end
+
+--- Every SHOWN target cell repainted, then the focus. A hidden one has no target: it forgets its GUID.
+function FG.PaintPvP()
+    for _, c in ipairs(FG.pvpCells) do
+        if c:IsShown() then FG.PaintPvPCell(c) else c.__guid = nil end
+    end
+    return FG.PvPFocus()
+end
+
+--- The throttled repaint, from the grid's update loop. Nothing at all while pvp mode is not showing.
+function FG.PvPTick(step)
+    if not FG.pvpShowing then FG.pvpSince = 0 return false end
+    FG.pvpSince = (FG.pvpSince or 0) + (tonumber(step) or 0)
+    if FG.pvpSince < FG.PVP_EVERY then return false end
+    FG.pvpSince = FG.pvpSince - FG.PVP_EVERY
+    if FG.pvpSince > FG.PVP_EVERY then FG.pvpSince = 0 end          -- a long hitch does not owe a burst
+    FG.PaintPvP()
+    return true
+end
+
+--- Somebody changed target. That one cell and the focus; a unit we cannot read means all of them.
+function FG.PvPHeard(event, unit)
+    if not FG.pvpShowing then return end
+    if event == "PLAYER_TARGET_CHANGED" then unit = "player" end
+    local u = NS.Plain(unit)
+    local c = type(u) == "string" and FG.pvpByUnit[u] or nil
+    if c then
+        FG.PaintPvPCell(c)
+    elseif type(u) ~= "string" or event == "PLAYER_TARGET_CHANGED" then
+        -- hidden, or you in a raid (your cell is "raidNtarget" there): every cell, never a guess
+        for _, x in ipairs(FG.pvpCells) do FG.PaintPvPCell(x) end
+    else
+        return                                  -- someone without a target cell (party1 while in a raid)
+    end
+    FG.PvPFocus()
+end
+
+--- UNIT_TARGET is heard only while pvp mode shows: in a raid it fires for every target change of
+--- forty people, and with pvp off there is nothing to do with any of it.
+function FG.PvPListen(on)
+    local ev = FG.pvpEvents
+    if not ev then
+        if not on then return false end
+        ev = CreateFrame("Frame")
+        ev:SetScript("OnEvent", function(_, event, unit) FG.PvPHeard(event, unit) end)
+        FG.pvpEvents = ev
+    end
+    for _, e in ipairs({ "UNIT_TARGET", "PLAYER_TARGET_CHANGED" }) do
+        if on then pcall(ev.RegisterEvent, ev, e) else pcall(ev.UnregisterEvent, ev, e) end
+    end
+    return on
 end
 
 ---------------------------------------------------------------------- paint --
@@ -2895,6 +3258,9 @@ function FG.Start()
         local doRange = rangeIn >= FG.RANGE_EVERY
         if doRange then rangeIn = 0 end
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
+        -- the team's target cells, 4 a second while pvp mode shows (no UNIT_HEALTH for their tokens);
+        -- one boolean and out when it does not
+        FG.PvPTick(step)
         -- the range spell, once, for every cell painted below (see FG.PaintRange). Set fresh at
         -- the top of every tick, so a paint that threw last time cannot leave a stale one behind.
         FG.tickRange = nil

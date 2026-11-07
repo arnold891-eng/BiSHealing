@@ -227,6 +227,11 @@ local function settingRows(settings)
             end
         end
     end
+    -- PVP MODE (8 Nov 2026), "PV": every single letter is taken, and a TWO-letter code starting with a
+    -- capital is still no bind (binds are an optional lowercase s/c/a and a slot) - an older install
+    -- reading it finds no slot "V" and skips the row. 1 = bg, 2 = on; off, the default, writes nothing.
+    local PVPCODE = { bg = 1, on = 2 }
+    if PVPCODE[settings.pvp or ""] then out[#out + 1] = "PV=" .. PVPCODE[settings.pvp] end
     local px = tonumber(settings.markers)
     if px and px ~= 10 then out[#out + 1] = "M=" .. math.floor(px + 0.5) end
     -- THE BUFF-DROP SOUND (N for Noise), both halves in one row: the file id, and a 1 after a
@@ -385,6 +390,8 @@ function FK.Decode(body)
             settings.trinketTabs = next(tabs) and tabs or false
         elseif code == "D" and tonumber(idx) then
             settings.dim = tonumber(idx) / 100
+        elseif code == "PV" then
+            settings.pvp = (tonumber(idx) == 2 and "on") or (tonumber(idx) == 1 and "bg") or "off"
         elseif code == "U" then
             -- THE BUFF WATCHED ON THE GROUP (U for "up on anyone"), and the only setting row that
             -- carries a NAME. It cannot carry one directly - a row holds digits - so it rides the
@@ -480,7 +487,18 @@ function FK.Load()
     local got, body = pcall(GetMacroBody, idx)
     if not got or type(body) ~= "string" then return nil end
     FK.adopted = (not mine and shared) and true or nil
-    return FK.Decode(body)
+    local binds, settings = FK.Decode(body)
+    -- PVP MODE comes back HERE rather than with the other settings in Mouse.lua's restore: the same
+    -- moment (a mouse that came back empty), one line, and the grid lays out again for it - a
+    -- layout asked for mid-layout waits for the one in progress (FG.Layout's wrapper).
+    if type(settings) == "table" and settings.pvp and NS.DB then
+        local d = NS.DB()
+        if type(d) == "table" and d.pvp ~= settings.pvp then
+            d.pvp = settings.pvp
+            if NS.FG and NS.FG.Layout then NS.FG.Layout() end
+        end
+    end
+    return binds, settings
 end
 
 --- Write them down. Refuses in combat - the client will not make a macro there - and says why,
@@ -508,7 +526,7 @@ function FK.Save(binds)
                                              pos = pos, hidden = t.shown == false, hots = t.hots,
                                              ring = t.ring, dim = t.dim, hover = t.hover,
                                              trinketTabs = t.trinketTabs,
-                                             clique = t.clique, layout = t.layout,
+                                             clique = t.clique, layout = t.layout, pvp = t.pvp,
                                              target = t.target, markers = t.markers, tot = t.tot,
                                              me = t.me, meAt = t.meAt, mePos = t.mePos,
                                              mana = t.mana, manaAt = t.manaAt, manaPos = t.manaPos,

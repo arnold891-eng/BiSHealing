@@ -487,6 +487,23 @@ _G.UnitCanAttack = function(_, u)
     if STATE.hostileSecret then return secret() end
     return STATE.hostile[u] and true or false
 end
+-- WHO IS IT (8 Nov 2026, PvP mode's team focus). The client answers a GUID for a unit that exists and
+-- NIL for one that does not: "party1target" while party1 targets nobody is nil, never "". Inside an
+-- instance it can be secret like a name (a string to type(), refusing everything else).
+-- STATE.guids[unit] is that unit's GUID; STATE.guidSecret[unit] hands back a secret one instead.
+STATE.guids, STATE.guidSecret = {}, {}
+_G.UnitGUID = function(u)
+    if not STATE.units[u] then return nil end
+    if STATE.guidSecret[u] then return secretString() end
+    return STATE.guids[u] or ("Player-0-" .. tostring(u))
+end
+-- WHERE YOU ARE, in the client's two answers: inside an instance or not, and which kind - "none",
+-- "pvp" (a battleground), "arena", "party", "raid". STATE.instance is the kind; nil is the open world.
+STATE.instance = nil
+_G.IsInInstance = function()
+    if STATE.instance then return true, STATE.instance end
+    return false, "none"
+end
 -- IS THIS PERSON EVEN HERE? EllesmereUI's raid frames say of this pair: "UnitIsDeadOrGhost /
 -- UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret)" - which is
 -- a measurement, so the mock answers plainly unless a test asks it not to.
@@ -6638,13 +6655,16 @@ do
             local c = sec.column or 1
             tall[c] = tall[c] + 1 + #sec.options
         end
-        ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- FIFTEEN ON THE RIGHT (8 Nov 2026, PvP mode, which Arn asked for in 1.0): one seg row, three
+        -- answers (off / bg / on), under "groups" where the grid's shape is chosen. Column 2 was at 14.
+        ok(tall[1] <= 14 and tall[2] <= 15, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
         -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
         -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
         -- player can find - so the LOS flash and the buff reminder got rows
-        ok(#NS.UI.Rows() <= 23, "and the whole window has no more than twenty-three rows: " .. #NS.UI.Rows())
+        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above
+        ok(#NS.UI.Rows() <= 24, "and the whole window has no more than twenty-four rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -10112,6 +10132,354 @@ do
     local okMe, who = pcall(NS.Me)
     _G.UnitName = realName
     ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
+end
+
+-- ============================================================== PVP MODE (8 Nov 2026)
+-- Arn: "pvp mode, collums of 5 and you can see all of your teams targets in a small 1/4 side frame next
+-- to your team so you can see what your whole team is targeting and can click them to cast harmful
+-- spells" - the target cell NEXT TO EACH PERSON, same row. "put it in 1.0".
+do
+    local FG, FK = NS.FG, NS.FK
+    local d = NS.DB()
+    local keep = { raid = _G.IsInRaid, info = _G.GetRaidRosterInfo, gun = _G.GetUnitName, apply = NS.FM.ApplyTo,
+                   un = _G.UnitName,
+                   layout = d.layout, me = d.me, pvp = d.pvp, target = d.target, shown = d.shown }
+    -- STATE.names[unit] answers when a test needs a real-looking name (the target cells' four letters)
+    _G.UnitName = function(u)
+        if STATE.names and u and STATE.names[u] ~= nil then return STATE.names[u] end
+        return keep.un(u)
+    end
+    local function tick(s) s = s or 0.1 TICK(s) FG.anchor.__scripts.OnUpdate(FG.anchor, s) end
+    local function at(f) local p = f and f.points[1] return p and p[4], p and p[5] end
+    local function isSecret(v) return getmetatable(v) == secretMeta end
+    d.layout, d.me, d.target, d.shown = "columns", false, false, true
+    STATE.instance = nil
+
+    -- THE SETTING: off for everyone - a new feature starts off, and nil reads off
+    ok(d.pvp == "off", "pvp mode starts off, new install or old save", tostring(d.pvp))
+    d.pvp = nil
+    ok(FG.PvPMode and FG.PvPMode() == "off", "nil reads off")
+    d.pvp = "off"
+
+    -- (1) OFF = THE GRID EXACTLY AS IT WAS
+    FG.Layout(FG.anchor)
+    local function snap()
+        local s = {}
+        for i, f in ipairs(FG.frames) do
+            if f.unit then local x, y = at(f) s[#s + 1] = f.unit .. "@" .. tostring(x) .. "," .. tostring(y) .. ":" .. tostring(f.__w) end
+        end
+        return table.concat(s, " ") .. " anchor " .. tostring(FG.anchor.__w) .. "x" .. tostring(FG.anchor.__h)
+    end
+    local before = snap()
+    ok(FG.pvpCells and #FG.pvpCells == 0, "off: no target cells at all", FG.pvpCells and #FG.pvpCells)
+
+    -- (2) "bg": only in a battleground or an arena
+    ok(NS.DO.pvp and NS.DO.pvp("bg") == "bg" and d.pvp == "bg", "/bish pvp bg stores bg", tostring(d.pvp))
+    ok(FG.PvPActive() == false, "bg in the open world: not active")
+    ok(snap() == before and #FG.pvpCells == 0, "and the grid is laid out exactly as with pvp off", snap())
+    STATE.instance = "party"
+    ok(FG.PvPActive() == false, "bg in a dungeon: not active")
+    STATE.instance = "raid"
+    ok(FG.PvPActive() == false, "bg in a raid: not active")
+    STATE.instance = "arena"
+    ok(FG.PvPActive() == true, "bg in an arena: active")
+    STATE.instance = "pvp"
+    ok(FG.PvPActive() == true, "bg in a battleground: active")
+    -- the client says so at PLAYER_ENTERING_WORLD; the grid lays out on its next tick
+    fire(FG.events, "PLAYER_ENTERING_WORLD")
+    tick()
+    ok(#FG.pvpCells == 3, "inside the battleground, after the zone-in: one target cell per member", #FG.pvpCells)
+    STATE.instance = nil
+    fire(FG.events, "PLAYER_ENTERING_WORLD")
+    tick()
+    ok(#FG.pvpCells == 0 and snap() == before, "out again: gone, the grid as before")
+
+    -- (3) "on" in a party: ONE COLUMN, a target cell beside each member, ApplyTo on every one
+    local applied = {}
+    NS.FM.ApplyTo = function(c, ...) applied[c] = (applied[c] or 0) + 1 return keep.apply(c, ...) end
+    NS.DO.pvp("on")
+    NS.FM.ApplyTo = keep.apply
+    local W, PAD, H = FG.CELL_W, FG.CELL_PAD, FG.CELL_H + FG.NAME_BAND
+    local SW = FG.PVP_W
+    ok(SW == math.floor(W / 4), "a target cell is a quarter of a member cell's width", SW)
+    ok(#FG.pvpCells == 3, "three members, three target cells", #FG.pvpCells)
+    local want = { player = "target", party1 = "party1target", party2 = "party2target" }
+    local allRight, allApplied, allWatched = true, true, true
+    for _, f in ipairs(FG.frames) do
+        if f.unit then
+            local c = FG.pvpByUnit[f.unit]
+            local fx, fy = at(f)
+            local cx, cy = at(c)
+            if not (c and c:GetAttribute("unit") == want[f.unit] and c.unit == want[f.unit]
+                    and fx == 0 and cx == W + PAD and cy == fy and c.__w == SW and c.__h == f.__h) then
+                allRight = false
+            end
+            if not (c and applied[c]) then allApplied = false end
+            if not (c and WATCHED[c]) then allWatched = false end
+        end
+    end
+    ok(allRight, "each target cell sits on its member's right, same row, same height, unit <member>target")
+    ok(allApplied, "and every one was handed to FM.ApplyTo - the grid's own binds, hostile ones included")
+    ok(allWatched, "and every one is under the client's unit watch")
+    ok(FG.pvpCells[1] and FG.pvpCells[1].__kind == "Button" and FG.pvpCells[1].__scripts.OnEnter
+       and FG.pvpCells[1].__scripts.OnEnter ~= nil, "a secure unit button, like the grid's cells")
+    ok(FG.anchor.__w == W + PAD + SW, "the grid is one column of member + target wide", FG.anchor.__w)
+
+    -- the unit watch: an empty target hides by itself, even in a fight
+    STATE.units.party1target = true
+    STATE.inCombat = true
+    WATCH_TICK()
+    ok(FG.pvpByUnit.party1:IsShown() and not FG.pvpByUnit.party2:IsShown() and not FG.pvpByUnit.player:IsShown(),
+       "in a fight the client shows party1's target cell (they have one) and hides the empty ones")
+    STATE.inCombat = false
+
+    -- (4) A RAID: COLUMNS OF 5, one per subgroup present, in group order
+    local groupOf = {}
+    for i = 1, 3 do groupOf[i] = 2 end          -- raid1-3 joined first, in group 2
+    for i = 4, 8 do groupOf[i] = 1 end          -- raid4-8, group 1
+    for i = 9, 12 do groupOf[i] = 4 end         -- raid9-12, group 4 (no group 3)
+    for i = 1, 12 do STATE.units["raid" .. i] = true end
+    _G.IsInRaid = function() return true end
+    _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, groupOf[i] end
+    d.layout = "pyramid"                         -- a saved pyramid does not matter while pvp is on
+    FG.Layout(FG.anchor)
+    local stride = W + PAD + SW + PAD
+    local colOK, rowsOK = true, true
+    local colOf = { [1] = 0, [2] = 1, [4] = 2 }
+    local deep = {}
+    for i = 1, 12 do
+        local f = FG.byUnit["raid" .. i]
+        local c = FG.pvpByUnit["raid" .. i]
+        local fx, fy = at(f)
+        local cx, cy = at(c)
+        local col = colOf[groupOf[i]]
+        deep[col] = (deep[col] or 0) + 1
+        if not (f and fx == col * stride and c and cx == col * stride + W + PAD and cy == fy
+                and c:GetAttribute("unit") == "raid" .. i .. "target") then colOK = false end
+    end
+    for _, n in pairs(deep) do if n > 5 then rowsOK = false end end
+    ok(colOK, "three groups, three columns in group order (1, 2, 4), each member's target cell on its right")
+    ok(rowsOK and #FG.pvpCells == 12, "no column deeper than 5, twelve target cells", #FG.pvpCells)
+    ok(FG.anchor.__w == 3 * stride - PAD and FG.anchor.__h == 5 * (H + PAD) - PAD,
+       "the grid is three columns wide and five deep", tostring(FG.anchor.__w) .. "x" .. tostring(FG.anchor.__h))
+    -- and off again, the pyramid that was saved is the pyramid that comes back
+    NS.DO.pvp("off")
+    ok(#FG.pvpCells == 0 and FG.pvpByUnit["raid1"] == nil, "off: the list is emptied")
+    local hidden = true
+    for _, c in ipairs(FG.pvpPool or {}) do if c:IsShown() or WATCHED[c] then hidden = false end end
+    ok(hidden, "and every target cell is hidden and off the unit watch")
+    ok(FG.frames[1].__w == 2 * W + PAD, "off again: the saved pyramid is back (its apex is two cells wide)",
+       FG.frames[1].__w)
+    d.layout = "columns"
+    FG.Layout(FG.anchor)
+
+    -- (5) IN A FIGHT A TARGET CELL'S UNIT IS NEVER RE-SET
+    NS.DO.pvp("on")
+    local sets, realSet = 0, {}
+    for _, c in ipairs(FG.pvpCells) do
+        local real = c.SetAttribute
+        realSet[c] = real
+        c.SetAttribute = function(self, k, v) if k == "unit" then sets = sets + 1 end return real(self, k, v) end
+    end
+    STATE.inCombat = true
+    groupOf[1] = 3                               -- someone moves group mid-fight
+    fire(FG.events, "GROUP_ROSTER_UPDATE")
+    fire(FG.pvpEvents, "UNIT_TARGET", "raid2")
+    for _ = 1, 5 do tick() end
+    ok(FG.Layout(FG.anchor) == false, "layout is refused in a fight")
+    ok(sets == 0, "and no target cell's unit attribute was touched in the fight", sets)
+    STATE.inCombat = false
+    groupOf[1] = 2
+    for c, real in pairs(realSet) do c.SetAttribute = real end   -- back to the frame's own method
+    FG.Layout(FG.anchor)
+
+    -- (6) THE PAINT: secret health handed on untouched, red for a foe, green for a friend, a short name
+    local c1 = FG.pvpByUnit.raid1
+    STATE.units.raid1target = true
+    STATE.hostile.raid1target = true
+    STATE.names = { raid1target = "Gorehowl Bloodfist" }
+    local painted, why = pcall(FG.PaintPvPCell, c1)
+    ok(painted, "painting a target cell with secret health never throws", tostring(why))
+    ok(isSecret(c1.bar.__value), "the health went to the bar untouched (a secret, as the client gave it)")
+    ok(isSecret(c1.bar.__max), "and the max too")
+    ok(c1.bar.__color and c1.bar.__color[1] == FG.HOSTILE[1] and c1.bar.__color[2] == FG.HOSTILE[2],
+       "red for something you can attack")
+    ok(c1.label and c1.label.__text == "Gore", "a four-letter name: Gore", c1.label and tostring(c1.label.__text))
+    STATE.hostile.raid1target = nil
+    FG.PaintPvPCell(c1)
+    ok(c1.bar.__color and c1.bar.__color[1] == FG.PVP_FRIEND[1] and c1.bar.__color[2] == FG.PVP_FRIEND[2],
+       "green for a friend")
+    STATE.hostileSecret = true
+    painted, why = pcall(FG.PaintPvPCell, c1)
+    ok(painted and c1.bar.__color and isSecret(c1.bar.__color[1]),
+       "in a fight 'can I attack it' is secret: the client picks the colour", tostring(why))
+    STATE.hostileSecret = false
+    local hidden1 = secretString()
+    STATE.names.raid1target = hidden1
+    painted = pcall(FG.PaintPvPCell, c1)
+    ok(painted and c1.label.__text == hidden1, "a hidden name is handed to the label whole, never cut")
+    STATE.names.raid1target = "Gorehowl Bloodfist"
+
+    -- the hover POPS (wash + left bar) and the tooltip has the whole name
+    _G.GetUnitName = function(u) return STATE.names and STATE.names[u] or "Name-" .. tostring(u) end
+    c1.__scripts.OnEnter(c1)
+    ok(c1.wash and c1.wash:IsShown() and c1.lbar and c1.lbar:IsShown(), "under the mouse the target cell pops")
+    ok(c1.__wasMouseover, "and the secure template's own OnEnter still ran (hooked, not replaced)")
+    local tipHas = false
+    for _, l in ipairs(TIP.lines) do if l == "Gorehowl Bloodfist" then tipHas = true end end
+    ok(tipHas, "the tooltip says the whole name", table.concat(TIP.lines, " / "))
+    c1.__scripts.OnLeave(c1)
+    ok(not c1.wash:IsShown() and not c1.lbar:IsShown(), "and goes back when the mouse leaves")
+    _G.GetUnitName = keep.gun
+
+    -- (7) THE TEAM'S FOCUS: the same enemy on 2+ target cells, and the most of any -> gold on each
+    for i = 1, 12 do STATE.units["raid" .. i .. "target"] = true STATE.hostile["raid" .. i .. "target"] = true end
+    for i = 1, 12 do STATE.guids["raid" .. i .. "target"] = "Player-9-" .. i end   -- everyone on someone else
+    STATE.guids.raid1target, STATE.guids.raid5target, STATE.guids.raid9target = "Player-9-A", "Player-9-A", "Player-9-A"
+    STATE.guids.raid2target, STATE.guids.raid6target = "Player-9-B", "Player-9-B"
+    WATCH_TICK()
+    FG.PaintPvP()
+    local function gold(u) local c = FG.pvpByUnit[u] return c and c.focus and c.focus:IsShown() end
+    ok(gold("raid1") and gold("raid5") and gold("raid9"), "three on the same enemy: gold on all three of its cells")
+    ok(not gold("raid2") and not gold("raid6") and not gold("raid3"), "two on another: no gold - three is the most")
+    ok(FG.pvpFocus == "Player-9-A", "the focus is that enemy", tostring(FG.pvpFocus))
+    -- a SECRET GUID simply does not count
+    STATE.guidSecret.raid9target, STATE.guidSecret.raid5target = true, true
+    painted, why = pcall(FG.PaintPvP)
+    ok(painted, "a secret GUID never throws", tostring(why))
+    ok(gold("raid2") and gold("raid6") and not gold("raid1") and not gold("raid5") and not gold("raid9")
+       and FG.pvpFocus == "Player-9-B",
+       "two of A's three hidden: only one readable on A, two on B - B is the focus, the hidden ones count for nothing")
+    STATE.guidSecret.raid9target, STATE.guidSecret.raid5target = nil, nil
+    -- a tie is no focus, and a friend is never one
+    STATE.guids.raid1target, STATE.guids.raid5target, STATE.guids.raid9target = "Player-9-C", "Player-9-C", "Player-9-X"
+    FG.PaintPvP()
+    ok(not gold("raid2") and not gold("raid1") and FG.pvpFocus == nil, "two on B, two on C: a tie, no gold")
+    STATE.guids.raid1target, STATE.guids.raid5target = nil, nil
+    STATE.hostile.raid2target, STATE.hostile.raid6target = nil, nil
+    FG.PaintPvP()
+    ok(not gold("raid2") and FG.pvpFocus == nil, "two healing the same friend: no gold, a friend is not a focus")
+    STATE.hostile.raid2target, STATE.hostile.raid6target = true, true
+
+    -- (8) UPDATES: UNIT_TARGET repaints that one cell; the 4-a-second repaint only while pvp is showing
+    local hits = {}
+    local realCell = FG.PaintPvPCell
+    FG.PaintPvPCell = function(c, ...) hits[#hits + 1] = c return realCell(c, ...) end
+    local function clear() local n = #hits for i = n, 1, -1 do hits[i] = nil end return n end
+    ok(FG.pvpEvents and FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET
+       and FG.pvpEvents.__events.PLAYER_TARGET_CHANGED, "while pvp mode shows, it listens for UNIT_TARGET")
+    clear()
+    fire(FG.pvpEvents, "UNIT_TARGET", "raid3")
+    ok(#hits == 1 and hits[1] == FG.pvpByUnit.raid3, "raid3 changed target: raid3's target cell is repainted, alone", #hits)
+    clear()
+    fire(FG.pvpEvents, "UNIT_TARGET", secret())
+    ok(#hits == 12, "a unit the client hides: every target cell, never a guess", #hits)
+    clear()
+    for _ = 1, 10 do tick() end
+    local passes = clear() / 12
+    ok(passes >= 3 and passes <= 5, "a second of ticks repaints the target cells about 4 times", passes)
+    NS.DO.pvp("off")
+    clear()
+    for _ = 1, 10 do tick() end
+    ok(#hits == 0, "pvp off: nothing repaints them, nothing ticks for them", #hits)
+    ok(not (FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET), "and UNIT_TARGET is not even heard")
+    FG.PaintPvPCell = realCell
+
+    -- (9) THE COST of one repaint pass over a 40-man where everyone has a target
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    for i = 1, 40 do
+        STATE.units["raid" .. i] = true
+        STATE.units["raid" .. i .. "target"] = true
+        STATE.hostile["raid" .. i .. "target"] = true
+        groupOf[i] = math.floor((i - 1) / 5) + 1
+    end
+    NS.DO.pvp("on")
+    WATCH_TICK()
+    ok(#FG.pvpCells == 40, "40 in the raid, 40 target cells", #FG.pvpCells)
+    local n, by = Cost.Count(function() FG.PaintPvP() end)
+    STATE.costPvP = n
+    -- THE BUDGET, a little above what was measured on 8 Nov: 320 for one pass over 40 shown target cells
+    -- (8 a cell: max, health, can-attack, name, GUID and three hidden-checks). Four a second while pvp
+    -- mode shows - about 1,300 a second in a full 40 - and nothing at all when it does not.
+    local PVP = 360
+    ok(n <= PVP, "one repaint pass of a 40-man's target cells asks the client at most " .. PVP .. " things: " .. n,
+       Cost.Top(by, 6))
+    print(("   cost: pvp target cells, 40-man pass = %d calls (%s)"):format(n, Cost.Top(by, 4)))
+
+    -- (10) THE OPTIONS ROW and the words
+    local row
+    for _, o in ipairs(NS.UI.Rows()) do if o.key == "pvp" then row = o end end
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "off,bg,on" and row.help,
+       "the options window has a PvP row: off, bg, on - with its help")
+    if row then
+        row.set(d, "bg")
+        ok(d.pvp == "bg" and row.get(d) == "bg", "picking bg stores bg")
+        row.set(d, "off")
+        ok(d.pvp == "off" and row.get(d) == "off", "and off")
+    end
+    SlashCmdList.BISHEALING("pvp on")
+    ok(d.pvp == "on", "/bish pvp on", tostring(d.pvp))
+    SlashCmdList.BISHEALING("pvpmode bg")
+    ok(d.pvp == "bg", "/bish pvpmode bg (the long word)", tostring(d.pvp))
+    SlashCmdList.BISHEALING("pvp off")
+    ok(d.pvp == "off", "/bish pvp off")
+    ok(NS.SHORT.pvpmode == "pvp", "the short word is pvp")
+    local status = NS.CFG.Status()
+    ok(status:find("PvP off", 1, true), "the BiS> page's status line says PvP off", status)
+
+    -- (11) IT RIDES THE MACRO, the one thing this client always hands back
+    local body = FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "on" })
+    local _, back = FK.Decode(asTheClientStoresIt(body))
+    ok(back and back.pvp == "on", "pvp on rides the macro and reads back", body)
+    _, back = FK.Decode(asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "bg" })))
+    ok(back and back.pvp == "bg", "and bg")
+    ok(not FK.Encode({}, { pvp = "off" }):find("PV=", 1, true), "off, the default, writes nothing")
+
+    -- (12) THE COLD START: a login with pvp = "on" saved, no user action -> the target cells are there
+    NS.DO.pvp("off")
+    ok(#FG.pvpCells == 0, "(nothing laid out before the login)")
+    local keepDB, keepChar = _G.BiSHealingDB, _G.BiSHealingCharDB
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
+    _G.BiSHealingDB = { dbver = NS.DBVER, owner = NS.Me(), savedAt = 1, forever10 = true, shown = true,
+                        pvp = "on", binds = { left = "Healing Wave(Rank 2)" }, bindsSeeded = true }
+    _G.BiSHealingCharDB = nil
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+    fire(NS.events, "PLAYER_LOGIN")
+    fire(FG.events, "PLAYER_ENTERING_WORLD")     -- what the client always says after the login
+    tick()
+    _G.DEFAULT_CHAT_FRAME = realChat
+    ok(NS.DB().pvp == "on" and #FG.pvpCells == 40 and FG.pvpByUnit.raid7
+       and FG.pvpByUnit.raid7:GetAttribute("unit") == "raid7target",
+       "LIVE after a login with pvp on saved: 40 target cells laid out, nobody clicked anything", #FG.pvpCells)
+    ok(FG.pvpEvents.__events and FG.pvpEvents.__events.UNIT_TARGET, "and listening")
+    -- the client lost the file: the macro brings it back (Keep, the road the mouse already takes)
+    NS.DB().pvp = "off"
+    FG.Layout(FG.anchor)
+    local keptMacros = {}
+    for i, m in pairs(MACROS) do keptMacros[i] = m end
+    for i in pairs(MACROS) do MACROS[i] = nil end
+    MACROS[121] = { name = "BiSHealing", icon = 134400,
+                    body = asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, { pvp = "on" })) }
+    FK.Load()
+    ok(NS.DB().pvp == "on" and #FG.pvpCells == 40, "a macro that says pvp on: restored and laid out", #FG.pvpCells)
+    for i in pairs(MACROS) do MACROS[i] = nil end
+    for i, m in pairs(keptMacros) do MACROS[i] = m end
+    _G.BiSHealingDB, _G.BiSHealingCharDB = keepDB, keepChar
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+
+    -- put the world back
+    d = NS.DB()
+    d.pvp, d.layout, d.me, d.target, d.shown = "off", keep.layout, keep.me, keep.target, keep.shown
+    for i = 1, 40 do
+        STATE.units["raid" .. i] = nil
+        STATE.units["raid" .. i .. "target"] = nil
+        STATE.hostile["raid" .. i .. "target"] = nil
+        STATE.guids["raid" .. i .. "target"] = nil
+    end
+    STATE.units.party1target, STATE.names, STATE.instance = nil, nil, nil
+    _G.IsInRaid, _G.GetRaidRosterInfo, _G.UnitName = keep.raid, keep.info, keep.un
+    FG.Layout(FG.anchor)
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

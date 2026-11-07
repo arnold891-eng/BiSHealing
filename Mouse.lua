@@ -486,6 +486,17 @@ FM.PALETTE = {
                 "Lay on Hands", "Blessing of Protection", "Redemption" },
 }
 FM.PALETTE_MAX = 11                 -- what fits across the bind window
+-- THE HOSTILE SIDE'S PALETTE (Arn, 8 Nov 2026: "put the hostile spells at the bottom of the window like how we put
+-- healing spells so they can drag and not have to open spellbook"): each healer's everyday damage and control
+-- spells, shown only once trained, at the top rank - the same way as the heals above.
+FM.HARM_PALETTE = {
+    SHAMAN  = { "Lightning Bolt", "Chain Lightning", "Earth Shock", "Flame Shock", "Frost Shock", "Purge" },
+    PRIEST  = { "Smite", "Holy Fire", "Mind Blast", "Shadow Word: Pain", "Mana Burn", "Psychic Scream",
+                "Dispel Magic" },
+    DRUID   = { "Wrath", "Moonfire", "Starfire", "Insect Swarm", "Entangling Roots", "Hibernate",
+                "Faerie Fire" },
+    PALADIN = { "Hammer of Justice", "Exorcism", "Hammer of Wrath", "Holy Shock", "Turn Undead" },
+}
 
 --- A CLICK ON THE DEAD RESES (Arn, 17 Oct 2026: "when someone is dead and out of combat if we click
 --- the cell does it default to res?" - it did not; the heal on the button was cast and the client
@@ -520,11 +531,12 @@ function FM.ResLine(cast)
     return "/cast [@mouseover,dead,nocombat] " .. res .. "\n"
 end
 
---- This character's palette: { name, id (the highest trained rank's), rank } in class order.
-function FM.Palette()
+--- This character's palette: { name, id (the highest trained rank's), rank } in class order. `list` is
+--- FM.PALETTE (the heals, the default) or FM.HARM_PALETTE (the hostile side).
+function FM.Palette(list)
     local class = UnitClass and select(2, UnitClass("player"))
     local out = {}
-    for _, name in ipairs(FM.PALETTE[class or ""] or {}) do
+    for _, name in ipairs((list or FM.PALETTE)[class or ""] or {}) do
         local ranks = FM.Ranks(name)
         local top = ranks[#ranks]
         if top and top.spell then

@@ -897,9 +897,10 @@ function FM.Window()
                 self.hint:SetTextColor(rgb(tip and "good" or "muted"))
             end
         end
-        -- the palette is your HEALS: not on the hostile side
+        -- the palette is your HEALS on the heal side, your damage and control spells on the hostile side (8 Nov)
+        local row = hostile and FM.Palette(FM.HARM_PALETTE) or pal
         for i, b in ipairs(self.palette or {}) do
-            local s = not hostile and pal[i] or nil
+            local s = row[i]
             b.spell = s
             local tex = s and spellIcon(s.name)
             if s and tex then b.icon:SetTexture(tex) b:Show() else b:Hide() end

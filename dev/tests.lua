@@ -10393,6 +10393,19 @@ do
     w.slots.right.take()
     ok(FM.Get("harm:", "right") == "macro:Purge it" and FM.Get("", "right") ~= "macro:Purge it",
        "a drop on the hostile mouse is a hostile bind; the heal under it untouched")
+    -- THE HOSTILE PALETTE (Arn, 8 Nov live: "maybe we put the hostile spells at the bottom of the window like how we
+    -- put healing spells so they can drag and not have to open spellbook"): your trained damage and control spells,
+    -- top rank, along the bottom - on the hostile side only
+    local keepB1, keepB2 = BOOK[41], BOOK[42]
+    BOOK[41] = { name = "Lightning Bolt", rank = "Rank 1" }
+    BOOK[42] = { name = "Lightning Bolt", rank = "Rank 2" }
+    w:Refresh()
+    local shown = {}
+    for _, b in ipairs(w.palette) do if b:IsShown() and b.spell then shown[b.spell.name] = b.spell.rank end end
+    ok(shown["Lightning Bolt"] == "Rank 2", "the hostile side's palette: your damage spells, at the top rank you have",
+       tostring(shown["Lightning Bolt"]))
+    ok(not shown["Healing Wave"], "and no heals on it")
+    BOOK[41], BOOK[42] = keepB1, keepB2
     w.tabs[2]:Click()
     ok(w:Key() == "harm:shift-", "a modifier tab on the hostile side is a hostile modifier")
     w.tabs[1]:Click()

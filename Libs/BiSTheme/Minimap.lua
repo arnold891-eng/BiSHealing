@@ -507,8 +507,10 @@ function T.Minimap(key, opts)
       local level = (self.GetFrameLevel and self:GetFrameLevel()) or 1
       local strata = self.GetFrameStrata and self:GetFrameStrata()
       for _, child in ipairs({ self:GetChildren() }) do
-        if strata then pcall(child.SetFrameStrata, child, strata) end
-        pcall(child.SetFrameLevel, child, math.max(0, level - 1))
+        -- somebody else's frame: the method LOOKUP goes inside the pcall too (solved.md: a forbidden frame throws
+        -- on the lookup itself, before the call - 7 Nov sweep)
+        if strata then pcall(function() child:SetFrameStrata(strata) end) end
+        pcall(function() child:SetFrameLevel(math.max(0, level - 1)) end)
       end
     end)
     return true

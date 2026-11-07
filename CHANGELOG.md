@@ -1,5 +1,10 @@
 # BiS Healing
 
+## 1.0.1
+
+- **PvP mode: see when their target is casting.** Each teammate's target cell now carries your class's interrupt icon - Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot (a plain kick icon until you've trained yours). It sits dim, and lights up the moment that target starts casting or channelling, so you know who to stop - with a gold glow, a bounce, or both (your pick: "cast alert" in the options, under PvP mode). **Click the icon** and it casts your interrupt (its cheapest rank) at that target, no bind needed. The game keeps the spell itself hidden; this only tells you a cast is happening.
+- **The separate "me" cell is retired.** You now always sit in your group's column like everyone else; the "me" button is gone from the cells row, and `/bish me` just says so. If you had it on, you're put back in your group at your next login.
+
 ## 1.0.0 - Forever 1.0
 
 - **Hostile binds.** The mouse binds window has a **heal | hostile** switch at the top. On the hostile side (tinted red) drop damage spells - Lightning Bolt, Smite, Wrath, Hex - and a click on an **enemy** under the cursor casts those instead of your heals. Friends still get your heals, same buttons. The wheel works too: an enemy under the cursor gets the hostile spell, anyone else the heal. Along the bottom of the hostile side sit your trained damage and control spells (Lightning Bolt, Smite, Wrath, Hammer of Justice...) at their top rank - drag them straight on, no spellbook needed.

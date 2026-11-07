@@ -296,7 +296,8 @@ function FG.Roster()
     -- yourself in one spot outside groups"). Left in, you are first in a party and somewhere in
     -- the middle of a raid, and the grid reshapes around you every time the group changes - which
     -- is the thing that made him ask. Two cells for one person is also just two cells.
-    local mine = type(d) == "table" and d.me == true
+    -- RETIRED 8 Nov 2026 (Arn: "in the cells remove the me option" - picked: retire it): you are always in your group
+    local mine = false
     local function add(u) if UnitExists(u) then out[#out + 1] = u end end
     if IsInRaid and IsInRaid() then
         for i = 1, 40 do
@@ -874,7 +875,7 @@ function FG.LayoutSelf(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.me == true and d.shown ~= false
+    local want = false              -- the "me" cell is retired (8 Nov 2026): a cell left from before is hidden here
     if not want then
         if FG.me then
             FG.Unwatch(FG.me)
@@ -1075,12 +1076,6 @@ function FG.Healers()
             if ok and NS.Plain(role) == "HEALER" then out[#out + 1] = unit end
         end
     end
-    -- your own cell may be out of the roster (a cell of your own), and you are still a healer
-    local d = NS.DB and NS.DB()
-    if type(d) == "table" and d.me == true and UnitExists and UnitExists("player") then
-        local ok, role = pcall(UnitGroupRolesAssigned, "player")
-        if ok and NS.Plain(role) == "HEALER" then table.insert(out, 1, "player") end
-    end
     return out
 end
 
@@ -1193,7 +1188,6 @@ function FG.SpotTaken(at, mine)
     local d = NS.DB and NS.DB()
     if type(d) ~= "table" or at == "free" then return false end
     if mine ~= FG.TARGET_KEYS and d.target == true and FG.TargetSpot() == at then return true end
-    if mine ~= FG.SELF_KEYS and d.me == true and FG.SelfSpot() == at then return true end
     if mine ~= FG.PET_KEYS and FG.PetsOwnBlock() and FG.PetSpot() == at then return true end
     if mine ~= FG.MANA_KEYS and d.mana == true and FG.ManaSpot() == at then return true end
     -- BiS> now is a block like any other, and was not in this list for one build: Arn shift-clicked
@@ -1939,6 +1933,99 @@ end
 -- token, every target cell is repainted four times a second (FG.PVP_EVERY).
 
 FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
+
+-- IS THEIR TARGET CASTING? (Arn, 8 Nov 2026: "class appropriate interrupt icon and un alpha it when they are casting
+-- or channeling"). Forever hides WHAT another unit casts, never THAT it casts: UnitCastingDuration /
+-- UnitChannelDuration hand a duration object for a cast in progress and nil for none - an answer that may itself be
+-- secret, which still means "something is there". Your class's interrupt, dim at rest, full while their target casts.
+FG.KICK = {
+    SHAMAN = { "Earth Shock" }, ROGUE = { "Kick" }, WARRIOR = { "Pummel", "Shield Bash" }, MAGE = { "Counterspell" },
+    PALADIN = { "Hammer of Justice" }, PRIEST = { "Silence", "Psychic Scream" }, DRUID = { "Bash" },
+    WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
+}
+FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
+FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 14, 1.35
+
+--- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
+--- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
+function FG.KickSpell()
+    if FG.kickSpell ~= nil then return FG.kickSpell or nil end
+    local okC, _, class = pcall(UnitClass, "player")
+    class = okC and NS.Plain(class) or nil
+    for _, name in ipairs(FG.KICK[class or ""] or {}) do
+        if NS.FM and NS.FM.BookIds and #NS.FM.BookIds(name) > 0 then FG.kickSpell = name return name end
+    end
+    FG.kickSpell = false
+    return nil
+end
+
+function FG.KickIcon()
+    local name = FG.KickSpell()
+    local get = C_Spell and C_Spell.GetSpellTexture
+    if name and get then
+        local ok, tex = pcall(get, name)
+        if ok and tex and not NS.Secret(tex) then return tex end
+    end
+    return FG.KICK_FALLBACK
+end
+
+--- What the icon casts: your interrupt at its LOWEST trained rank ("Earth Shock(Rank 1)") - the interrupt is the
+--- same at every rank and the first costs least. A spell without ranks goes by its name. nil with none trained.
+function FG.KickCast()
+    local name = FG.KickSpell()
+    if not name then return nil end
+    local ranks = NS.FM and NS.FM.Ranks and NS.FM.Ranks(name) or {}
+    local low = ranks[1] and ranks[1].rank
+    return (NS.FM and NS.FM.Cast) and NS.FM.Cast(name, low) or name
+end
+
+--- Point a target cell's icon at its token: cast your interrupt there on a click, or - nothing trained - let the
+--- click through to the cell's own binds. OUT OF COMBAT ONLY (secure attributes); the layout is where it is called.
+function FG.ArmKick(c, tok, cast)
+    local b = c and c.kickFx
+    if not b or (InCombatLockdown and InCombatLockdown()) then return false end
+    b:SetAttribute("type", cast and "spell" or nil)
+    b:SetAttribute("spell", cast)
+    b:SetAttribute("unit", cast and tok or nil)
+    if b.EnableMouse then b:EnableMouse(cast and true or false) end
+    b.cast = cast
+    return true
+end
+
+--- The cast alert, the player's pick (Arn, 8 Nov: "lets make it an option for them glow or bounce"): "glow", "bounce"
+--- or "both" - both by default, what it did first.
+FG.KICK_FX = { glow = true, bounce = true, both = true }
+function FG.KickFx()
+    local d = NS.DB and NS.DB()
+    local v = type(d) == "table" and d.kickFx or nil
+    return FG.KICK_FX[v or ""] and v or "both"
+end
+
+--- Glow and bounce for one cell, by the pick - called when "is it casting" changes, and for every cell when the pick does.
+function FG.KickShow(c, lit)
+    local fx = FG.KickFx()
+    local glow, bounce = lit and fx ~= "bounce", lit and fx ~= "glow"
+    if c.kickGlow then if glow then c.kickGlow:Show() else c.kickGlow:Hide() end end
+    if c.kickBounce then
+        local playing = c.kickBounce.IsPlaying and c.kickBounce:IsPlaying()
+        if bounce and not playing then c.kickBounce:Play() elseif not bounce and playing then c.kickBounce:Stop() end
+    end
+end
+
+--- Is this unit casting or channelling? true / false. A secret answer counts as a cast: something is there.
+--- `type(v)` reads no value - a secret one says its type and never refuses - so "is there an answer at all" costs
+--- no hidden-check; the channel is asked only when there is no cast (lean: 1-2 calls a cell, Cost budget below).
+FG.CAST_ASKS = { "UnitCastingDuration", "UnitChannelDuration" }
+function FG.Casting(tok)
+    for _, name in ipairs(FG.CAST_ASKS) do
+        local f = rawget(_G, name)
+        if f then
+            local ok, v = pcall(f, tok)
+            if ok and type(v) ~= "nil" then return true end
+        end
+    end
+    return false
+end
 FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
 FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
 FG.PVP_BAR_H = nil                       -- (was a 6 px strip; since 8 Nov the health fills the cell)
@@ -2049,6 +2136,53 @@ function FG.MakePvP(i, parent)
     c.label:SetPoint("TOPRIGHT", -1, -4)
     c.label:SetJustifyH("CENTER")
     if c.label.SetWordWrap then c.label:SetWordWrap(false) end
+    -- YOUR INTERRUPT, at the foot under the name: dim, and full the moment their target casts (FG.PaintPvPCell).
+    -- On a little frame of its own so it can MOVE (Arn, 8 Nov: "can it also add a glow or bounce animation"): a gold
+    -- glow behind it and a bounce while their target casts - the client runs the bounce, nothing of ours ticks for it.
+    -- AND YOU CAN CLICK IT (Arn, 8 Nov: "yes make it clickable"): a secure button that casts your interrupt at that
+    -- teammate's target. Armed at layout, out of combat (FG.ArmKick); in a fight the client does the casting.
+    c.kickFx = CreateFrame("Button", nil, c.ink, "SecureActionButtonTemplate")
+    if c.kickFx.RegisterForClicks then c.kickFx:RegisterForClicks("AnyDown") end
+    c.kickFx:SetSize(FG.KICK_SIZE, FG.KICK_SIZE)
+    c.kickFx:SetPoint("BOTTOM", c, "BOTTOM", 0, 3)
+    c.kickGlow = c.kickFx:CreateTexture(nil, "BACKGROUND")
+    c.kickGlow:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    if c.kickGlow.SetBlendMode then c.kickGlow:SetBlendMode("ADD") end
+    c.kickGlow:SetVertexColor(FG.PVP_GOLD[1], FG.PVP_GOLD[2], FG.PVP_GOLD[3], 1)
+    c.kickGlow:SetSize(FG.KICK_SIZE * 2.4, FG.KICK_SIZE * 2.4)
+    c.kickGlow:SetPoint("CENTER", c.kickFx, "CENTER", 0, 0)
+    c.kickGlow:Hide()
+    c.kick = c.kickFx:CreateTexture(nil, "ARTWORK")
+    c.kick:SetAllPoints()
+    if c.kick.SetTexCoord then c.kick:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    c.kick:SetTexture(FG.KickIcon())
+    c.kick:SetAlpha(FG.KICK_DIM)
+    -- it lights under the mouse (the family rule) and says what a click does
+    c.kickFx:SetScript("OnEnter", function(self)
+        c.kickGlow:Show()
+        if not (GameTooltip and self.cast) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("click: " .. tostring(self.cast), 1, 0.82, 0)
+        GameTooltip:AddLine("at whoever this teammate has targeted", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    c.kickFx:SetScript("OnLeave", function()
+        FG.KickShow(c, c.kickLit == true)                  -- back to what the pick shows (no glow in "bounce")
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    if c.kickFx.CreateAnimationGroup then
+        local okG, g = pcall(c.kickFx.CreateAnimationGroup, c.kickFx)
+        if okG and g then
+            local up = g:CreateAnimation("Scale")
+            up:SetScaleFrom(1, 1) up:SetScaleTo(FG.KICK_BOUNCE, FG.KICK_BOUNCE)
+            up:SetOrigin("BOTTOM", 0, 0) up:SetDuration(0.22) up:SetOrder(1)
+            local down = g:CreateAnimation("Scale")
+            down:SetScaleFrom(FG.KICK_BOUNCE, FG.KICK_BOUNCE) down:SetScaleTo(1, 1)
+            down:SetOrigin("BOTTOM", 0, 0) down:SetDuration(0.22) down:SetOrder(2)
+            g:SetLooping("REPEAT")
+            c.kickBounce = g
+        end
+    end
     -- THE TEAM'S FOCUS: a gold edge, 2 px, on a frame of its own so one Show/Hide does it
     c.focus = CreateFrame("Frame", nil, c)
     c.focus:SetAllPoints()
@@ -2112,6 +2246,8 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
     local cells, byUnit = FG.pvpCells, FG.pvpByUnit
     for i = #cells, 1, -1 do cells[i] = nil end            -- emptied in place: callers may hold the table
     for k in pairs(byUnit) do byUnit[k] = nil end
+    FG.kickSpell = nil                                      -- an interrupt learned since: asked again here
+    local kickIcon, kickCast = FG.KickIcon(), FG.KickCast()
     for i, unit in ipairs(roster) do
         local c = FG.pvpPool[i] or FG.MakePvP(i, anchor)
         local tok = FG.TargetOf(unit)
@@ -2123,6 +2259,8 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
         c:ClearAllPoints()
         c:SetPoint("TOPLEFT", anchor, "TOPLEFT", fx + fw + PAD, fy)
         c:SetSize(FG.PVP_W, fh)
+        if c.kick then c.kick:SetTexture(kickIcon) end
+        FG.ArmKick(c, tok, kickCast)
         c.unit, c.member = tok, unit
         c:SetAttribute("unit", tok)
         -- the grid's own binds, hostile ones included (Mouse.lua's ApplyTo owns what a click means)
@@ -2193,6 +2331,15 @@ function FG.PaintPvPCell(c)
     end
     local okN, name = pcall(UnitName, tok)
     if okN then c.label:SetText(FG.PvPName(name)) end
+    if c.kick then
+        local lit = FG.Casting(tok)
+        c.kick:SetAlpha(lit and 1 or FG.KICK_DIM)
+        -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
+        if lit ~= c.kickLit then
+            c.kickLit = lit
+            FG.KickShow(c, lit)
+        end
+    end
     -- WHO IT IS, for the focus: a plain GUID of somebody who is not a friend, or nothing
     local okG, guid = pcall(UnitGUID, tok)
     local g = okG and NS.Plain(guid) or nil

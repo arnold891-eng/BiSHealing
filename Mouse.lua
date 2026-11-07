@@ -221,11 +221,7 @@ local function db()
                     if settings.manaAt then d.manaAt = settings.manaAt end
                     if settings.manaPos then d.manaPos = settings.manaPos end
                 end
-                if settings.me == true then
-                    d.me = true
-                    if settings.meAt then d.meAt = settings.meAt end
-                    if settings.mePos then d.mePos = settings.mePos end
-                end
+                -- (a "me" row, Y/Z, from before 8 Nov is read and ignored: the "me" cell is retired)
                 if settings.markers then
                     d.markers = settings.markers
                     if NS.FA then NS.FA.sig = nil end

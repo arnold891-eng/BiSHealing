@@ -40,9 +40,12 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.OPTIONS_MINOR or 0) >= 3 then return end
-T.OPTIONS_MINOR = 3      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
+if (T.OPTIONS_MINOR or 0) >= 4 then return end
+T.OPTIONS_MINOR = 4      -- 2: Escape closes the window (UISpecialFrames), Arn 10 Sep
                          -- 3: a window opening on top of another moves beside it (Opt:Dodge), 14 Oct
+                         -- 4: everything clickable POPS on hover, windows at scale 1.2, the build at rest in the
+                         --    help strip (Arn, 6 Nov: "if you hover a row it should pop", "make 20% bigger", "a
+                         --    finger print thing only you can see so you know what version i am on")
 
 -- palette fallback: only when this file is embedded and neither BiSTheme.lua nor
 -- Console.lua ran. Same table, same values, deliberately duplicated - a shared
@@ -166,25 +169,40 @@ function P.border(frame, name, a)
   return b
 end
 
--- a flat little button: field fill, edge border, accent on hover
+-- THE POP (minor 4; Arn, 6 Nov, asked four times across the family): anything clickable lights up clearly under the
+-- mouse - a wash at GLOW, its edge in the accent, its label at full ink. A faint wash on the dark purple never showed.
+T.OPTIONS.GLOW = T.OPTIONS.GLOW or 0.35
+T.OPTIONS.SCALE = T.OPTIONS.SCALE or 1.2
+
+-- a flat little button: field fill, edge border; under the mouse a wash, an accent edge, a bright label
 function P.flat(parent, w, h, label, size)
   local b = CreateFrame("Button", nil, parent)
   b:SetSize(w, h)
   P.tex(b, "BACKGROUND", "field", 0.9)
+  b.wash = P.tex(b, "BORDER", "accent", 0)
   b.edge = P.border(b, "edge", 1)
   b.label = P.fs(b, label or "", size or 8, "muted")
   b.label:SetPoint("CENTER")
-  b:SetScript("OnEnter", function(s) s.edge:set("accent", 1) end)
-  b:SetScript("OnLeave", function(s) s.edge:set("edge", 1) end)
+  b:SetScript("OnEnter", function(s)
+    s.wash:SetAlpha(T.OPTIONS.GLOW) s.edge:set(s.hoverEdge or "accent", 1)
+    s.label:SetTextColor(colour("ink"))
+  end)
+  b:SetScript("OnLeave", function(s)
+    s.wash:SetAlpha(0) s.edge:set("edge", 1)
+    s.label:SetTextColor(colour(s.labelColour or "muted"))
+  end)
   return b
 end
 
--- the 10 px on/off box: filled accent when on, empty edge when off
+-- the 10 px on/off box: filled accent when on, empty edge when off; under the mouse a wash and an accent edge
 function P.box(parent)
   local b = CreateFrame("Button", nil, parent)
   b:SetSize(T.OPTIONS.BOX, T.OPTIONS.BOX)
   b.fill = P.tex(b, "BACKGROUND", "accent", 1)
+  b.wash = P.tex(b, "BORDER", "accent", 0)
   b.edge = P.border(b, "edge", 1)
+  b:SetScript("OnEnter", function(s) s.wash:SetAlpha(T.OPTIONS.GLOW) s.edge:set("accent", 1) end)
+  b:SetScript("OnLeave", function(s) s.wash:SetAlpha(0) s.edge:set(s.on and "accent" or "edge", 1) end)
   function b:Set(on)
     self.on = on and true or false
     if self.on then
@@ -393,12 +411,30 @@ end
 function Opt:Hoverable(r)
   if r.hoverable then return end
   r.hoverable = true
-  local function say() self:Help(r) end
+  -- AND THE ROW POPS (minor 4): a wash and a bar on its left while the mouse is anywhere on it, its controls included
+  r.lit = r.lit or P.tex(r, "BACKGROUND", "accent", 0)
+  if not r.bar then
+    r.bar = r:CreateTexture(nil, "ARTWORK")
+    r.bar:SetPoint("TOPLEFT") r.bar:SetPoint("BOTTOMLEFT")
+    r.bar:SetWidth(2)
+    do local cr, cg, cb = colour("accent") r.bar:SetColorTexture(cr, cg, cb, 1) end
+    r.bar:SetAlpha(0)
+  end
+  local function lit(on)
+    r.lit:SetAlpha(on and T.OPTIONS.GLOW * 0.6 or 0)          -- a little softer than a button: text sits on it
+    r.bar:SetAlpha(on and 1 or 0)
+  end
+  local function say() self:Help(r) lit(true) end
+  local function left()
+    -- moving from the row onto its own control is not leaving it
+    local over = r.IsMouseOver and select(2, pcall(r.IsMouseOver, r))
+    if over ~= true then lit(false) end
+  end
   if r.EnableMouse then pcall(r.EnableMouse, r, true) end
-  if r.HookScript then pcall(r.HookScript, r, "OnEnter", say) end
+  if r.HookScript then pcall(r.HookScript, r, "OnEnter", say) pcall(r.HookScript, r, "OnLeave", left) end
   if r.GetChildren then
     for _, c in ipairs({ r:GetChildren() }) do
-      if c.HookScript then pcall(c.HookScript, c, "OnEnter", say) end
+      if c.HookScript then pcall(c.HookScript, c, "OnEnter", say) pcall(c.HookScript, c, "OnLeave", left) end
     end
   end
 end
@@ -413,7 +449,8 @@ function Opt:HelpStrip(height)
     local hair = hb:CreateTexture(nil, "BORDER")
     hair:SetPoint("TOPLEFT") hair:SetPoint("TOPRIGHT") hair:SetHeight(1)
     do local r, g, b = colour("edge") hair:SetColorTexture(r, g, b, 1) end
-    hb.title = P.fs(hb, "", 8, "ink")
+    -- at rest the title line says the build, faint; hovering a setting puts its name there instead (one label)
+    hb.title = P.fs(hb, self.fingerprint and T.text("dim", self.fingerprint) or "", 8, "ink")
     hb.title:SetPoint("TOPLEFT", 6, -4)
     hb.text = P.fs(hb, T.text("muted", O.HELP_IDLE), 8, "ink2")
     hb.text:SetPoint("TOPLEFT", hb.title, "BOTTOMLEFT", 0, -2)
@@ -668,11 +705,50 @@ function Opt:Recenter(y)
 end
 
 --- Build the frame. Returns it with Section / Row / Fit / Paint / Toggle on it.
+-- ---------------------------------------------------------------- the fingerprint (minor 4)
+-- Arn, 6 Nov: "a small version number on all the windows or a finger print thing only you can see so you know what
+-- version i am on" (he had not reloaded and was ten builds behind). _bisdev/deploy.sh stamps the copy it puts in the
+-- game with "## X-BiS-Build: <branch>@<commit> <MMDD-HHMM>"; a released zip has none. The window's addon is read from
+-- its own name ("BiSGambaOptions" -> BiSGamba), so no caller has to say it.
+local function meta(addon, key)
+  local get = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
+  if type(get) ~= "function" or type(addon) ~= "string" then return nil end
+  local ok, v = pcall(get, addon, key)
+  if ok and type(v) == "string" and v ~= "" then return v end
+  return nil
+end
+
+--- The addon a frame name belongs to: the name, then shorter by one CamelCase word, until one has a Version.
+function T.AddonOf(name)
+  local s = type(name) == "string" and name or nil
+  while s and #s > 0 do
+    if meta(s, "Version") then return s end
+    local shorter = s:match("^(.+)%u[%l%d]*$")
+    if not shorter or shorter == s then return nil end
+    s = shorter
+  end
+  return nil
+end
+
+--- "BiSGamba 1.9.2" - and on a deployed test build "BiSGamba 1.9.2  9e52109 1106-1841". nil for an unknown addon.
+function T.Fingerprint(addon)
+  local v = meta(addon, "Version")
+  if not v then return nil end
+  local b = meta(addon, "X-BiS-Build")
+  local sha = b and b:match("@(%S+)")
+  local when = b and b:match("(%S+)$")
+  return addon .. " " .. v .. (sha and ("  " .. sha .. " " .. (when or "")) or "")
+end
+
 function T.Options(name, w, title)
   local O = T.OPTIONS
   w = w or O.W
   local f = CreateFrame("Frame", name, UIParent)
   f:SetSize(w, O.HEADER)
+  if f.SetScale then f:SetScale(O.SCALE) end                   -- readable (Arn: "its so small cant read"); a caller
+                                                                -- may set its own after (BiS Healing's 1.25)
+  f.addon = T.AddonOf(name)
+  f.fingerprint = T.Fingerprint(f.addon)
   f:SetFrameStrata("MEDIUM")
   f:SetMovable(true)
   f:EnableMouse(true)
@@ -708,8 +784,8 @@ function T.Options(name, w, title)
   local close = P.flat(head, 12, 12, "x")
   close:SetPoint("RIGHT", head, "RIGHT", -3, 0)
   do local r, g, b = colour("warn") close.label:SetTextColor(r, g, b, 1) end
+  close.labelColour, close.hoverEdge = "warn", "warn"            -- it pops like every button, in the warning colour
   close:SetScript("OnClick", function() f:Hide() end)
-  close:SetScript("OnEnter", function(s) s.edge:set("warn", 1) end)
   f.closeBtn = close
 
   local body = CreateFrame("Frame", nil, f)

@@ -41,8 +41,9 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.MINIMAP_MINOR or 0) >= 2 then return end
-T.MINIMAP_MINOR = 2   -- 2: a click puts a minimap collector's backing back under the icon (b:Unbury)
+if (T.MINIMAP_MINOR or 0) >= 3 then return end
+T.MINIMAP_MINOR = 3   -- 2: a click puts a minimap collector's backing back under the icon (b:Unbury)
+                      -- 3: a menu row POPS under the mouse - an accent wash and a bar (Arn, 6 Nov: "it should pop")
 
 -- palette fallback: only when this file is embedded and no other BiSTheme file ran. Duplicated on
 -- purpose, exactly as Options.lua duplicates it - a shared local between two embedded files is a
@@ -210,15 +211,21 @@ local function rowFrame(menu, i)
   r.line:SetHeight(1)
   r.line:SetPoint("LEFT", 5, 0)
   r.line:SetPoint("RIGHT", -5, 0)
+  r.bar = tex(r, "ARTWORK", "accent", 0)
+  r.bar:ClearAllPoints()
+  r.bar:SetPoint("TOPLEFT") r.bar:SetPoint("BOTTOMLEFT")
+  r.bar:SetWidth(2)
   r:SetScript("OnEnter", function(s)
     local item = s.item
     if item and not item.sep and not item.title and not item.disabled then
-      s.hi:SetColorTexture(T.rgba("accentSoft", 0.9))
+      s.hi:SetColorTexture(T.rgba("accent", 0.35))              -- the accent itself: accentSoft never showed
+      s.bar:SetColorTexture(T.rgba("accent", 1))
       s.text:SetTextColor(T.rgb("ink"))
     end
   end)
   r:SetScript("OnLeave", function(s)
     s.hi:SetColorTexture(T.rgba("accentSoft", 0))
+    s.bar:SetColorTexture(T.rgba("accent", 0))
     s.text:SetTextColor(colour(s.item and s.item.title and "accent" or "ink2"))
   end)
   r:SetScript("OnClick", function(s)

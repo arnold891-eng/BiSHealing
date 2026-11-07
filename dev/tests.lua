@@ -965,6 +965,28 @@ _G.GameTooltip = autoMethods({
 _G.UISpecialFrames = {}        -- what the client closes on Escape
 _G.tinsert = table.insert
 
+-- THE TOC, AS THE CLIENT READS IT (6 Nov 2026, the version mark). This answered nothing at all, so
+-- NS.VERSION was "0.0.0" in every run and "does the window show the version" had no answer. The
+-- client hands back a `## Key: value` line from the TOC it loaded, and nil for a key it lacks - and
+-- only a copy deploy.sh stamped carries X-BiS-Build, so that one is nil here unless a test sets
+-- __BUILD (the shape deploy.sh writes: "<branch>@<sha>[+] <MMDD-HHMM>").
+do
+    local meta = {}
+    local toc = io.open("BiSHealing.toc")
+    if toc then
+        for line in toc:lines() do
+            local k, v = line:match("^##%s*([^:]-)%s*:%s*(.-)%s*$")
+            if k then meta[k] = v end
+        end
+        toc:close()
+    end
+    _G.GetAddOnMetadata = function(addon, key)
+        if addon ~= "BiSHealing" then return nil end
+        if key == "X-BiS-Build" then return rawget(_G, "__BUILD") end
+        return meta[key]
+    end
+end
+
 -- THE WHOLE ADDON, IN THE TOC'S ORDER, read from the TOC itself rather than listed here. A list
 -- in a suite is a list that goes stale: on 19 Sep the addon lost 5,000 lines and gained a core,
 -- and a hand-written list would have kept loading files that no longer exist while quietly
@@ -9543,6 +9565,195 @@ do
     NS.FM.BookIds = keep.ids
     C_Spell.GetSpellPowerCost, C_Spell.GetSpellInfo, C_Spell.GetSpellDescription = keep.cost, keep.info, keep.desc
     _G.GetSpellBonusHealing = keep.bonus
+end
+
+----------------------------------------------------------- the UI rules (6 Nov 2026) --
+--
+-- Arn, 6 Nov, for every BiS addon (BiSTools is the reference): short words, a hover you can see,
+-- Escape, and the version on the window.
+
+-- 1. SHORT WORDS: every /bish word longer than 4 letters answers to one of 4 or fewer, and the long
+-- one keeps working. "The same action" is measured, not assumed: every NS.DO is swapped for a
+-- recorder, and the long and the short must reach the same one with the same arguments.
+do
+    local real = {}
+    for k, fn in pairs(NS.DO) do real[k] = fn end
+    local seen
+    for k in pairs(real) do NS.DO[k] = function(...) seen = { k, ... } end end
+    local function call(cmd)
+        seen = nil
+        local okC = pcall(SlashCmdList.BISHEALING, cmd)
+        return okC and seen or nil
+    end
+    local function say(t)
+        if not t then return "nothing" end
+        local out = {}
+        for i = 1, 4 do out[i] = tostring(t[i]) end
+        return table.concat(out, " ")
+    end
+    -- every long word the parser takes, with the short word it answers to as well. A word that was
+    -- already short (fear, tot, hpm, db, keep, %) is listed too: the help says it beside the long one.
+    local PAIRS = {
+        { "config", "opt" }, { "options", "opt" }, { "settings", "opt" },
+        { "mouse", "bind" }, { "binds", "bind" },
+        { "center", "ctr" }, { "centre", "ctr" },
+        { "rescan", "rsc" }, { "auras", "aura" }, { "minimap", "mini" },
+        { "scale", "scl" }, { "scale 90", "scl 90" },
+        { "missing", "miss" }, { "deficit", "miss" },
+        { "percent", "%" }, { "number", "num" }, { "number off", "num off" },
+        { "colour", "clr" }, { "color", "clr" },
+        { "target", "tgt" }, { "targetcell", "tgt" }, { "target left", "tgt left" },
+        { "targetoftarget", "tot" }, { "totcell", "tot" },
+        { "heals", "heal" }, { "range", "rng" },
+        { "overheal", "over" }, { "overheal test", "over test" },
+        { "curve", "curv" }, { "holds", "hold" },
+        { "control", "fear" }, { "efficiency", "hpm" }, { "saved", "db" }, { "macro", "keep" },
+        { "hits reset", "hits rst" },
+        { "watch", "wtch" }, { "watch Lightning Shield", "wtch Lightning Shield" },
+        { "between", "btw" }, { "reminders", "btw" },
+        { "buffsound", "bsnd" }, { "buffsound off", "bsnd off" },
+        { "buffs", "bufs" }, { "buffs fort on", "bufs fort on" },
+        { "markers", "mark" }, { "markers 12", "mark 12" },
+        { "cures", "cure" }, { "cures on", "cure on" },
+        { "trinkets", "trin" }, { "trinkets shift both", "trin shift both" },
+        { "hover", "hov" }, { "hover off", "hov off" },
+        { "flash", "flsh" }, { "flash on", "flsh on" },
+        { "clique", "clq" },
+        { "layout", "lay" }, { "layout pyramid", "lay pyr" }, { "pyramid", "pyr" },
+        { "columns", "cols" }, { "across", "rows" },
+    }
+    for _, p in ipairs(PAIRS) do
+        local long, short = p[1], p[2]
+        ok(#(short:match("^(%S+)") or short) <= 4, ("/bish %s: the short word %q is 4 letters or fewer"):format(long, short))
+        local a, b = call(long), call(short)
+        ok(a ~= nil and a[1] ~= "help", ("/bish %s still works (it reached %s)"):format(long, say(a)))
+        -- `layout pyramid` and `pyr` both reach layout; the word it is handed is read by DO.layout,
+        -- so for those the test is where the real one lands, below
+        if not long:match("^layout") and long ~= "pyramid" then
+            ok(b ~= nil and say(a) == say(b),
+               ("/bish %s answers like /bish %s: %s vs %s"):format(short, long, say(b), say(a)))
+        else
+            ok(b ~= nil and b[1] == "layout", ("/bish %s reaches the layout: %s"):format(short, say(b)))
+        end
+    end
+    -- the words are a table a test and the help can both read, every one of them short and none of
+    -- them a word the parser already takes for something else
+    ok(type(NS.SHORT) == "table", "the short words are one table (NS.SHORT)")
+    local TAKEN = { show = 1, hide = 1, scan = 1, see = 1, pets = 1, pet = 1, me = 1, self = 1, mana = 1,
+                    cpu = 1, byid = 1, tank = 1, now = 1, buff = 1, hits = 1, ping = 1, hots = 1, hot = 1,
+                    res = 1, ring = 1, dim = 1, text = 1, grid = 1 }
+    for long, short in pairs(NS.SHORT or {}) do
+        ok(#short <= 4, ("%s -> %q is short"):format(long, short))
+        ok(not TAKEN[short], ("%s -> %q is not a word already taken"):format(long, short))
+    end
+    for k, fn in pairs(real) do NS.DO[k] = fn end
+
+    -- and the help says them: "mouse" in the help carries "bind" beside it
+    local from = #SAID + 1          -- the suite's own NS.Print (above) keeps every line said
+    NS.DO.help()
+    local said = {}
+    for i = from, #SAID do said[#said + 1] = SAID[i] end
+    local all = (table.concat(said, "\n"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+    ok(all:find("mouse/bind", 1, true) and all:find("minimap/mini", 1, true) and all:find("markers/mark 12", 1, true)
+       and all:find("target/tgt left", 1, true),
+       "/bish help shows the short word beside the long one: " .. all:sub(1, 160))
+    -- every one of them, bar the three the help says by their short word alone (tot, db, keep)
+    local unsaid = {}
+    for long, short in pairs(NS.SHORT or {}) do
+        if long ~= "targetoftarget" and long ~= "saved" and long ~= "macro"
+           and not all:find(long .. "/" .. short, 1, true) then unsaid[#unsaid + 1] = long end
+    end
+    table.sort(unsaid)
+    ok(#unsaid == 0, "every short word is in the help: " .. table.concat(unsaid, ", "))
+    ok(all:find("hits reset/rst", 1, true), "and hits reset's")
+
+    -- the layout's own short words land where the long ones do
+    local keepLayout = NS.DB().layout
+    local keepFG = NS.FG.Layout
+    NS.FG.Layout = function() end
+    ok(NS.DO.layout("pyr") == "pyramid", "layout pyr is the pyramid")
+    ok(NS.DO.layout("cols") == "columns", "layout cols is the columns")
+    NS.FG.Layout = keepFG
+    NS.DB().layout = keepLayout
+end
+
+-- 2. HOVER POP: every button in the bind window and the mana window lights under the mouse - an accent
+-- wash at 0.3-0.35, an accent bar, the label at full brightness - and goes back when the mouse leaves.
+do
+    local FM, FE = NS.FM, NS.FE
+    FM.win = nil
+    local w = FM.Window()
+    w:Show()
+    w:Refresh()
+    local function bright(fs)
+        local c = fs and fs.__color
+        return type(c) == "table" and type(c[1]) == "number" and math.min(c[1], c[2], c[3]) >= 0.85
+    end
+    local function pops(b, label, what)
+        local enter, leave = b and b.__scripts.OnEnter, b and b.__scripts.OnLeave
+        ok(enter and leave, what .. ": it reacts to the mouse at all")
+        if not (enter and leave) then return end
+        enter(b)
+        local a = b.wash and b.wash:GetAlpha()
+        ok(type(a) == "number" and a >= 0.3 and a <= 0.35, what .. ": an accent wash under the mouse, 0.3-0.35",
+           tostring(a))
+        ok(b.bar and b.bar:IsShown(), what .. ": and an accent bar")
+        if label then ok(bright(label), what .. ": the label goes to full brightness") end
+        leave(b)
+        ok(b.wash and b.wash:GetAlpha() == 0 and b.bar and not b.bar:IsShown(), what .. ": gone when the mouse leaves")
+        if label then ok(not bright(label), what .. ": the label back to how it was") end
+    end
+    pops(w.tabs[2], w.tabs[2].text, "a modifier tab")
+    FM.Set("", "left", "Healing Wave(Rank 3)")
+    w:Refresh()
+    pops(w.slots.left.rankBtn, w.slots.left.rank, "a slot's rank button")
+    FM.Clear("", "left")
+    pops(w.trinketTicks[1], w.trinketTicks[1].text, "a trinket tick")
+    pops(w.pings[1], w.pings[1].text, "a ping")
+    pops(w.palette[1], nil, "a heal on the palette")
+    w:Hide()
+    local m = FE.Win()
+    pops(m.pick, nil, "the mana window's spell to drag")
+
+    -- 3. ESCAPE: the two Heals.lua windows have names, and the client closes them on Escape. They hold
+    -- no secure children, so the list that also closes them when a panel opens costs nothing.
+    local box = FE.Box()
+    ok(box.__name == "BiSHealingProbe" and m.__name == "BiSHealingHeals",
+       "the probe box and the mana window have names", tostring(box.__name) .. " " .. tostring(m.__name))
+    local listed = {}
+    for _, n in ipairs(_G.UISpecialFrames) do listed[n] = true end
+    ok(listed.BiSHealingProbe and listed.BiSHealingHeals, "and Escape closes them (UISpecialFrames)")
+    ok(not listed.BiSHealingMouse, "the bind window still handles Escape itself: off the list the spellbook empties")
+end
+
+-- 4. THE VERSION MARK: the bind window says which build it is, faintly, in its own line at the foot -
+-- the version, and the deploy stamp when the copy in the game has one.
+do
+    local FM = NS.FM
+    ok(NS.VERSION ~= "0.0.0" and NS.VERSION:match("^%d+%.%d+%.%d+$"), "the version comes from the TOC", NS.VERSION)
+    ok(NS.Mark and NS.Mark() == NS.VERSION, "no stamp: the mark is the version alone", NS.Mark and NS.Mark())
+    ok(NS.Mark and NS.Mark("feat/ui-rules@9e52109+ 1106-1841") == NS.VERSION .. "  9e52109+ 1106-1841",
+       "a stamp: the version, the commit and when, not the branch", NS.Mark and NS.Mark("feat/ui-rules@9e52109+ 1106-1841"))
+    FM.win = nil
+    local w = FM.Window()
+    ok(w.mark and w.mark.__text == NS.VERSION, "the bind window shows the version", w.mark and w.mark.__text)
+    _G.__BUILD = "main@abc1234 1106-2215"
+    w:Refresh()
+    ok(w.mark and w.mark.__text == NS.VERSION .. "  abc1234 1106-2215",
+       "and the deploy stamp, read from the TOC copy", w.mark and w.mark.__text)
+    _G.__BUILD = nil
+    w:Refresh()
+    ok(w.mark and w.mark.__text == NS.VERSION, "a released zip has no stamp: the version alone again")
+    -- ONE BAR, ONE LABEL: it is not in the header. The header holds the title; the mark sits at the foot.
+    local p = w.mark and w.mark.points and w.mark.points[1]
+    ok(p and tostring(p[1]):match("^BOTTOM"), "the mark sits at the foot, not in the header bar", p and tostring(p[1]))
+    w:Show()
+    _G.__BUILD = "feat/ui-rules@9e52109+ 1106-1841"
+    w:Refresh()
+    fitsIn(w, "the mouse window, with a stamp")
+    _G.__BUILD = nil
+    w:Refresh()
+    w:Hide()
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

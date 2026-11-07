@@ -224,9 +224,22 @@ end
 -- 1.43:1, the family's window shape (standing order, 14 Oct)
 FE.W, FE.H = 572, 400
 
+--- ESCAPE CLOSES THEM (Arn, 6 Nov 2026, every BiS window). The client closes the frames NAMED in
+--- UISpecialFrames on Escape - and also when a panel such as the spellbook opens (CloseAllWindows). That
+--- second part is why the bind window handles Escape itself (MouseUI.lua: it sits BESIDE the spellbook on
+--- purpose). These two do not: the probe box is a copy-and-go, and the mana window gives its spell by drag.
+--- Neither holds a secure child (plain buttons, a scroll, an edit box), so the client may hide them at
+--- any time, in a fight too. Listed once, when built.
+local function escapes(name)
+    if not (UISpecialFrames and name) then return end
+    for _, n in ipairs(UISpecialFrames) do if n == name then return end end
+    table.insert(UISpecialFrames, name)
+end
+
 function FE.Box()
     if FE.box then return FE.box end
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = CreateFrame("Frame", "BiSHealingProbe", UIParent)
+    escapes("BiSHealingProbe")
     f:SetSize(FE.W, FE.H)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
@@ -287,7 +300,8 @@ end
 
 function FE.Win()
     if FE.win then return FE.win end
-    local f = CreateFrame("Frame", nil, UIParent)
+    local f = CreateFrame("Frame", "BiSHealingHeals", UIParent)
+    escapes("BiSHealingHeals")
     f:SetSize(FE.W, FE.H)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
@@ -349,11 +363,15 @@ function FE.Win()
     pick:SetPoint("BOTTOMLEFT", 12, 30)
     pick.icon = pick:CreateTexture(nil, "ARTWORK")
     pick.icon:SetAllPoints()
+    -- it lights under the mouse, as every button of ours does (FM.Pop, MouseUI.lua; Arn, 6 Nov)
+    local FM = NS.FM
+    if FM and FM.Pop then FM.Pop(pick, nil, "OVERLAY") end
     pick:RegisterForDrag("LeftButton")
     local function take(self) if self.id and NS.FM and NS.FM.PickUp then NS.FM.PickUp(self.id) end end
     pick:SetScript("OnDragStart", take)
     pick:SetScript("OnClick", take)
     pick:SetScript("OnEnter", function(self)
+        if FM and FM.Lit then FM.Lit(self, true) end
         local tip = _G.GameTooltip
         if not (tip and self.id) then return end
         tip:SetOwner(self, "ANCHOR_TOP")
@@ -361,7 +379,10 @@ function FE.Win()
         tip:AddLine("Drag me onto an action bar or a mouse button.", 0.31, 0.82, 0.81, true)
         tip:Show()
     end)
-    pick:SetScript("OnLeave", function() if _G.GameTooltip then _G.GameTooltip:Hide() end end)
+    pick:SetScript("OnLeave", function(self)
+        if FM and FM.Lit then FM.Lit(self, false) end
+        if _G.GameTooltip then _G.GameTooltip:Hide() end
+    end)
     pick:Hide()
     f.pick = pick
     -- the mouse binds, a click away (Arn: "and also in the window i want a open the mouse bind window")

@@ -38,6 +38,18 @@ local function metadata(field)
 end
 NS.VERSION = metadata("Version") or "0.0.0"
 
+--- WHICH BUILD IS THIS (Arn, 6 Nov 2026, every BiS addon). `_bisdev/deploy.sh` writes
+--- "## X-BiS-Build: <branch>@<sha>[+] <MMDD-HHMM>" into the COPY it puts in the game; a released zip has
+--- no such line. The mark is the version, then the commit and when - "0.16.0  9e52109+ 1106-1841" - and
+--- the version alone without a stamp. Read when asked (a window's Refresh), never per frame.
+function NS.Build() return metadata("X-BiS-Build") end
+function NS.Mark(build)
+    build = build or NS.Build()
+    local sha = type(build) == "string" and build:match("@(%S+)")
+    local when = sha and build:match("%s(%S+)%s*$")
+    return sha and (NS.VERSION .. "  " .. sha .. (when and (" " .. when) or "")) or NS.VERSION
+end
+
 local PREFIX = "|cffb980ffBiS Healing|r: "
 
 --- One line in the chat frame, with the addon's name on it.
@@ -1408,6 +1420,7 @@ local NEXT_LAYOUT = { columns = "rows", rows = "pyramid", pyramid = "columns" }
 function NS.DO.layout(mode)
     local d = DB()
     if mode == "grid" or mode == "cols" then mode = "columns" end
+    if mode == "pyr" then mode = "pyramid" end                     -- the short word (6 Nov 2026)
     if mode == "across" or mode == "horizontal" then mode = "rows" end
     if not LAYOUTS[mode or ""] then mode = NEXT_LAYOUT[d.layout or "columns"] or "columns" end
     d.layout = mode
@@ -1888,7 +1901,17 @@ function NS.DO.scale(pct)
     return s
 end
 
+--- The help line with each command's short word beside it: "mouse" prints as "mouse/bind".
+local function withShort(line)
+    return (line:gsub("|cffb980ff(%a+)([^|]*)|r", function(word, rest)
+        local s = NS.SHORT and NS.SHORT[word]
+        return "|cffb980ff" .. word .. "|r" .. (s and ("|cff968ead/" .. s .. "|r") or "")
+            .. (rest ~= "" and ("|cffb980ff" .. rest .. "|r") or "")
+    end))
+end
+
 function NS.DO.help()
+    local Print = function(line) return NS.Print(withShort(line)) end
     Print("the window is /bish, or the button on your minimap. Also:")
     Print("  |cffb980ffshow|r |cffb980ffhide|r  the cells   |cffb980ffcenter|r  put them back")
     Print("  |cffb980ffmouse|r  drag spells onto a mouse    |cffb980ffrescan|r  look at the group again")
@@ -1920,6 +1943,14 @@ function NS.DO.help()
     Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
     Print("  |cffb980ffbuffsound|r  the noise when one drops - a sound id, |cffb980ffoff|r,"
         .. " |cffb980ffon|r, |cffb980ffdefault|r, |cffb980fftest|r")
+    -- the rest, so every short word is said somewhere in the help (6 Nov 2026)
+    Print("  |cffb980ffoptions|r the window   |cffb980ffscale 90|r the grid's size   |cffb980fflayout|r"
+        .. " |cffb980ffcolumns|r |cffb980ffacross|r |cffb980ffpyramid|r")
+    Print("  |cffb980ffefficiency|r which heal, mana for mana   |cffb980ffheals|r the probe behind it")
+    Print("  |cffb980ffbuffs|r BiS> now's buff buttons   |cffb980fftrinkets|r trinkets first, per modifier")
+    Print("  |cffb980ffcures|r |cffb980ffhover|r |cffb980ffflash|r |cffb980ffbetween|r  on or off")
+    Print("  |cffb980ffrange|r |cffb980ffoverheal|r  measurements   |cffb980ffhits reset|r|cff968ead/rst|r  count again")
+    Print("  the grey word after a command is the short way to type it")
 end
 
 --------------------------------------------------------------------- slash --
@@ -1935,8 +1966,38 @@ SLASH_BISHEALING3 = "/bishf"
 -- command. From then on each one ran as BiSHealing's, and the first protected one was refused and
 -- blamed on us: Arn typed /pvp on 21 Sep and got "AddOn 'BiSHealing' tried to call the protected
 -- function 'TogglePVP()'". Only a client with no table at all (the test harness) gets one made.
+-- SHORT WORDS (Arn, 6 Nov 2026, every BiS addon: "any thing more than 3 or 4 letters cut it down"): every
+-- command longer than 4 letters answers to a word of 4 or fewer too. The long words keep working - a
+-- macro or a habit never breaks. Long -> short; one short per long, and no short is a word the parser
+-- already takes for something else. The ones that were short already (tot, fear, hpm, db, keep, %, rows)
+-- are here so the help can say them. A short word is turned into its long one before the parser below
+-- reads it, so the parser has one spelling of each command and nothing in it changed.
+-- (`buff` is NOT short for `buffs`: they are two commands - the reminder on you, and the buff buttons.)
+NS.SHORT = {
+    options = "opt", mouse = "bind", center = "ctr", rescan = "rsc", auras = "aura", minimap = "mini",
+    scale = "scl", missing = "miss", percent = "%", number = "num", colour = "clr", target = "tgt",
+    targetoftarget = "tot", heals = "heal", efficiency = "hpm", range = "rng", overheal = "over",
+    curve = "curv", control = "fear", holds = "hold", watch = "wtch", between = "btw",
+    buffsound = "bsnd", buffs = "bufs", markers = "mark", cures = "cure", trinkets = "trin",
+    hover = "hov", flash = "flsh", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
+    across = "rows", saved = "db", macro = "keep",
+}
+local LONG = {}
+for long, short in pairs(NS.SHORT) do LONG[short] = long end
+
+--- The input with a short first word put back to its long one ("wtch Earth Shield" -> "watch Earth
+--- Shield"), the rest exactly as typed: /bish watch and /bish buff keep the capitals of a spell name.
+function NS.Expand(input)
+    local s = tostring(input or "")
+    local lead, word, rest = s:match("^(%s*)(%S+)(.*)$")
+    local long = word and LONG[word:lower()]
+    if not long then return s end
+    return lead .. long .. rest
+end
+
 if not SlashCmdList then SlashCmdList = {} end
 SlashCmdList.BISHEALING = function(input)
+    input = NS.Expand(input)
     local msg = tostring(input or ""):lower():match("^%s*(.-)%s*$")
     if msg == "" or msg == "config" or msg == "options" or msg == "settings" then
         NS.DO.options()
@@ -2024,7 +2085,7 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.buffs(msg:match("^buffs%s+(%a+)"), msg:match("^buffs%s+%a+%s+(%a+)$"))
     elseif msg == "hits" then
         NS.DO.hits()
-    elseif msg == "hits reset" then
+    elseif msg == "hits reset" or msg == "hits rst" then
         NS.DO.hits("reset")
     elseif msg == "ping" then
         NS.DO.ping()

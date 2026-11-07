@@ -1,8 +1,18 @@
 # BiS Healing
 
-## 0.16.1
+## Unreleased
 
 - **A test of asking for a spell (`/bish intest`).** The first working piece of "BiS> in", where a mana user asks for Innervate and the druid answers. Power Word: Fortitude stands in for Innervate for now. Both characters type `/bish intest` in a group. The asker gets an **Ask** button in BiS> now; the priest gets the asker's 3D face, dim until they ask, lit while they do. One click on the face casts Fortitude on them, and the asker is told who is coming. Off at every login; nothing changes for anyone who doesn't type it.
+
+## 0.17.0
+
+- **Right-click the minimap button for your mouse binds.** Left-click still opens the options window.
+- **Clearer windows.** In the options window (and the minimap menu) every button, box and row lights up under the mouse, the window is 20% bigger, and the bottom strip shows which version you are on until you hover a setting.
+- **Short commands.** Every `/bish` command longer than four letters has a short one too: `/bish bind` opens the mouse binds, `/bish opt` the options, `/bish btw` the between-pulls reminders, `/bish lay pyr` the pyramid, and so on. The long ones still work. `/bish help` shows the short word beside each command.
+- **The mouse bind window lights up under the mouse.** The modifier tabs, the little rank number on a button, the trinket ticks, the pings and the heals along the bottom all light up when you point at them, so you can see what a click will hit. So does the spell to drag in the mana-for-mana window.
+- **Which version you have, on the mouse bind window.** Its bottom-right corner shows the version faintly (and, on a test copy, which build it is).
+- **Escape closes the mana-for-mana window and the `/bish heals` box.**
+- **The Tank button only shows in a group.** Alone there is no tank to find, so it leaves BiS> now until you join a party or raid.
 
 ## 0.16.0
 

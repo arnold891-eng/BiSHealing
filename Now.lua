@@ -520,7 +520,8 @@ function FN.Mine()
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers
-           and (not b.tank or (FN.TankReady() and not FN.InDungeon())) -- the tank: not off, not in a dungeon
+           and (not b.tank or (FN.TankReady() and not FN.InDungeon() and FN.Grouped())) -- the tank: not off, not in a
+                                                                                        -- dungeon, not alone
            and (not b.res or FN.ResTarget() ~= nil)                     -- the res: someone to res, out of combat
            and (not b.buff or (NS.FU and NS.FU.Show(k)))                -- a buff: on, trained, someone needs it
            and (not b.bisin or (NS.FI and NS.FI.Show(k))) then          -- the BiS> in test: on, someone to ask / answer
@@ -987,6 +988,15 @@ function FN.InDungeon()
     local ok, inside, kind = pcall(IsInInstance)
     if not ok or NS.Secret and (NS.Secret(inside) or NS.Secret(kind)) then return false end
     return inside == true and kind == "party"
+end
+
+--- In a party or a raid? (Arn, 6 Nov: "if im not in a party dont show this button" - alone there is no tank to find.)
+--- The grid lays out again on GROUP_ROSTER_UPDATE, so joining or leaving brings it or takes it.
+function FN.Grouped()
+    if not IsInGroup then return true end
+    local ok, g = pcall(IsInGroup)
+    if not ok or (NS.Secret and NS.Secret(g)) then return true end      -- the client will not say: as before
+    return g and true or false
 end
 
 function FN.TankReady()

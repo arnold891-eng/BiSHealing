@@ -451,8 +451,11 @@ FG.COCKPIT = {
     name = { 0.94, 0.96, 1.00 }, readoutBox = { 0.00, 0.00, 0.00, 0.80 }, readout = { 1.00, 0.72, 0.18 },
     green = { 0.16, 0.80, 0.40 }, incoming = { 0.22, 0.80, 1.00, 0.60 }, absorb = { 1.00, 1.00, 1.00, 0.45 },
     overheal = { 1.00, 0.48, 0.08, 0.95 }, target = { 1.00, 0.24, 0.92 }, dead = { 0.95, 0.24, 0.20 },
-    offline = { 1.00, 0.72, 0.18 }, font = "Fonts\\ARIALN.TTF", nameSize = 10, readSize = 10,
+    offline = { 1.00, 0.72, 0.18 }, font = "Fonts\\ARIALN.TTF", nameSize = 11, readSize = 11,
     lamp = 6, readoutW = 34, readoutH = 11,
+    -- DESIGN B, THE TAPE (Arn picked it of three, 8 Nov): the health a gauge tape along the bottom, in a dark track,
+    -- with quarter marks; the name big on top, the readout on the right above the tape
+    tapeH = 10, tapeIn = 3, track = { 0.07, 0.09, 0.11, 1 }, tick = { 0.03, 0.04, 0.05, 1 },
 }
 FG.CLASSIC = { tile = { 0.08, 0.08, 0.08, 0.9 }, incoming = { 0.30, 0.85, 0.45, 0.55 }, absorb = { 0.95, 0.85, 0.45, 0.50 },
                readout = { 1, 0.55, 0.55 } }
@@ -791,6 +794,16 @@ function FG.Make(i, parent)
     f.readoutBox:SetSize(FG.COCKPIT.readoutW, FG.COCKPIT.readoutH)
     f.readoutBox:SetPoint("BOTTOMRIGHT", f.ink, "BOTTOMRIGHT", -2, 2)
     f.readoutBox:Hide()
+    -- THE TAPE'S TRACK (under the health bar) and its three QUARTER MARKS (over the bands, under the words)
+    f.track = f:CreateTexture(nil, "ARTWORK")
+    f.track:Hide()
+    f.ticks = {}
+    for q = 1, 3 do
+        local t = f.bandFrame:CreateTexture(nil, "OVERLAY")
+        t:SetWidth(1)
+        t:Hide()
+        f.ticks[q] = t
+    end
 
     if i then FG.frames[i] = f end
     FG.ApplyLook(f)
@@ -812,6 +825,72 @@ function FG.RedressAll()
     return #cells
 end
 
+--- The heal, shield and overheal bands sized to the health bar they ride: the whole cell in classic, the tape in the
+--- cockpit. They MUST match the bar - the overheal fills from the bar's right edge by the heal coming, over its own width.
+function FG.SizeBands(f, w, h)
+    if not f then return end
+    local bw, bh = (tonumber(w) or FRAME_W) - 2, (tonumber(h) or FRAME_H) - 2
+    if f.__look == "cockpit" then
+        bw, bh = (tonumber(w) or FRAME_W) - 2 * FG.COCKPIT.tapeIn, FG.COCKPIT.tapeH
+    end
+    for _, b in ipairs({ f.incoming, f.absorb, f.overheal }) do
+        if b and b.SetSize then b:SetSize(bw, bh) end
+    end
+end
+
+--- Where the health bar sits: in the cockpit a TAPE along the bottom in its dark track with quarter marks, the words
+--- over the whole cell and the readout just above the tape on the right; in classic the bar fills the cell, as before.
+function FG.ShapeTape(f)
+    if not (f and f.bar) then return end
+    local K = FG.COCKPIT
+    local w = f.__w or FRAME_W
+    local cockpit = f.__look == "cockpit"
+    f.bar:ClearAllPoints()
+    if cockpit then
+        f.bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", K.tapeIn, K.tapeIn)
+        f.bar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -K.tapeIn, K.tapeIn)
+        f.bar:SetHeight(K.tapeH)
+    else
+        f.bar:SetPoint("TOPLEFT", 1, -1)
+        f.bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    end
+    if f.ink then
+        f.ink:ClearAllPoints()
+        f.ink:SetAllPoints(cockpit and f or f.bar)
+    end
+    if f.track then
+        if cockpit then
+            local c = K.track
+            f.track:ClearAllPoints()
+            f.track:SetPoint("TOPLEFT", f.bar, "TOPLEFT", -1, 1)
+            f.track:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 1, -1)
+            f.track:SetColorTexture(c[1], c[2], c[3], c[4])
+            f.track:Show()
+        else
+            f.track:Hide()
+        end
+    end
+    local tw = w - 2 * K.tapeIn
+    for q, t in ipairs(f.ticks or {}) do
+        if cockpit then
+            local c = K.tick
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", f.bar, "BOTTOMLEFT", tw * q / 4, 0)
+            t:SetHeight(K.tapeH)
+            t:SetColorTexture(c[1], c[2], c[3], c[4])
+            t:Show()
+        else
+            t:Hide()
+        end
+    end
+    if f.htext then
+        f.htext:ClearAllPoints()
+        if cockpit then f.htext:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, 3)
+        else f.htext:SetPoint("BOTTOMRIGHT", -3, 4) end
+    end
+    FG.SizeBands(f, w, f.GetHeight and f:GetHeight() or FRAME_H)
+end
+
 --- Dress one cell in the chosen look: fonts, colours, where the words sit, and the cockpit's own parts shown or put
 --- away. Out of combat or in, it only paints - no secure attribute, no size, no anchor of the cell itself.
 function FG.ApplyLook(f)
@@ -824,14 +903,10 @@ function FG.ApplyLook(f)
     for _, t in pairs(f.bezel or {}) do
         if cockpit then t:SetColorTexture(K.bezel[1], K.bezel[2], K.bezel[3], K.bezel[4]) t:Show() else t:Hide() end
     end
-    if f.band then
-        if cockpit then f.band:SetColorTexture(K.band[1], K.band[2], K.band[3], K.band[4]) f.band:Show() else f.band:Hide() end
-    end
+    -- design B has no black strip and no black readout box (Arn: "stuff is blacked out" on the first try)
+    if f.band then f.band:Hide() end
     if f.lamp and not cockpit then f.lamp:Hide() end
-    if f.readoutBox then
-        local b = K.readoutBox
-        if cockpit then f.readoutBox:SetColorTexture(b[1], b[2], b[3], b[4]) f.readoutBox:Show() else f.readoutBox:Hide() end
-    end
+    if f.readoutBox then f.readoutBox:Hide() end
     local inc, abs = cockpit and K.incoming or C.incoming, cockpit and K.absorb or C.absorb
     if f.incoming then f.incoming:SetStatusBarColor(inc[1], inc[2], inc[3], inc[4]) end
     if f.absorb then f.absorb:SetStatusBarColor(abs[1], abs[2], abs[3], abs[4]) end
@@ -848,12 +923,8 @@ function FG.ApplyLook(f)
     if f.htext then
         if cockpit and f.htext.SetFont then
             f.htext:SetFont(K.font, K.readSize, "")
-            f.htext:ClearAllPoints()
-            f.htext:SetPoint("RIGHT", f.readoutBox, "RIGHT", -2, 0)
-        elseif not cockpit then
-            if f.htext.SetFontObject and _G.GameFontHighlightSmall then f.htext:SetFontObject(_G.GameFontHighlightSmall) end
-            f.htext:ClearAllPoints()
-            f.htext:SetPoint("BOTTOMRIGHT", -3, 4)
+        elseif not cockpit and f.htext.SetFontObject and _G.GameFontHighlightSmall then
+            f.htext:SetFontObject(_G.GameFontHighlightSmall)
         end
         local rc = cockpit and K.readout or C.readout
         if not f.__status and f.htext.SetTextColor then f.htext:SetTextColor(rc[1], rc[2], rc[3]) end
@@ -871,6 +942,7 @@ function FG.ApplyLook(f)
             end
         end
     end
+    FG.ShapeTape(f)                          -- where the health bar, the words and the readout sit
     f.__nameAt = nil                         -- the name's place depends on the look: placed again
     if FG.PlaceName and f.__w then FG.PlaceName(f) end
 end
@@ -916,9 +988,7 @@ function FG.LayoutTarget(anchor)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
     f:Show()
@@ -962,9 +1032,7 @@ function FG.LayoutToT(parent)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "targettarget")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "targettarget") end
     if f.handle then f.handle:Show() end
@@ -1044,9 +1112,7 @@ function FG.LayoutSelf(anchor)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "player")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "player") end
     if f.handle then f.handle:Show() end
@@ -1158,9 +1224,7 @@ function FG.LayoutPets(anchor)
         f:ClearAllPoints()
         f:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -(i - 1) * (FRAME_H + PAD))
         f:SetSize(FRAME_W, FRAME_H)
-        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
-        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
-        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        FG.SizeBands(f, FRAME_W, FRAME_H)    -- the heal bands match the health bar (the tape, in the cockpit)
         FG.Bind(f, unit)
         if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
         f:Show()
@@ -1808,6 +1872,7 @@ function FG.FitCell(f, w, tall)
     local changed = f.__narrow ~= narrow
     f.__narrow = narrow
     FG.PlaceName(f)
+    if f.__look == "cockpit" then FG.ShapeTape(f) end   -- the tape and its quarter marks follow the cell's width
     if changed and narrow and f.role then f.role:Hide() end
     return narrow
 end
@@ -1964,9 +2029,7 @@ function FG.Layout(anchor)
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
         -- halfway across, which reads as "only half of this is coming".
-        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(w - 2, h - 2) end
-        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(w - 2, h - 2) end
-        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(w - 2, h - 2) end
+        FG.SizeBands(f, w, h)                -- the heal bands match the health bar (the tape, in the cockpit)
         FG.Bind(f, unit)
         -- the aura markers ride the same out-of-combat moment as the secure attributes: the
         -- container is told its unit here and then draws by itself for the whole fight

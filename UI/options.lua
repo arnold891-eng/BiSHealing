@@ -123,7 +123,7 @@ function CFG.Sections()
             -- three answers, so segments rather than a switch: "lost" is what they still need
             -- after incoming heals, blank at full
             -- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit")
-            { key = "look", kind = "seg", label = "look", help = "cockpit - a dark display: the health tape green, amber, red by how hurt they are, the name in a black strip with a lamp in their class colour, the missing health in an amber readout, your target in magenta. classic - the look from before 1.0.3.",
+            { key = "look", kind = "seg", label = "look", help = "cockpit - a dark display: the name big on top behind a lamp in their class colour, the health a gauge tape along the bottom (green, amber, red by how hurt they are), the missing health in amber above it, your target in magenta. classic - the look from before 1.0.3.",
               values = { "cockpit", "classic" },
               get = function() return (NS.FG and NS.FG.Look and NS.FG.Look()) or "cockpit" end,
               set = function(_, v) if DO.look then DO.look(v) end end },

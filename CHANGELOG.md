@@ -4,9 +4,9 @@
 
 - **The cockpit look.** Every cell is redrawn like one screen on an aircraft's instrument panel, with one colour rule: green is fine, amber is a caution, red is a warning, cyan is information, magenta is what you've selected.
   - A near-black tile with a thin steel bezel.
-  - The name in a black strip across the top, in white, narrow type - with a small **lamp in their class colour** in front of it.
-  - The health tape **green, then amber, then red** as they get hurt.
-  - Missing health in an **amber readout window**, bottom right.
+  - The name big across the top, in white, narrow type - with a small **lamp in their class colour** in front of it.
+  - Health as a **gauge tape along the bottom**, in a dark track with quarter marks, **green, then amber, then red** as they get hurt.
+  - Missing health as **amber digits** on the right, just above the tape.
   - Heals on their way in **cyan**, the shield in white, overheal in **orange**.
   - Your target marked in **magenta**; DEAD in red, OFFLINE in amber.
 - Prefer the old look? **Options > look: classic** (or `/bish look classic`) puts every cell back as it was, at once.

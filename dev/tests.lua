@@ -10239,15 +10239,34 @@ do
     ok(f and f.__look == "cockpit", "every cell is dressed again at once", f and tostring(f.__look))
     ok(near(f.bg.__color, K.tile), "the tile is near-black, a display")
     ok(f.bezel.top.__shown and near(f.bezel.left.__color, K.bezel), "with a thin steel bezel")
-    ok(f.band.__shown and f.band.__h == FG.NAME_BAND, "a black name strip across the top", tostring(f.band.__h))
-    -- THE STRIP NEVER COVERS A CROSSHAIR: over the heal bands, under the words, and the target / mouse / tank marks
-    -- drawn above them all (a frame draws over a lower one, whatever the texture layer)
+    -- DESIGN B, THE TAPE (Arn, 8 Nov, of three drawn: "Go with cockpit design B, the tape"): a dark screen, the
+    -- name big on top behind its class lamp, the missing health an amber readout on the right, and the health a gauge
+    -- tape along the bottom with quarter marks. No strip, no black boxes.
+    local function pt(x, name) for _, p in ipairs(x.points or {}) do if p[1] == name then return p end end end
+    local bl, br = pt(f.bar, "BOTTOMLEFT"), pt(f.bar, "BOTTOMRIGHT")
+    ok(bl and br and f.bar.__h == K.tapeH and not pt(f.bar, "TOPLEFT"),
+       "the health is a tape along the bottom, " .. K.tapeH .. " px tall", tostring(f.bar.__h))
+    local tw = (f.__w or 84) - 2 * K.tapeIn
+    ok(f.incoming.__w == tw and f.incoming.__h == K.tapeH and f.overheal.__w == tw and f.absorb.__h == K.tapeH,
+       "the heals, shield and overheal are the tape's own size (the overheal's geometry needs it exact)",
+       ("%s x %s vs %s x %s"):format(tostring(f.incoming.__w), tostring(f.incoming.__h), tw, K.tapeH))
+    ok(f.track and f.track.__shown, "the tape sits in a dark track")
+    ok(#f.ticks == 3, "with three quarter marks")
+    local q = pt(f.ticks[2], "BOTTOMLEFT")
+    ok(q and math.abs(q[4] - tw * 0.5) < 0.6, "the middle mark at half the tape", q and tostring(q[4]))
+    ok(not f.band.__shown and not f.readoutBox.__shown, "no black strip, no black readout box")
+    local ip = f.ink.__allpoints
+    ok(ip == f, "the words ride the whole cell, not the tape")
+    local hp = pt(f.htext, "BOTTOMRIGHT")
+    ok(hp and hp[2] == f.bar and hp[3] == "TOPRIGHT", "the readout sits on the right, just above the tape")
+    -- THE MARKS ARE NEVER COVERED: the quarter marks' layer is over the heal bands and under the words, and the
+    -- target / mouse / tank marks are drawn above them all (a frame draws over a lower one, whatever the texture layer)
     local function lvl(x) return x and x.GetFrameLevel and x:GetFrameLevel() or -1 end
     local stripLvl = lvl(f.bandFrame)
     ok(stripLvl > lvl(f.overheal) and stripLvl > lvl(f.incoming) and stripLvl > lvl(f.absorb) and stripLvl < lvl(f.ink),
-       "the strip is over the heal bands and under the words", stripLvl .. " vs ink " .. lvl(f.ink))
+       "the quarter marks are over the heal bands and under the words", stripLvl .. " vs ink " .. lvl(f.ink))
     ok(lvl(f.targetRing) > stripLvl and lvl(f.notTarget) > stripLvl and lvl(f.tankRing) > stripLvl,
-       "the target, mouse and tank marks are drawn over the strip",
+       "the target, mouse and tank marks are drawn over them",
        ("%d %d %d over %d"):format(lvl(f.targetRing), lvl(f.notTarget), lvl(f.tankRing), stripLvl))
     -- THE NAME: white, narrow type, left-aligned after the class lamp
     FG.Paint(f)
@@ -10261,7 +10280,7 @@ do
     ok(bc and not (cls and near(bc, ({ SHAMAN = { 0.0, 0.44, 0.87 } })[cls] or { -1, -1, -1 })),
        "the health tape is coloured by state, not by class", bc and table.concat(bc, ","))
     -- THE READOUT: a black window bottom right, amber digits
-    ok(f.readoutBox.__shown and near(f.readoutBox.__color, K.readoutBox), "a readout window bottom right")
+    ok(not f.readoutBox.__shown, "the readout has no black box behind it (B: the digits alone)")
     ok(near(f.htext.__tc or f.htext.__color, K.readout), "missing health in amber")
     ok(near(f.incoming.__color or f.incoming.__statusColor, K.incoming), "heals on their way in cyan")
     ok(near(f.overheal.__color or f.overheal.__statusColor, K.overheal), "overheal in orange - a caution")
@@ -10292,6 +10311,9 @@ do
        and f.tankRing:GetFrameLevel() == f:GetFrameLevel() + 1, "and the marks back at their classic levels")
     ok(near(f.bg.__color, FG.CLASSIC.tile) and near(f.incoming.__color or f.incoming.__statusColor, FG.CLASSIC.incoming),
        "the tile and the heals as they were")
+    ok(pt(f.bar, "TOPLEFT") and f.ink.__allpoints == f.bar and not f.track.__shown and not f.ticks[1].__shown
+       and f.incoming.__h == (f:GetHeight() or 0) - 2,
+       "the health fills the cell again, the words on it, no track or marks, the bands the cell's size")
     SlashCmdList.BISHEALING("look cockpit")
     ok(d.look == "cockpit" and f.__look == "cockpit", "/bish look cockpit puts it back")
     d.look = keepLook

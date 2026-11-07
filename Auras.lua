@@ -545,8 +545,15 @@ function FA.Placed(init, px, point, rel, x, y)
             button:ClearAllPoints()
             button:SetPoint(point, rel, point, x, y)
         end)
-        if not ok then FA.initRefused = true end
-        if init then return init(button, ...) end
+        -- A REFUSED BUTTON IS LEFT ALONE (7 Nov sweep). This noticed the refusal and then ran the
+        -- styling anyway, outside any pcall - GetRegions, CreateTexture, SetMouseMotionEnabled on the
+        -- very button the client had just refused, so the throw came out of the client's own hand-over
+        -- at every aura. The marker is what we do without; the grid is not.
+        if not ok then FA.initRefused = true return end
+        if not init then return end
+        local okI, a, b = pcall(init, button, ...)
+        if not okI then FA.initRefused = tostring(a) return end
+        return a, b
     end
 end
 

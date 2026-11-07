@@ -5,8 +5,8 @@
 -- commands". There are twenty-five of them under /bish and three under /bishf,
 -- and a command you have to remember is a feature only its author uses.
 --
--- Since 21 Sep 2026 the button has no menu of its own: any click opens the
--- options window, which already held every row the menu did (see MM.Click).
+-- Since 21 Sep 2026 the button has no menu of its own. Since 1.0 (7 Nov 2026):
+-- left-click the mouse binds, right-click the options (see MM.Build).
 --
 -- The button is BiSTheme's (Libs\BiSTheme\Minimap.lua, shared with the rest of
 -- the family). This file is only where it sits and what a click does.
@@ -42,55 +42,33 @@ function MM.DB()
     return db.minimap
 end
 
---- ONE CLICK, ONE PLACE. Arn, 21 Sep 2026, asking what left and right click were for: "seems too
---- similar might confuse new players", then "choose one or the other and merge always keep the
---- bind on top". Left opened a menu, right opened the options window, and every row of the menu
---- was already a row of the window. So the menu is gone: any click opens the window, and the mouse
---- binds are its first row.
+--- ONE STANDARD FOR THE FAMILY (Forever 1.0, Arn 7 Nov 2026: "sometimes left click does one thing,
+--- sometimes right click does another ... we gotta get everything on the same page"):
 ---
---- Done HERE, not in the shared button (Libs\BiSTheme\Minimap.lua): that file is copied into every
---- BiS addon, and this is one addon's choice. The button is built by the lib as usual and then
---- given this addon's click and tooltip.
-function MM.Click(_, click)
-    local b = MM.button
-    -- this click REPLACES the shared button's own, so the shared fix must be asked for here: a
-    -- minimap collector's backing lifted over the icon goes back under it (Arn, 14 Oct: "bis
-    -- healing stay dark after click" - the fix in BiSTheme's Minimap.lua never ran)
-    if b and b.Unbury then b:Unbury() end
-    if b and b.CloseMenu then b:CloseMenu() end
-    if b and b.dragging then return end
-    -- RIGHT-CLICK, THE BINDS (Arn, 6 Nov: "right click opens binds window pls"): the one thing opened most,
-    -- one click away. Left stays the options window, whose first row is still the binds.
-    if click == "RightButton" then return act("mouse")() end
-    act("options")()
-end
-
-local function tooltip(s)
-    if s.edge then s.edge:set("accent", 1) end
-    if not GameTooltip then return end
-    GameTooltip:SetOwner(s, "ANCHOR_LEFT")
-    GameTooltip:AddLine("BiS> Healing")
-    GameTooltip:AddLine("left-click  options", 0.6, 0.6, 0.6)
-    GameTooltip:AddLine("right-click  mouse binds", 0.6, 0.6, 0.6)
-    GameTooltip:AddLine("drag  move me round the edge", 0.6, 0.6, 0.6)
-    GameTooltip:Show()
-end
-
+---   left-click   the addon's main window - here the mouse binds, the one thing opened most
+---   right-click  its options - its page under BiS> in the game's options, or this addon's own
+---                options window on a client without that panel
+---   drag         move it round the edge
+---
+--- THIS SWAPS THE 6 NOV ORDER (right = binds, left = options), on purpose: every BiS addon now reads
+--- the same way. The click and the tooltip are the shared button's own (Libs\BiSTheme\Minimap.lua,
+--- minor 4) - it also puts a minimap collector's backing back under the icon - so nothing here
+--- replaces them any more.
+---
 --- Build it, once. Returns the button, or nil on a client with no minimap frame (the headless
 --- case) or with the shared lib missing from the TOC.
 function MM.Build()
     if MM.button then return MM.button end
     if not (BiSTheme and BiSTheme.Minimap) then return nil end
     MM.button = BiSTheme.Minimap("BiSHealing", {
-        icon    = "Interface\\Icons\\Spell_Nature_HealingWaveGreater",
-        label   = "Healing",
-        db      = MM.DB(),
-        menu    = function() return {} end,
+        icon      = "Interface\\Icons\\Spell_Nature_HealingWaveGreater",
+        label     = "Healing",
+        db        = MM.DB(),
+        menu      = function() return {} end,
+        onLeft    = act("mouse"),
+        leftLabel = "mouse binds",
+        onRight   = act("options"),
     })
-    if MM.button and MM.button.SetScript then
-        MM.button:SetScript("OnClick", MM.Click)
-        MM.button:SetScript("OnEnter", tooltip)
-    end
     return MM.button
 end
 

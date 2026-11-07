@@ -16,11 +16,13 @@
 -- that peeks fails this suite instead of a raid.
 
 local fail, checks = 0, 0
-local function ok(cond, what)
+local function ok(cond, what, ...)
     checks = checks + 1
     if not cond then
         fail = fail + 1
-        print("!! FOREVER: " .. what)
+        -- the third argument many checks pass is what was seen: print it beside the line
+        local seen = select("#", ...) > 0 and ("  [" .. tostring((...)) .. "]") or ""
+        print("!! FOREVER: " .. what .. seen)
     end
 end
 
@@ -6453,17 +6455,19 @@ do
     ok(ran and b ~= nil, "the minimap button builds", tostring(b))
     if b then
         local click = b:GetScript("OnClick")
-        ok(click == NS.MM.Click, "the button's click is ours, not the shared menu")
-        -- RIGHT-CLICK, THE BINDS (Arn, 6 Nov: "right click opens binds window pls"). Left stays the options
-        -- window (binds still its first row); right goes straight to the mouse binds.
+        -- ONE STANDARD FOR THE FAMILY (Forever 1.0, Arn 7 Nov: "sometimes left click does one thing, sometimes
+        -- right click does another ... we gotta get everything on the same page"): the shared button's own
+        -- click, left = the main window (the mouse binds), right = the options. This SWAPS the 6 Nov order
+        -- ("right click opens binds window pls").
+        ok(NS.MM.Click == nil, "the click is the shared button's own, not one of ours")
         local realOptions, realMouse, opened, binds = NS.DO.options, NS.DO.mouse, 0, 0
         NS.DO.options = function() opened = opened + 1 end
         NS.DO.mouse = function() binds = binds + 1 end
         click(b, "LeftButton")
-        ok(opened == 1 and binds == 0, "left click: the options window", opened)
+        ok(binds == 1 and opened == 0, "left click: the mouse binds window", binds)
         click(b, "RightButton")
         NS.DO.options, NS.DO.mouse = realOptions, realMouse
-        ok(opened == 1 and binds == 1, "right click: the mouse binds window", binds)
+        ok(opened == 1 and binds == 1, "right click (no BiS> page on this client): the options window", opened)
         local lines = {}
         local keepTT = _G.GameTooltip
         _G.GameTooltip = { SetOwner = function() end, Show = function() end,
@@ -6471,7 +6475,7 @@ do
         b:GetScript("OnEnter")(b)
         _G.GameTooltip = keepTT
         local tip = table.concat(lines, "|")
-        ok(tip:find("right%-click  mouse binds") and tip:find("left%-click  options"), "the tooltip says which is which", tip)
+        ok(tip:find("left%-click  mouse binds") and tip:find("right%-click  options"), "the tooltip says which is which", tip)
         ok(not (b.menuFrame and b.menuFrame:IsShown()), "and no menu opens instead")
         -- OUR click replaces the shared one, so it must ask for the shared unbury itself (Arn,
         -- 14 Oct: "bis healing stay dark after click" - EllesmereUI's backing over the icon)
@@ -6636,7 +6640,10 @@ do
         ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
-        ok(#NS.UI.Rows() <= 21, "and the whole window has no more than twenty-one rows: " .. #NS.UI.Rows())
+        -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
+        -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
+        -- player can find - so the LOS flash and the buff reminder got rows
+        ok(#NS.UI.Rows() <= 23, "and the whole window has no more than twenty-three rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -8557,7 +8564,7 @@ do
     ok(body:find("J=0") and type(back) == "table" and back.hover == false,
        "off is written into the macro and read back - it survives a login", body)
     ok(not NS.FK.Encode({}, {}):find("J="), "on is the default and writes nothing")
-    ok(NS.DO.hover("on") == true and d.hover == nil, "/bish hover on")
+    ok(NS.DO.hover("on") == true and d.hover == true, "/bish hover on (stored as true since 1.0: nil never means on)")
     hoverIs = nil
     _G.UnitExists = keepUE
     _G.UnitIsUnit = keepIsUnit
@@ -9784,6 +9791,306 @@ do
     _G.__BUILD = nil
     w:Refresh()
     w:Hide()
+end
+
+-- ============================================================== FOREVER 1.0 (7 Nov 2026)
+-- Arn: "every new user that we get will have every module turned off ... that includes like sounds,
+-- crosshairs" - BUT "all the main functionalities start on". And: "everybody that already has the addons
+-- installed, I don't wanna change default settings that they have on".
+--
+-- Driven through the REAL event handler, as a login is: ADDON_LOADED (the raw table, before anything
+-- merges defaults), then PLAYER_LOGIN with no user action. The server macro is the third witness: a
+-- client that hands back no saved file still has it.
+do
+    local FS, FG, FK = NS.FS, NS.FG, NS.FK
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    local heard = {}
+    local function said(p)
+        for _, l in ipairs(heard) do if l:find(p, 1, true) then return true end end
+        return false
+    end
+    local keptMacros = {}
+    for i, m in pairs(MACROS) do keptMacros[i] = m end
+    local function noMacro() for i in pairs(MACROS) do MACROS[i] = nil end end
+    local function ourMacro()
+        noMacro()
+        MACROS[121] = { name = "BiSHealing", icon = 134400,
+                        body = asTheClientStoresIt(FK.Encode({ left = "Healing Wave(Rank 2)" }, {})) }
+    end
+    local keepDB, keepChar, keepRead = _G.BiSHealingDB, _G.BiSHealingCharDB, FK.read
+    local keepUE, keepIU = _G.UnitExists, _G.UnitIsUnit
+    -- the mouse is on party1: a crosshair, if it is on, is drawn on their cell
+    _G.UnitExists = function(u) if u == "mouseover" then return true end return keepUE(u) end
+    _G.UnitIsUnit = function(a, b)
+        if b == "mouseover" then return a == "party1" end
+        return keepIU(a, b)
+    end
+    local cell
+    for _, f in ipairs(FG.frames or {}) do if f.unit == "party1" and f.hoverMark then cell = f end end
+    local function login(db, char)
+        _G.BiSHealingDB, _G.BiSHealingCharDB = db, char
+        heard = {}
+        _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = tostring(t) end }
+        fire(NS.events, "ADDON_LOADED", "BiSHealing")
+        fire(NS.events, "PLAYER_LOGIN")
+        _G.DEFAULT_CHAT_FRAME = realChat
+        return NS.DB()
+    end
+
+    -- (a) A NEW INSTALL: no account file, no per-character copy, no macro - and the list is in, so
+    -- "no macro" is an answer
+    noMacro()
+    FK.read = true
+    local d = login(nil, nil)
+    ok(d.forever10 == true, "a new install is stamped, once")
+    ok(d.hover == false and d.flash == false and d.buffQuiet == true,
+       "a new install starts quiet: no crosshair, no LOS flash, no buff-drop sound",
+       tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet))
+    ok(FS.Watching() == false and #FS.List() == 0 and FS.Word() == nil,
+       "and no buff reminder in the header")
+    ok(FS.Quiet() and select(2, FS.Sounds()) == "off", "the sound is not registered at all")
+    ok(cell and FG.PaintHover(cell, "party1") == false and not cell.hoverMark.__shown,
+       "LIVE after the login: the mouse on a cell draws no crosshair")
+    ok(d.shown == true and d.hots == true and d.ring == "me" and d.cures ~= false and d.resClick ~= false,
+       "the core is on: the cells, your HoTs, the gold ring, cure boxes, click-a-dead-friend res")
+    ok(NS.FM.Get("", "left") ~= nil, "and the mouse is seeded with the class's heals", tostring(NS.FM.Get("", "left")))
+    ok(d.between == false and d.now == false and d.buffs ~= true and d.target == false and d.tot == false
+       and d.me == false and d.mana == false and d.pets == "off",
+       "every other extra is off: reminders in chat, BiS> now, buff buttons, target/tot/me/mana, pets")
+    ok(not said("did not hand back"), "and no red warning: a new install had no file to lose")
+    -- (c) a second load changes nothing - and what the player switched on since stays on
+    NS.DO.hover("on")
+    d = login(_G.BiSHealingDB, _G.BiSHealingCharDB)
+    ok(d.hover == true and d.flash == false and d.buffQuiet == true and d.forever10 == true,
+       "the next login changes nothing: the crosshair the player turned on stays on, the rest stays quiet",
+       tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet) .. " " .. tostring(d.forever10))
+    -- AN ALT THAT HAS NEVER LOGGED OUT (no per-character copy): it takes its own per-character things
+    -- (NS.Claim) - and the account's SETTINGS stay. Claim used to copy the copy's `dbver` too, which an
+    -- alt without one handed back as nil: the next DB() ran the migration again, dropped every setting
+    -- and moved the stamp to the attic, so the quiet new install came back loud on its first alt.
+    d.owner = "Mainchar-Realm"
+    d.hover, d.flash = false, false
+    d = login(_G.BiSHealingDB, nil)
+    ok(d.owner == NS.Me() and d.forever10 == true and d.hover == false and d.flash == false and d.buffQuiet == true,
+       "logging into a new alt keeps the account's quiet settings and its stamp",
+       tostring(d.forever10) .. " " .. tostring(d.hover) .. " " .. tostring(d.flash) .. " " .. tostring(d.buffQuiet))
+    ok(d.dbver == NS.DBVER, "and the table's version", tostring(d.dbver))
+
+    -- (b) AN EXISTING SAVE, from before 1.0: nil meant ON for the crosshair and the LOS flash. They are
+    -- written down as on, so a nil can never be read any other way again
+    local old = { dbver = 1, owner = NS.Me(), savedAt = 1700000000, saves = 12, shown = true,
+                  binds = { left = "Chain Heal" }, bindsSeeded = true, buffQuiet = false }
+    d = login(old, nil)
+    ok(d.forever10 == true and d.hover == true and d.flash == true,
+       "an existing save keeps the crosshair and the LOS flash on - frozen as true",
+       tostring(d.hover) .. " " .. tostring(d.flash))
+    ok(d.buffQuiet == false and FS.Watching() and FS.List()[1] == "Water Shield",
+       "its buff sound and its header reminder stay exactly as they were")
+    ok(d.binds.left == "Chain Heal", "and its binds")
+    ok(cell and FG.PaintHover(cell, "party1") == true, "LIVE: its crosshair still draws after the login")
+    ok(not said("did not hand back"), "a file that came back: no warning")
+    -- an existing save that had things OFF keeps them off
+    d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, hover = false, flash = false, buffQuiet = true,
+                selfBuffs = { "Inner Fire" } }, nil)
+    ok(d.hover == false and d.flash == false and d.buffQuiet == true and FS.List()[1] == "Inner Fire",
+       "an existing save with things switched off keeps them off, and its own buff list")
+    local snap = { d.hover, d.flash, d.buffQuiet, d.selfBuffs and d.selfBuffs[1] }
+    d = login(_G.BiSHealingDB, nil)
+    ok(d.hover == snap[1] and d.flash == snap[2] and d.buffQuiet == snap[3] and d.selfBuffs[1] == snap[4],
+       "(c) and its second 1.0 login changes nothing either")
+
+    -- (d) THE CLIENT LOST THE ACCOUNT FILE but the per-character copy came back: an existing user
+    d = login(nil, { binds = { left = "Healing Wave(Rank 2)" }, bindsSeeded = true, savedAt = 5, saves = 2 })
+    ok(d.hover == true and d.flash == true and d.buffQuiet == false,
+       "a per-character copy and no account file = an EXISTING user, never quietened")
+    ok(said("did not hand back"), "and the red warning says the file was lost")
+
+    -- (e) BOTH FILES LOST, the macro still on the server: an existing user too
+    ourMacro()
+    d = login(nil, nil)
+    ok(d.forever10 == true and d.hover == true and d.flash == true and d.buffQuiet == false,
+       "only the server macro left = an EXISTING user")
+    ok(said("did not hand back"), "and the warning fires for them")
+
+    -- (f) THE MACRO LIST NOT IN YET at login: "no macro" is not an answer, so nothing is decided -
+    -- the old behaviour stands until the client says the list is in
+    noMacro()
+    FK.read = false
+    d = login(nil, nil)
+    ok(d.forever10 == nil and d.hover == nil, "the macro list not in yet: nothing decided, nothing written",
+       tostring(d.forever10))
+    ok(not said("did not hand back"), "and no warning on a guess")
+    ourMacro()
+    heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = tostring(t) end }
+    fire(NS.events, "UPDATE_MACROS")
+    _G.DEFAULT_CHAT_FRAME = realChat
+    ok(d.forever10 == true and d.hover == true, "the list arrives holding our macro: existing, frozen on")
+    ok(said("did not hand back"), "and only now the warning")
+    noMacro()
+    FK.read = false
+    d = login(nil, nil)
+    fire(NS.events, "UPDATE_MACROS")
+    ok(d.forever10 == true and d.hover == false and d.buffQuiet == true,
+       "the list arrives with no macro of ours: a new install, quiet")
+
+    -- THE SWITCHES STORE WHAT THEY SAY: nil never means "on" again
+    ok(NS.DO.hover("on") == true and d.hover == true, "/bish hover on stores true", tostring(d.hover))
+    ok(NS.DO.hover("off") == false and d.hover == false, "/bish hover off stores false")
+    ok(NS.DO.flash("on") == true and d.flash == true, "/bish flash on stores true", tostring(d.flash))
+    ok(NS.DO.flash("off") == false and d.flash == false, "/bish flash off stores false")
+
+    -- EVERY QUIETED THING HAS A SWITCH IN THE OPTIONS WINDOW, so a new player can turn it on
+    local keys = {}
+    for _, o in ipairs(NS.UI.Rows()) do keys[o.key] = o end
+    ok(keys.hover and keys.flash and keys.buffsound and keys.buffwatch,
+       "the options window has the crosshair, the LOS flash, the buff sound and the buff reminder")
+    if keys.flash and keys.buffwatch then
+        keys.flash.set(d, true)
+        ok(keys.flash.get(NS.DB()) == true and d.flash == true, "the LOS flash row turns it on")
+        d.selfBuffs = { "Inner Fire" }
+        keys.buffwatch.set(d, false)
+        ok(keys.buffwatch.get(NS.DB()) == false and #FS.List() == 0 and d.selfBuffs[1] == "Inner Fire",
+           "the reminder row turns it off - and keeps the player's own list for later")
+        keys.buffwatch.set(d, true)
+        ok(keys.buffwatch.get(NS.DB()) == true and FS.List()[1] == "Inner Fire", "and on again: the same list")
+        NS.DO.buff("off")
+        ok(FS.Watching() == false, "/bish buff off")
+        NS.DO.buff("on")
+        ok(FS.Watching() == true and FS.List()[1] == "Inner Fire", "/bish buff on")
+        d.selfBuffs = { none = true }
+        keys.buffwatch.set(d, true)
+        ok(d.selfBuffs == nil and FS.List()[1] == "Water Shield", "on with no list of its own: the class's usual")
+    end
+
+    -- THE BiS> PAGE in the game's options (Esc > Options > AddOns > BiS> > BiS> Healing). The game's
+    -- Settings stands in the way BiSTheme's own suite stands it in: a subcategory needs a registered
+    -- parent, and every category answers GetID.
+    local T = BiSTheme
+    local reg, opened, nextId = {}, {}, 0
+    local function Category(name)
+        nextId = nextId + 1
+        local c = { name = name, id = nextId }
+        function c:GetID() return self.id end
+        reg[c.id] = c
+        return c
+    end
+    _G.Settings = {
+        RegisterCanvasLayoutCategory = function(frame, name) local c = Category(name) c.frame = frame return c, {} end,
+        RegisterAddOnCategory = function(c) c.addon = true end,
+        RegisterCanvasLayoutSubcategory = function(parent, frame, name)
+            if not (parent and parent.addon) then error("parent category is not registered") end
+            local c = Category(name) c.frame, c.parentCat = frame, parent
+            return c, {}
+        end,
+        OpenToCategory = function(id) if not reg[id] then return false end opened[#opened + 1] = reg[id].name return true end,
+    }
+    if not (T and T.SettingsPage) then
+        local loaded, why = pcall(function() assert(loadfile("Libs/BiSTheme/Settings.lua"))() end)
+        ok(loaded, "the shared Settings kit loads headless", tostring(why))
+        T = BiSTheme
+    end
+    T.settingsRoot, T.settingsPages, T.settingsOrder = nil, {}, {}
+    ok(NS.CFG.events and NS.CFG.events.__events and NS.CFG.events.__events.PLAYER_LOGIN,
+       "the page is registered at PLAYER_LOGIN")
+    fire(NS.CFG.events, "PLAYER_LOGIN")
+    local page = T.settingsPages.BiSHealing
+    local spec = page and page.spec
+    ok(page and page.category and page.category.name == "BiS> Healing", "BiS> Healing is a page under BiS>")
+    ok(spec and spec.title == "Healing" and spec.open and spec.open.label == "mouse binds"
+       and spec.api and spec.api.name == "BiSHealingAPI", "its title, its big button (mouse binds) and its API")
+    d.shown, d.hover, d.flash, d.buffQuiet = true, false, false, true
+    local status = spec and spec.status and spec.status()
+    ok(type(status) == "string" and status:find("frames on", 1, true) and status:find("crosshair off", 1, true),
+       "status says what is on, in a few words", tostring(status))
+    local opened0 = 0
+    local realMouse = NS.DO.mouse
+    NS.DO.mouse = function() opened0 = opened0 + 1 end
+    if spec and spec.open then spec.open.func() end
+    NS.DO.mouse = realMouse
+    ok(opened0 == 1, "its big button opens the mouse binds")
+    T.ShowSettingsPage("BiSHealing")
+    ok(page and page.inside and page.held and page.held.win == NS.CFG.frame,
+       "the page holds BiS Healing's own options window - one set of switches, two doors")
+    T.HideSettingsPage("BiSHealing")
+    ok(NS.CFG.frame and not NS.CFG.frame:IsShown(), "leaving the page gives the window back, hidden")
+
+    -- THE MINIMAP, ONE STANDARD: left = the mouse binds, right = the options (the BiS> page)
+    local b = NS.MM.Build()
+    if b then
+        local click = b:GetScript("OnClick")
+        local realOptions, binds, opts = NS.DO.options, 0, 0
+        NS.DO.mouse = function() binds = binds + 1 end
+        NS.DO.options = function() opts = opts + 1 end
+        local n0 = #opened
+        click(b, "RightButton")
+        ok(#opened == n0 + 1 and opened[#opened] == "BiS> Healing" and binds == 0,
+           "right-click with the BiS> page there: the game's options open on BiS> Healing", opened[#opened])
+        click(b, "LeftButton")
+        ok(binds == 1 and opts == 0, "left-click: the mouse binds")
+        NS.DO.mouse, NS.DO.options = realMouse, realOptions
+    end
+
+    _G.Settings = nil
+    T.settingsRoot, T.settingsPages, T.settingsOrder = nil, {}, {}
+    _G.UnitExists, _G.UnitIsUnit = keepUE, keepIU
+    noMacro()
+    for i, m in pairs(keptMacros) do MACROS[i] = m end
+    FK.read = keepRead
+    _G.BiSHealingDB, _G.BiSHealingCharDB = keepDB, keepChar
+    fire(NS.events, "ADDON_LOADED", "BiSHealing")
+end
+
+-- BUGS FROM THE 7 NOV SWEEP
+do
+    -- (1) A REFUSED AURA BUTTON. FA.Placed noticed a refusal and then ran the marker's styling anyway -
+    -- outside any pcall - on a button the client had just refused. The styling (GetRegions,
+    -- CreateTexture, SetMouseMotionEnabled) is the same client's object: a refusal there threw out of
+    -- the client's own hand-over, every time an aura arrived.
+    local FA = NS.FA
+    local styled = 0
+    local forbidden = setmetatable({}, { __index = function(_, k)
+        error("Attempt to access forbidden object from code tainted by an AddOn (" .. tostring(k) .. ")", 2)
+    end })
+    FA.initRefused = nil
+    local init = FA.Placed(function(btn) styled = styled + 1 return btn:CreateTexture() end, 10, "LEFT", UIParent, 2, 0)
+    local ran, why = pcall(init, forbidden)
+    ok(ran, "a refused aura button never throws out of the client's hand-over", tostring(why))
+    ok(FA.initRefused and styled == 0, "the refusal is kept, and the styling is not run on it", styled)
+    -- a button that takes the size but refuses its art: the styling's throw stays inside
+    FA.initRefused = nil
+    local half = newFrame("Button")
+    half.CreateTexture = function() error("Attempt to access forbidden object from code tainted by an AddOn", 2) end
+    ran, why = pcall(init, half)
+    ok(ran and FA.initRefused, "a refusal inside the styling is caught and kept", tostring(why))
+    -- and a plain button is styled as always
+    FA.initRefused, styled = nil, 0
+    ran = pcall(init, newFrame("Button"))
+    ok(ran and styled == 1 and not FA.initRefused, "an ordinary button is sized, placed and styled")
+    FA.initRefused = nil
+
+    -- (2) THE HIDDEN CHECK FIRST. A secret string refuses a comparison on the client (`n == ""`); Lua 5.1
+    -- cannot make a table refuse `==` against a string, so the mock cannot be that client here. The
+    -- order is read from the source instead: the secret test before any comparison.
+    local function body(file, startPat)
+        local fh = assert(io.open(file))
+        local src = fh:read("*a")
+        fh:close()
+        local s = src:find(startPat)
+        return s and src:sub(s, s + 600) or ""
+    end
+    local me = body("Core.lua", "local function me%(%)")
+    local sec, cmp = me:find("issecretvalue", 1, true) or me:find("NS.Secret", 1, true), me:find('n == ""', 1, true)
+    ok(sec and cmp and sec < cmp, "me(): the name's hidden check comes before n == \"\"", tostring(sec) .. " " .. tostring(cmp))
+    local oil = body("Now.lua", "function FN%.OilEffect")
+    local osec, ocmp = oil:find("NS.Secret", 1, true), oil:find('text == ""', 1, true)
+    ok(osec and ocmp and osec < ocmp, "FN.OilEffect: the hidden check comes before text == \"\"",
+       tostring(osec) .. " " .. tostring(ocmp))
+    local realName = _G.UnitName
+    _G.UnitName = function(u) if u == "player" then return secretString() end return realName(u) end
+    local okMe, who = pcall(NS.Me)
+    _G.UnitName = realName
+    ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

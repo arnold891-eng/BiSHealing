@@ -65,13 +65,23 @@ function CFG.Sections()
               show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
             { key = "center", kind = "button", label = "centre on screen", help = "Puts the cells back in the middle of the screen, if they were dragged out of reach.", button = "centre",
               action = function() if DO.center then DO.center() end end },
+            -- FOREVER 1.0: off for a new install, so it needs a switch a player can find (it was a
+            -- slash command only, /bish flash)
+            { key = "flash", kind = "toggle", label = "LOS flash", help = "Flashes LOS in the middle of a cell when your heal could not see that player (line of sight).",
+              get = function(db) return db.flash ~= false end,
+              set = function(_, on) if DO.flash then DO.flash(on) end end },
         } },
         -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
         -- The header names it out of combat; the client makes a NOISE when it drops, which is the
         -- only half that works mid-fight, where your own buffs are secret. Two rows, because a
         -- switch and a number are two questions: whether, and which.
         { title = "reminders", options = {
-            { key = "buffsound", kind = "toggle", label = "sound when it drops", help = "A sound when your own buff (Water Shield, Inner Fire...) falls off - the one thing the game lets an addon say mid-fight.",
+            -- FOREVER 1.0: off for a new install. Off watches nothing (no header word, no sound) and
+            -- keeps the player's own list; on brings it back (NS.FS.SetWatching)
+            { key = "buffwatch", kind = "toggle", label = "watch my buff", help = "Names your own buff (Water Shield, Inner Fire...) in the grid's header when it is not on you. Off: nothing is watched - no header word, no sound.",
+              get = function() return NS.FS and NS.FS.Watching and NS.FS.Watching() or false end,
+              set = function(_, on) if DO.buff then DO.buff(on and "on" or "off") end end },
+            { key = "buffsound", kind = "toggle", label = "sound when it drops", help = "A sound when your own buff (Water Shield, Inner Fire...) falls off - the one thing the game lets an addon say mid-fight. Needs 'watch my buff' on.",
               get = function(db) return db.buffQuiet ~= true end,
               set = function(_, on) if DO.buffsound then DO.buffsound(on and "on" or "off") end end },
             -- the shared lib has four control kinds and no free-text field, on purpose ("230 px
@@ -440,6 +450,49 @@ function CFG.Toggle()
         if f:IsShown() then f:Paint() end
     end
 end
+
+------------------------------------------------- the BiS> page in the game's options --
+--
+-- Arn, 7 Nov 2026 (Forever 1.0): "when they open the options, they go to add-ons ... they'll just see
+-- BiS> ... click into that add-on". Esc > Options > AddOns > BiS> > BiS> Healing holds THIS window -
+-- the same rows, the same NS.DO calls - so there is one set of switches with two doors. The minimap's
+-- right-click opens it (BiSTheme's Minimap.lua, via BiSTheme.OpenSettings); without the game's
+-- Settings panel nothing is registered and the right-click opens this window on its own.
+
+--- What is on, in a few words, for the BiS> front page.
+function CFG.Status()
+    local db = NS.DB()
+    local function say(word, on) return word .. (on and " on" or " off") end
+    local FS = NS.FS
+    local sound = FS and FS.Watching and FS.Watching() and not (FS.Quiet and FS.Quiet())
+    return table.concat({
+        say("frames", db.shown ~= false),
+        say("crosshair", db.hover ~= false),
+        say("LOS flash", db.flash ~= false),
+        say("buff sound", sound and true or false),
+    }, "  -  ")
+end
+
+function CFG.Page()
+    local T = BiSTheme
+    if not (T and T.SettingsPage) then return nil end
+    return T.SettingsPage(ADDON, {
+        title  = "Healing",
+        about  = "Click-to-heal cells for any healer: drag a spell onto a mouse button, then click a cell to cast "
+              .. "it on that player. A new install starts with the cells, your binds, cure boxes and your HoTs on - "
+              .. "the crosshair, the LOS flash and the buff reminder wait here for you to switch them on.",
+        status = CFG.Status,
+        window = function() return CFG.Build() end,
+        open   = { label = "mouse binds", func = function() if NS.DO and NS.DO.mouse then NS.DO.mouse() end end },
+        api    = { name = "BiSHealingAPI", about = "what a click on a cell casts, the grid and BiS> now, the tank; "
+              .. "opens the binds or the options" },
+    })
+end
+
+-- At PLAYER_LOGIN: the window reads the saved variables, which are not there while the files load.
+CFG.events = CreateFrame("Frame")
+CFG.events:RegisterEvent("PLAYER_LOGIN")
+CFG.events:SetScript("OnEvent", function() pcall(CFG.Page) end)
 
 -- What a headless suite reads back. A window cannot be looked at, so the rows
 -- and what each one says right now are the only honest things to assert on.

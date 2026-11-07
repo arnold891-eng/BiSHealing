@@ -809,7 +809,8 @@ end
 --- (so Forever's values, never ours): "+5 mana / 5 sec · +10 healing · 30 min". nil when the text
 --- does not read as an oil (another language, or not loaded yet) - the caller says the name then.
 function FN.OilEffect(text)
-    if type(text) ~= "string" or text == "" or (NS.Secret and NS.Secret(text)) then return nil end
+    -- the hidden check before the comparison: a secret string refuses `== ""` (7 Nov sweep)
+    if type(text) ~= "string" or (NS.Secret and NS.Secret(text)) or text == "" then return nil end
     local t = text:lower()
     local parts = {}
     local mana, every = t:match("restores (%d+) mana"), t:match("every (%d+) sec")

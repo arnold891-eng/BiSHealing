@@ -296,6 +296,10 @@ function NS.DO.auras()
     local on = NS.FA.Debug(not NS.FA.debug)
     Print(("debug aura marker %s"):format(
         on and "ON -- take any debuff and watch the cells" or "off"))
+    if NS.FA.initRefused then
+        Print("the client refused at least one aura button it handed over; that marker is left out: |cfff08cb0%s|r",
+            tostring(NS.FA.initRefused))
+    end
     if NS.FA.slotRefused then
         Print("the client will not let markers be placed, so none are: |cfff08cb0%s|r", NS.FA.slotRefused)
     end
@@ -493,6 +497,13 @@ end
 function NS.DO.buff(name)
     local FS = NS.FS
     if not FS then return end
+    -- the reminder's own switch (1.0: off for a new install). Off keeps the list; on brings it back.
+    if (name == "off" or name == "on") and FS.SetWatching then
+        local on = FS.SetWatching(name == "on")
+        Print(on and ("watching: " .. (table.concat(FS.List(), ", ") ~= "" and table.concat(FS.List(), ", ") or "nothing for your class - /bish buff <name>"))
+            or "no buff watched - no header reminder, no sound. /bish buff on to bring it back")
+        return FS.List()
+    end
     if name == "reset" or name == "default" then
         FS.Reset()
         Print("watching your class's usual: " .. (table.concat(FS.List(), ", ") ~= "" and table.concat(FS.List(), ", ") or "nothing"))
@@ -1819,9 +1830,10 @@ function NS.DO.hover(how)
     if how == "on" or how == true then on = true
     elseif how == "off" or how == false then on = false
     else on = d.hover == false end
-    -- on is the default and stores nothing. Not `on and nil or false`: `x and nil` is always nil,
-    -- so that line stored "off" for both (the suite caught it, 7 Oct - landmine #8 again)
-    if on then d.hover = nil else d.hover = false end
+    -- STORED AS WHAT IT SAYS since 1.0 (7 Nov 2026): on is `true`, off is `false`. It used to store nil
+    -- for on, and nil-means-on is what made a quiet start for new installs dangerous (NS.Forever10).
+    -- The readers still take nil as on, for a save from before the stamp.
+    d.hover = on and true or false
     if NS.FG and NS.FG.HoverAll then NS.FG.HoverAll() end
     remember()
     Print(on and "the white crosshair follows your mouse" or "no crosshair for your mouse")
@@ -1830,14 +1842,14 @@ end
 
 --- /bish flash [on|off] - "LOS" in the middle of the cell your heal could not see (18 Oct 2026; range
 --- already dims).
---- On by default; on stores nothing.
+--- Off for a new install since 1.0; stored as true / false (nil, from before, still reads as on).
 function NS.DO.flash(how)
     local d = DB()
     local on
     if how == "on" or how == true then on = true
     elseif how == "off" or how == false then on = false
     else on = d.flash == false end
-    if on then d.flash = nil else d.flash = false end
+    d.flash = on and true or false
     remember()
     Print(on and "a heal out of line of sight marks the cell - LOS" or "no flash when a heal can't see them")
     return on
@@ -1914,7 +1926,8 @@ function NS.DO.help()
     Print("  |cffb980ffme|r  a cell for yourself, out of the group - |cffb980ffme left|r"
         .. " |cffb980ffright|r |cffb980fftop|r |cffb980ffunder|r, or drag its header")
     Print("  |cffb980ffmarkers 12|r  how big the dispel and heal-over-time markers are")
-    Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about")
+    Print("  |cffb980ffbuff Water Shield|r  a buff on yourself the header reminds you about"
+        .. " (|cffb980ffbuff on|r / |cffb980ffoff|r)")
     Print("  |cffb980ffbuffsound|r  the noise when one drops - a sound id, |cffb980ffoff|r,"
         .. " |cffb980ffon|r, |cffb980ffdefault|r, |cffb980fftest|r")
     -- the rest, so every short word is said somewhere in the help (6 Nov 2026)
@@ -2176,7 +2189,8 @@ end
 --- owner and is nobody's: the character's own copy wins, else its macro.
 local function me()
     local okN, n = pcall(UnitName, "player")
-    if not okN or type(n) ~= "string" or n == "" or (issecretvalue and issecretvalue(n))
+    -- the hidden check FIRST: a secret string refuses the comparison itself (7 Nov sweep)
+    if not okN or type(n) ~= "string" or (issecretvalue and issecretvalue(n)) or n == ""
        or n == (UNKNOWNOBJECT or "Unknown") then return nil end
     local okR, r = pcall(function() return GetRealmName and GetRealmName() end)
     if okR and type(r) == "string" and r ~= "" and not (issecretvalue and issecretvalue(r)) then return n .. "-" .. r end
@@ -2190,7 +2204,12 @@ function NS.Claim()
     if acct.owner == who then return false end
     local char = type(_G.BiSHealingCharDB) == "table" and _G.BiSHealingCharDB or {}
     local was = acct.owner
-    for _, k in ipairs(MIRROR) do acct[k] = copy(char[k]) end
+    -- NOT `dbver` (7 Nov 2026): it is the TABLE's version, not the character's. An alt with no copy of
+    -- its own handed back nil for it, the next DB() ran the migration again, and every setting on the
+    -- account - and the 1.0 stamp - went to the attic or back to its default.
+    for _, k in ipairs(MIRROR) do
+        if k ~= "dbver" then acct[k] = copy(char[k]) end
+    end
     acct.owner = who
     NS.claimed = { from = was or "nobody (from before 0.9.2)", own = anything(char.binds) }
     return true
@@ -2219,10 +2238,95 @@ function NS.Comm.Save()
     if lib.Sharing then db.commShare = lib:Sharing() end
 end
 
+-- FOREVER 1.0: A NEW INSTALL STARTS QUIET (Arn, 7 Nov 2026: "every new user that we get will have every
+-- module turned off ... that includes like sounds, crosshairs ... anything that would make a new user go
+-- like okay, this add-on is just making random noises and putting random stuff on my screen" - but "all
+-- the main functionalities start on"; and "everybody that already has the addons installed, I don't
+-- wanna change default settings that they have on").
+--
+-- THE CORE, on for everyone: the cells, the mouse binds (seeded per class), cure boxes, your HoTs,
+-- click-a-dead-friend res, the gold ring. THE EXTRAS a new install starts without: the crosshair, the
+-- LOS flash, the buff-drop sound and the header's buff reminder (BiS> now, the buff buttons, target /
+-- tot / me / mana / pets and the between-pulls reminders were off already).
+--
+-- THE DANGER: the crosshair and the LOS flash were stored as nil for "on". Changing what nil means would
+-- switch them off for every existing player in silence. So nil keeps meaning on, and ONCE, at the first
+-- 1.0 login, a save is stamped `forever10`: an EXISTING one gets its nil-read switches written down as
+-- they are (true), a NEW one gets the quiet values written. Neither ever runs twice.
+--
+-- WHO IS NEW: nobody this addon has ever seen. Forever was measured handing back NO saved file for an
+-- existing player (19 Sep), so the account file alone cannot say it: the per-character copy, or this
+-- character's BiSHealing macro on the server, also mean "existing". Until the macro list is in, "no
+-- macro" is not an answer - nothing is decided, and UPDATE_MACROS asks again.
+NS.FREEZE = { "hover", "flash" }             -- read as `~= false`: nil meant on
+NS.QUIET  = { hover = false, flash = false, buffQuiet = true }
+
+--- Has this addon seen this player before? true / false, or nil while the macro list is not in yet.
+--- `listIn` = the caller knows the list has arrived (UPDATE_MACROS).
+function NS.Returning(listIn)
+    local L = NS.loaded or {}
+    if L.found or L.char or L.rescued then return true end
+    local FK = NS.FK
+    if not (FK and FK.Ready and FK.Ready()) then return false end    -- no macro API: nothing more to ask
+    local okF, mine, shared = pcall(FK.Find)
+    if okF and (mine or shared) then return true end
+    if listIn or FK.read then return false end
+    local okN, g, p = pcall(GetNumMacros)
+    if okN and ((tonumber(g) or 0) + (tonumber(p) or 0)) > 0 then return false end
+    return nil
+end
+
+--- The one-time stamp. Answers "new", "existing", or nil (nothing decided yet, or done before).
+function NS.Forever10(listIn)
+    local db = DB()
+    if db.forever10 then NS.pending10 = nil return nil end
+    local back = NS.Returning(listIn)
+    if back == nil then NS.pending10 = true return nil end
+    NS.pending10 = nil
+    local was
+    if back then
+        for _, k in ipairs(NS.FREEZE) do
+            if db[k] == nil then db[k] = true end            -- what nil meant, written down
+        end
+        was = "existing"
+    else
+        for k, v in pairs(NS.QUIET) do db[k] = v end
+        db.selfBuffs = { none = true }                      -- no buff watched: no header word, no sound
+        was = "new"
+    end
+    db.forever10 = true
+    NS.fresh = (was == "new")
+    local FS = NS.FS
+    if FS then
+        if FS.Forget then FS.Forget() end
+        if FS.Sounds then pcall(FS.Sounds) end              -- a sound registered before the stamp comes down
+    end
+    if NS.FG and NS.FG.HoverAll then pcall(NS.FG.HoverAll) end
+    return was
+end
+
+--- THE RED LINE, only for somebody who HAD a file (19 Sep's lost-file client). It used to fire on every
+--- brand-new install, where there was never a file to lose - a new player's first line from us was an
+--- alarm. nil from Returning (the macro list not in yet) waits for UPDATE_MACROS rather than guess.
+local function warnLost(listIn)
+    local L = NS.loaded or {}
+    if L.found and L.savedAt ~= nil then NS.warnPending = nil return false end
+    local back = NS.Returning(listIn)
+    if back == nil then NS.warnPending = true return false end
+    NS.warnPending = nil
+    if not back then return false end
+    -- said once, at login, because it explains every other odd thing that follows
+    Print("|cfff08cb0this client did not hand back a saved file|r - binds and settings will not"
+          .. " survive a reload. |cffb980ff/bish db|r for what was seen.")
+    return true
+end
+NS.WarnLost = warnLost
+
 local ev = CreateFrame("Frame")
 ev:RegisterEvent("ADDON_LOADED")
 ev:RegisterEvent("PLAYER_LOGIN")
 ev:RegisterEvent("PLAYER_LOGOUT")
+ev:RegisterEvent("UPDATE_MACROS")           -- the macro list is in: a decision that waited for it
 ev:SetScript("OnEvent", function(_, event, name)
     if event == "ADDON_LOADED" then
         if name ~= ADDON then return end
@@ -2244,6 +2348,12 @@ ev:SetScript("OnEvent", function(_, event, name)
         return
     end
 
+    if event == "UPDATE_MACROS" then
+        if NS.pending10 then NS.Forever10(true) end
+        if NS.warnPending then warnLost(true) end
+        return
+    end
+
     if event == "PLAYER_LOGOUT" then
         NS.Comm.Save()
         local db = DB()
@@ -2255,13 +2365,12 @@ ev:SetScript("OnEvent", function(_, event, name)
 
     DB()
     NS.Claim()                              -- the name may only be known by now
+    -- before the grid and the buff sound start, so a new install never registers what it then removes
+    local okF, why = pcall(NS.Forever10)
+    if not okF then NS.forever10Error = tostring(why) end
     pcall(NS.Comm.Boot)                     -- never let the channel stop the grid from starting
     if NS.FG and NS.FG.Start then NS.FG.Start() end
     Print(("%s -- /bish, or the button on your minimap"):format(NS.VERSION))
-    if not NS.loaded.found or NS.loaded.savedAt == nil then
-        -- said once, at login, because it explains every other odd thing that follows
-        Print("|cfff08cb0this client did not hand back a saved file|r - binds and settings will not"
-              .. " survive a reload. |cffb980ff/bish db|r for what was seen.")
-    end
+    warnLost()
 end)
 NS.events = ev

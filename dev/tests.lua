@@ -10526,6 +10526,13 @@ do
         end
     end
     ok(allRight, "each target cell sits on its member's right, same row, same height, unit <member>target")
+    -- THE WHOLE CELL IS THE HEALTH (Arn, 8 Nov live: "make the small window next to the friendly target be full red
+    -- not just a small sliver at the bottom"): the bar runs from the cell's top-left to its bottom-right
+    local tcell = FG.pvpCells[1]
+    local corners = {}
+    for _, p in ipairs(tcell.bar.points or {}) do corners[p[1]] = true end
+    ok(corners.TOPLEFT and corners.BOTTOMRIGHT and tcell.bar.__h == nil,
+       "a target cell's health fills the whole cell, not a sliver along its foot")
     ok(allApplied, "and every one was handed to FM.ApplyTo - the grid's own binds, hostile ones included")
     ok(allWatched, "and every one is under the client's unit watch")
     ok(FG.pvpCells[1] and FG.pvpCells[1].__kind == "Button" and FG.pvpCells[1].__scripts.OnEnter

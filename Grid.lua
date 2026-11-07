@@ -1941,7 +1941,7 @@ end
 FG.PVP_W = math.floor(FRAME_W / 4)       -- a quarter of a member cell
 FG.PVP_EVERY = 0.25                      -- the health repaint while pvp mode shows: 4 a second
 FG.PVP_CHARS = 4                         -- letters of a name a target cell holds
-FG.PVP_BAR_H = 6                         -- the thin health bar along its bottom
+FG.PVP_BAR_H = nil                       -- (was a 6 px strip; since 8 Nov the health fills the cell)
 FG.PVP_FRIEND = { 0.20, 0.75, 0.30 }     -- green: a friend; the red is FG.HOSTILE, as on the target cell
 FG.PVP_GOLD = { 1.00, 0.78, 0.20 }       -- the team's focus, the gold the grid already uses for "you"
 FG.PVP_MODES = { off = true, bg = true, on = true }
@@ -2022,9 +2022,10 @@ function FG.MakePvP(i, parent)
     c.wash:Hide()
     -- the health, thin, along the bottom: the client's numbers straight in, never read
     c.bar = CreateFrame("StatusBar", nil, c)
-    c.bar:SetPoint("BOTTOMLEFT", 1, 1)
+    -- THE WHOLE CELL IS THE HEALTH (Arn, 8 Nov live: "be full red not just a small sliver at the bottom"): it fills
+    -- the cell like a member cell does, red for an enemy, and the name sits over it (outlined, on `c.ink` above)
+    c.bar:SetPoint("TOPLEFT", 1, -1)
     c.bar:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.bar:SetHeight(FG.PVP_BAR_H)
     c.bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     c.bar:SetMinMaxValues(0, 1)
     c.bar:SetValue(1)
@@ -2042,7 +2043,8 @@ function FG.MakePvP(i, parent)
     c.lbar:SetColorTexture(r, g, b, 1)
     c.lbar:Hide()
     c.label = c.ink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    if c.label.SetFont then c.label:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 8, "") end
+    -- outlined: it sits on a full red or green bar now, and must read on both
+    if c.label.SetFont then c.label:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 8, "OUTLINE") end
     c.label:SetPoint("TOPLEFT", 1, -4)
     c.label:SetPoint("TOPRIGHT", -1, -4)
     c.label:SetJustifyH("CENTER")

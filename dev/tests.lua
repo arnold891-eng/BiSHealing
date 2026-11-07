@@ -732,7 +732,9 @@ _G.CreateFrame = function(kind, name, parent, template)
         CONTAINERS[#CONTAINERS + 1] = c
         return c
     end
-    return realCreateFrame(kind, name, parent, template)
+    local made = realCreateFrame(kind, name, parent, template)
+    if type(made) == "table" then made.__template = template end      -- which template, so a suite can ask
+    return made
 end
 
 local NS = {}
@@ -10726,6 +10728,19 @@ do
     ok(kc and kc.kick, "a target cell carries an interrupt icon")
     ok(FG.KickSpell() == "Earth Shock", "a shaman's is Earth Shock (trained)", tostring(FG.KickSpell()))
     local tok = kc.unit
+    -- CLICK IT TO INTERRUPT (Arn, 8 Nov: "yes make it clickable"): the icon is a secure button that casts your
+    -- interrupt - its LOWEST trained rank, the cheapest, the interrupt is the same - at that teammate's target. The
+    -- spell and the unit are written at layout, out of combat; in a fight the client does the casting.
+    local kb = kc.kickFx
+    ok(kb.__template == "SecureActionButtonTemplate", "the icon is a secure button", tostring(kb.__template))
+    ok(kb:GetAttribute("type") == "spell" and kb:GetAttribute("spell") == "Earth Shock(Rank 1)",
+       "it casts Earth Shock, rank 1", tostring(kb:GetAttribute("spell")))
+    ok(kb:GetAttribute("unit") == tok, "at that teammate's target", tostring(kb:GetAttribute("unit")))
+    ok(kb.__mouse ~= false, "and it takes the click")
+    kb.__scripts.OnEnter(kb)
+    ok(kc.kickGlow:IsShown(), "under the mouse it lights (the family rule)")
+    kb.__scripts.OnLeave(kb)
+    ok(not kc.kickGlow:IsShown(), "and goes out again when nothing is being cast")
     STATE.casting[tok] = nil
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha and kc.kick.__alpha < 0.5, "their target not casting: the icon is dim", tostring(kc.kick.__alpha))
@@ -10757,6 +10772,10 @@ do
     NS.FM.BookChanged()
     FG.kickSpell = nil
     ok(FG.KickSpell() == nil and FG.KickIcon() == FG.KICK_FALLBACK, "no interrupt trained: the plain kick icon")
+    FG.Layout(FG.anchor)
+    local kc2 = FG.pvpCells[1]
+    ok(kc2 and kc2.kickFx:GetAttribute("type") == nil and kc2.kickFx.__mouse == false,
+       "and nothing to cast: the icon lets the click through to the cell's own binds")
     NS.DO.pvp("off")
 
     -- (9) THE COST of one repaint pass over a 40-man where everyone has a target

@@ -1992,6 +1992,26 @@ function FG.ArmKick(c, tok, cast)
     return true
 end
 
+--- The cast alert, the player's pick (Arn, 8 Nov: "lets make it an option for them glow or bounce"): "glow", "bounce"
+--- or "both" - both by default, what it did first.
+FG.KICK_FX = { glow = true, bounce = true, both = true }
+function FG.KickFx()
+    local d = NS.DB and NS.DB()
+    local v = type(d) == "table" and d.kickFx or nil
+    return FG.KICK_FX[v or ""] and v or "both"
+end
+
+--- Glow and bounce for one cell, by the pick - called when "is it casting" changes, and for every cell when the pick does.
+function FG.KickShow(c, lit)
+    local fx = FG.KickFx()
+    local glow, bounce = lit and fx ~= "bounce", lit and fx ~= "glow"
+    if c.kickGlow then if glow then c.kickGlow:Show() else c.kickGlow:Hide() end end
+    if c.kickBounce then
+        local playing = c.kickBounce.IsPlaying and c.kickBounce:IsPlaying()
+        if bounce and not playing then c.kickBounce:Play() elseif not bounce and playing then c.kickBounce:Stop() end
+    end
+end
+
 --- Is this unit casting or channelling? true / false. A secret answer counts as a cast: something is there.
 --- `type(v)` reads no value - a secret one says its type and never refuses - so "is there an answer at all" costs
 --- no hidden-check; the channel is asked only when there is no cast (lean: 1-2 calls a cell, Cost budget below).
@@ -2147,7 +2167,7 @@ function FG.MakePvP(i, parent)
         GameTooltip:Show()
     end)
     c.kickFx:SetScript("OnLeave", function()
-        if not c.kickLit then c.kickGlow:Hide() end
+        FG.KickShow(c, c.kickLit == true)                  -- back to what the pick shows (no glow in "bounce")
         if GameTooltip then GameTooltip:Hide() end
     end)
     if c.kickFx.CreateAnimationGroup then
@@ -2317,8 +2337,7 @@ function FG.PaintPvPCell(c)
         -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
         if lit ~= c.kickLit then
             c.kickLit = lit
-            if lit then c.kickGlow:Show() else c.kickGlow:Hide() end
-            if c.kickBounce then if lit then c.kickBounce:Play() else c.kickBounce:Stop() end end
+            FG.KickShow(c, lit)
         end
     end
     -- WHO IT IS, for the focus: a plain GUID of somebody who is not a friend, or nothing

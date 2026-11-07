@@ -219,6 +219,11 @@ function CFG.Sections()
               values = { "off", "bg", "on" },
               get = function() return (NS.FG and NS.FG.PvPMode and NS.FG.PvPMode()) or "off" end,
               set = function(_, v) if DO.pvp then DO.pvp(v) end end },
+            -- THE CAST ALERT (Arn, 8 Nov 2026: "lets make it an option for them glow or bounce")
+            { key = "kickfx", kind = "seg", label = "cast alert", help = "PvP mode: when a teammate's target starts casting, your interrupt icon on its cell lights up - with a gold glow, a bounce, or both. Click the icon to cast your interrupt at it.",
+              values = { "glow", "bounce", "both" },
+              get = function() return (NS.FG and NS.FG.KickFx and NS.FG.KickFx()) or "both" end,
+              set = function(_, v) if DO.kickfx then DO.kickfx(v) end end },
         } },
         -- "this client" held two diagnostics. "test the debuff marker" gave way to a setting on
         -- 22 Sep and "what can I see?" on the 23rd, when a player's three requests arrived at once.
@@ -570,7 +575,7 @@ function CFG.Entries()
           usage = "/bish number  -  /bish colour  -  /bish ring me|target  -  /bish hover  -  /bish dim 40  -  /bish markers 12" },
         { key = "layout", title = "layout",
           desc = "How the groups sit: a column each, a row each, or tanks on top. PvP mode adds, beside everyone, whoever they are targeting, to click - in whichever of those shapes you picked.",
-          options = pick("layout", "pvp"), db = db,
+          options = pick("layout", "pvp", "kickfx"), db = db,
           usage = "/bish layout columns|across|pyramid  -  /bish pvpmode off|bg|on" },
         { key = "cells", title = "target & pets",
           desc = "Extra cells beside the grid - your target, its target, the other healers' mana - and where pets go.",

@@ -1582,6 +1582,23 @@ local PVP_SAID = {
     on  = "PvP mode everywhere: beside each player their target - click it to cast on it",
 }
 
+--- THE CAST ALERT on the PvP interrupt icon: "glow", "bounce" or "both" (Arn, 8 Nov 2026). No argument walks the three.
+--- Applied at once to every target cell, mid-cast too.
+function NS.DO.kickfx(how)
+    local d = DB()
+    local order = { "glow", "bounce", "both" }
+    if not (NS.FG and NS.FG.KICK_FX and NS.FG.KICK_FX[how or ""]) then
+        local cur = NS.FG and NS.FG.KickFx and NS.FG.KickFx() or "both"
+        for i, v in ipairs(order) do if v == cur then how = order[i % #order + 1] end end
+    end
+    d.kickFx = how
+    for _, c in ipairs((NS.FG and NS.FG.pvpCells) or {}) do
+        if NS.FG.KickShow then NS.FG.KickShow(c, c.kickLit == true) end
+    end
+    Print("PvP cast alert: " .. how)
+    return how
+end
+
 function NS.DO.pvp(how)
     local d = DB()
     local FG = NS.FG

@@ -6618,14 +6618,16 @@ do
         end
         -- FIFTEEN ON THE RIGHT (8 Nov 2026, PvP mode, which Arn asked for in 1.0): one seg row, three
         -- answers (off / bg / on), under "groups" where the grid's shape is chosen. Column 2 was at 14.
-        ok(tall[1] <= 14 and tall[2] <= 15, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- SIXTEEN (8 Nov 2026, same night): the PvP cast alert - glow, bounce or both - which Arn asked to be a
+        -- player's pick ("lets make it an option for them glow or bounce"), under PvP mode
+        ok(tall[1] <= 14 and tall[2] <= 16, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
         -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
         -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
         -- player can find - so the LOS flash and the buff reminder got rows
-        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above
-        ok(#NS.UI.Rows() <= 24, "and the whole window has no more than twenty-four rows: " .. #NS.UI.Rows())
+        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert
+        ok(#NS.UI.Rows() <= 25, "and the whole window has no more than twenty-five rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -10768,6 +10770,26 @@ do
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha < 0.5, "the cast over: dim again")
     ok(not kc.kickGlow:IsShown() and not kc.kickBounce:IsPlaying(), "and the glow and the bounce stop")
+    -- GLOW, BOUNCE OR BOTH - THE PLAYER'S PICK (Arn, 8 Nov: "lets make it an option for them glow or bounce").
+    -- "both" by default (what it did first); a pick applies at once, mid-cast too.
+    ok(FG.KickFx() == "both", "the cast alert is glow and bounce by default", FG.KickFx())
+    local fxRow
+    for _, o in ipairs(NS.UI.Rows()) do if o.key == "kickfx" then fxRow = o end end
+    ok(fxRow and fxRow.kind == "seg" and table.concat(fxRow.values, ",") == "glow,bounce,both" and fxRow.help,
+       "the options window has a cast alert row: glow, bounce, both")
+    STATE.casting[tok] = "cast"
+    fxRow.set(NS.DB(), "glow")
+    FG.PaintPvPCell(kc)
+    ok(kc.kickGlow:IsShown() and not kc.kickBounce:IsPlaying(), "glow: the glow alone")
+    fxRow.set(NS.DB(), "bounce")
+    ok(not kc.kickGlow:IsShown() and kc.kickBounce:IsPlaying(), "bounce, picked mid-cast: the bounce alone, at once")
+    kc.kickFx.__scripts.OnEnter(kc.kickFx)
+    kc.kickFx.__scripts.OnLeave(kc.kickFx)
+    ok(not kc.kickGlow:IsShown() and kc.kickBounce:IsPlaying(), "the mouse passing over it leaves no glow behind in bounce")
+    fxRow.set(NS.DB(), "both")
+    ok(kc.kickGlow:IsShown() and kc.kickBounce:IsPlaying() and fxRow.get(NS.DB()) == "both", "both: the two together")
+    STATE.casting[tok] = nil
+    FG.PaintPvPCell(kc)
     BOOK[43] = keepBook
     NS.FM.BookChanged()
     FG.kickSpell = nil

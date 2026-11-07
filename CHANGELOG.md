@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Right-click the minimap button for your mouse binds.** Left-click still opens the options window.
 - **Clearer windows.** In the options window (and the minimap menu) every button, box and row lights up under the mouse, the window is 20% bigger, and the bottom strip shows which version you are on until you hover a setting.
 - **Short commands.** Every `/bish` command longer than four letters has a short one too: `/bish bind` opens the mouse binds, `/bish opt` the options, `/bish btw` the between-pulls reminders, `/bish lay pyr` the pyramid, and so on. The long ones still work. `/bish help` shows the short word beside each command.
 - **The mouse bind window lights up under the mouse.** The modifier tabs, the little rank number on a button, the trinket ticks, the pings and the heals along the bottom all light up when you point at them, so you can see what a click will hit. So does the spell to drag in the mana-for-mana window.

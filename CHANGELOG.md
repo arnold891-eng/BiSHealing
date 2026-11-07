@@ -3,7 +3,8 @@
 ## 1.0.0 - Forever 1.0
 
 - **The minimap button is the same as every BiS addon now: left-click opens your mouse binds, right-click opens the options.** This swaps the two clicks from 0.17.0 (where right-click was the binds), so if your hand is used to the old way: the binds moved to the LEFT button. Hover the button and the tooltip says which is which.
-- **One home for the options: Esc > Options > AddOns > BiS>.** Every BiS addon you have is listed there with what it has on, and BiS> Healing holds the same switches as the options window, plus a big "mouse binds" button. Right-click on the minimap button takes you straight there.
+- **One home for the options: Esc > Options > AddOns > BiS>.** Every BiS addon you have is listed there with what it has on, and BiS> Healing has a button to the options window, plus a big "mouse binds" button.
+- Minimap right-click opens the options window again (click again to close); the BiS> page no longer squeezes that window inside it.
 - **A new install starts quiet.** If you have never used BiS Healing before, it starts with only its main job on: the healing cells, your click-to-cast binds, the cure boxes, your heals over time, click-a-dead-friend res and the gold ring. The mouse crosshair, the LOS flash, the buff-drop sound and the buff reminder in the header start off - switch any of them on in the options.
 - **Already using BiS Healing? Nothing changes for you.** Everything you had on stays on, and everything you had off stays off.
 - **Two new switches in the options window:** "LOS flash" (under frames) and "watch my buff" (under reminders). `/bish buff off` and `/bish buff on` do the same as the second one; switching it off keeps your own buff list for when you switch it back on.

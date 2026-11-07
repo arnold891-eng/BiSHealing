@@ -242,8 +242,9 @@ local function newFrame(kind, name, parent)
     -- no answer at all - which is how a bar could be drawn at any width and pass (23 Sep).
     function f:SetWidth(w) self.__w = w end
     function f:SetHeight(h) self.__h = h end
-    function f:GetWidth() return self.__w end
-    function f:GetHeight() return self.__h end
+    -- an unsized frame answers 0, as the client's does - never nil (8 Nov 2026, the BiS> page kit)
+    function f:GetWidth() return self.__w or 0 end
+    function f:GetHeight() return self.__h or 0 end
     function f:GetFrameStrata() return self.__strata end
     function f:SetTexture(t) self.__texture = t end
     function f:SetTexCoord(a, b, c, d) self.__coords = { a, b, c, d } end
@@ -10009,26 +10010,46 @@ do
     if spec and spec.open then spec.open.func() end
     NS.DO.mouse = realMouse
     ok(opened0 == 1, "its big button opens the mouse binds")
-    T.ShowSettingsPage("BiSHealing")
-    ok(page and page.inside and page.held and page.held.win == NS.CFG.frame,
-       "the page holds BiS Healing's own options window - one set of switches, two doors")
-    T.HideSettingsPage("BiSHealing")
-    ok(NS.CFG.frame and not NS.CFG.frame:IsShown(), "leaving the page gives the window back, hidden")
+    -- THE PAGE NEVER TAKES THE WINDOW (kit minor 2, Arn 7 Nov: "dont just shrink remake them all"): the
+    -- options window stays where it is, its own size, hidden - the page offers a button to it instead
+    local win = NS.CFG.Build()
+    ok(win ~= nil, "the options window builds")
+    if win then
+        win:Hide()
+        local parent0, scale0, points0 = win:GetParent(), win:GetScale(), win:GetNumPoints()
+        T.ShowSettingsPage("BiSHealing")
+        ok(win:GetParent() == parent0 and win:GetScale() == scale0 and win:GetNumPoints() == points0,
+           "showing the page leaves the options window's parent, scale and place alone",
+           tostring(win:GetScale()) .. " was " .. tostring(scale0))
+        ok(not win:IsShown(), "and leaves it hidden")
+        local btn = page and page.frame and page.frame.optBtn
+        ok(btn and btn:IsShown(), "the page has a button to the options window")
+        if btn then btn:Click() end
+        ok(win:IsShown() and win:GetParent() == parent0 and win:GetScale() == scale0,
+           "its click shows the options window, as it always was")
+        T.HideSettingsPage("BiSHealing")
+        ok(win:IsShown() and win:GetParent() == parent0, "leaving the page does not touch the window")
+        win:Hide()
+    end
 
-    -- THE MINIMAP, ONE STANDARD: left = the mouse binds, right = the options (the BiS> page)
+    -- THE MINIMAP, ONE STANDARD: left = the mouse binds, right = the addon's OWN options window, a toggle
+    -- (Arn 7 Nov: "when i right click the minimap again it should close that option window"). The game's
+    -- options are never opened by it, even with the BiS> page registered.
     local b = NS.MM.Build()
-    if b then
+    ok(b ~= nil, "the minimap button builds")
+    if b and win then
         local click = b:GetScript("OnClick")
-        local realOptions, binds, opts = NS.DO.options, 0, 0
+        local binds = 0
         NS.DO.mouse = function() binds = binds + 1 end
-        NS.DO.options = function() opts = opts + 1 end
         local n0 = #opened
         click(b, "RightButton")
-        ok(#opened == n0 + 1 and opened[#opened] == "BiS> Healing" and binds == 0,
-           "right-click with the BiS> page there: the game's options open on BiS> Healing", opened[#opened])
+        ok(win:IsShown() and #opened == n0 and binds == 0,
+           "right-click: the options window shows - the game's options do not open", #opened - n0)
+        click(b, "RightButton")
+        ok(not win:IsShown() and #opened == n0, "right-click again: it closes")
         click(b, "LeftButton")
-        ok(binds == 1 and opts == 0, "left-click: the mouse binds")
-        NS.DO.mouse, NS.DO.options = realMouse, realOptions
+        ok(binds == 1 and not win:IsShown() and #opened == n0, "left-click: the mouse binds")
+        NS.DO.mouse = realMouse
     end
 
     _G.Settings = nil

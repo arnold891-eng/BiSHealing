@@ -46,13 +46,14 @@ end
 --- sometimes right click does another ... we gotta get everything on the same page"):
 ---
 ---   left-click   the addon's main window - here the mouse binds, the one thing opened most
----   right-click  its options - its page under BiS> in the game's options, or this addon's own
----                options window on a client without that panel
+---   right-click  its own options window, a toggle - right-click again closes it (8 Nov, Arn: "when i
+---                right click the minimap again it should close that option window"); never the game's
+---                options, even with the BiS> page there
 ---   drag         move it round the edge
 ---
 --- THIS SWAPS THE 6 NOV ORDER (right = binds, left = options), on purpose: every BiS addon now reads
 --- the same way. The click and the tooltip are the shared button's own (Libs\BiSTheme\Minimap.lua,
---- minor 4) - it also puts a minimap collector's backing back under the icon - so nothing here
+--- minor 5: onRight first) - it also puts a minimap collector's backing back under the icon - so nothing here
 --- replaces them any more.
 ---
 --- Build it, once. Returns the button, or nil on a client with no minimap frame (the headless

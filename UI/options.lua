@@ -454,10 +454,11 @@ end
 ------------------------------------------------- the BiS> page in the game's options --
 --
 -- Arn, 7 Nov 2026 (Forever 1.0): "when they open the options, they go to add-ons ... they'll just see
--- BiS> ... click into that add-on". Esc > Options > AddOns > BiS> > BiS> Healing holds THIS window -
--- the same rows, the same NS.DO calls - so there is one set of switches with two doors. The minimap's
--- right-click opens it (BiSTheme's Minimap.lua, via BiSTheme.OpenSettings); without the game's
--- Settings panel nothing is registered and the right-click opens this window on its own.
+-- BiS> ... click into that add-on". Esc > Options > AddOns > BiS> > BiS> Healing shows what is on and a
+-- button to THIS window (kit minor 2, 8 Nov: the page never squeezes the window inside it any more -
+-- Arn: "dont just shrink remake them all"). The minimap's right-click toggles this window straight
+-- away, never the game's options (Arn: "i liked these old option windows that opened without opening
+-- the game option window").
 
 --- What is on, in a few words, for the BiS> front page.
 function CFG.Status()

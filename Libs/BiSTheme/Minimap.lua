@@ -41,8 +41,12 @@
 
 BiSTheme = BiSTheme or {}
 local T = BiSTheme
-if (T.MINIMAP_MINOR or 0) >= 4 then return end
-T.MINIMAP_MINOR = 4   -- 4: ONE STANDARD (Arn, 7 Nov: "sometimes left click does one thing, sometimes right click does
+if (T.MINIMAP_MINOR or 0) >= 5 then return end
+T.MINIMAP_MINOR = 5   -- 5: right = the addon's OWN options window (opts.onRight, a toggle: right-click again closes it),
+                      --    its page under BiS> only when it has no window of its own (Arn, 7 Nov live: "i liked these
+                      --    old option windows that opened without opening the game option window, we keep them
+                      --    opening how they used to")
+                      -- 4: ONE STANDARD (Arn, 7 Nov: "sometimes left click does one thing, sometimes right click does
                       --    another ... we gotta get everything on the same page"): left = the addon's main window
                       --    (opts.onLeft, labelled opts.leftLabel; the menu when it has none), right = its options -
                       --    its page under BiS> in the game's options (Settings.lua) when it has one, else opts.onRight
@@ -520,9 +524,9 @@ function T.Minimap(key, opts)
     s:Unbury()
     if click == "RightButton" then
       s:CloseMenu()
-      -- the addon's page under BiS> in the game's options first; its own window when it has no page there
-      if T.OpenSettings and T.settingsPages and T.settingsPages[s.key] and T.OpenSettings(s.key) then return end
+      -- the addon's own options window (a toggle); its page under BiS> only when it has no window of its own
       if type(s.opts.onRight) == "function" then s.opts.onRight() return end
+      if T.OpenSettings and T.settingsPages and T.settingsPages[s.key] and T.OpenSettings(s.key) then return end
       s:ToggleMenu()
       return
     end

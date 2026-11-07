@@ -28,7 +28,7 @@ the way.
 
 ## The mouse
 
-Click the minimap button (the mouse binds are the first row), or `/bish mouse`.
+Left-click the minimap button, or `/bish mouse`.
 A drawn mouse, and you drop a spell on the button you intend to press — left,
 right, middle, two thumb buttons, wheel up and wheel down, times no modifier,
 shift, ctrl and alt. Twenty-eight places.
@@ -126,8 +126,15 @@ a time.
 
 ## Everything else
 
-`/bish`, or any click on the minimap button, opens one small window with all of
-it. `/bish` with anything it does not recognise lists the rest.
+`/bish`, or a right-click on the minimap button, opens the options - one small
+window with all of it, also held in the game's own options under Esc > Options >
+AddOns > BiS> > BiS> Healing. `/bish` with anything it does not recognise lists
+the rest.
+
+A new install starts with only the main job on: the cells, your binds, cure
+boxes, your heals over time, click-a-dead-friend res and the gold ring. The
+mouse crosshair, the LOS flash, the buff-drop sound and the buff reminder start
+off; each has a switch in the options.
 
 Drag the header above the cells to move them; they stay there after a restart.
 `/bish center` brings them back to the middle. "Show the cells" in the window

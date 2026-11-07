@@ -1,5 +1,16 @@
 # BiS Healing
 
+## 1.0.0 - Forever 1.0
+
+- **The minimap button is the same as every BiS addon now: left-click opens your mouse binds, right-click opens the options.** This swaps the two clicks from 0.17.0 (where right-click was the binds), so if your hand is used to the old way: the binds moved to the LEFT button. Hover the button and the tooltip says which is which.
+- **One home for the options: Esc > Options > AddOns > BiS>.** Every BiS addon you have is listed there with what it has on, and BiS> Healing holds the same switches as the options window, plus a big "mouse binds" button. Right-click on the minimap button takes you straight there.
+- **A new install starts quiet.** If you have never used BiS Healing before, it starts with only its main job on: the healing cells, your click-to-cast binds, the cure boxes, your heals over time, click-a-dead-friend res and the gold ring. The mouse crosshair, the LOS flash, the buff-drop sound and the buff reminder in the header start off - switch any of them on in the options.
+- **Already using BiS Healing? Nothing changes for you.** Everything you had on stays on, and everything you had off stays off.
+- **Two new switches in the options window:** "LOS flash" (under frames) and "watch my buff" (under reminders). `/bish buff off` and `/bish buff on` do the same as the second one; switching it off keeps your own buff list for when you switch it back on.
+- **No more red "this client did not hand back a saved file" on a first install.** It now only shows when you really had settings that the game did not give back.
+- **Logging into an alt for the first time no longer resets your settings.** An alt that had never logged out with BiS Healing could throw the account's settings back to the defaults.
+- **Fixes:** an aura button the game refuses to let us style no longer throws an error every time an aura arrives (that marker is simply left out, and `/bish auras` says so); two hidden-name checks now run before anything compares the name.
+
 ## 0.17.1
 
 - **Which BiS versions your guild runs:** `/biscomm ver` lists every BiS addon around you, who has the newest, and which release is marked critical. Nothing is said unless an update is critical (or your copy is too old to talk to a guildmate's) - then one line, once, never in a fight.

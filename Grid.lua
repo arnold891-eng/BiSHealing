@@ -2035,6 +2035,16 @@ function FG.Layout(anchor)
         -- through each other on a party grid: "in default mode keep BiS> but drop the healing and
         -- put it in there". The prompt still blinks; it just stops saying what you already know.
         local h = FG.header
+        -- THE HEADER STOPS AT THE LAST PERSON (Arn, 8 Nov: "header is extra long"): in PvP mode the grid keeps room on
+        -- its right for the last target cells - the blocks beside it dock past that - but the bar over the cells does not
+        -- run over it, empty or not
+        local trim = extra
+        if h and h.SetPoint then
+            h:ClearAllPoints()
+            h:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, GRID_HEADER_LIFT)
+            h:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", -trim, GRID_HEADER_LIFT)
+        end
+        w = w - trim
         if h and h.con then h.con.width = math.max(40, w - 10) end
         if h and h.title and not h.con then
             local T = _G.BiSTheme

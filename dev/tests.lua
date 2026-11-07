@@ -10604,6 +10604,13 @@ do
     ok(FG.pvpCells[1] and FG.pvpCells[1].__kind == "Button" and FG.pvpCells[1].__scripts.OnEnter
        and FG.pvpCells[1].__scripts.OnEnter ~= nil, "a secure unit button, like the grid's cells")
     ok(FG.anchor.__w == W + PAD + SW, "the grid is one column of member + target wide", FG.anchor.__w)
+    -- THE HEADER STOPS AT THE LAST PERSON (Arn, 8 Nov: "header is extra long" - it ran over the empty target room):
+    -- the grid keeps the room (blocks beside it dock past it), the header bar does not
+    local hp = FG.header and FG.header.points
+    local right
+    for _, p in ipairs(hp or {}) do if p[1] == "BOTTOMRIGHT" then right = p end end
+    ok(right and right[4] == -(SW + PAD), "the header bar stops at the last cell, not over the target room",
+       right and tostring(right[4]))
 
     -- the unit watch: an empty target hides by itself, even in a fight
     STATE.units.party1target = true

@@ -1,5 +1,16 @@
 # BiS Healing
 
+## 1.0.3
+
+- **The cockpit look.** Every cell is redrawn like one screen on an aircraft's instrument panel, with one colour rule: green is fine, amber is a caution, red is a warning, cyan is information, magenta is what you've selected.
+  - A near-black tile with a thin steel bezel.
+  - The name in a black strip across the top, in white, narrow type - with a small **lamp in their class colour** in front of it.
+  - The health tape **green, then amber, then red** as they get hurt.
+  - Missing health in an **amber readout window**, bottom right.
+  - Heals on their way in **cyan**, the shield in white, overheal in **orange**.
+  - Your target marked in **magenta**; DEAD in red, OFFLINE in amber.
+- Prefer the old look? **Options > look: classic** (or `/bish look classic`) puts every cell back as it was, at once.
+
 ## 1.0.2
 
 - **PvP mode: the interrupt icon is for enemies only.** When a teammate is targeting a friend, the small cell stays (click it to heal who they're on), but it shows no interrupt icon, doesn't light up when that friend casts, and a click on that spot casts nothing.

@@ -1582,6 +1582,19 @@ local PVP_SAID = {
     on  = "PvP mode everywhere: beside each player their target - click it to cast on it",
 }
 
+--- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit"): "cockpit" or "classic". No
+--- argument walks the two. Every cell is dressed again at once and repainted - paint only, so it is safe in a fight.
+function NS.DO.look(how)
+    local d = DB()
+    if not (NS.FG and NS.FG.LOOKS and NS.FG.LOOKS[how or ""]) then
+        how = (NS.FG and NS.FG.Look and NS.FG.Look() == "cockpit") and "classic" or "cockpit"
+    end
+    d.look = how
+    if NS.FG and NS.FG.RedressAll then NS.FG.RedressAll() end
+    Print("look: " .. how)
+    return how
+end
+
 --- THE CAST ALERT on the PvP interrupt icon: "glow", "bounce" or "both" (Arn, 8 Nov 2026). No argument walks the three.
 --- Applied at once to every target cell, mid-cast too.
 function NS.DO.kickfx(how)
@@ -2080,6 +2093,10 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.mana(msg:match("^mana%s+(%a+)$"))
     elseif msg:match("^me%s+%a+$") or msg:match("^self%s+%a+$") then
         NS.DO.me(msg:match("^%a+%s+(%a+)$"))
+    elseif msg == "look" then
+        NS.DO.look()
+    elseif msg:match("^look%s+%a+$") then
+        NS.DO.look(msg:match("^look%s+(%a+)$"))
     elseif msg == "regen" or msg == "fsr" then
         NS.DO.regen()
     elseif msg == "cpu" then

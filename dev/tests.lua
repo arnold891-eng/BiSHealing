@@ -415,8 +415,15 @@ local function newFrame(kind, name, parent)
             __parent = self,
             GetParent = function(self2) return self2.__parent end,
             __size   = FONT_SIZE[template or ""] or 12,
-            SetFont  = function(self2, _, size) if type(size) == "number" then self2.__size = size end end,
-            SetFontObject = function(self2, o) self2.__size = FONT_SIZE[o] or (type(o) == "table" and o.__size) or self2.__size end,
+            -- the font FILE is kept too, as the client keeps it (8 Nov 2026: "which type is this label in" for the cockpit)
+            SetFont  = function(self2, file, size)
+                self2.__fontFile = file
+                if type(size) == "number" then self2.__size = size end
+            end,
+            SetFontObject = function(self2, o)
+                self2.__fontFile = nil
+                self2.__size = FONT_SIZE[o] or (type(o) == "table" and o.__size) or self2.__size
+            end,
             SetWidth = function(self2, w) self2.__w = w end,
             SetWordWrap = function(self2, v) self2.__wrap = v and true or false end,
         })
@@ -1116,6 +1123,9 @@ end
 NS.FK.MacrosArrived()
 local FG = NS.FG
 local FRAME_W_FOR_TEST = 84 - 10 + 1    -- Grid.lua's FRAME_W less the header padding, for the fit check
+-- THE CLASSIC LOOK for everything below that checks it (8 Nov 2026: the cockpit look is the default; it has its own
+-- section, "THE COCKPIT LOOK", near the end). A cell takes the look it is made in, so this is set before any is made.
+NS.DB().look = "classic"
 
 ok(NS.SECRET == true, "NS.SECRET must be true when the client says it hides numbers")
 ok(NS.Blind() == false, "out of combat the addon is not blind")
@@ -6620,14 +6630,15 @@ do
         -- answers (off / bg / on), under "groups" where the grid's shape is chosen. Column 2 was at 14.
         -- SIXTEEN (8 Nov 2026, same night): the PvP cast alert - glow, bounce or both - which Arn asked to be a
         -- player's pick ("lets make it an option for them glow or bounce"), under PvP mode
-        ok(tall[1] <= 14 and tall[2] <= 16, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- SEVENTEEN (8 Nov 2026, later): the look - cockpit or classic - Arn's cockpit redesign, one switch to go back
+        ok(tall[1] <= 14 and tall[2] <= 17, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
         -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
         -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
         -- player can find - so the LOS flash and the buff reminder got rows
-        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert
-        ok(#NS.UI.Rows() <= 25, "and the whole window has no more than twenty-five rows: " .. #NS.UI.Rows())
+        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert; TWENTY-SIX: the look
+        ok(#NS.UI.Rows() <= 26, "and the whole window has no more than twenty-six rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -10208,6 +10219,83 @@ do
     local okMe, who = pcall(NS.Me)
     _G.UnitName = realName
     ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
+end
+
+-- ============================================================== THE COCKPIT LOOK (8 Nov 2026)
+-- Arn: "reimage the cells and frames as if its on a cockpit, rearragne where the names goes what color they are where
+-- the buttons sit on the frames etc". A glass cockpit's colour rule: green normal, amber caution, red warning, cyan
+-- information, magenta selected, white words. The default; "classic" one switch away.
+do
+    local d = NS.DB()
+    local keepLook = d.look
+    local function near(c, want) return c and math.abs(c[1] - want[1]) < 0.01 and math.abs(c[2] - want[2]) < 0.01
+                                      and math.abs(c[3] - want[3]) < 0.01 end
+    d.look = nil
+    ok(FG.Look() == "cockpit", "a player who never picked: the cockpit")
+    ok(NS.DO.look("cockpit") == "cockpit" and d.look == "cockpit", "/bish look cockpit")
+    local K = FG.COCKPIT
+    local f
+    for _, x in ipairs(FG.frames) do if x.unit and x:IsShown() then f = x break end end
+    ok(f and f.__look == "cockpit", "every cell is dressed again at once", f and tostring(f.__look))
+    ok(near(f.bg.__color, K.tile), "the tile is near-black, a display")
+    ok(f.bezel.top.__shown and near(f.bezel.left.__color, K.bezel), "with a thin steel bezel")
+    ok(f.band.__shown and f.band.__h == FG.NAME_BAND, "a black name strip across the top", tostring(f.band.__h))
+    -- THE STRIP NEVER COVERS A CROSSHAIR: over the heal bands, under the words, and the target / mouse / tank marks
+    -- drawn above them all (a frame draws over a lower one, whatever the texture layer)
+    local function lvl(x) return x and x.GetFrameLevel and x:GetFrameLevel() or -1 end
+    local stripLvl = lvl(f.bandFrame)
+    ok(stripLvl > lvl(f.overheal) and stripLvl > lvl(f.incoming) and stripLvl > lvl(f.absorb) and stripLvl < lvl(f.ink),
+       "the strip is over the heal bands and under the words", stripLvl .. " vs ink " .. lvl(f.ink))
+    ok(lvl(f.targetRing) > stripLvl and lvl(f.notTarget) > stripLvl and lvl(f.tankRing) > stripLvl,
+       "the target, mouse and tank marks are drawn over the strip",
+       ("%d %d %d over %d"):format(lvl(f.targetRing), lvl(f.notTarget), lvl(f.tankRing), stripLvl))
+    -- THE NAME: white, narrow type, left-aligned after the class lamp
+    FG.Paint(f)
+    ok(near(f.name.__tc or f.name.__color, K.name), "the name is white - the class is not the name's job here")
+    ok(f.name.__fontFile == K.font, "in narrow instrument type", tostring(f.name.__fontFile))
+    ok(f.name.__justify == "LEFT", "left-aligned like a label", tostring(f.name.__justify))
+    ok(f.lamp.__shown and f.lamp.__color, "and the class shows as a lamp in the strip")
+    -- THE TAPE: by state, never by class
+    local _, cls = UnitClass(f.unit)
+    local bc = f.bar.__color
+    ok(bc and not (cls and near(bc, ({ SHAMAN = { 0.0, 0.44, 0.87 } })[cls] or { -1, -1, -1 })),
+       "the health tape is coloured by state, not by class", bc and table.concat(bc, ","))
+    -- THE READOUT: a black window bottom right, amber digits
+    ok(f.readoutBox.__shown and near(f.readoutBox.__color, K.readoutBox), "a readout window bottom right")
+    ok(near(f.htext.__tc or f.htext.__color, K.readout), "missing health in amber")
+    ok(near(f.incoming.__color or f.incoming.__statusColor, K.incoming), "heals on their way in cyan")
+    ok(near(f.overheal.__color or f.overheal.__statusColor, K.overheal), "overheal in orange - a caution")
+    -- YOUR TARGET: magenta
+    local keepIsUnit = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return b == "target" end
+    FG.PaintTarget(f, f.unit, true)
+    _G.UnitIsUnit = keepIsUnit
+    local stroke = f.targetRing.cross[1].__color
+    ok(near(stroke, K.target), "your target wears a magenta crosshair", stroke and table.concat(stroke, ","))
+    -- DEAD: a red annunciator
+    STATE.dead[f.unit] = true
+    FG.Paint(f)
+    ok(f.htext.__text == "DEAD" and near(f.htext.__tc or f.htext.__color, K.dead), "DEAD in warning red")
+    STATE.dead[f.unit] = nil
+    FG.Paint(f)
+    ok(near(f.htext.__tc or f.htext.__color, K.readout), "and back to the amber readout when they stand up")
+    -- ONE SWITCH BACK
+    local row
+    for _, o in ipairs(NS.UI.Rows()) do if o.key == "look" then row = o end end
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "cockpit,classic" and row.help,
+       "the options window has a look row: cockpit, classic")
+    row.set(d, "classic")
+    ok(d.look == "classic" and f.__look == "classic", "classic picked: every cell back at once")
+    ok(not f.band.__shown and not f.bezel.top.__shown and not f.lamp.__shown and not f.readoutBox.__shown,
+       "no strip, no bezel, no lamp, no readout window")
+    ok(f.targetRing:GetFrameLevel() == f:GetFrameLevel() + 2 and f.notTarget:GetFrameLevel() == f:GetFrameLevel() + 3
+       and f.tankRing:GetFrameLevel() == f:GetFrameLevel() + 1, "and the marks back at their classic levels")
+    ok(near(f.bg.__color, FG.CLASSIC.tile) and near(f.incoming.__color or f.incoming.__statusColor, FG.CLASSIC.incoming),
+       "the tile and the heals as they were")
+    SlashCmdList.BISHEALING("look cockpit")
+    ok(d.look == "cockpit" and f.__look == "cockpit", "/bish look cockpit puts it back")
+    d.look = keepLook
+    FG.RedressAll()
 end
 
 -- ============================================================== HOSTILE BINDS AND MACROS (8 Nov 2026)

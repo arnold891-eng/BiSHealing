@@ -415,8 +415,15 @@ local function newFrame(kind, name, parent)
             __parent = self,
             GetParent = function(self2) return self2.__parent end,
             __size   = FONT_SIZE[template or ""] or 12,
-            SetFont  = function(self2, _, size) if type(size) == "number" then self2.__size = size end end,
-            SetFontObject = function(self2, o) self2.__size = FONT_SIZE[o] or (type(o) == "table" and o.__size) or self2.__size end,
+            -- the font FILE is kept too, as the client keeps it (8 Nov 2026: "which type is this label in" for the cockpit)
+            SetFont  = function(self2, file, size)
+                self2.__fontFile = file
+                if type(size) == "number" then self2.__size = size end
+            end,
+            SetFontObject = function(self2, o)
+                self2.__fontFile = nil
+                self2.__size = FONT_SIZE[o] or (type(o) == "table" and o.__size) or self2.__size
+            end,
             SetWidth = function(self2, w) self2.__w = w end,
             SetWordWrap = function(self2, v) self2.__wrap = v and true or false end,
         })
@@ -734,6 +741,16 @@ _G.CreateFrame = function(kind, name, parent, template)
     end
     local made = realCreateFrame(kind, name, parent, template)
     if type(made) == "table" then made.__template = template end      -- which template, so a suite can ask
+    -- A COOLDOWN FRAME, as the client's: it takes a duration object (secret or not) and runs the sweep itself
+    if type(made) == "table" and kind == "Cooldown" then
+        function made:SetCooldownFromDurationObject(o) self.__durObj = o end
+        function made:SetCooldown(s, d) self.__start, self.__dur = s, d end
+        function made:Clear() self.__durObj, self.__start, self.__dur = nil, nil, nil end
+        function made:SetDrawBling(v) self.__bling = v end
+        function made:SetDrawEdge(v) self.__edgeOn = v end
+        function made:SetHideCountdownNumbers(v) self.__noNumbers = v end
+        function made:SetSwipeColor(...) self.__swipe = { ... } end
+    end
     return made
 end
 
@@ -1116,6 +1133,9 @@ end
 NS.FK.MacrosArrived()
 local FG = NS.FG
 local FRAME_W_FOR_TEST = 84 - 10 + 1    -- Grid.lua's FRAME_W less the header padding, for the fit check
+-- THE CLASSIC LOOK for everything below that checks it (8 Nov 2026: the cockpit look is the default; it has its own
+-- section, "THE COCKPIT LOOK", near the end). A cell takes the look it is made in, so this is set before any is made.
+NS.DB().look = "classic"
 
 ok(NS.SECRET == true, "NS.SECRET must be true when the client says it hides numbers")
 ok(NS.Blind() == false, "out of combat the addon is not blind")
@@ -6620,14 +6640,15 @@ do
         -- answers (off / bg / on), under "groups" where the grid's shape is chosen. Column 2 was at 14.
         -- SIXTEEN (8 Nov 2026, same night): the PvP cast alert - glow, bounce or both - which Arn asked to be a
         -- player's pick ("lets make it an option for them glow or bounce"), under PvP mode
-        ok(tall[1] <= 14 and tall[2] <= 16, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- SEVENTEEN (8 Nov 2026, later): the look - cockpit or classic - Arn's cockpit redesign, one switch to go back
+        ok(tall[1] <= 14 and tall[2] <= 17, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
         -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
         -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
         -- player can find - so the LOS flash and the buff reminder got rows
-        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert
-        ok(#NS.UI.Rows() <= 25, "and the whole window has no more than twenty-five rows: " .. #NS.UI.Rows())
+        -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert; TWENTY-SIX: the look
+        ok(#NS.UI.Rows() <= 26, "and the whole window has no more than twenty-six rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -10210,6 +10231,105 @@ do
     ok(okMe and who == nil, "a hidden name: me() answers nobody, never throws", tostring(who))
 end
 
+-- ============================================================== THE COCKPIT LOOK (8 Nov 2026)
+-- Arn: "reimage the cells and frames as if its on a cockpit, rearragne where the names goes what color they are where
+-- the buttons sit on the frames etc". A glass cockpit's colour rule: green normal, amber caution, red warning, cyan
+-- information, magenta selected, white words. The default; "classic" one switch away.
+do
+    local d = NS.DB()
+    local keepLook = d.look
+    local function near(c, want) return c and math.abs(c[1] - want[1]) < 0.01 and math.abs(c[2] - want[2]) < 0.01
+                                      and math.abs(c[3] - want[3]) < 0.01 end
+    d.look = nil
+    ok(FG.Look() == "cockpit", "a player who never picked: the cockpit")
+    ok(NS.DO.look("cockpit") == "cockpit" and d.look == "cockpit", "/bish look cockpit")
+    local K = FG.COCKPIT
+    local f
+    for _, x in ipairs(FG.frames) do if x.unit and x:IsShown() then f = x break end end
+    ok(f and f.__look == "cockpit", "every cell is dressed again at once", f and tostring(f.__look))
+    ok(near(f.bg.__color, K.tile), "the tile is near-black, a display")
+    ok(f.bezel.top.__shown and near(f.bezel.left.__color, K.bezel), "with a thin steel bezel")
+    -- DESIGN B, THE TAPE (Arn, 8 Nov, of three drawn: "Go with cockpit design B, the tape"): a dark screen, the
+    -- name big on top behind its class lamp, the missing health an amber readout on the right, and the health a gauge
+    -- tape along the bottom with quarter marks. No strip, no black boxes.
+    local function pt(x, name) for _, p in ipairs(x.points or {}) do if p[1] == name then return p end end end
+    local bl, br = pt(f.bar, "BOTTOMLEFT"), pt(f.bar, "BOTTOMRIGHT")
+    ok(bl and br and f.bar.__h == K.tapeH and not pt(f.bar, "TOPLEFT"),
+       "the health is a tape along the bottom, " .. K.tapeH .. " px tall", tostring(f.bar.__h))
+    local tw = (f.__w or 84) - 2 * K.tapeIn
+    ok(f.incoming.__w == tw and f.incoming.__h == K.tapeH and f.overheal.__w == tw and f.absorb.__h == K.tapeH,
+       "the heals, shield and overheal are the tape's own size (the overheal's geometry needs it exact)",
+       ("%s x %s vs %s x %s"):format(tostring(f.incoming.__w), tostring(f.incoming.__h), tw, K.tapeH))
+    ok(f.track and f.track.__shown, "the tape sits in a dark track")
+    ok(#f.ticks == 3, "with three quarter marks")
+    local q = pt(f.ticks[2], "BOTTOMLEFT")
+    ok(q and math.abs(q[4] - tw * 0.5) < 0.6, "the middle mark at half the tape", q and tostring(q[4]))
+    ok(not f.band.__shown and not f.readoutBox.__shown, "no black strip, no black readout box")
+    local ip = f.ink.__allpoints
+    ok(ip == f, "the words ride the whole cell, not the tape")
+    local hp = pt(f.htext, "BOTTOMRIGHT")
+    ok(hp and hp[2] == f.bar and hp[3] == "TOPRIGHT", "the readout sits on the right, just above the tape")
+    -- THE MARKS ARE NEVER COVERED: the quarter marks' layer is over the heal bands and under the words, and the
+    -- target / mouse / tank marks are drawn above them all (a frame draws over a lower one, whatever the texture layer)
+    local function lvl(x) return x and x.GetFrameLevel and x:GetFrameLevel() or -1 end
+    local stripLvl = lvl(f.bandFrame)
+    ok(stripLvl > lvl(f.overheal) and stripLvl > lvl(f.incoming) and stripLvl > lvl(f.absorb) and stripLvl < lvl(f.ink),
+       "the quarter marks are over the heal bands and under the words", stripLvl .. " vs ink " .. lvl(f.ink))
+    ok(lvl(f.targetRing) > stripLvl and lvl(f.notTarget) > stripLvl and lvl(f.tankRing) > stripLvl,
+       "the target, mouse and tank marks are drawn over them",
+       ("%d %d %d over %d"):format(lvl(f.targetRing), lvl(f.notTarget), lvl(f.tankRing), stripLvl))
+    -- THE NAME: white, narrow type, left-aligned after the class lamp
+    FG.Paint(f)
+    ok(near(f.name.__tc or f.name.__color, K.name), "the name is white - the class is not the name's job here")
+    ok(f.name.__fontFile == K.font, "in narrow instrument type", tostring(f.name.__fontFile))
+    ok(f.name.__justify == "LEFT", "left-aligned like a label", tostring(f.name.__justify))
+    ok(f.lamp.__shown and f.lamp.__color, "and the class shows as a lamp in the strip")
+    -- THE TAPE: by state, never by class
+    local _, cls = UnitClass(f.unit)
+    local bc = f.bar.__color
+    ok(bc and not (cls and near(bc, ({ SHAMAN = { 0.0, 0.44, 0.87 } })[cls] or { -1, -1, -1 })),
+       "the health tape is coloured by state, not by class", bc and table.concat(bc, ","))
+    -- THE READOUT: a black window bottom right, amber digits
+    ok(not f.readoutBox.__shown, "the readout has no black box behind it (B: the digits alone)")
+    ok(near(f.htext.__tc or f.htext.__color, K.readout), "missing health in amber")
+    ok(near(f.incoming.__color or f.incoming.__statusColor, K.incoming), "heals on their way in cyan")
+    ok(near(f.overheal.__color or f.overheal.__statusColor, K.overheal), "overheal in orange - a caution")
+    -- YOUR TARGET: magenta
+    local keepIsUnit = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return b == "target" end
+    FG.PaintTarget(f, f.unit, true)
+    _G.UnitIsUnit = keepIsUnit
+    local stroke = f.targetRing.cross[1].__color
+    ok(near(stroke, K.target), "your target wears a magenta crosshair", stroke and table.concat(stroke, ","))
+    -- DEAD: a red annunciator
+    STATE.dead[f.unit] = true
+    FG.Paint(f)
+    ok(f.htext.__text == "DEAD" and near(f.htext.__tc or f.htext.__color, K.dead), "DEAD in warning red")
+    STATE.dead[f.unit] = nil
+    FG.Paint(f)
+    ok(near(f.htext.__tc or f.htext.__color, K.readout), "and back to the amber readout when they stand up")
+    -- ONE SWITCH BACK
+    local row
+    for _, o in ipairs(NS.UI.Rows()) do if o.key == "look" then row = o end end
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "cockpit,classic" and row.help,
+       "the options window has a look row: cockpit, classic")
+    row.set(d, "classic")
+    ok(d.look == "classic" and f.__look == "classic", "classic picked: every cell back at once")
+    ok(not f.band.__shown and not f.bezel.top.__shown and not f.lamp.__shown and not f.readoutBox.__shown,
+       "no strip, no bezel, no lamp, no readout window")
+    ok(f.targetRing:GetFrameLevel() == f:GetFrameLevel() + 2 and f.notTarget:GetFrameLevel() == f:GetFrameLevel() + 3
+       and f.tankRing:GetFrameLevel() == f:GetFrameLevel() + 1, "and the marks back at their classic levels")
+    ok(near(f.bg.__color, FG.CLASSIC.tile) and near(f.incoming.__color or f.incoming.__statusColor, FG.CLASSIC.incoming),
+       "the tile and the heals as they were")
+    ok(pt(f.bar, "TOPLEFT") and f.ink.__allpoints == f.bar and not f.track.__shown and not f.ticks[1].__shown
+       and f.incoming.__h == (f:GetHeight() or 0) - 2,
+       "the health fills the cell again, the words on it, no track or marks, the bands the cell's size")
+    SlashCmdList.BISHEALING("look cockpit")
+    ok(d.look == "cockpit" and f.__look == "cockpit", "/bish look cockpit puts it back")
+    d.look = keepLook
+    FG.RedressAll()
+end
+
 -- ============================================================== HOSTILE BINDS AND MACROS (8 Nov 2026)
 -- Arn: "hostile mode > can drag harmful spells and if a cell is a hostile target use the hostile binds on them.
 -- can drag macros also on the binds." The hostile set is a second mouse; the client's own secure click code
@@ -10516,6 +10636,13 @@ do
     ok(FG.pvpCells[1] and FG.pvpCells[1].__kind == "Button" and FG.pvpCells[1].__scripts.OnEnter
        and FG.pvpCells[1].__scripts.OnEnter ~= nil, "a secure unit button, like the grid's cells")
     ok(FG.anchor.__w == W + PAD + SW, "the grid is one column of member + target wide", FG.anchor.__w)
+    -- THE HEADER STOPS AT THE LAST PERSON (Arn, 8 Nov: "header is extra long" - it ran over the empty target room):
+    -- the grid keeps the room (blocks beside it dock past it), the header bar does not
+    local hp = FG.header and FG.header.points
+    local right
+    for _, p in ipairs(hp or {}) do if p[1] == "BOTTOMRIGHT" then right = p end end
+    ok(right and right[4] == -(SW + PAD), "the header bar stops at the last cell, not over the target room",
+       right and tostring(right[4]))
 
     -- the unit watch: an empty target hides by itself, even in a fight
     STATE.units.party1target = true
@@ -10749,6 +10876,23 @@ do
        tostring(kb:GetAttribute("*spell-kick")))
     ok(kb:GetAttribute("unit") == tok, "at that teammate's target", tostring(kb:GetAttribute("unit")))
     ok(kb.__mouse ~= false, "and it takes the click")
+    -- ITS COOLDOWN SHOWS (Arn, 8 Nov: "right now i interuppt bit it still looks like i can click it again ... no cooldown
+    -- indicator"): a sweep over the icon, run by the client from a duration object it hands us for our own spell -
+    -- never a number read. Asked when the client says a cooldown changed (SPELL_UPDATE_COOLDOWN), only while PvP shows.
+    local durAsked, durObj = {}, { duration = 12 }
+    local keepDur = _G.C_Spell.GetSpellCooldownDuration
+    _G.C_Spell.GetSpellCooldownDuration = function(s) durAsked[#durAsked + 1] = s return durObj end
+    ok(kc.kickCd and kc.kickCd.__kind == "Cooldown", "the icon carries a cooldown sweep")
+    local ev = FG.pvpEvents
+    ok(ev and ev.__events and ev.__events.SPELL_UPDATE_COOLDOWN, "PvP mode listens for cooldown changes while it shows")
+    ev.__scripts.OnEvent(ev, "SPELL_UPDATE_COOLDOWN")
+    ok(durAsked[1] == "Earth Shock" and kc.kickCd.__durObj == durObj,
+       "your interrupt's cooldown handed to the sweep as the client gave it", tostring(durAsked[1]))
+    local hiddenObj = secretString()
+    _G.C_Spell.GetSpellCooldownDuration = function() return hiddenObj end
+    ok(pcall(ev.__scripts.OnEvent, ev, "SPELL_UPDATE_COOLDOWN") and kc.kickCd.__durObj == hiddenObj,
+       "a hidden answer is handed on untouched, never tested")
+    _G.C_Spell.GetSpellCooldownDuration = keepDur
     kb.__scripts.OnEnter(kb)
     ok(kc.kickGlow:IsShown(), "under the mouse it lights (the family rule)")
     kb.__scripts.OnLeave(kb)

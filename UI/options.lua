@@ -122,6 +122,11 @@ function CFG.Sections()
         { title = "look", column = 2, options = {
             -- three answers, so segments rather than a switch: "lost" is what they still need
             -- after incoming heals, blank at full
+            -- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit")
+            { key = "look", kind = "seg", label = "look", help = "cockpit - a dark display: the name big on top behind a lamp in their class colour, the health a gauge tape along the bottom (green, amber, red by how hurt they are), the missing health in amber above it, your target in magenta. classic - the look from before 1.0.3.",
+              values = { "cockpit", "classic" },
+              get = function() return (NS.FG and NS.FG.Look and NS.FG.Look()) or "cockpit" end,
+              set = function(_, v) if DO.look then DO.look(v) end end },
             { key = "number", kind = "seg", label = "number", help = "The number on each cell: lost - the health they still need after heals on the way; % - their health; off - none.",
               values = { "lost", "%", "off" },
               get = function(db)
@@ -571,7 +576,7 @@ function CFG.Entries()
           usage = "/bish mouse  -  /bish clique  -  /bish efficiency" },
         { key = "look", title = "look",
           desc = "What each cell shows: the number on it, the bar colour, the gold ring, the mouse crosshair, how far it dims out of range and the size of the debuff markers.",
-          options = pick("number", "colour", "ring", "hover", "dim", "markers"), db = db,
+          options = pick("look", "number", "colour", "ring", "hover", "dim", "markers"), db = db,
           usage = "/bish number  -  /bish colour  -  /bish ring me|target  -  /bish hover  -  /bish dim 40  -  /bish markers 12" },
         { key = "layout", title = "layout",
           desc = "How the groups sit: a column each, a row each, or tanks on top. PvP mode adds, beside everyone, whoever they are targeting, to click - in whichever of those shapes you picked.",

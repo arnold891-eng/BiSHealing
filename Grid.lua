@@ -435,6 +435,43 @@ end
 
 --- Recolour a crosshair's strokes - only when the colour actually changes, since this is asked on
 --- every paint and twelve SetColorTexture calls a cell a tick is exactly the cost we hunt.
+-- ---------------------------------------------------------------- THE COCKPIT LOOK (8 Nov 2026)
+-- Arn: "reimage the cells and frames as if its on a cockpit, rearragne where the names goes what color they are where
+-- the buttons sit on the frames etc go and good luck". A glass cockpit's colour rule, and nothing else on the cell:
+-- GREEN normal, AMBER caution, RED warning, CYAN information, MAGENTA what you have selected, WHITE words.
+--   the tile      a near-black display with a thin steel bezel - one screen on an instrument panel
+--   name strip    black, across the top: a small LAMP in the class colour, then the name in white, narrow type
+--   health tape   below it, coloured by state (green -> amber -> red, the client's own curve: health is never read)
+--   readout       a fixed black window bottom right, missing health in amber digits - empty at full health
+--   heals coming  cyan (information); the shield white; overheal orange (wasted mana is a caution)
+--   your target   a magenta crosshair; the mouse white; your tank a cyan frame
+-- "classic" keeps the look from before, one switch away (d.look; options: look).
+FG.COCKPIT = {
+    tile = { 0.03, 0.04, 0.05, 0.96 }, bezel = { 0.20, 0.26, 0.31, 1 }, band = { 0.00, 0.00, 0.00, 0.88 },
+    name = { 0.94, 0.96, 1.00 }, readoutBox = { 0.00, 0.00, 0.00, 0.80 }, readout = { 1.00, 0.72, 0.18 },
+    green = { 0.16, 0.80, 0.40 }, incoming = { 0.22, 0.80, 1.00, 0.60 }, absorb = { 1.00, 1.00, 1.00, 0.45 },
+    overheal = { 1.00, 0.48, 0.08, 0.95 }, target = { 1.00, 0.24, 0.92 }, dead = { 0.95, 0.24, 0.20 },
+    offline = { 1.00, 0.72, 0.18 }, font = "Fonts\\ARIALN.TTF", nameSize = 11, readSize = 11,
+    lamp = 6, readoutW = 34, readoutH = 11,
+    -- DESIGN B, THE TAPE (Arn picked it of three, 8 Nov): the health a gauge tape along the bottom, in a dark track,
+    -- with quarter marks; the name big on top, the readout on the right above the tape
+    tapeH = 10, tapeIn = 3, track = { 0.07, 0.09, 0.11, 1 }, tick = { 0.03, 0.04, 0.05, 1 },
+}
+FG.CLASSIC = { tile = { 0.08, 0.08, 0.08, 0.9 }, incoming = { 0.30, 0.85, 0.45, 0.55 }, absorb = { 0.95, 0.85, 0.45, 0.50 },
+               readout = { 1, 0.55, 0.55 } }
+FG.LOOKS = { cockpit = true, classic = true }
+
+--- "cockpit" (the default) or "classic".
+function FG.Look()
+    local d = NS.DB and NS.DB()
+    local v = type(d) == "table" and d.look or nil
+    return FG.LOOKS[v or ""] and v or "cockpit"
+end
+function FG.Cockpit() return FG.Look() == "cockpit" end
+
+--- The colour that marks your target: magenta in the cockpit, red in the classic look.
+function FG.TargetColor() return FG.Cockpit() and FG.COCKPIT.target or FG.TARGET end
+
 function FG.TintCross(frame, c)
     if not (frame and frame.cross and c) or frame.tint == c then return end
     frame.tint = c
@@ -723,8 +760,191 @@ function FG.Make(i, parent)
     f.role:SetPoint("TOPRIGHT", -1, -1)
     f.role:Hide()
 
+    -- THE COCKPIT'S OWN PARTS (8 Nov 2026), made once, shown only in that look (FG.ApplyLook): the bezel round the
+    -- tile, the black name strip over the top of the tape, the class lamp in it, and the readout window. On the ink
+    -- layer, so they sit over every band and under the words.
+    f.bezel = {}
+    for _, side in ipairs({ "top", "bottom", "left", "right" }) do
+        local t = f:CreateTexture(nil, "BORDER")
+        t:Hide()
+        f.bezel[side] = t
+    end
+    f.bezel.top:SetPoint("TOPLEFT")      f.bezel.top:SetPoint("TOPRIGHT")      f.bezel.top:SetHeight(1)
+    f.bezel.bottom:SetPoint("BOTTOMLEFT") f.bezel.bottom:SetPoint("BOTTOMRIGHT") f.bezel.bottom:SetHeight(1)
+    f.bezel.left:SetPoint("TOPLEFT")     f.bezel.left:SetPoint("BOTTOMLEFT")   f.bezel.left:SetWidth(1)
+    f.bezel.right:SetPoint("TOPRIGHT")   f.bezel.right:SetPoint("BOTTOMRIGHT") f.bezel.right:SetWidth(1)
+    -- the strip on a layer of its OWN: over the heal bands (incoming, shield, overheal), under the words - and the
+    -- target / mouse / tank marks are lifted over it in the cockpit (FG.ApplyLook), so it never covers a crosshair
+    f.bandFrame = CreateFrame("Frame", nil, f.bar)
+    f.bandFrame:SetAllPoints(f.bar)
+    if f.bandFrame.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
+        if type(lvl) == "number" then f.bandFrame:SetFrameLevel(lvl + 4) end
+    end
+    f.band = f.bandFrame:CreateTexture(nil, "BACKGROUND")
+    f.band:SetPoint("TOPLEFT", f.bandFrame, "TOPLEFT", 0, 0)
+    f.band:SetPoint("TOPRIGHT", f.bandFrame, "TOPRIGHT", 0, 0)
+    f.band:SetHeight(NAME_BAND)
+    f.band:Hide()
+    f.lamp = f.ink:CreateTexture(nil, "ARTWORK")
+    f.lamp:SetSize(FG.COCKPIT.lamp, FG.COCKPIT.lamp)
+    f.lamp:SetPoint("TOPLEFT", f.ink, "TOPLEFT", 3, -3)
+    f.lamp:Hide()
+    f.readoutBox = f.ink:CreateTexture(nil, "BACKGROUND")
+    f.readoutBox:SetSize(FG.COCKPIT.readoutW, FG.COCKPIT.readoutH)
+    f.readoutBox:SetPoint("BOTTOMRIGHT", f.ink, "BOTTOMRIGHT", -2, 2)
+    f.readoutBox:Hide()
+    -- THE TAPE'S TRACK (under the health bar) and its three QUARTER MARKS (over the bands, under the words)
+    f.track = f:CreateTexture(nil, "ARTWORK")
+    f.track:Hide()
+    f.ticks = {}
+    for q = 1, 3 do
+        local t = f.bandFrame:CreateTexture(nil, "OVERLAY")
+        t:SetWidth(1)
+        t:Hide()
+        f.ticks[q] = t
+    end
+
     if i then FG.frames[i] = f end
+    FG.ApplyLook(f)
     return f
+end
+
+--- Every cell dressed again in the chosen look and repainted: the grid, the target, its target, the pets.
+function FG.RedressAll()
+    local cells = {}
+    for _, f in ipairs(FG.frames or {}) do cells[#cells + 1] = f end
+    for _, f in ipairs(FG.petFrames or {}) do cells[#cells + 1] = f end
+    if FG.target then cells[#cells + 1] = FG.target end
+    if FG.tot then cells[#cells + 1] = FG.tot end
+    for _, f in ipairs(cells) do
+        FG.ApplyLook(f)
+        if f.unit and f.name then f.name:SetText(FG.CellName(f, f.unit)) end
+        if f.unit then pcall(FG.Paint, f) end
+    end
+    return #cells
+end
+
+--- The heal, shield and overheal bands sized to the health bar they ride: the whole cell in classic, the tape in the
+--- cockpit. They MUST match the bar - the overheal fills from the bar's right edge by the heal coming, over its own width.
+function FG.SizeBands(f, w, h)
+    if not f then return end
+    local bw, bh = (tonumber(w) or FRAME_W) - 2, (tonumber(h) or FRAME_H) - 2
+    if f.__look == "cockpit" then
+        bw, bh = (tonumber(w) or FRAME_W) - 2 * FG.COCKPIT.tapeIn, FG.COCKPIT.tapeH
+    end
+    for _, b in ipairs({ f.incoming, f.absorb, f.overheal }) do
+        if b and b.SetSize then b:SetSize(bw, bh) end
+    end
+end
+
+--- Where the health bar sits: in the cockpit a TAPE along the bottom in its dark track with quarter marks, the words
+--- over the whole cell and the readout just above the tape on the right; in classic the bar fills the cell, as before.
+function FG.ShapeTape(f)
+    if not (f and f.bar) then return end
+    local K = FG.COCKPIT
+    local w = f.__w or FRAME_W
+    local cockpit = f.__look == "cockpit"
+    f.bar:ClearAllPoints()
+    if cockpit then
+        f.bar:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", K.tapeIn, K.tapeIn)
+        f.bar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -K.tapeIn, K.tapeIn)
+        f.bar:SetHeight(K.tapeH)
+    else
+        f.bar:SetPoint("TOPLEFT", 1, -1)
+        f.bar:SetPoint("BOTTOMRIGHT", -1, 1)
+    end
+    if f.ink then
+        f.ink:ClearAllPoints()
+        f.ink:SetAllPoints(cockpit and f or f.bar)
+    end
+    if f.track then
+        if cockpit then
+            local c = K.track
+            f.track:ClearAllPoints()
+            f.track:SetPoint("TOPLEFT", f.bar, "TOPLEFT", -1, 1)
+            f.track:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", 1, -1)
+            f.track:SetColorTexture(c[1], c[2], c[3], c[4])
+            f.track:Show()
+        else
+            f.track:Hide()
+        end
+    end
+    local tw = w - 2 * K.tapeIn
+    for q, t in ipairs(f.ticks or {}) do
+        if cockpit then
+            local c = K.tick
+            t:ClearAllPoints()
+            t:SetPoint("BOTTOMLEFT", f.bar, "BOTTOMLEFT", tw * q / 4, 0)
+            t:SetHeight(K.tapeH)
+            t:SetColorTexture(c[1], c[2], c[3], c[4])
+            t:Show()
+        else
+            t:Hide()
+        end
+    end
+    if f.htext then
+        f.htext:ClearAllPoints()
+        if cockpit then f.htext:SetPoint("BOTTOMRIGHT", f.bar, "TOPRIGHT", 0, 3)
+        else f.htext:SetPoint("BOTTOMRIGHT", -3, 4) end
+    end
+    FG.SizeBands(f, w, f.GetHeight and f:GetHeight() or FRAME_H)
+end
+
+--- Dress one cell in the chosen look: fonts, colours, where the words sit, and the cockpit's own parts shown or put
+--- away. Out of combat or in, it only paints - no secure attribute, no size, no anchor of the cell itself.
+function FG.ApplyLook(f)
+    if not f then return end
+    local cockpit = FG.Cockpit()
+    local K, C = FG.COCKPIT, FG.CLASSIC
+    f.__look = cockpit and "cockpit" or "classic"
+    local tile = cockpit and K.tile or C.tile
+    if f.bg then f.bg:SetColorTexture(tile[1], tile[2], tile[3], tile[4]) end
+    for _, t in pairs(f.bezel or {}) do
+        if cockpit then t:SetColorTexture(K.bezel[1], K.bezel[2], K.bezel[3], K.bezel[4]) t:Show() else t:Hide() end
+    end
+    -- design B has no black strip and no black readout box (Arn: "stuff is blacked out" on the first try)
+    if f.band then f.band:Hide() end
+    if f.lamp and not cockpit then f.lamp:Hide() end
+    if f.readoutBox then f.readoutBox:Hide() end
+    local inc, abs = cockpit and K.incoming or C.incoming, cockpit and K.absorb or C.absorb
+    if f.incoming then f.incoming:SetStatusBarColor(inc[1], inc[2], inc[3], inc[4]) end
+    if f.absorb then f.absorb:SetStatusBarColor(abs[1], abs[2], abs[3], abs[4]) end
+    local oh = cockpit and K.overheal or FG.OVERHEAL
+    if f.overheal then f.overheal:SetStatusBarColor(oh[1], oh[2], oh[3], oh[4]) end
+    -- the words: narrow instrument type in the cockpit, the game's own small font in the classic look
+    if f.name then
+        if cockpit and f.name.SetFont then
+            f.name:SetFont(K.font, K.nameSize, "")
+        elseif not cockpit and f.name.SetFontObject and _G.GameFontHighlightSmall then
+            f.name:SetFontObject(_G.GameFontHighlightSmall)
+        end
+    end
+    if f.htext then
+        if cockpit and f.htext.SetFont then
+            f.htext:SetFont(K.font, K.readSize, "")
+        elseif not cockpit and f.htext.SetFontObject and _G.GameFontHighlightSmall then
+            f.htext:SetFontObject(_G.GameFontHighlightSmall)
+        end
+        local rc = cockpit and K.readout or C.readout
+        if not f.__status and f.htext.SetTextColor then f.htext:SetTextColor(rc[1], rc[2], rc[3]) end
+    end
+    -- THE MARKS' LEVELS: in the cockpit the target, mouse and tank marks go over the words and the strip (a crosshair
+    -- must never be hidden by the strip); classic keeps them where they always were (tank +1, target +2, mouse +3)
+    if f.GetFrameLevel then
+        local base = f:GetFrameLevel()
+        local inkLvl = f.ink and f.ink.GetFrameLevel and f.ink:GetFrameLevel()
+        if type(base) == "number" then
+            local lift = (cockpit and type(inkLvl) == "number") and (inkLvl - base) or 0
+            for ring, step in pairs({ tankRing = 1, targetRing = 2, notTarget = 3 }) do
+                local r = f[ring]
+                if r and r.SetFrameLevel then pcall(r.SetFrameLevel, r, base + step + lift) end
+            end
+        end
+    end
+    FG.ShapeTape(f)                          -- where the health bar, the words and the readout sit
+    f.__nameAt = nil                         -- the name's place depends on the look: placed again
+    if FG.PlaceName and f.__w then FG.PlaceName(f) end
 end
 
 --- A CELL FOR WHOEVER YOU HAVE TARGETED, under the grid. A player's request (paszczyszyn, 22 Sep):
@@ -768,9 +988,7 @@ function FG.LayoutTarget(anchor)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "target")            -- which arms the mouse binds on it, like any other cell
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "target") end
     f:Show()
@@ -814,9 +1032,7 @@ function FG.LayoutToT(parent)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "targettarget")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "targettarget") end
     if f.handle then f.handle:Show() end
@@ -896,9 +1112,7 @@ function FG.LayoutSelf(anchor)
     local h = FRAME_H + NAME_BAND
     f:SetSize(FRAME_W, h)
     FG.FitCell(f, FRAME_W, true)
-    if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, h - 2) end
-    if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, h - 2) end
-    if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, h - 2) end
+    FG.SizeBands(f, FRAME_W, h)              -- the heal bands match the health bar (the tape, in the cockpit)
     FG.Bind(f, "player")
     if NS.FA and NS.FA.Attach then NS.FA.Attach(f, "player") end
     if f.handle then f.handle:Show() end
@@ -1010,9 +1224,7 @@ function FG.LayoutPets(anchor)
         f:ClearAllPoints()
         f:SetPoint("TOPLEFT", a, "TOPLEFT", 0, -(i - 1) * (FRAME_H + PAD))
         f:SetSize(FRAME_W, FRAME_H)
-        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(FRAME_W - 2, FRAME_H - 2) end
-        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(FRAME_W - 2, FRAME_H - 2) end
-        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(FRAME_W - 2, FRAME_H - 2) end
+        FG.SizeBands(f, FRAME_W, FRAME_H)    -- the heal bands match the health bar (the tape, in the cockpit)
         FG.Bind(f, unit)
         if NS.FA and NS.FA.Attach then NS.FA.Attach(f, unit) end
         f:Show()
@@ -1552,15 +1764,22 @@ function FG.PaintText(f)
     -- missing is not a question anybody has, and the two sharing one line would print through
     -- each other on an 84 pixel cell.
     local word = FG.StatusWord(unit)
+    local cockpit = f.__look == "cockpit"
     if word then
         label:SetText(word)
-        if label.SetTextColor then label:SetTextColor(0.78, 0.78, 0.82) end
+        if label.SetTextColor then
+            -- the cockpit's annunciators: DEAD red (a warning), anything else amber (a caution)
+            local K = FG.COCKPIT
+            local wc = (not cockpit and { 0.78, 0.78, 0.82 }) or (word == "DEAD" and K.dead) or K.offline
+            label:SetTextColor(wc[1], wc[2], wc[3])
+        end
         f.__status = word
         return true
     end
     if f.__status then
         f.__status = nil
-        if label.SetTextColor then label:SetTextColor(1, 0.55, 0.55) end   -- back to the red number
+        local rc = cockpit and FG.COCKPIT.readout or FG.CLASSIC.readout
+        if label.SetTextColor then label:SetTextColor(rc[1], rc[2], rc[3]) end   -- back to the number's colour
     end
     local mode = FG.TextMode()
     local done = false
@@ -1653,6 +1872,7 @@ function FG.FitCell(f, w, tall)
     local changed = f.__narrow ~= narrow
     f.__narrow = narrow
     FG.PlaceName(f)
+    if f.__look == "cockpit" then FG.ShapeTape(f) end   -- the tape and its quarter marks follow the cell's width
     if changed and narrow and f.role then f.role:Hide() end
     return narrow
 end
@@ -1664,19 +1884,22 @@ end
 --- A TALL cell (a pyramid tail row) puts it across the whole top instead, over the boxes.
 function FG.PlaceName(f)
     local tall = f.__tall == true
+    local cockpit = f.__look == "cockpit"
     local left = tall and 3 or (f.cureLeft or 3)
     local top = tall and -2 or -4
+    -- THE COCKPIT: the name in the black strip, left-aligned after the class lamp, like a label on a display
+    if cockpit then left, top = 3 + FG.COCKPIT.lamp + 3, -1 end
     local w = f.__w or FRAME_W
     f.__chars = math.max(3, math.floor((w - left - 3) / CHAR_W))
     if not f.name then return end
-    local at = left .. (f.__narrow and "n" or "w") .. (tall and "t" or "")
+    local at = left .. (f.__narrow and "n" or "w") .. (tall and "t" or "") .. (cockpit and "c" or "")
     if f.__nameAt == at then return end
     f.__nameAt = at
     f.name:ClearAllPoints()
     f.name:SetPoint("TOPLEFT", left, top)
     -- the corner the role icon was keeping, or all of it
     f.name:SetPoint("TOPRIGHT", f.__narrow and -3 or -14, top)
-    if f.name.SetJustifyH then f.name:SetJustifyH((tall or f.cureLeft) and "CENTER" or "LEFT") end
+    if f.name.SetJustifyH then f.name:SetJustifyH(cockpit and "LEFT" or ((tall or f.cureLeft) and "CENTER" or "LEFT")) end
     if f.unit then f.name:SetText(FG.CellName(f, f.unit)) end
 end
 
@@ -1806,9 +2029,7 @@ function FG.Layout(anchor)
         -- THE INCOMING BAR FOLLOWS THE CELL. It was sized once, at birth, to one ordinary cell -
         -- so on a full-width apex cell the pale "heal on its way" stripe would have stopped dead
         -- halfway across, which reads as "only half of this is coming".
-        if f.incoming and f.incoming.SetSize then f.incoming:SetSize(w - 2, h - 2) end
-        if f.absorb and f.absorb.SetSize then f.absorb:SetSize(w - 2, h - 2) end
-        if f.overheal and f.overheal.SetSize then f.overheal:SetSize(w - 2, h - 2) end
+        FG.SizeBands(f, w, h)                -- the heal bands match the health bar (the tape, in the cockpit)
         FG.Bind(f, unit)
         -- the aura markers ride the same out-of-combat moment as the secure attributes: the
         -- container is told its unit here and then draws by itself for the whole fight
@@ -1877,6 +2098,16 @@ function FG.Layout(anchor)
         -- through each other on a party grid: "in default mode keep BiS> but drop the healing and
         -- put it in there". The prompt still blinks; it just stops saying what you already know.
         local h = FG.header
+        -- THE HEADER STOPS AT THE LAST PERSON (Arn, 8 Nov: "header is extra long"): in PvP mode the grid keeps room on
+        -- its right for the last target cells - the blocks beside it dock past that - but the bar over the cells does not
+        -- run over it, empty or not
+        local trim = extra
+        if h and h.SetPoint then
+            h:ClearAllPoints()
+            h:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, GRID_HEADER_LIFT)
+            h:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", -trim, GRID_HEADER_LIFT)
+        end
+        w = w - trim
         if h and h.con then h.con.width = math.max(40, w - 10) end
         if h and h.title and not h.con then
             local T = _G.BiSTheme
@@ -2162,6 +2393,15 @@ function FG.MakePvP(i, parent)
     if c.kick.SetTexCoord then c.kick:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
     c.kick:SetTexture(FG.KickIcon())
     c.kick:SetAlpha(FG.KICK_DIM)
+    -- ITS COOLDOWN (Arn, 8 Nov: "i interuppt bit it still looks like i can click it again"): a sweep over the icon, run
+    -- by the client from the duration object it hands us for our own spell (FG.PvPCooldown) - no number read
+    local okCd, cd = pcall(CreateFrame, "Cooldown", nil, c.kickFx, "CooldownFrameTemplate")
+    if okCd and cd then
+        cd:SetAllPoints(c.kickFx)
+        if cd.SetDrawBling then cd:SetDrawBling(false) end
+        if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+        c.kickCd = cd
+    end
     -- it lights under the mouse (the family rule) and says what a click does
     c.kickFx:SetScript("OnEnter", function(self)
         if c.kickFriend then return end             -- a friend's cell has no icon to light or explain
@@ -2400,6 +2640,7 @@ end
 --- Somebody changed target. That one cell and the focus; a unit we cannot read means all of them.
 function FG.PvPHeard(event, unit)
     if not FG.pvpShowing then return end
+    if event == "SPELL_UPDATE_COOLDOWN" then return FG.PvPCooldown() end
     if event == "PLAYER_TARGET_CHANGED" then unit = "player" end
     local u = NS.Plain(unit)
     local c = type(u) == "string" and FG.pvpByUnit[u] or nil
@@ -2424,10 +2665,27 @@ function FG.PvPListen(on)
         ev:SetScript("OnEvent", function(_, event, unit) FG.PvPHeard(event, unit) end)
         FG.pvpEvents = ev
     end
-    for _, e in ipairs({ "UNIT_TARGET", "PLAYER_TARGET_CHANGED" }) do
+    -- SPELL_UPDATE_COOLDOWN: your interrupt's sweep on every target cell (FG.PvPCooldown), heard only while PvP shows
+    for _, e in ipairs({ "UNIT_TARGET", "PLAYER_TARGET_CHANGED", "SPELL_UPDATE_COOLDOWN" }) do
         if on then pcall(ev.RegisterEvent, ev, e) else pcall(ev.UnregisterEvent, ev, e) end
     end
+    if on then FG.PvPCooldown() end
     return on
+end
+
+--- Your interrupt's cooldown, on every target cell's icon: one ask of the client (a duration object for our own spell,
+--- secret or not), handed to each sweep untouched. Nothing trained: nothing asked. The client runs the sweep.
+function FG.PvPCooldown()
+    local name = FG.KickSpell()
+    local get = C_Spell and C_Spell.GetSpellCooldownDuration
+    if not (name and get) then return false end
+    local ok, dur = pcall(get, name)
+    if not ok then return false end
+    for _, c in ipairs(FG.pvpCells or {}) do
+        local cd = c.kickCd
+        if cd and cd.SetCooldownFromDurationObject then pcall(cd.SetCooldownFromDurationObject, cd, dur) end
+    end
+    return true
 end
 
 ---------------------------------------------------------------------- paint --
@@ -2564,7 +2822,10 @@ function FG.Paint(f)
     -- its death disagree - a res cell that stood up, a dead one not yet all-res
     if NS.FM and NS.FM.ResCheck and ((dead and not f.__res) or (not dead and f.__res)) then NS.FM.ResCheck(f) end
     local d = NS.DB and NS.DB()
-    local byHealth = type(d) == "table" and d.color == "health"
+    local cockpit = f.__look == "cockpit"
+    -- THE COCKPIT colours the tape by STATE, always (green -> amber -> red, the client's curve); the class is the lamp
+    local byHealth = cockpit or (type(d) == "table" and d.color == "health")
+    if cockpit and not dead then c = FG.COCKPIT.green end           -- the curve's fallback: plain green, never a class
     -- AN ENEMY SHOULD NOT LOOK LIKE A FRIEND. Arn, 28 Sep, on his hunter: the target and tot cells
     -- cast on hostile units perfectly well - "the frames cant distinguish when its an enemy right
     -- now enemies look like friendlies". Hostility beats both the class colour and the health
@@ -2581,8 +2842,17 @@ function FG.Paint(f)
     -- already says it, so the name stays white. A class the client is hiding is white either way:
     -- no colour is better than a guessed one.
     if f.name and f.name.SetTextColor then
-        local nc = byHealth and CLASS_COLOR[class or ""] or nil
-        if nc then f.name:SetTextColor(nc[1], nc[2], nc[3]) else f.name:SetTextColor(1, 1, 1) end
+        if cockpit then
+            local n = FG.COCKPIT.name                    -- the cockpit's words are white; the class is the lamp
+            f.name:SetTextColor(n[1], n[2], n[3])
+        else
+            local nc = byHealth and CLASS_COLOR[class or ""] or nil
+            if nc then f.name:SetTextColor(nc[1], nc[2], nc[3]) else f.name:SetTextColor(1, 1, 1) end
+        end
+    end
+    if f.lamp then
+        local lc = cockpit and CLASS_COLOR[class or ""] or nil
+        if lc then f.lamp:SetColorTexture(lc[1], lc[2], lc[3], 1) f.lamp:Show() else f.lamp:Hide() end
     end
 
     -- Range. NOT UnitInRange: on Forever that returns a secret BOOLEAN, which cannot even be
@@ -2648,7 +2918,8 @@ function FG.PaintTarget(f, unit, on)
     if not ring then return false end
     local function off() ring:Hide() FG.NotTarget(f, false) return false end
     if not on or not UnitIsUnit then return off() end
-    FG.TintCross(ring, FG.TARGET)
+    -- magenta in the cockpit (what you selected), red in classic - by the CELL's look, as everything else on it
+    FG.TintCross(ring, f.__look == "cockpit" and FG.COCKPIT.target or FG.TARGET)
     local ok, same = pcall(UnitIsUnit, unit, "target")
     if not ok or same == nil then return off() end
     if NS.Secret and NS.Secret(same) then

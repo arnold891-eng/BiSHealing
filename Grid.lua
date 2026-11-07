@@ -1947,6 +1947,152 @@ end
 
 --- Everything a cell may change DURING a fight. Nothing here reads a number back: the health
 --- value goes from the client into the bar and is never touched on the way.
+--- THE HEAL GHOST - A PROBE (23 Oct 2026). Arn saw DoesItDie (Joe Greive) in a video: it marks on a
+--- target's health bar how much its DoTs still have to deal, and lights a skull on the portrait when they
+--- will kill - on a client where target health is secret. Its trick: hand a StatusBar max = health
+--- (secret) and value = damage (plain); the BAR compares, Lua never does. And the skull rides the fill's
+--- right end inside a fixed, clipped window, so it shows only when the fill reaches it.
+---
+--- For a healer, the same two ideas: a GHOST of your next heal after the health fill (max = their max
+--- health, value = your heal, read from its tooltip out of combat - Heals.lua already does), and a red
+--- sliver in a fixed window just past the cell's right edge riding the ghost's end: there only when the
+--- heal would overheal. `/bish ghost` puts both on every cell for FG.GHOST_FOR seconds to see whether
+--- the client draws them on OTHER people's cells (secret health) - nothing else is built on it yet.
+--- The ghost is masked to the WHOLE BAR, a fixed shape: the part of the heal that fits shows inside the cell,
+--- the rest is cut at the edge - where the gate's sliver says so. (First try, Arn's screenshot 23 Oct: masked
+--- to the EMPTY part of the bar, which is zero wide at full health - the ghost was not masked at all and ran
+--- out past the cell, over the gate. A mask with no area seems to be no mask.) The window's own edges hang on
+--- the bar frame, never the fill, and it sits ABOVE the ghost.
+FG.GHOST_FOR, FG.GHOST_LANE = 15, 6
+FG.GHOST_COLOUR = { 0.45, 0.80, 1.00, 0.55 }
+FG.GHOST_MARK = { 1.00, 0.25, 0.10, 1.00 }
+
+function FG.Ghost(f)
+    if f.ghost or not (f.bar and f.bar.GetStatusBarTexture) then return f.ghost end
+    local fill = f.bar:GetStatusBarTexture()
+    local g = CreateFrame("StatusBar", nil, f.bar)
+    f.ghost = g
+    g:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
+    g:SetSize(FRAME_W - 2, FRAME_H - 2)
+    g:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    g:SetStatusBarColor(FG.GHOST_COLOUR[1], FG.GHOST_COLOUR[2], FG.GHOST_COLOUR[3], FG.GHOST_COLOUR[4])
+    g:SetMinMaxValues(0, 1)
+    g:SetValue(0)
+    if g.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
+        if type(lvl) == "number" then g:SetFrameLevel(lvl + 4) end
+    end
+    local gFill = g:GetStatusBarTexture()
+    if f.bar.CreateMaskTexture and gFill and gFill.AddMaskTexture then
+        f.ghostMask = f.bar:CreateMaskTexture()
+        f.ghostMask:SetAllPoints(f.bar)
+        f.ghostMask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+        gFill:AddMaskTexture(f.ghostMask)
+    end
+    -- the gate: a window FG.GHOST_LANE wide just past the right edge, hung on the bar frame (a fixed size)
+    local w = CreateFrame("Frame", nil, f)
+    f.ghostGate = w
+    w:SetPoint("TOPLEFT", f.bar, "TOPRIGHT", 0, 0)
+    w:SetPoint("BOTTOMRIGHT", f.bar, "BOTTOMRIGHT", FG.GHOST_LANE, 0)
+    if w.SetClipsChildren then w:SetClipsChildren(true) end
+    if w.SetFrameLevel and g.GetFrameLevel then
+        local lvl = g:GetFrameLevel()
+        if type(lvl) == "number" then w:SetFrameLevel(lvl + 1) end
+    end
+    -- THE MARK SPANS THE WHOLE GHOST (Arn's second screenshot, 23 Oct: the Sergeant's cell lit, his own did not).
+    -- A 6 px mark riding the ghost's end only showed while the end was less than 12 px past the edge: a big
+    -- heal on a small health pool ran clean past the window. Spanning the ghost, the window shows whatever part
+    -- of the heal is past the edge - a full sliver for any overheal of 6 px or more, nothing when it fits.
+    w.mark = w:CreateTexture(nil, "OVERLAY")
+    w.mark:SetColorTexture(FG.GHOST_MARK[1], FG.GHOST_MARK[2], FG.GHOST_MARK[3], FG.GHOST_MARK[4])
+    w.mark:SetPoint("TOPLEFT", gFill, "TOPLEFT", 0, 0)
+    w.mark:SetPoint("BOTTOMRIGHT", gFill, "BOTTOMRIGHT", 0, 0)
+    g:Hide()
+    w:Hide()
+    return g
+end
+
+--- CHAIN HEAL MODE (Arn, 23 Oct 2026: "when i get chain heal i always switch to that exclusively - a setting
+--- for the cells where they all go black and only show up red when my chain heal will heal 100% of the
+--- damage"; his pick: red when they are missing AT LEAST a whole Chain Heal - none of it wasted on them).
+---
+--- DoesItDie's skull, as a cell: a StatusBar FG.CHAIN_LEN px long, max = your Chain Heal (plain, from its
+--- tooltip), value = UnitHealthMissing(unit, true) (secret; heals already on the way taken off, so two
+--- healers do not both fill one gap). Its fill reaches the far end only when missing >= the heal, and the
+--- cell is a clipped window over that far end: black until then, red from then. The client compares;
+--- the addon never does. (On 10,000 px a cell of 84-170 shows red from 98-99% of the heal on - near enough
+--- a switch.) The window's edges are the bar frame's own, a fixed size - never the secret fill.
+FG.CHAIN_LEN = 10000
+FG.CHAIN_RED = { 0.85, 0.10, 0.08, 1 }
+
+function FG.Chain(f)
+    if f.chainWin or not f.bar then return f.chainWin end
+    local w = CreateFrame("Frame", nil, f.bar)
+    f.chainWin = w
+    w:SetAllPoints(f.bar)
+    if w.SetClipsChildren then w:SetClipsChildren(true) end
+    if w.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
+        if type(lvl) == "number" then w:SetFrameLevel(lvl + 4) end    -- over the heal bars, under the ink (+5)
+    end
+    w.black = w:CreateTexture(nil, "BACKGROUND")
+    w.black:SetAllPoints(w)
+    w.black:SetColorTexture(0, 0, 0, 1)
+    local b = CreateFrame("StatusBar", nil, w)
+    w.bar = b
+    b:SetPoint("TOPRIGHT", w, "TOPRIGHT", 0, 0)
+    b:SetPoint("BOTTOMRIGHT", w, "BOTTOMRIGHT", 0, 0)
+    b:SetWidth(FG.CHAIN_LEN)
+    b:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    b:SetStatusBarColor(FG.CHAIN_RED[1], FG.CHAIN_RED[2], FG.CHAIN_RED[3], FG.CHAIN_RED[4])
+    b:SetMinMaxValues(0, 1)
+    b:SetValue(0)
+    w:Hide()
+    return w
+end
+
+--- Your Chain Heal's first-target heal: the rank on a bind, else the highest you know; read from its tooltip
+--- (plain out of a fight, measured 23 Oct). Nil when there is none or the tooltip says nothing readable -
+--- the last good size is kept then.
+function FG.ChainSize()
+    local FM, FE = NS.FM, NS.FE
+    if not (FM and FE and FM.BookIds) then return FG.chainHeal end
+    local ids = FM.BookIds("Chain Heal")
+    if #ids == 0 then return FG.chainHeal end
+    local rank
+    local d = NS.DB and NS.DB()
+    for _, cast in pairs(type(d) == "table" and d.binds or {}) do
+        local name, r = FM.Split(cast)
+        if name == "Chain Heal" and r then rank = tonumber(r:match("%d+")) or rank end
+    end
+    local id = ids[rank or #ids] or ids[#ids]
+    local h = FE.Parse(NS.Plain(FE.Rank(id).desc))
+    if h then FG.chainHeal = (h.lo + h.hi) / 2 end
+    return FG.chainHeal
+end
+
+--- One cell in Chain Heal mode, or back to normal. A dead cell stays black: it is missing everything.
+function FG.PaintChain(f, unit, dead)
+    local d = NS.DB and NS.DB()
+    local on = type(d) == "table" and d.chain and FG.chainHeal
+    if not on then
+        if f.chainWin and f.chainWin:IsShown() then f.chainWin:Hide() end
+        return false
+    end
+    local w = FG.Chain(f)
+    if not w then return false end
+    w.bar:SetMinMaxValues(0, FG.chainHeal)
+    if dead then
+        w.bar:SetValue(0)
+    else
+        local asked, missing = pcall(UnitHealthMissing, unit, true)
+        if not asked then asked, missing = pcall(UnitHealthMissing, unit) end
+        w.bar:SetValue(asked and missing or 0)
+    end
+    w:Show()
+    return true
+end
+
 --- Does the client hide everyone's max health? Asked through C_Secrets; a yes turns FG.maxOK off.
 function FG.AskMaxSecret()
     if FG.maxOK and C_Secrets and C_Secrets.ShouldUnitHealthMaxBeSecret then
@@ -2007,6 +2153,22 @@ function FG.Paint(f)
         f.overheal:SetMinMaxValues(0, 1)
         f.overheal:SetValue(0.6)
     end
+    -- /bish ghost: your heal after the fill, and the overheal sliver (FG.Ghost), while the probe runs
+    if f.ghost then
+        local on = FG.ghostUntil and FG.ghostHeal and GetTime and GetTime() < FG.ghostUntil
+        if on then
+            -- as wide as THIS cell's bar: the pyramid's cells are not all FRAME_W (his own cell is two wide)
+            local bw, bh = f.bar:GetWidth(), f.bar:GetHeight()
+            if type(bw) == "number" and bw > 0 and type(bh) == "number" and bh > 0 then f.ghost:SetSize(bw, bh) end
+            if FG.maxOK then pcall(f.ghost.SetMinMaxValues, f.ghost, 0, max) end
+            f.ghost:SetValue(FG.ghostHeal)
+            f.ghost:Show()
+            f.ghostGate:Show()
+        elseif f.ghost:IsShown() then
+            f.ghost:Hide()
+            f.ghostGate:Hide()
+        end
+    end
 
     -- THE SHIELD (5 Oct 2026). Arn: "ellesmear draws the shield on the frames can we do the same?"
     -- Yes, and by the bargain this file is built on: the absorb is handed to a bar and never read.
@@ -2031,6 +2193,7 @@ function FG.Paint(f)
     local c = CLASS_COLOR[class or ""] or { 0.2, 0.7, 0.3 }
     local dead = UnitIsDeadOrGhost and NS.Plain(UnitIsDeadOrGhost(unit))
     if dead then c = DEAD end
+    FG.PaintChain(f, unit, dead)
     -- DEAD OUT OF COMBAT, EVERY CLICK A RES (Mouse.lua FM.ResCheck): asked only when the cell's clicks and
     -- its death disagree - a res cell that stood up, a dead one not yet all-res
     if NS.FM and NS.FM.ResCheck and ((dead and not f.__res) or (not dead and f.__res)) then NS.FM.ResCheck(f) end
@@ -2986,6 +3149,11 @@ function FG.Start()
         end
         -- a bind changed mid-fight is queued, not lost: the moment the lockdown lifts it lands
         if event == "PLAYER_REGEN_ENABLED" and NS.FM and NS.FM.pending then NS.FM.Apply() end
+        -- CHAIN HEAL MODE re-reads its size when the tooltip is plain again and gear or ranks may have moved
+        if (event == "PLAYER_REGEN_ENABLED" or event == "SPELLS_CHANGED" or event == "PLAYER_ENTERING_WORLD")
+                and NS.DB and NS.DB().chain then
+            FG.ChainSize()
+        end
         -- THE FIGHT ENDED: a button that was needed during it is now earned (3 Oct 2026).
         --
         -- This line did not exist, and that was the whole of why the Tremor button never appeared.

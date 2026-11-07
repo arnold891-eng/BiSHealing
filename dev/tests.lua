@@ -1574,6 +1574,113 @@ do
     FG.overhealTest = nil
     _G.DEFAULT_CHAT_FRAME = keptChat
 end
+-- /bish ghost (23 Oct 2026, from DoesItDie): your left-click heal after every cell's health for a few
+-- seconds, and a red sliver past the edge riding its end - a probe of whether the client draws them
+do
+    local FM, FE = NS.FM, NS.FE
+    local keptChat = _G.DEFAULT_CHAT_FRAME
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local keep = { get = FM.Get, ids = FM.BookIds, desc = C_Spell.GetSpellDescription }
+    FM.Get = function(mod, key) if mod == "" and key == "left" then return "Healing Wave(Rank 2)" end end
+    FM.BookIds = function(name) if name == "Healing Wave" then return { 331, 332, 547 } end return {} end
+    C_Spell.GetSpellDescription = function(id) return id == 332 and "Heals a friendly target for 64 to 78." or "" end
+    local heal = NS.DO.ghost()
+    ok(heal == 71, "the ghost: your bound rank (Rank 2), sized from its tooltip - the middle of 64 to 78", tostring(heal))
+    local all = table.concat(heard, "\n")
+    ok(all:find("Healing Wave", 1, true) and all:find("plain", 1, true) and all:find("red sliver", 1, true),
+       "it says which heal, whether its tooltip is readable, and what to look for", all)
+    local cell = FG.frames and FG.frames[1]
+    if cell and cell.unit then
+        local g, w = cell.ghost, cell.ghostGate
+        ok(g and g:IsShown() and g:GetValue() == 71, "on a cell: the ghost, shown, at your heal")
+        local fill = cell.bar:GetStatusBarTexture()
+        local p, rel, rp = g:GetPoint(1)
+        ok(rel == fill and rp == "TOPRIGHT", "starting where their health ends")
+        local gFill = g:GetStatusBarTexture()
+        local masked = false
+        for _, m in ipairs(gFill.__masks or {}) do if m == cell.ghostMask then masked = true end end
+        ok(masked and cell.ghostMask.__allpoints == cell.bar,
+           "masked to the whole bar, a fixed shape (Arn's screenshot: a mask on the empty part is zero wide at full health - no mask)")
+        local wp, wrel, wrp = w:GetPoint(1)
+        ok(w:IsShown() and w:DoesClipChildren() and wrel == cell.bar and wrp == "TOPRIGHT",
+           "the gate: a clipped window just past the right edge, hung on the bar frame (a fixed size)")
+        ok((w:GetFrameLevel() or 0) > (g:GetFrameLevel() or 0), "and above the ghost, so the ghost never covers its sliver")
+        local mpt = (w.mark.points or {})[1] or {}
+        local mpt2 = (w.mark.points or {})[2] or {}
+        ok(mpt[2] == gFill and mpt[3] == "TOPLEFT" and mpt2[2] == gFill and mpt2[3] == "BOTTOMRIGHT", "its red mark spans the whole ghost - the window shows any part past the edge (a 6 px mark at its end missed big overheals)")
+        -- the client works a bar's width out of its anchors; the mock cannot, so the bar is given the wide cell's
+        cell.bar:SetSize(170, 32)
+        FG.Paint(cell)
+        ok(g:GetWidth() == 170 and g:GetHeight() == 32, "the ghost as wide as this cell's bar (his own cell is two wide)",
+           tostring(g:GetWidth()))
+        -- time up: gone
+        FG.ghostUntil = (GetTime() or 0) - 1
+        FG.Paint(cell)
+        ok(not g:IsShown() and not w:IsShown(), "after its seconds: both gone")
+    end
+    -- nothing to size it from: says so, draws nothing
+    C_Spell.GetSpellDescription = function() return secret() end
+    heard = {}
+    ok(NS.DO.ghost() == nil and table.concat(heard, "\n"):find("SECRET", 1, true), "a secret tooltip: it says so and draws nothing")
+    FM.Get, FM.BookIds, C_Spell.GetSpellDescription = keep.get, keep.ids, keep.desc
+    FG.ghostUntil, FG.ghostHeal = nil, nil
+    _G.DEFAULT_CHAT_FRAME = keptChat
+end
+-- CHAIN HEAL MODE (Arn, 23 Oct 2026: "they all go black and only show up red when my chain heal will heal
+-- 100% of the damage" - his pick: red when they miss at least a whole Chain Heal). DoesItDie's skull as a
+-- cell: a 10,000 px bar, max = the heal, value = the (secret) missing health, the cell a window on its end.
+do
+    local FM = NS.FM
+    local d = NS.DB()
+    local keptChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function() end }
+    local keep = { ids = FM.BookIds, desc = C_Spell.GetSpellDescription, missing = _G.UnitHealthMissing,
+                   binds = d.binds, chain = d.chain }
+    -- nothing to size it from: refused, never half on
+    FM.BookIds = function() return {} end
+    FG.chainHeal = nil
+    ok(NS.DO.chain(true) == nil and not d.chain, "no Chain Heal known: the mode refuses, and says why")
+    FM.BookIds = function(name) if name == "Chain Heal" then return { 1064, 10622, 10623 } end return {} end
+    C_Spell.GetSpellDescription = function(id)
+        if id == 10622 then return "Heals the friendly target for 200 to 240, then jumps to heal additional nearby targets." end
+        if id == 10623 then return "Heals the friendly target for 320 to 368, then jumps to heal additional nearby targets." end
+        return ""
+    end
+    d.binds = { left = "Chain Heal(Rank 2)" }
+    ok(NS.DO.chain(true) == true and FG.chainHeal == 220, "on: sized from the rank you bound (Rank 2: 200 to 240 = 220)",
+       tostring(FG.chainHeal))
+    d.binds = {}
+    FG.ChainSize()
+    ok(FG.chainHeal == 344, "with none bound, the highest you know (320 to 368 = 344)", tostring(FG.chainHeal))
+    FG.chainHeal = 220
+    local cell = FG.frames and FG.frames[1]
+    if cell and cell.unit then
+        local asked
+        _G.UnitHealthMissing = function(u, net) asked = { u, net } return secret() end
+        FG.Paint(cell)
+        local w = cell.chainWin
+        ok(w and w:IsShown() and w:DoesClipChildren() and w.__allpoints == cell.bar,
+           "every cell: a clipped window over its own bar (a fixed size, never the secret fill)")
+        ok(w.black and w.black.__color and w.black.__color[1] == 0 and w.black.__color[2] == 0,
+           "black underneath - the cell goes black")
+        local lo, hi = w.bar:GetMinMaxValues()
+        ok(lo == 0 and hi == 220 and NS.Secret(w.bar:GetValue()), "the bar: 0 to your Chain Heal, filled by their missing health untouched")
+        ok(asked and asked[1] == cell.unit and asked[2] == true, "missing health NET of heals on their way - two healers, one gap")
+        ok(w.bar:GetWidth() == FG.CHAIN_LEN, "10,000 px long, so the cell sees only its far end: red only once missing >= the heal")
+        local p1 = (w.bar.points or {})[1] or {}
+        ok(p1[1] == "TOPRIGHT" and p1[2] == w, "its far end on the cell's right edge")
+        ok((w:GetFrameLevel() or 0) < (cell.ink:GetFrameLevel() or 0), "under the names: who it is still reads on black")
+        FG.PaintChain(cell, cell.unit, true)
+        ok(w.bar:GetValue() == 0, "a dead cell stays black")
+        NS.DO.chain(false)
+        FG.Paint(cell)
+        ok(not w:IsShown() and not d.chain, "off: the cells as usual")
+    end
+    FM.BookIds, C_Spell.GetSpellDescription, _G.UnitHealthMissing = keep.ids, keep.desc, keep.missing
+    d.binds, d.chain, FG.chainHeal = keep.binds, keep.chain, nil
+    _G.DEFAULT_CHAT_FRAME = keptChat
+end
 -- NO DOUBLE RES (10 Oct 2026, Rez.lua). RezComm puts every BiS user's res casts on BiSInnervate's
 -- pipe; BiS Healing now listens, and a dead cell says who is already ressing them.
 do
@@ -6602,7 +6709,8 @@ do
         ok(tall[1] <= 14 and tall[2] <= 14, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
-        ok(#NS.UI.Rows() <= 21, "and the whole window has no more than twenty-one rows: " .. #NS.UI.Rows())
+        -- TWENTY-TWO (23 Oct): Chain Heal mode, asked for by name ("we are going to have a setting for the cells")
+        ok(#NS.UI.Rows() <= 22, "and the whole window has no more than twenty-two rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -8839,6 +8947,20 @@ do
     local QUIET, AURAS = 1600, 650
     ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
        Cost.Top(by, 6))
+    -- CHAIN HEAL MODE (23 Oct): one UnitHealthMissing a painted cell, nothing else asked
+    d.chain, FG.chainHeal = true, 300
+    local realMissing = _G.UnitHealthMissing
+    _G.UnitHealthMissing = _G.UnitHealthMissing or function() return 0 end
+    local nc, cby = Cost.Count(function() for _ = 1, 10 do tick() end end)
+    local CHAIN_EXTRA = 80
+    ok(nc - n <= CHAIN_EXTRA, "Chain Heal mode adds at most " .. CHAIN_EXTRA .. " client calls to a quiet 25-man second: "
+       .. (nc - n), Cost.Top(cby, 6))
+    local lit = 0
+    for i = 1, 25 do local c = FG.byUnit["raid" .. i] if c and c.chainWin and c.chainWin:IsShown() then lit = lit + 1 end end
+    ok(lit == 25, "and in that second every raid cell went into Chain Heal mode (the sweep reached them all)", lit)
+    print(("   cost: quiet 25-man second, Chain Heal mode = %d calls (%+d)"):format(nc, nc - n))
+    _G.UnitHealthMissing = realMissing
+    d.chain, FG.chainHeal = nil, nil
 
     -- WHAT MARKS A CELL, and that ONLY it is repainted (10 Oct 2026)
     local painted = {}

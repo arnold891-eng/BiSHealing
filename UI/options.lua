@@ -53,6 +53,10 @@ function CFG.Sections()
             { key = "shown", kind = "toggle", label = "show the cells", help = "Show or hide the healing cells. Hidden, nothing is drawn and nothing is clicked.",
               get = function(db) return db.shown ~= false end,
               set = function(_, on) if DO.show then DO.show(on) end end },
+            -- Arn, 23 Oct: "when i get chain heal i always switch to that exclusively"
+            { key = "chain", kind = "toggle", label = "Chain Heal mode", help = "Every cell goes black; a cell lights red only when that player is missing at least a whole Chain Heal - none of it would be wasted on them. Heals already on their way count.",
+              get = function(db) return db.chain == true end,
+              set = function(_, on) if DO.chain then DO.chain(on) end end },
             { key = "minimap", kind = "toggle", label = "minimap button", help = "Show the BiS Healing button on the minimap. /bish still opens everything.",
               get = function() return not (NS.MM and NS.MM.Hidden()) end,
               set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },

@@ -1,7 +1,11 @@
-# BiS Healing — CurseForge page text (1.0.0)
+# BiS Healing — CurseForge page text (1.0.1)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 1.0.0 text (8 Nov, 1.0.1): PvP mode gains the interrupt icon (lights while their target
+casts, click to interrupt, cast alert glow / bounce / both); the "me" cell is gone from "Cells you can add" and
+from the command table (retired in 1.0.1).
 
 Changed since the 7 Nov text (8 Nov, 1.0.0 - Forever 1.0): a new "A second mouse, for enemies"
 section (the heal | hostile switch, the damage-spell palette, the wheel too); macros on a bind in
@@ -133,11 +137,10 @@ All of it keeps working inside dungeons and raids, where the game will not tell 
 
 ## Cells you can add
 
-Each is a block of its own with a small `BiS>` bar: **drag it anywhere**, or **shift-click the bar** to send it round the grid. Two blocks never share a side. In the options window they are one row of switches — **cells: target · tot · me · mana**.
+Each is a block of its own with a small `BiS>` bar: **drag it anywhere**, or **shift-click the bar** to send it round the grid. Two blocks never share a side. In the options window they are one row of switches — **cells: target · tot · mana**.
 
 - **target** — a cell for whoever you have targeted, taking your mouse binds like any other.
 - **tot** — and one beside it for *their* target. Useful for watching a tank's target.
-- **me** — a cell for yourself, **out of the group grid**, so you are the same place solo, in a party and in a 40-man.
 - **mana** — one short row per healer in the group, name and percent, you included.
 
 > The game keeps another player's mana secret from addons, even out of combat. This addon never learns the number — it asks the game for the percentage and hands it straight to the screen.
@@ -151,6 +154,7 @@ Beside each player's cell sits a small one with whoever **they** are targeting. 
 - **Click it and your binds cast on that target**, so you can hit what your team is hitting — your hostile binds on an enemy, your heals on a friend.
 - **Red for an enemy, green for a friend**, with the target's health on the bar. Hover it for the full name.
 - **The focus gets a gold edge.** When two or more of your team are on the same enemy, and more than on any other, that enemy's cells are edged in gold.
+- **Your interrupt, ready to press.** Each target cell carries your class's interrupt icon — Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot. It sits dim, and **lights up the moment that target starts casting or channelling** — with a gold glow, a bounce, or both (your pick: "cast alert" in the options). **Click the icon** and it casts your interrupt, at its cheapest rank, at that target — no bind needed. The game keeps the spell itself hidden from addons; this only tells you a cast is happening.
 
 Off by default for everyone. `/bish pvp off` turns it off.
 
@@ -224,7 +228,7 @@ Or type:
 | `/bish buffs` | the buff buttons in BiS> now — `on`, `off`, or one buff: `fort`, `spirit`, `shadow`, `mark`, `thorns`, `int` with `on` or `off` |
 | `/bish cures` · `/bish res` | the cure boxes, and click-a-corpse-to-res: `on` or `off` |
 | `/bish watch <spell>` | a buff to watch on the group — `off` stops it |
-| `/bish target` · `/bish tot` · `/bish me` · `/bish mana` | the cells you can add |
+| `/bish target` · `/bish tot` · `/bish mana` | the cells you can add |
 | `/bish pets grid` · `own` · `off` | where pets go |
 | `/bish pvp on` · `bg` · `off` | PvP mode: each player's target beside them, always or only in battlegrounds and arenas |
 | `/bish buff Water Shield` | a buff on yourself: the shield button in BiS> now, or the header when that is off |

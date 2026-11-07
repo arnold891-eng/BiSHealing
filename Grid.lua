@@ -1984,8 +1984,13 @@ end
 function FG.ArmKick(c, tok, cast)
     local b = c and c.kickFx
     if not b or (InCombatLockdown and InCombatLockdown()) then return false end
-    b:SetAttribute("type", cast and "spell" or nil)
-    b:SetAttribute("spell", cast)
+    -- ENEMIES ONLY (Arn, 8 Nov: a friend's cell shows no interrupt icon): the cast rides the client's own hostile
+    -- switch - on a unit you can attack, button 1 becomes "kick" - so a click on a friend casts nothing at all
+    b:SetAttribute("type", nil)
+    b:SetAttribute("spell", nil)
+    b:SetAttribute("*harmbutton1", cast and "kick" or nil)
+    b:SetAttribute("*type-kick", cast and "spell" or nil)
+    b:SetAttribute("*spell-kick", cast)
     b:SetAttribute("unit", cast and tok or nil)
     if b.EnableMouse then b:EnableMouse(cast and true or false) end
     b.cast = cast
@@ -2159,6 +2164,7 @@ function FG.MakePvP(i, parent)
     c.kick:SetAlpha(FG.KICK_DIM)
     -- it lights under the mouse (the family rule) and says what a click does
     c.kickFx:SetScript("OnEnter", function(self)
+        if c.kickFriend then return end             -- a friend's cell has no icon to light or explain
         c.kickGlow:Show()
         if not (GameTooltip and self.cast) then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2332,8 +2338,10 @@ function FG.PaintPvPCell(c)
     local okN, name = pcall(UnitName, tok)
     if okN then c.label:SetText(FG.PvPName(name)) end
     if c.kick then
-        local lit = FG.Casting(tok)
-        c.kick:SetAlpha(lit and 1 or FG.KICK_DIM)
+        -- a FRIEND's target cell carries no interrupt icon, and a friend's casting is not even asked (Arn, 8 Nov)
+        c.kickFriend = friend
+        local lit = not friend and FG.Casting(tok)
+        c.kick:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM))
         -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
         if lit ~= c.kickLit then
             c.kickLit = lit

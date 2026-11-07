@@ -10730,13 +10730,18 @@ do
     ok(kc and kc.kick, "a target cell carries an interrupt icon")
     ok(FG.KickSpell() == "Earth Shock", "a shaman's is Earth Shock (trained)", tostring(FG.KickSpell()))
     local tok = kc.unit
+    STATE.hostile[tok] = true                       -- an enemy: the icon's work (a friend: below)
     -- CLICK IT TO INTERRUPT (Arn, 8 Nov: "yes make it clickable"): the icon is a secure button that casts your
     -- interrupt - its LOWEST trained rank, the cheapest, the interrupt is the same - at that teammate's target. The
     -- spell and the unit are written at layout, out of combat; in a fight the client does the casting.
+    -- ENEMIES ONLY (Arn, 8 Nov: "show them but dont show the interrupt icon" on a friendly target): the cast rides the
+    -- client's own hostile switch - harmbutton1 -> "kick" - so a click on a friend's cell casts nothing.
     local kb = kc.kickFx
     ok(kb.__template == "SecureActionButtonTemplate", "the icon is a secure button", tostring(kb.__template))
-    ok(kb:GetAttribute("type") == "spell" and kb:GetAttribute("spell") == "Earth Shock(Rank 1)",
-       "it casts Earth Shock, rank 1", tostring(kb:GetAttribute("spell")))
+    ok(kb:GetAttribute("type") == nil and kb:GetAttribute("*harmbutton1") == "kick"
+       and kb:GetAttribute("*type-kick") == "spell" and kb:GetAttribute("*spell-kick") == "Earth Shock(Rank 1)",
+       "it casts Earth Shock, rank 1 - on an enemy only, through the client's hostile switch",
+       tostring(kb:GetAttribute("*spell-kick")))
     ok(kb:GetAttribute("unit") == tok, "at that teammate's target", tostring(kb:GetAttribute("unit")))
     ok(kb.__mouse ~= false, "and it takes the click")
     kb.__scripts.OnEnter(kb)
@@ -10770,6 +10775,25 @@ do
     FG.PaintPvPCell(kc)
     ok(kc.kick.__alpha < 0.5, "the cast over: dim again")
     ok(not kc.kickGlow:IsShown() and not kc.kickBounce:IsPlaying(), "and the glow and the bounce stop")
+    -- A FRIEND: the cell stays (heal who they are on), the icon goes - and their casts do not light it
+    STATE.hostile[tok] = nil
+    STATE.casting[tok] = "cast"
+    local castAsks = 0
+    local realCD = _G.UnitCastingDuration
+    _G.UnitCastingDuration = function(...) castAsks = castAsks + 1 return realCD(...) end
+    FG.PaintPvPCell(kc)
+    _G.UnitCastingDuration = realCD
+    ok(kc:IsShown() ~= false and kc.kick.__alpha == 0 and not kc.kickGlow:IsShown() and not kc.kickBounce:IsPlaying(),
+       "a friendly target: the cell stays, no interrupt icon, and their cast lights nothing", tostring(kc.kick.__alpha))
+    ok(castAsks == 0, "and a friend's casting is not even asked")
+    kc.kickFx.__scripts.OnEnter(kc.kickFx)
+    ok(not kc.kickGlow:IsShown(), "the mouse over a friend's cell lights no icon")
+    kc.kickFx.__scripts.OnLeave(kc.kickFx)
+    STATE.hostile[tok] = true
+    FG.PaintPvPCell(kc)
+    ok(kc.kick.__alpha == 1 and kc.kickGlow:IsShown(), "an enemy again, casting: the icon is back and lit")
+    STATE.casting[tok] = nil
+    FG.PaintPvPCell(kc)
     -- GLOW, BOUNCE OR BOTH - THE PLAYER'S PICK (Arn, 8 Nov: "lets make it an option for them glow or bounce").
     -- "both" by default (what it did first); a pick applies at once, mid-cast too.
     ok(FG.KickFx() == "both", "the cast alert is glow and bounce by default", FG.KickFx())
@@ -10796,7 +10820,7 @@ do
     ok(FG.KickSpell() == nil and FG.KickIcon() == FG.KICK_FALLBACK, "no interrupt trained: the plain kick icon")
     FG.Layout(FG.anchor)
     local kc2 = FG.pvpCells[1]
-    ok(kc2 and kc2.kickFx:GetAttribute("type") == nil and kc2.kickFx.__mouse == false,
+    ok(kc2 and kc2.kickFx:GetAttribute("*type-kick") == nil and kc2.kickFx.__mouse == false,
        "and nothing to cast: the icon lets the click through to the cell's own binds")
     NS.DO.pvp("off")
 

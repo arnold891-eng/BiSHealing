@@ -798,6 +798,12 @@ function NS.DO.holds()
             .. " fresh this session")
     end
 
+    -- WHAT THE CLIENT HID (8 Nov 2026): a hidden answer is not "nobody was held"
+    local hid = FN.hidHolds or {}
+    if (hid.count or 0) + (hid.type or 0) > 0 then
+        Print("  |cfff08cb0the client HID the answer %d time(s)|r (%d in a fight) - who is held could not be read",
+            (hid.count or 0) + (hid.type or 0), hid.fight or 0)
+    end
     if #kinds == 0 then
         Print("nothing has held anybody since login.")
         Print("  %s", "|cff968eadThe block has to be ON and drawn for this to be watching at all -"

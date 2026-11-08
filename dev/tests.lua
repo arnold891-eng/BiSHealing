@@ -7399,9 +7399,17 @@ do
         local keepTank = FN.TankReady
         FN.TankReady = function() return false end
 
+        -- IN A GROUP TREMOR IS THERE FROM THE START (Arn, 8 Nov, Wailing Caverns: a teammate slept, no button, a
+        -- wipe). Earning it meant the first sleep was always a wipe. Solo it still waits to be earned
+        local keepIG = _G.IsInGroup
+        _G.IsInGroup = function() return true end
+        local inGroup = FN.Mine()
+        ok(#inGroup == 2 and inGroup[2] == "tremor" and not FN.Earned("tremor"),
+           "in a group: help AND Tremor from the start, nothing earned", table.concat(inGroup, " "))
+        _G.IsInGroup = function() return false end
         local mine = FN.Mine()
         ok(#mine == 1 and mine[1] == "help",
-           "a fresh install shows the help button and nothing else",
+           "a fresh install, alone: the help button and nothing else",
            table.concat(mine, " "))
 
         -- a fight where somebody was feared, and the fight ending
@@ -7435,6 +7443,34 @@ do
         FN.Watch()
         FN.Settle()
         ok(#FN.Mine() == 2, "but the fear was still noticed, and earned it")
+
+        -- A HIDDEN ANSWER IS COUNTED, NOT TAKEN FOR "NOBODY" (8 Nov: on Forever nothing was ever kept)
+        FN.hidHolds = { count = 0, type = 0, fight = 0 }
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return secret() end,
+            GetActiveLossOfControlDataByUnit = function() return nil end,
+        }
+        STATE.inCombat = true
+        local kind, why = FN.HoldOn("party1")
+        STATE.inCombat = false
+        ok(kind == nil and why == "hidden" and FN.hidHolds.count == 1 and FN.hidHolds.fight == 1,
+           "a secret count: nothing read, and the hiding counted (in a fight)", tostring(why))
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+            GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = secretString() } end,
+        }
+        FN.HoldOn("party1")
+        ok(FN.hidHolds.type == 1, "a secret type is counted too", FN.hidHolds.type)
+        local said = {}
+        local keepChat = _G.DEFAULT_CHAT_FRAME
+        _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) said[#said + 1] = t end }
+        local okH = pcall(NS.DO.holds)
+        _G.DEFAULT_CHAT_FRAME = keepChat
+        local told = false
+        for _, l in ipairs(said) do if l:find("HID the answer 2") then told = true end end
+        ok(okH and told, "/bish holds says the client hid it", table.concat(said, " / "))
+        FN.hidHolds = { count = 0, type = 0, fight = 0 }
+        _G.IsInGroup = keepIG
 
         _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
         FN.ShieldReady = realShield

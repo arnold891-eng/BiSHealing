@@ -70,6 +70,7 @@ local STATE = {
     incoming = {},              -- unit -> heals already on their way
     incomingSecret = false,     -- and whether the client will say how much
     absorb = {},                -- unit -> the shield on them, which a healer must see
+    healAbsorb = {},            -- unit -> healing they cannot take (a heal-absorb debuff)
     absorbSecret = false,       -- and whether the client will say how big it is
     deadSecret = false,         -- UnitIsDeadOrGhost as a secret BOOLEAN, which it is in combat
     classSecret = false,        -- so is the class, and it indexes a table here
@@ -646,6 +647,12 @@ _G.UnitGetTotalAbsorbs = function(u)
     if STATE.absorb[u] == nil then return nil end
     if STATE.absorbSecret then return secret() end
     return STATE.absorb[u]
+end
+-- HEALING THEY CANNOT TAKE (8 Nov 2026): the heal absorb, the same shape and the same secrecy as the shield
+_G.UnitGetTotalHealAbsorbs = function(u)
+    if STATE.healAbsorb[u] == nil then return nil end
+    if STATE.healAbsorbSecret then return secret() end
+    return STATE.healAbsorb[u]
 end
 _G.issecretvalue = function(v) return getmetatable(v) == secretMeta end
 
@@ -1245,6 +1252,58 @@ do
     STATE.absorbSecret = false
     FG.Paint(f)
     ok(f.absorb.__value == 0, "a shield that broke empties the bar rather than leaving it")
+end
+
+-- HEALING THEY CANNOT TAKE (8 Nov 2026). Arn, on VuhDo: "we come back to absorb bar". A heal absorb eats the next
+-- N healing; that much of their health is not really there. The client's number (maybe secret) goes to a bar
+-- that is cut back from the END of the health fill (reverse, one anchor on the fill's end, on the health's own
+-- scale) and trimmed to the filled health by the same mask as the overheal - nothing compares the two here.
+do
+    local ha = f.healAbsorb
+    ok(ha ~= nil and ha ~= f.absorb and ha ~= f.overheal, "a cell has its own band for healing they cannot take")
+    local endOfFill = false
+    for _, p in ipairs(ha.points or {}) do
+        if p[1] == "TOPRIGHT" and p[2] == f.bar:GetStatusBarTexture() and p[3] == "TOPRIGHT" then endOfFill = true end
+    end
+    ok(endOfFill, "it hangs off the END of the health fill, so it moves with their health")
+    ok(ha.__reverse == true or (ha.GetReverseFill and ha:GetReverseFill()) == true,
+       "and fills leftwards, back into the health")
+
+    STATE.healAbsorb.party1 = 900
+    STATE.healAbsorbSecret = false
+    FG.Paint(f)
+    ok(ha.__value == 900, "it is handed how much healing they cannot take")
+    STATE.healAbsorbSecret = true
+    ok(pcall(FG.Paint, f), "a SECRET heal absorb does not throw")
+    ok(getmetatable(ha.__value) == secretMeta, "it is handed the secret itself, untouched")
+    STATE.healAbsorb.party1 = nil
+    STATE.healAbsorbSecret = false
+    FG.Paint(f)
+    ok(ha.__value == 0, "when it is gone the band empties")
+
+    -- a client without the call: nothing breaks, the band stays as it was
+    local realHA = _G.UnitGetTotalHealAbsorbs
+    _G.UnitGetTotalHealAbsorbs = nil
+    ok(pcall(FG.Paint, f), "a client with no heal-absorb call still paints")
+    _G.UnitGetTotalHealAbsorbs = function() error("refused") end
+    ok(pcall(FG.Paint, f), "a call that refuses still paints")
+    _G.UnitGetTotalHealAbsorbs = realHA
+
+    -- the test switch forces a third, then lets go
+    local realTime = _G.GetTime
+    _G.GetTime = function() return 100 end
+    FG.healAbsorbTest = 105
+    FG.Paint(f)
+    ok(ha.__value == 0.33, "/bish healabsorb test forces the band to a third")
+    FG.healAbsorbTest = 99
+    FG.Paint(f)
+    ok(ha.__value == 0, "and after 10 seconds it shows the truth again")
+    FG.healAbsorbTest = nil
+    _G.GetTime = realTime
+
+    ok(FG.UNIT_EVENTS and table.concat(FG.UNIT_EVENTS, " "):find("UNIT_HEAL_ABSORB_AMOUNT_CHANGED", 1, true),
+       "a heal absorb landing or breaking repaints that cell at once")
+    ok(NS.SHORT.healabsorb and #NS.SHORT.healabsorb <= 4, "/bish healabsorb has a short word")
 end
 
 -- INSIDE THE CELL, AND THE OVERHEAL AS A FEATURE (6 Oct 2026). Arn's screenshot: a Chain Heal on

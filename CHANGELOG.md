@@ -1,5 +1,9 @@
 # BiS Healing
 
+## Unreleased
+
+- **Healing they can't take, shown on the bar.** Some debuffs swallow the next chunk of healing before any of it lands. That part of their health now shows as a **dark red piece cut back from the end of their health**, with a thin white line where it starts. Heal into it and the bar won't move until it's gone. Both looks have it; it shows nothing when there's nothing to show. `/bish healabsorb test` paints it on every cell for 10 seconds so you can see what it looks like.
+
 ## 1.0.4
 
 - **The cockpit look is for new installs only.** 1.0.3 switched everyone to the cockpit look. Anyone who already had BiS Healing goes back to the **classic** look, the way they had it. Want the cockpit? **Options > look: cockpit** (or `/bish look cockpit`) - once picked, it stays. New installs still start in the cockpit.

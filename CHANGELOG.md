@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 1.0.4
 
 - **The cockpit look is for new installs only.** 1.0.3 switched everyone to the cockpit look. Anyone who already had BiS Healing goes back to the **classic** look, the way they had it. Want the cockpit? **Options > look: cockpit** (or `/bish look cockpit`) - once picked, it stays. New installs still start in the cockpit.
 

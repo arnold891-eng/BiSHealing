@@ -9939,6 +9939,42 @@ do
     ok(d.forever10 == true and d.hover == false and d.buffQuiet == true,
        "the list arrives with no macro of ours: a new install, quiet")
 
+    -- THE LOOK KEEPS WHAT THEY HAD (Arn, 8 Nov 2026: the cousin updated to 1.0.3 and woke up in the
+    -- cockpit). The cockpit is for NEW installs; everyone who already had the addon keeps classic until
+    -- they pick the cockpit themselves - the Forever 1.0 freeze rule, and 1.0.3 broke it.
+    do
+        local function look(f) return f and f.__look end
+        local anyCell = FG.frames and FG.frames[1]
+        noMacro()
+        FK.read = true
+        d = login(nil, nil)
+        ok(d.look == "cockpit" and FG.Look() == "cockpit", "a new install starts in the cockpit", tostring(d.look))
+        d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, shown = true }, nil)
+        ok(d.look == "classic", "an existing save from before 1.0 keeps classic", tostring(d.look))
+        -- THE COUSIN: stamped at 1.0.0, never picked a look, 1.0.3 read his nil as the cockpit
+        d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, shown = true, forever10 = true }, nil)
+        ok(d.look == "classic" and FG.Look() == "classic" and d.look103 == true,
+           "a save stamped at 1.0 that never picked a look goes back to classic, once", tostring(d.look))
+        ok(look(anyCell) == "classic", "and the cells are dressed classic", tostring(look(anyCell)))
+        NS.DO.look("cockpit")
+        d = login(_G.BiSHealingDB, nil)
+        ok(d.look == "cockpit", "then picking the cockpit sticks: the next login leaves it", tostring(d.look))
+        d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, forever10 = true, look = "cockpit" }, nil)
+        ok(d.look == "cockpit", "a save that already picked the cockpit keeps it", tostring(d.look))
+        -- the macro list late: decided on UPDATE_MACROS, the cells dressed again then
+        noMacro()
+        FK.read = false
+        d = login(nil, nil)
+        ok(d.look == nil, "the macro list not in yet: no look written", tostring(d.look))
+        ourMacro()
+        fire(NS.events, "UPDATE_MACROS")
+        ok(d.look == "classic" and look(anyCell) == "classic",
+           "the list arrives holding our macro: existing, classic, cells dressed again",
+           tostring(d.look) .. " " .. tostring(look(anyCell)))
+        noMacro()
+        FK.read = true
+    end
+
     -- THE SWITCHES STORE WHAT THEY SAY: nil never means "on" again
     ok(NS.DO.hover("on") == true and d.hover == true, "/bish hover on stores true", tostring(d.hover))
     ok(NS.DO.hover("off") == false and d.hover == false, "/bish hover off stores false")

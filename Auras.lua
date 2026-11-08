@@ -221,9 +221,28 @@ FA.DRIVE = {
 --- A COLUMN DOWN THE LEFT EDGE (Arn, 17 Oct: "use the left side as the debuff window"): box 1 at the
 --- top, box 2 under it - two 14 px boxes fill a 34 px cell. Answers size, x, and y down from the top.
 --- `top` pushes the column down: a tall cell's name has the top (Grid.lua NAME_BAND).
-function FA.CureBox(i, top)
+function FA.CureBox(i, top, row)
     local box = FA.MarkerSize() + 4
+    -- THE COCKPIT'S ROW (Arn, 8 Nov, Wailing Caverns: "the bottom blocks the health grid"): the health is a tape along
+    -- the bottom there, and a column's second box sat on it. Side by side, in the band between the name and the tape.
+    if row then return box, 2 + (i - 1) * (box + 2), (top or 0) + 2 end
     return box, 2, (top or 0) + 2 + (i - 1) * (box + 2)
+end
+
+--- Does this cell lay its cure boxes in a row? In the cockpit look (the tape along the bottom), yes.
+function FA.CureRow(cell)
+    local look = cell and cell.__look
+    if look == nil and NS.FG and NS.FG.Look then look = NS.FG.Look() end
+    return look == "cockpit"
+end
+
+--- How high your heals over time sit, from the cell's bottom: just above the cockpit's tape, or at the edge.
+function FA.HotY(cell)
+    if FA.CureRow(cell) and NS.FG and NS.FG.COCKPIT then
+        local K = NS.FG.COCKPIT
+        return K.tapeIn + K.tapeH + 3
+    end
+    return 3
 end
 
 --- How far down a cell's cure column starts: under the name on a tall cell, at the top otherwise.
@@ -232,9 +251,9 @@ function FA.CureTop(cell)
 end
 
 --- Where the cure column ends, for whatever sits beside it (the name, the heals over time).
-function FA.CureLeft(n)
+function FA.CureLeft(n, row)
     if not n or n < 1 then return nil end
-    local box, x = FA.CureBox(1)
+    local box, x = FA.CureBox(row and n or 1, nil, row)
     return x + box + 3
 end
 
@@ -363,7 +382,7 @@ function FA.Boxes(cell, cures, unit)
         end
         if b then
             if c then
-                local size, x, y = FA.CureBox(i, FA.CureTop(cell))
+                local size, x, y = FA.CureBox(i, FA.CureTop(cell), FA.CureRow(cell))
                 b:SetSize(size, size)
                 b:ClearAllPoints()
                 b:SetPoint("TOPLEFT", cell, "TOPLEFT", x, -y)
@@ -384,7 +403,7 @@ function FA.Boxes(cell, cures, unit)
         end
     end
     -- the name moves beside the column, or back to the edge
-    cell.cureLeft = FA.CureLeft(#cures)
+    cell.cureLeft = FA.CureLeft(#cures, FA.CureRow(cell))
     if NS.FG and NS.FG.PlaceName then NS.FG.PlaceName(cell) end
     return true
 end
@@ -591,7 +610,10 @@ function attach(cell, unit)
     -- grid reuses its cells as people move: a cell first built for a pet had no boxes, a raider moved
     -- into it, the same fingerprint said "nothing changed", and the boxes were never made.
     -- and where the column starts: a cell moved into or out of a tall row places its markers again
+    -- and the look: the cockpit lays the boxes in a row above its tape, classic in a column
+    local row = FA.CureRow(cell)
     local sig = signature() .. (FA.CureUnit(unit) and "|cure" or "|nocure") .. "|top" .. FA.CureTop(cell)
+        .. (row and "|row" or "|col")
     if cell.auras and cell.aurasSig == sig then
         if cell.auras.SetUnit then pcall(cell.auras.SetUnit, cell.auras, unit) end
         return true
@@ -631,7 +653,7 @@ function attach(cell, unit)
     if #cures > 0 then
         local px = FA.MarkerSize()
         for i, c in ipairs(cures) do
-            local _, x, y = FA.CureBox(i, FA.CureTop(cell))
+            local _, x, y = FA.CureBox(i, FA.CureTop(cell), row)
             cell.cureSlots[i] = addSlot(container, "BiSHealCure" .. i, "HARMFUL|RAID_PLAYER_DISPELLABLE", {
                 candidateFilters = { includeDispelTypes = c.types },
                 initializeFrame = FA.Placed(curePip(DISPEL_TINT, cell), px, "TOPLEFT", cell, x + 2, -(y + 2)),
@@ -686,8 +708,9 @@ function attach(cell, unit)
         local slot = addSlot(container, "BiSHealHot" .. fam.key, "HELPFUL|PLAYER", {
             candidateFilters = { includeSpellIDs = ids },
             -- beside the cure column when there is one (17 Oct), at the edge when not
+            -- and above the cockpit's tape, never on it (FA.HotY)
             initializeFrame = FA.Placed(hotIcon, px, "BOTTOMLEFT", cell,
-                (FA.CureLeft(#cures) or 3) + (i - 1) * (px + HOT_GAP), 3),
+                (FA.CureLeft(#cures, row) or 3) + (i - 1) * (px + HOT_GAP), FA.HotY(cell)),
         })
         hots[fam.key] = slot
         end

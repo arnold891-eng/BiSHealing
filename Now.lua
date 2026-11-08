@@ -55,8 +55,13 @@ NS.FN = FN
 --- that does the wrong thing is worse than an empty window.
 FN.BUTTONS = {
     { id = 1, key = "help",   word = "Help",   pinned = true, ready = true, always = true },
+    -- IN A GROUP IT IS THERE FROM THE START (Arn, 8 Nov 2026, Wailing Caverns: "why did bis healing not pop up tremor
+    -- totem in bis now when my teammate was asleep we just wiped"). Earned-only meant the first sleep was always a
+    -- wipe - a secure button cannot be born mid-fight - and on Forever the client has not once said who is held
+    -- (`/bish holds`: nothing ever kept). `grouped`: shown in any group to a shaman who has it, dim until somebody is
+    -- held; solo it still waits to be earned, as before.
     { id = 2, key = "tremor", word = "Tremor", needs = "Tremor Totem", ready = true,
-      cast = "Tremor Totem", holds = "TREMOR" },
+      cast = "Tremor Totem", holds = "TREMOR", grouped = true },
     { id = 3, key = "poison", word = "Poison", needs = "Poison Cleansing Totem" },
     -- WEAPON OIL (11 Oct 2026). Arn: "okay got the mana oil how do i bring it up in bis now, does it
     -- scan my bags for oils?" - after a macro he saw (/use the stone, /use 16). Not earned by a
@@ -354,14 +359,19 @@ function FN.HoldOn(unit)
     if not (LC and LC.GetActiveLossOfControlDataCountByUnit and LC.GetActiveLossOfControlDataByUnit) then
         return nil, "no api"
     end
-    local okN, n = pcall(LC.GetActiveLossOfControlDataCountByUnit, unit)
-    n = okN and NS.Plain(n) or nil
+    local okN, raw = pcall(LC.GetActiveLossOfControlDataCountByUnit, unit)
+    -- A HIDDEN ANSWER IS EVIDENCE (8 Nov 2026): on Forever nothing has ever been kept, so `/bish holds` must be able
+    -- to say "the client hid it" apart from "nobody was held"
+    if okN and NS.Secret(raw) then FN.HidHold("count") return nil, "hidden" end
+    local n = okN and raw or nil
     if type(n) ~= "number" or n < 1 then return nil, okN and "none" or "refused" end
     for i = 1, n do
         local okD, d = pcall(LC.GetActiveLossOfControlDataByUnit, unit, i)
         if okD and type(d) == "table" then
             local okT, kind = pcall(function() return d.lossOfControlType or d.locType end)
+            local said = okT and type(kind) ~= "nil"      -- type() reads no value: a secret says its type
             kind = okT and NS.Plain(kind) or nil
+            if said and kind == nil then FN.HidHold("type") end
             if type(kind) == "string" then
                 local id, name = FN.HoldSpell(d)
                 FN.SawHold(kind, unit, name and (name .. " (" .. id .. ")") or id)
@@ -370,6 +380,14 @@ function FN.HoldOn(unit)
         end
     end
     return nil, "unreadable"
+end
+
+--- The client hid a hold answer: counted (how many, in a fight or not) for `/bish holds`. Counts only - no table grows.
+FN.hidHolds = { count = 0, type = 0, fight = 0 }
+function FN.HidHold(what)
+    local h = FN.hidHolds
+    h[what] = (h[what] or 0) + 1
+    if InCombatLockdown and InCombatLockdown() then h.fight = h.fight + 1 end
 end
 
 --- Is anyone in the group held by something this button answers? Returns the unit and the type.
@@ -512,7 +530,7 @@ function FN.Mine()
     local out = {}
     for _, k in ipairs(FN.Order()) do
         local b = FN.Button(k)
-        if b and b.ready and FN.Earned(k)
+        if b and b.ready and (FN.Earned(k) or (b.grouped and FN.Grouped()))
            and (not b.needs or (NS.FB and NS.FB.Knows and NS.FB.Knows(b.needs)))
            and (not b.oil or FN.Oil())                     -- the oil button needs an oil in your bags
            and (not b.selfbuff or FN.ShieldReady())        -- and the shield, a buff and containers

@@ -1784,6 +1784,22 @@ _G.UnitName = function() return "Kumlust Surname" end
 ok(FG.ShortName("party1") == "Kumlust", "a surname is dropped, not cut to an initial")
 _G.UnitName = function() return "Kumlust Surname-Realmone" end
 ok(FG.ShortName("party1") == "Kumlust", "and with a realm on the end as well")
+-- A PET OR AN NPC IS NO "FIRST NAME + SURNAME" (Arn, 8 Nov, Wailing Caverns: a pet cell that said only "The"). The
+-- surname rule is for players; anything else keeps the whole words that fit in the 12
+do
+    local keepUIP = _G.UnitIsPlayer
+    _G.UnitName = function() return "The Rake" end
+    ok(FG.ShortName("partypet1") == "The Rake", "a pet keeps its whole name, not 'The'", FG.ShortName("partypet1"))
+    _G.UnitIsPlayer = function() return false end
+    _G.UnitName = function() return "Deviate Raptor" end
+    ok(FG.ShortName("target") == "Deviate", "an NPC: whole words that fit, never cut mid-word", FG.ShortName("target"))
+    _G.UnitName = function() return "Disciple of Naralex" end
+    ok(FG.ShortName("target") == "Disciple", "and never ending on a little word ('Disciple of')", FG.ShortName("target"))
+    _G.UnitIsPlayer = function() return true end
+    _G.UnitName = function() return "Kumlust Surname" end
+    ok(FG.ShortName("party1") == "Kumlust", "a player still loses the surname")
+    _G.UnitIsPlayer = keepUIP
+end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
 
 -- the name must draw ABOVE the bar: a FontString created on the button sits under the bar, which
@@ -5350,6 +5366,59 @@ do
         local hot = cell.auras.slots.BiSHealHotRiptide
         if hot then ok(hot:OffsetFor("BOTTOMLEFT") >= cell.cureLeft, "heals over time sit beside the column too") end
 
+        -- THE COCKPIT: A ROW, ABOVE THE TAPE (Arn, 8 Nov, Wailing Caverns: "the top debuff is fine but the bottom
+        -- blocks the health grid"). The column's second box sat on the tape along the bottom; in the cockpit the boxes
+        -- go side by side in the band between the name and the tape, and your heals over time beside them
+        do
+            local K, FGx = NS.FG.COCKPIT, NS.FG
+            local keepLook = cell.__look
+            local cellH = FGx.NAME_BAND + 34                     -- a grid cell is tall: the name band + 34
+            local tapeTop = cellH - K.tapeIn - K.tapeH            -- from the cell's top
+            local function at(b)
+                for _, p in ipairs(b.points or {}) do
+                    if p[1] == "TOPLEFT" then return p[4], -p[5] end
+                end
+            end
+            cell.__look = "cockpit"
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+            local size = select(1, FA.CureBox(1))
+            local x1, y1 = at(b1)
+            local x2, y2 = at(b2)
+            ok(y1 and y2 and y1 == y2 and x2 >= x1 + size, "cockpit: the two boxes side by side, not stacked",
+               tostring(x1) .. "," .. tostring(y1) .. " / " .. tostring(x2) .. "," .. tostring(y2))
+            ok(y2 and y2 + size <= tapeTop, "and both clear of the health tape",
+               tostring(y2 and y2 + size) .. " <= " .. tapeTop)
+            ok(cell.cureLeft and x2 and cell.cureLeft >= x2 + size, "whatever sits beside them starts past the row",
+               tostring(cell.cureLeft))
+            ok(FA.HotY(cell) >= K.tapeIn + K.tapeH, "your heals over time sit above the tape, not on it", FA.HotY(cell))
+            ok(FA.HotY(cell) + FA.MarkerSize() <= cellH - FGx.NAME_BAND, "and under the name", FA.HotY(cell))
+            -- back to classic: the column, as before
+            cell.__look = "classic"
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+            x1, y1 = at(b1)
+            x2, y2 = at(b2)
+            ok(x1 == x2 and y2 >= y1 + size and FA.HotY(cell) == 3, "classic: the column down the left edge, as before")
+            -- A LOOK SWITCH MOVES THEM (out of a fight): the redress rebuilds the markers
+            local keepD = NS.DB().look
+            NS.FG.frames = NS.FG.frames or {}
+            local had = false
+            for _, f in ipairs(NS.FG.frames) do if f == cell then had = true end end
+            if not had then table.insert(NS.FG.frames, cell) end
+            cell.unit = cell.unit or "party1"
+            NS.DO.look("cockpit")
+            x1, y1 = at(b1)
+            x2, y2 = at(b2)
+            ok(y1 == y2 and x2 > x1, "switching to the cockpit moves the boxes into the row at once")
+            NS.DO.look(keepLook == "cockpit" and "cockpit" or "classic")   -- every cell dressed as it was
+            NS.DB().look = keepD
+            if not had then table.remove(NS.FG.frames) end
+            cell.__look = keepLook
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+        end
+
         -- THE TARGET CELLS: BOXES ON A FRIEND, NEVER ON A FOE (Arn, 17 Oct: "its coming up on the
         -- enemy bars too"; 18 Oct: "im targeting my self im a friendly player and it no show the cure
         -- thing"). Whoever is targeted may be a foe and an addon may not show or hide a secure box in a
@@ -7330,9 +7399,17 @@ do
         local keepTank = FN.TankReady
         FN.TankReady = function() return false end
 
+        -- IN A GROUP TREMOR IS THERE FROM THE START (Arn, 8 Nov, Wailing Caverns: a teammate slept, no button, a
+        -- wipe). Earning it meant the first sleep was always a wipe. Solo it still waits to be earned
+        local keepIG = _G.IsInGroup
+        _G.IsInGroup = function() return true end
+        local inGroup = FN.Mine()
+        ok(#inGroup == 2 and inGroup[2] == "tremor" and not FN.Earned("tremor"),
+           "in a group: help AND Tremor from the start, nothing earned", table.concat(inGroup, " "))
+        _G.IsInGroup = function() return false end
         local mine = FN.Mine()
         ok(#mine == 1 and mine[1] == "help",
-           "a fresh install shows the help button and nothing else",
+           "a fresh install, alone: the help button and nothing else",
            table.concat(mine, " "))
 
         -- a fight where somebody was feared, and the fight ending
@@ -7366,6 +7443,34 @@ do
         FN.Watch()
         FN.Settle()
         ok(#FN.Mine() == 2, "but the fear was still noticed, and earned it")
+
+        -- A HIDDEN ANSWER IS COUNTED, NOT TAKEN FOR "NOBODY" (8 Nov: on Forever nothing was ever kept)
+        FN.hidHolds = { count = 0, type = 0, fight = 0 }
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return secret() end,
+            GetActiveLossOfControlDataByUnit = function() return nil end,
+        }
+        STATE.inCombat = true
+        local kind, why = FN.HoldOn("party1")
+        STATE.inCombat = false
+        ok(kind == nil and why == "hidden" and FN.hidHolds.count == 1 and FN.hidHolds.fight == 1,
+           "a secret count: nothing read, and the hiding counted (in a fight)", tostring(why))
+        _G.C_LossOfControl = {
+            GetActiveLossOfControlDataCountByUnit = function() return 1 end,
+            GetActiveLossOfControlDataByUnit = function() return { lossOfControlType = secretString() } end,
+        }
+        FN.HoldOn("party1")
+        ok(FN.hidHolds.type == 1, "a secret type is counted too", FN.hidHolds.type)
+        local said = {}
+        local keepChat = _G.DEFAULT_CHAT_FRAME
+        _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) said[#said + 1] = t end }
+        local okH = pcall(NS.DO.holds)
+        _G.DEFAULT_CHAT_FRAME = keepChat
+        local told = false
+        for _, l in ipairs(said) do if l:find("HID the answer 2") then told = true end end
+        ok(okH and told, "/bish holds says the client hid it", table.concat(said, " / "))
+        FN.hidHolds = { count = 0, type = 0, fight = 0 }
+        _G.IsInGroup = keepIG
 
         _G.C_LossOfControl, NS.FG.Roster, NS.FB.Knows = realLC, realRoster, realKnows
         FN.ShieldReady = realShield
@@ -10810,7 +10915,17 @@ do
     STATE.names.raid1target = hidden1
     painted = pcall(FG.PaintPvPCell, c1)
     ok(painted and c1.label.__text == hidden1, "a hidden name is handed to the label whole, never cut")
+    -- NO "..." ON A HIDDEN NAME (Arn, 8 Nov, Wailing Caverns: "Deviat..."). A label pinned on both sides gets the
+    -- client's dots when the text is wider; pinned on ONE side it is as wide as its text and the cell's own clip cuts
+    -- it clean at the edge
+    local lp = c1.label.__parent
+    ok(lp and lp.__clips == true, "the name sits in a frame that clips at the cell's edge")
+    ok(#(c1.label.points or {}) == 1 and c1.label.__justify == "LEFT",
+       "a hidden name: pinned on one side only, so the client adds no dots", #(c1.label.points or {}))
     STATE.names.raid1target = "Gorehowl Bloodfist"
+    FG.PaintPvPCell(c1)
+    ok(#(c1.label.points or {}) == 2 and c1.label.__justify == "CENTER" and c1.label.__text == "Goreho",
+       "a plain name again: six letters, centred as before", #(c1.label.points or {}))
 
     -- the hover POPS (wash + left bar) and the tooltip has the whole name
     _G.GetUnitName = function(u) return STATE.names and STATE.names[u] or "Name-" .. tostring(u) end

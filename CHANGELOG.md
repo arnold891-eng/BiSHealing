@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.0.4
+
+- **The cockpit look is for new installs only.** 1.0.3 switched everyone to the cockpit look. Anyone who already had BiS Healing goes back to the **classic** look, the way they had it. Want the cockpit? **Options > look: cockpit** (or `/bish look cockpit`) - once picked, it stays. New installs still start in the cockpit.
+
 ## 1.0.3
 
 - **The cockpit look.** Every cell is redrawn like one screen on an aircraft's instrument panel, with one colour rule: green is fine, amber is a caution, red is a warning, cyan is information, magenta is what you've selected.

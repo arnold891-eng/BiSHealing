@@ -2349,13 +2349,16 @@ function NS.Forever10(listIn)
         for _, k in ipairs(NS.FREEZE) do
             if db[k] == nil then db[k] = true end            -- what nil meant, written down
         end
+        if db.look == nil then db.look = "classic" end      -- they had the old look: they keep it
         was = "existing"
     else
         for k, v in pairs(NS.QUIET) do db[k] = v end
         db.selfBuffs = { none = true }                      -- no buff watched: no header word, no sound
+        db.look = db.look or "cockpit"                      -- the new look is for new installs
         was = "new"
     end
     db.forever10 = true
+    db.look103 = true                                       -- the look is decided: NS.LookStamp never runs
     NS.fresh = (was == "new")
     local FS = NS.FS
     if FS then
@@ -2363,7 +2366,22 @@ function NS.Forever10(listIn)
         if FS.Sounds then pcall(FS.Sounds) end              -- a sound registered before the stamp comes down
     end
     if NS.FG and NS.FG.HoverAll then pcall(NS.FG.HoverAll) end
+    if NS.FG and NS.FG.RedressAll and NS.FG.frames then pcall(NS.FG.RedressAll) end  -- decided late: dress again
     return was
+end
+
+--- THE LOOK KEEPS WHAT THEY HAD (Arn, 8 Nov 2026: his cousin updated to 1.0.3 and woke up in the cockpit).
+--- 1.0.3 read a nil `look` as the cockpit, and every save from before 1.0.3 has a nil there - so every
+--- existing player was switched over in silence, against the 1.0 freeze rule. ONCE, a save stamped at 1.0
+--- (`forever10`) that never picked a look is written down as classic. A save not stamped yet waits for
+--- NS.Forever10, which decides the look itself. Answers true when it wrote classic.
+function NS.LookStamp()
+    local db = DB()
+    if db.look103 or not db.forever10 then return false end
+    local wrote = db.look == nil
+    if wrote then db.look = "classic" end
+    db.look103 = true
+    return wrote
 end
 
 --- THE RED LINE, only for somebody who HAD a file (19 Sep's lost-file client). It used to fire on every
@@ -2429,7 +2447,8 @@ ev:SetScript("OnEvent", function(_, event, name)
     -- before the grid and the buff sound start, so a new install never registers what it then removes
     local okF, why = pcall(NS.Forever10)
     if not okF then NS.forever10Error = tostring(why) end
-    pcall(NS.Comm.Boot)                     -- never let the channel stop the grid from starting
+    pcall(NS.LookStamp)                     -- before the grid starts, so the cells are dressed once
+    pcall(NS.Comm.Boot)                    -- never let the channel stop the grid from starting
     if NS.FG and NS.FG.Start then NS.FG.Start() end
     Print(("%s -- /bish, or the button on your minimap"):format(NS.VERSION))
     warnLost()

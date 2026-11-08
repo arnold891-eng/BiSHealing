@@ -1289,6 +1289,31 @@ function NS.DO.overheal(test)
     end
 end
 
+--- /bish healabsorb [test] - the dark band for healing someone cannot take (a heal absorb, 8 Nov 2026), on your
+--- target's cell (or your own): is the client's call there, what it answers (a hidden number prints "secret").
+--- `test` forces the band to a third, cut back from the end of everyone's health, for 10 seconds - seen = the
+--- drawing works; then a real heal-absorb debuff is the only thing left to check.
+function NS.DO.healabsorb(test)
+    local FG = NS.FG
+    local f = (FG.target and FG.target.unit and FG.target:IsShown() and FG.target)
+        or (FG.byUnit and FG.byUnit.player) or (FG.frames and FG.frames[1])
+    if not (f and f.healAbsorb) then Print("healabsorb: no cell to look at") return end
+    local fn = _G.UnitGetTotalHealAbsorbs
+    if type(fn) ~= "function" then
+        Print("healabsorb: this client has no UnitGetTotalHealAbsorbs - the band stays empty")
+    else
+        local okA, v = pcall(fn, f.unit)
+        local said = not okA and "refused" or NS.Secret(v) and "secret" or tostring(v)
+        Print("healing |cffb980ff%s|r cannot take: %s", tostring(f.unit), said)
+    end
+    if test then
+        FG.healAbsorbTest = (GetTime and GetTime() or 0) + 10
+        if FG.MarkAll then FG.MarkAll() end
+        Print("  |cff4fd0cftest:|r a dark red piece, a third of the bar, cut back from the end of everyone's health"
+              .. " for 10 seconds - seen = the drawing works")
+    end
+end
+
 function NS.DO.range()
     local FG = NS.FG
     -- written out, not `NS.FM and NS.FM.RangeSpell()`: an `and` keeps only the first return
@@ -1994,7 +2019,7 @@ function NS.DO.help()
     Print("  |cffb980ffefficiency|r which heal, mana for mana   |cffb980ffheals|r the probe behind it")
     Print("  |cffb980ffbuffs|r BiS> now's buff buttons   |cffb980fftrinkets|r trinkets first, per modifier")
     Print("  |cffb980ffcures|r |cffb980ffhover|r |cffb980ffflash|r |cffb980ffbetween|r  on or off")
-    Print("  |cffb980ffrange|r |cffb980ffoverheal|r  measurements   |cffb980ffhits reset|r|cff968ead/rst|r  count again")
+    Print("  |cffb980ffrange|r |cffb980ffoverheal|r |cffb980ffhealabsorb|r  measurements  |cffb980ffhits reset|r|cff968ead/rst|r  count again")
     Print("  the grey word after a command is the short way to type it")
 end
 
@@ -2026,7 +2051,7 @@ NS.SHORT = {
     buffsound = "bsnd", buffs = "bufs", markers = "mark", cures = "cure", trinkets = "trin",
     hover = "hov", flash = "flsh", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
     across = "rows", saved = "db", macro = "keep",
-    pvpmode = "pvp",
+    pvpmode = "pvp", healabsorb = "habs",
 }
 local LONG = {}
 for long, short in pairs(NS.SHORT) do LONG[short] = long end
@@ -2115,6 +2140,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.range()
     elseif msg == "overheal" or msg == "overheal test" then
         NS.DO.overheal(msg:match("test"))
+    elseif msg == "healabsorb" or msg == "healabsorb test" then
+        NS.DO.healabsorb(msg:match("test"))
     elseif msg == "byid" then
         NS.DO.byid()
     elseif msg == "curve" then

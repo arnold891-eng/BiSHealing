@@ -459,6 +459,9 @@ FG.COCKPIT = {
 }
 FG.CLASSIC = { tile = { 0.08, 0.08, 0.08, 0.9 }, incoming = { 0.30, 0.85, 0.45, 0.55 }, absorb = { 0.95, 0.85, 0.45, 0.50 },
                readout = { 1, 0.55, 0.55 } }
+-- healing they cannot take (a heal absorb): dark maroon in both looks - a piece of the bar gone dark, never a
+-- bright colour that could be read as health, a heal or the overheal
+FG.HEAL_ABSORB = { 0.28, 0.02, 0.07, 0.92 }
 FG.LOOKS = { cockpit = true, classic = true }
 
 --- "cockpit" (the default) or "classic".
@@ -713,6 +716,42 @@ function FG.Make(i, parent)
         end
     end
 
+    -- HEALING THEY CANNOT TAKE (8 Nov 2026). Arn, on VuhDo: "we come back to absorb bar". Some debuffs
+    -- eat the next N healing before any of it lands (a HEAL absorb - the opposite of a shield). That part
+    -- of their health is not really there: heal it and nothing moves. VuhDo draws it as a dark piece cut
+    -- back from the end of the health fill, and the bargain is the same as every other band here:
+    -- UnitGetTotalHealAbsorbs may be secret, and is handed to a bar untouched.
+    --
+    -- Built like the overheal, the shape this file has proven: as wide as the bar, anchored by ONE point
+    -- to the END of the health fill, filling leftwards (reverse) on the health's own 0..max scale, and
+    -- trimmed by `curMask` to the filled health - so an absorb bigger than their health stops at the left
+    -- edge, and nothing here ever compares the two. Dark maroon with a white tick where it starts: a
+    -- piece of the tape gone dark, under the overheal (which is louder and means "stop").
+    f.healAbsorb = CreateFrame("StatusBar", nil, f.bar)
+    f.healAbsorb:SetPoint("TOPRIGHT", f.bar:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.healAbsorb:SetSize(FRAME_W - 2, FRAME_H - 2)
+    f.healAbsorb:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    f.healAbsorb:SetStatusBarColor(FG.HEAL_ABSORB[1], FG.HEAL_ABSORB[2], FG.HEAL_ABSORB[3], FG.HEAL_ABSORB[4])
+    if f.healAbsorb.SetReverseFill then f.healAbsorb:SetReverseFill(true) end
+    f.healAbsorb:SetMinMaxValues(0, 1)
+    f.healAbsorb:SetValue(0)
+    if f.healAbsorb.SetFrameLevel and f.bar.GetFrameLevel then
+        local lvl = f.bar:GetFrameLevel()
+        if type(lvl) == "number" then f.healAbsorb:SetFrameLevel(lvl + 2) end
+    end
+    local haTex = f.healAbsorb.GetStatusBarTexture and f.healAbsorb:GetStatusBarTexture()
+    if haTex then
+        f.healAbsorbTick = f.healAbsorb:CreateTexture(nil, "OVERLAY")
+        f.healAbsorbTick:SetColorTexture(1, 1, 1, 0.85)
+        f.healAbsorbTick:SetWidth(1)
+        f.healAbsorbTick:SetPoint("TOPLEFT", haTex, "TOPLEFT", 0, 0)
+        f.healAbsorbTick:SetPoint("BOTTOMLEFT", haTex, "BOTTOMLEFT", 0, 0)
+        if f.curMask and haTex.AddMaskTexture then
+            haTex:AddMaskTexture(f.curMask)
+            f.healAbsorbTick:AddMaskTexture(f.curMask)
+        end
+    end
+
     -- On the BAR, not on the button: a child frame draws above its parent, and a name created on
     -- the button sits UNDER the health bar -- which looks like "the names are missing" with only
     -- the overflowing tail of a long one visible past the cell's edge (seen on the beta, 17 Sep).
@@ -836,7 +875,7 @@ function FG.SizeBands(f, w, h)
     if f.__look == "cockpit" then
         bw, bh = (tonumber(w) or FRAME_W) - 2 * FG.COCKPIT.tapeIn, FG.COCKPIT.tapeH
     end
-    for _, b in ipairs({ f.incoming, f.absorb, f.overheal }) do
+    for _, b in ipairs({ f.incoming, f.absorb, f.overheal, f.healAbsorb }) do
         if b and b.SetSize then b:SetSize(bw, bh) end
     end
 end
@@ -2862,6 +2901,20 @@ function FG.Paint(f)
         end
     end
 
+    -- HEALING THEY CANNOT TAKE (8 Nov 2026): the heal absorb, cut back from the end of the fill on the same
+    -- scale (see Make). Handed over untouched; `/bish healabsorb test` forces it to a third for 10 s.
+    if f.healAbsorb and UnitGetTotalHealAbsorbs then
+        local ok, ha = pcall(UnitGetTotalHealAbsorbs, unit)
+        if ok then
+            if FG.maxOK then pcall(f.healAbsorb.SetMinMaxValues, f.healAbsorb, 0, max) end
+            f.healAbsorb:SetValue(NS.Secret(ha) and ha or (ha or 0))
+        end
+    end
+    if f.healAbsorb and FG.healAbsorbTest and GetTime and GetTime() < FG.healAbsorbTest then
+        f.healAbsorb:SetMinMaxValues(0, 1)
+        f.healAbsorb:SetValue(0.33)
+    end
+
     -- A CLASS AND A DEAD FLAG CAN BOTH BE SECRET, and both are used in a test below: one indexes
     -- a table, the other sits in an `if`. Either refuses outright when the client is hiding it,
     -- so both are asked about first. NS.Plain answers nil rather than the value when it is secret.
@@ -3646,7 +3699,7 @@ end
 FG.dirty, FG.dirtyAll = {}, true
 FG.SWEEP, FG.RANGE_EVERY = 1.0, 0.25
 FG.UNIT_EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_HEAL_PREDICTION",
-                   "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_CONNECTION", "UNIT_FLAGS",
+                   "UNIT_ABSORB_AMOUNT_CHANGED", "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", "UNIT_CONNECTION", "UNIT_FLAGS",
                    "PLAYER_FLAGS_CHANGED", "UNIT_NAME_UPDATE" }
 FG.ALL_EVENTS = { "PLAYER_TARGET_CHANGED", "PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_DISABLED",
                   "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD", "GROUP_ROSTER_UPDATE" }

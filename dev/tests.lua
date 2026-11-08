@@ -5366,6 +5366,59 @@ do
         local hot = cell.auras.slots.BiSHealHotRiptide
         if hot then ok(hot:OffsetFor("BOTTOMLEFT") >= cell.cureLeft, "heals over time sit beside the column too") end
 
+        -- THE COCKPIT: A ROW, ABOVE THE TAPE (Arn, 8 Nov, Wailing Caverns: "the top debuff is fine but the bottom
+        -- blocks the health grid"). The column's second box sat on the tape along the bottom; in the cockpit the boxes
+        -- go side by side in the band between the name and the tape, and your heals over time beside them
+        do
+            local K, FGx = NS.FG.COCKPIT, NS.FG
+            local keepLook = cell.__look
+            local cellH = FGx.NAME_BAND + 34                     -- a grid cell is tall: the name band + 34
+            local tapeTop = cellH - K.tapeIn - K.tapeH            -- from the cell's top
+            local function at(b)
+                for _, p in ipairs(b.points or {}) do
+                    if p[1] == "TOPLEFT" then return p[4], -p[5] end
+                end
+            end
+            cell.__look = "cockpit"
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+            local size = select(1, FA.CureBox(1))
+            local x1, y1 = at(b1)
+            local x2, y2 = at(b2)
+            ok(y1 and y2 and y1 == y2 and x2 >= x1 + size, "cockpit: the two boxes side by side, not stacked",
+               tostring(x1) .. "," .. tostring(y1) .. " / " .. tostring(x2) .. "," .. tostring(y2))
+            ok(y2 and y2 + size <= tapeTop, "and both clear of the health tape",
+               tostring(y2 and y2 + size) .. " <= " .. tapeTop)
+            ok(cell.cureLeft and x2 and cell.cureLeft >= x2 + size, "whatever sits beside them starts past the row",
+               tostring(cell.cureLeft))
+            ok(FA.HotY(cell) >= K.tapeIn + K.tapeH, "your heals over time sit above the tape, not on it", FA.HotY(cell))
+            ok(FA.HotY(cell) + FA.MarkerSize() <= cellH - FGx.NAME_BAND, "and under the name", FA.HotY(cell))
+            -- back to classic: the column, as before
+            cell.__look = "classic"
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+            x1, y1 = at(b1)
+            x2, y2 = at(b2)
+            ok(x1 == x2 and y2 >= y1 + size and FA.HotY(cell) == 3, "classic: the column down the left edge, as before")
+            -- A LOOK SWITCH MOVES THEM (out of a fight): the redress rebuilds the markers
+            local keepD = NS.DB().look
+            NS.FG.frames = NS.FG.frames or {}
+            local had = false
+            for _, f in ipairs(NS.FG.frames) do if f == cell then had = true end end
+            if not had then table.insert(NS.FG.frames, cell) end
+            cell.unit = cell.unit or "party1"
+            NS.DO.look("cockpit")
+            x1, y1 = at(b1)
+            x2, y2 = at(b2)
+            ok(y1 == y2 and x2 > x1, "switching to the cockpit moves the boxes into the row at once")
+            NS.DO.look(keepLook == "cockpit" and "cockpit" or "classic")   -- every cell dressed as it was
+            NS.DB().look = keepD
+            if not had then table.remove(NS.FG.frames) end
+            cell.__look = keepLook
+            FA.sig, cell.aurasSig = nil, nil
+            FA.Attach(cell, "party1")
+        end
+
         -- THE TARGET CELLS: BOXES ON A FRIEND, NEVER ON A FOE (Arn, 17 Oct: "its coming up on the
         -- enemy bars too"; 18 Oct: "im targeting my self im a friendly player and it no show the cure
         -- thing"). Whoever is targeted may be a foe and an addon may not show or hide a secure box in a

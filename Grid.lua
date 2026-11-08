@@ -822,6 +822,9 @@ function FG.RedressAll()
         if f.unit and f.name then f.name:SetText(FG.CellName(f, f.unit)) end
         if f.unit then pcall(FG.Paint, f) end
     end
+    -- THE CURE BOXES MOVE WITH THE LOOK (a column in classic, a row above the cockpit's tape). They are secure: out of
+    -- a fight only - in one, the next layout puts them right. An unchanged cell costs one SetUnit (Auras.lua's attach).
+    if not (InCombatLockdown and InCombatLockdown()) and NS.FA and NS.FA.Rebind then pcall(NS.FA.Rebind, cells) end
     return #cells
 end
 

@@ -1934,11 +1934,33 @@ function FG.ShortName(unit)
     if name == nil then name = unit end
     if type(name) ~= "string" then return tostring(unit) end
     name = name:match("^([^-]+)") or name
-    -- FIRST NAME ONLY. Forever characters can have a surname ("Kumlust Surname"), and cutting at
-    -- nine letters left "Kumlust S" - a stray initial nobody reads. Arn: "get rid of last names".
-    name = name:match("^%s*(%S+)") or name
+    -- FIRST NAME ONLY - FOR A PLAYER. Forever characters can have a surname ("Kumlust Surname"), and
+    -- cutting at nine letters left "Kumlust S" - a stray initial nobody reads. Arn: "get rid of last names".
+    -- A PET OR AN NPC HAS NO SURNAME (Arn, 8 Nov, Wailing Caverns: a pet cell that said only "The"): it
+    -- keeps the whole words that fit, never ending on a little word ("Disciple of").
+    if FG.NotAPlayer(unit) then
+        local out = ""
+        for word in name:gmatch("%S+") do
+            local try = out == "" and word or (out .. " " .. word)
+            if #try > 12 then break end
+            out = try
+        end
+        if out:find(" ") then out = out:gsub("%s+%l%l?%l?$", "") end
+        name = out ~= "" and out or name
+    else
+        name = name:match("^%s*(%S+)") or name
+    end
     if #name > 12 then name = name:sub(1, 12) end
     return name
+end
+
+--- Is this unit plainly NOT a player? A pet token, or the client says so in a plain false. A secret or
+--- missing answer counts as a player (the surname rule, as before).
+function FG.NotAPlayer(unit)
+    if FG.IsPetUnit(unit) then return true end
+    if not UnitIsPlayer then return false end
+    local ok, p = pcall(UnitIsPlayer, unit)
+    return ok and NS.Plain(p) == false
 end
 
 --------------------------------------------------------------------- layout --
@@ -2312,9 +2334,9 @@ end
 --- secret, a pattern may not. A plain one loses its realm and surname, then is cut to four letters.
 function FG.PvPName(name)
     local plain = NS.Plain(name)
-    if type(plain) ~= "string" then return name end
+    if type(plain) ~= "string" then return name, NS.Secret(name) and true or false end
     local first = plain:match("^%s*([^%s%-]+)") or plain
-    return firstLetters(first, FG.PVP_CHARS)
+    return firstLetters(first, FG.PVP_CHARS), false
 end
 
 --- The accent the family's rows wear under the mouse.
@@ -2325,6 +2347,23 @@ local function accent()
         if ok and type(r) == "number" and type(g) == "number" and type(b) == "number" then return r, g, b end
     end
     return 0.73, 0.50, 1.00
+end
+
+--- Where a target cell's name is pinned. A plain name (six letters, it fits): both sides, centred. A hidden one
+--- (whole, uncut): the left side only, so the client draws it full width with no dots and the clip cuts it.
+--- Re-pinned only when that changes.
+function FG.PinLabel(c, whole)
+    whole = whole and true or false
+    if c.labelWhole == whole then return end
+    c.labelWhole = whole
+    c.label:ClearAllPoints()
+    c.label:SetPoint("TOPLEFT", c.nameClip, "TOPLEFT", 0, -3)
+    if whole then
+        c.label:SetJustifyH("LEFT")
+    else
+        c.label:SetPoint("TOPRIGHT", c.nameClip, "TOPRIGHT", 0, -3)
+        c.label:SetJustifyH("CENTER")
+    end
 end
 
 --- One target cell. A secure unit button, the same template the grid's cells are.
@@ -2365,12 +2404,17 @@ function FG.MakePvP(i, parent)
     c.lbar:SetWidth(2)
     c.lbar:SetColorTexture(r, g, b, 1)
     c.lbar:Hide()
-    c.label = c.ink:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    -- THE NAME IN A CLIP (Arn, 8 Nov, Wailing Caverns: "Deviat..."): a hidden name cannot be cut by us, and a label
+    -- pinned on both sides gets the client's dots. FG.PinLabel pins a hidden one on the left only - as wide as its
+    -- text - and this frame cuts it clean at the cell's edge
+    c.nameClip = CreateFrame("Frame", nil, c.ink)
+    c.nameClip:SetPoint("TOPLEFT", 1, -1)
+    c.nameClip:SetPoint("BOTTOMRIGHT", -1, 1)
+    if c.nameClip.SetClipsChildren then c.nameClip:SetClipsChildren(true) end
+    c.label = c.nameClip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     -- outlined: it sits on a full red or green bar now, and must read on both
     if c.label.SetFont then c.label:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 8, "OUTLINE") end
-    c.label:SetPoint("TOPLEFT", 1, -4)
-    c.label:SetPoint("TOPRIGHT", -1, -4)
-    c.label:SetJustifyH("CENTER")
+    FG.PinLabel(c, false)
     if c.label.SetWordWrap then c.label:SetWordWrap(false) end
     -- YOUR INTERRUPT, at the foot under the name: dim, and full the moment their target casts (FG.PaintPvPCell).
     -- On a little frame of its own so it can MOVE (Arn, 8 Nov: "can it also add a glow or bounce animation"): a gold
@@ -2576,7 +2620,11 @@ function FG.PaintPvPCell(c)
         friend = okA and foe == false
     end
     local okN, name = pcall(UnitName, tok)
-    if okN then c.label:SetText(FG.PvPName(name)) end
+    if okN then
+        local short, whole = FG.PvPName(name)          -- whole = hidden, handed back uncut (one secret check, not two)
+        FG.PinLabel(c, whole)
+        c.label:SetText(short)
+    end
     if c.kick then
         -- a FRIEND's target cell carries no interrupt icon, and a friend's casting is not even asked (Arn, 8 Nov)
         c.kickFriend = friend

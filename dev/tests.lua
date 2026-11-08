@@ -1784,6 +1784,22 @@ _G.UnitName = function() return "Kumlust Surname" end
 ok(FG.ShortName("party1") == "Kumlust", "a surname is dropped, not cut to an initial")
 _G.UnitName = function() return "Kumlust Surname-Realmone" end
 ok(FG.ShortName("party1") == "Kumlust", "and with a realm on the end as well")
+-- A PET OR AN NPC IS NO "FIRST NAME + SURNAME" (Arn, 8 Nov, Wailing Caverns: a pet cell that said only "The"). The
+-- surname rule is for players; anything else keeps the whole words that fit in the 12
+do
+    local keepUIP = _G.UnitIsPlayer
+    _G.UnitName = function() return "The Rake" end
+    ok(FG.ShortName("partypet1") == "The Rake", "a pet keeps its whole name, not 'The'", FG.ShortName("partypet1"))
+    _G.UnitIsPlayer = function() return false end
+    _G.UnitName = function() return "Deviate Raptor" end
+    ok(FG.ShortName("target") == "Deviate", "an NPC: whole words that fit, never cut mid-word", FG.ShortName("target"))
+    _G.UnitName = function() return "Disciple of Naralex" end
+    ok(FG.ShortName("target") == "Disciple", "and never ending on a little word ('Disciple of')", FG.ShortName("target"))
+    _G.UnitIsPlayer = function() return true end
+    _G.UnitName = function() return "Kumlust Surname" end
+    ok(FG.ShortName("party1") == "Kumlust", "a player still loses the surname")
+    _G.UnitIsPlayer = keepUIP
+end
 _G.UnitName = function(u) return "Name-" .. tostring(u) end
 
 -- the name must draw ABOVE the bar: a FontString created on the button sits under the bar, which
@@ -10810,7 +10826,17 @@ do
     STATE.names.raid1target = hidden1
     painted = pcall(FG.PaintPvPCell, c1)
     ok(painted and c1.label.__text == hidden1, "a hidden name is handed to the label whole, never cut")
+    -- NO "..." ON A HIDDEN NAME (Arn, 8 Nov, Wailing Caverns: "Deviat..."). A label pinned on both sides gets the
+    -- client's dots when the text is wider; pinned on ONE side it is as wide as its text and the cell's own clip cuts
+    -- it clean at the edge
+    local lp = c1.label.__parent
+    ok(lp and lp.__clips == true, "the name sits in a frame that clips at the cell's edge")
+    ok(#(c1.label.points or {}) == 1 and c1.label.__justify == "LEFT",
+       "a hidden name: pinned on one side only, so the client adds no dots", #(c1.label.points or {}))
     STATE.names.raid1target = "Gorehowl Bloodfist"
+    FG.PaintPvPCell(c1)
+    ok(#(c1.label.points or {}) == 2 and c1.label.__justify == "CENTER" and c1.label.__text == "Goreho",
+       "a plain name again: six letters, centred as before", #(c1.label.points or {}))
 
     -- the hover POPS (wash + left bar) and the tooltip has the whole name
     _G.GetUnitName = function(u) return STATE.names and STATE.names[u] or "Name-" .. tostring(u) end

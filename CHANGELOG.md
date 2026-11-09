@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **PvP mode: the interrupt icon stays hidden until it's needed.** It used to sit there dimmed; now it only appears while that enemy is casting or channelling.
+- **PvP mode: a backup beside your interrupt.** When your interrupt is cooling down, the second icon is your fallback: a shaman's **Grounding Totem** next to Earth Shock, a rogue's **Gouge** next to Kick, a mage's **Polymorph** next to Counterspell (also Shield Bash for warriors, Psychic Scream for priests, Death Coil for warlocks). Each icon shows its own cooldown sweep, so you can see which one is ready - click that one. It only appears once you've trained it.
+
 - **Healing they can't take, shown on the bar.** Some debuffs swallow the next chunk of healing before any of it lands. That part of their health now shows as a **dark red piece cut back from the end of their health**, with a thin white line where it starts. Heal into it and the bar won't move until it's gone. Both looks have it; it shows nothing when there's nothing to show. `/bish healabsorb test` paints it on every cell for 10 seconds so you can see what it looks like.
 
 ## 1.0.4

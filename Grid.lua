@@ -2238,8 +2238,17 @@ FG.KICK = {
     PALADIN = { "Hammer of Justice" }, PRIEST = { "Silence", "Psychic Scream" }, DRUID = { "Bash" },
     WARLOCK = { "Spell Lock", "Death Coil" }, HUNTER = { "Scatter Shot" },
 }
+-- THE BACKUP (Arn, 8 Nov: "if my earth shock is on cool down i can always click my grounding totem ... a rogue can hit
+-- kick and gouge for the same effect, mage being able to polymorph as a last resort"): a SECOND icon beside the first,
+-- the first of these you have trained that is not already your interrupt. Both carry the client's own cooldown sweep,
+-- so which one is ready is the client's to show - nothing here reads a cooldown or picks between them.
+FG.BACKUP = {
+    SHAMAN = { "Grounding Totem" }, ROGUE = { "Gouge" }, MAGE = { "Polymorph" }, WARRIOR = { "Shield Bash" },
+    PRIEST = { "Psychic Scream" }, WARLOCK = { "Death Coil" },
+}
 FG.KICK_FALLBACK = "Interface\\Icons\\Ability_Kick"     -- nothing trained yet: the plain kick, the signal still works
-FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE = 0.2, 20, 1.35
+-- HIDDEN TILL NEEDED (Arn, 8 Nov: "keep the interrupt icon hidden till needed"): 0 at rest, was a dim 0.2
+FG.KICK_DIM, FG.KICK_SIZE, FG.KICK_BOUNCE, FG.KICK_GAP = 0, 20, 1.35, 1
 
 --- Your class's interrupt, the first of FG.KICK[class] you have trained, or nil. Asked once (FG.kickSpell) - the
 --- layout asks again (FG.kickSpell = nil) so a spell learned since shows at the next roster change.
@@ -2254,15 +2263,30 @@ function FG.KickSpell()
     return nil
 end
 
-function FG.KickIcon()
-    local name = FG.KickSpell()
+--- Your backup: the first of FG.BACKUP[class] you have trained that is not your interrupt, or nil. Asked once
+--- (FG.backupSpell), and again at each layout, with the interrupt.
+function FG.BackupSpell()
+    if FG.backupSpell ~= nil then return FG.backupSpell or nil end
+    local okC, _, class = pcall(UnitClass, "player")
+    class = okC and NS.Plain(class) or nil
+    local main = FG.KickSpell()
+    for _, name in ipairs(FG.BACKUP[class or ""] or {}) do
+        if name ~= main and NS.FM and NS.FM.BookIds and #NS.FM.BookIds(name) > 0 then FG.backupSpell = name return name end
+    end
+    FG.backupSpell = false
+    return nil
+end
+
+local function iconOf(name)
     local get = C_Spell and C_Spell.GetSpellTexture
     if name and get then
         local ok, tex = pcall(get, name)
         if ok and tex and not NS.Secret(tex) then return tex end
     end
-    return FG.KICK_FALLBACK
 end
+
+function FG.KickIcon() return iconOf(FG.KickSpell()) or FG.KICK_FALLBACK end
+function FG.BackupIcon() return iconOf(FG.BackupSpell()) end
 
 --- What the icon casts: your interrupt at its LOWEST trained rank ("Earth Shock(Rank 1)") - the interrupt is the
 --- same at every rank and the first costs least. A spell without ranks goes by its name. nil with none trained.
@@ -2289,6 +2313,29 @@ function FG.ArmKick(c, tok, cast)
     b:SetAttribute("unit", cast and tok or nil)
     if b.EnableMouse then b:EnableMouse(cast and true or false) end
     b.cast = cast
+    return true
+end
+
+--- The backup icon the same way (its own action, "kick2"), or put away when there is none - and the pair centred under
+--- the name, or the interrupt alone in the middle. OUT OF COMBAT ONLY, from the layout.
+function FG.ArmBackup(c, tok, cast)
+    local b, main = c and c.kick2Fx, c and c.kickFx
+    if not (b and main) or (InCombatLockdown and InCombatLockdown()) then return false end
+    b:SetAttribute("type", nil)
+    b:SetAttribute("*harmbutton1", cast and "kick2" or nil)
+    b:SetAttribute("*type-kick2", cast and "spell" or nil)
+    b:SetAttribute("*spell-kick2", cast)
+    b:SetAttribute("unit", cast and tok or nil)
+    if b.EnableMouse then b:EnableMouse(cast and true or false) end
+    b.cast = cast
+    main:ClearAllPoints()
+    if cast then
+        main:SetPoint("BOTTOM", c, "BOTTOM", -(FG.KICK_SIZE + FG.KICK_GAP) / 2, 3)
+        b:Show()
+    else
+        main:SetPoint("BOTTOM", c, "BOTTOM", 0, 3)
+        b:Hide()
+    end
     return true
 end
 
@@ -2488,9 +2535,35 @@ function FG.MakePvP(i, parent)
         if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
         c.kickCd = cd
     end
-    -- it lights under the mouse (the family rule) and says what a click does
+    -- THE BACKUP (FG.BACKUP), a second secure button beside it - a CHILD of the first, so it shows, hides and bounces
+    -- with it. Its own cooldown sweep; no glow of its own (the pair's glow is the interrupt's).
+    c.kick2Fx = CreateFrame("Button", nil, c.kickFx, "SecureActionButtonTemplate")
+    if c.kick2Fx.RegisterForClicks then c.kick2Fx:RegisterForClicks("AnyDown") end
+    c.kick2Fx:SetSize(FG.KICK_SIZE, FG.KICK_SIZE)
+    c.kick2Fx:SetPoint("LEFT", c.kickFx, "RIGHT", FG.KICK_GAP, 0)
+    c.kick2 = c.kick2Fx:CreateTexture(nil, "ARTWORK")
+    c.kick2:SetAllPoints()
+    if c.kick2.SetTexCoord then c.kick2:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+    local okCd2, cd2 = pcall(CreateFrame, "Cooldown", nil, c.kick2Fx, "CooldownFrameTemplate")
+    if okCd2 and cd2 then
+        cd2:SetAllPoints(c.kick2Fx)
+        if cd2.SetDrawBling then cd2:SetDrawBling(false) end
+        if cd2.SetHideCountdownNumbers then cd2:SetHideCountdownNumbers(true) end
+        c.kick2Cd = cd2
+    end
+    c.kick2Fx:SetScript("OnEnter", function(self)
+        if c.kickFriend or not c.kickLit or not (GameTooltip and self.cast) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("click: " .. tostring(self.cast), 1, 0.82, 0)
+        GameTooltip:AddLine("the backup, for when " .. tostring(c.kickFx.cast or "your interrupt") .. " is cooling down",
+                            0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    c.kick2Fx:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    c.kick2Fx:Hide()
+    -- it lights under the mouse (the family rule) and says what a click does - only while it shows (a cast)
     c.kickFx:SetScript("OnEnter", function(self)
-        if c.kickFriend then return end             -- a friend's cell has no icon to light or explain
+        if c.kickFriend or not c.kickLit then return end   -- hidden (a friend, or nothing cast): nothing to light
         c.kickGlow:Show()
         if not (GameTooltip and self.cast) then return end
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -2579,7 +2652,10 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
     for i = #cells, 1, -1 do cells[i] = nil end            -- emptied in place: callers may hold the table
     for k in pairs(byUnit) do byUnit[k] = nil end
     FG.kickSpell = nil                                      -- an interrupt learned since: asked again here
+    FG.backupSpell = nil
     local kickIcon, kickCast = FG.KickIcon(), FG.KickCast()
+    local backup = FG.BackupSpell()
+    local backupIcon, backupCast = FG.BackupIcon(), backup and NS.FM and NS.FM.Cast and NS.FM.Cast(backup) or backup
     for i, unit in ipairs(roster) do
         local c = FG.pvpPool[i] or FG.MakePvP(i, anchor)
         local tok = FG.TargetOf(unit)
@@ -2592,7 +2668,9 @@ function FG.LayoutPvP(anchor, roster, grid, colW)
         c:SetPoint("TOPLEFT", anchor, "TOPLEFT", fx + fw + PAD, fy)
         c:SetSize(FG.PVP_W, fh)
         if c.kick then c.kick:SetTexture(kickIcon) end
+        if c.kick2 and backupIcon then c.kick2:SetTexture(backupIcon) end
         FG.ArmKick(c, tok, kickCast)
+        FG.ArmBackup(c, tok, kickCast and backupCast or nil)       -- a backup only beside a trained interrupt
         c.unit, c.member = tok, unit
         c:SetAttribute("unit", tok)
         -- the grid's own binds, hostile ones included (Mouse.lua's ApplyTo owns what a click means)
@@ -2672,6 +2750,8 @@ function FG.PaintPvPCell(c)
         c.kickFriend = friend
         local lit = not friend and FG.Casting(tok)
         c.kick:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM))
+        -- the WHOLE pair (icons, sweeps, glow) on the frame's alpha - allowed in a fight, unlike Show/Hide on a secure button
+        if c.kickFx then c.kickFx:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM)) end
         -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
         if lit ~= c.kickLit then
             c.kickLit = lit
@@ -2771,9 +2851,15 @@ function FG.PvPCooldown()
     if not (name and get) then return false end
     local ok, dur = pcall(get, name)
     if not ok then return false end
+    -- the backup's sweep the same way (one more question, only when you have one)
+    local backup = FG.BackupSpell()
+    local ok2, dur2 = false, nil
+    if backup then ok2, dur2 = pcall(get, backup) end
     for _, c in ipairs(FG.pvpCells or {}) do
         local cd = c.kickCd
         if cd and cd.SetCooldownFromDurationObject then pcall(cd.SetCooldownFromDurationObject, cd, dur) end
+        local cd2 = c.kick2Cd
+        if ok2 and cd2 and cd2.SetCooldownFromDurationObject then pcall(cd2.SetCooldownFromDurationObject, cd2, dur2) end
     end
     return true
 end

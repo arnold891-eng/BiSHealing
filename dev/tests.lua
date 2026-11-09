@@ -11086,6 +11086,28 @@ do
        tostring(kb:GetAttribute("*spell-kick")))
     ok(kb:GetAttribute("unit") == tok, "at that teammate's target", tostring(kb:GetAttribute("unit")))
     ok(kb.__mouse ~= false, "and it takes the click")
+    -- THE BACKUP (Arn, 8 Nov: "if my earth shock is on cool down i can always click my grounding totem"): no Grounding
+    -- Totem trained yet - no second icon, the interrupt alone in the middle
+    ok(FG.BackupSpell() == nil and kc.kick2Fx and kc.kick2Fx:IsShown() == false, "no backup trained: no second icon")
+    local keepBook44 = BOOK[44]
+    BOOK[44] = { name = "Grounding Totem", rank = "" }
+    NS.FM.BookChanged()
+    FG.Layout(FG.anchor)
+    kc = FG.pvpByUnit.raid1 or FG.pvpCells[1]
+    tok = kc.unit
+    kb = kc.kickFx
+    local k2 = kc.kick2Fx
+    ok(FG.BackupSpell() == "Grounding Totem", "a shaman's backup is Grounding Totem (trained)", tostring(FG.BackupSpell()))
+    ok(k2:IsShown() ~= false and k2.__template == "SecureActionButtonTemplate" and k2:GetAttribute("*harmbutton1") == "kick2"
+       and k2:GetAttribute("*type-kick2") == "spell" and k2:GetAttribute("*spell-kick2") == "Grounding Totem"
+       and k2:GetAttribute("unit") == tok,
+       "a second secure icon beside it casts Grounding Totem - an enemy's cell only, like the first",
+       tostring(k2:GetAttribute("*spell-kick2")))
+    ok(k2:GetParent() == kb, "it rides the first icon's frame: shown, hidden and bounced with it")
+    local mainOff
+    for _, p in ipairs(kb.points or {}) do if p[1] == "BOTTOM" then mainOff = p[4] end end
+    ok(mainOff and mainOff < 0, "the pair is centred: the interrupt steps left to make room", tostring(mainOff))
+    ok(kc.kick2Cd and kc.kick2Cd.__kind == "Cooldown", "the backup carries its own cooldown sweep")
     -- ITS COOLDOWN SHOWS (Arn, 8 Nov: "right now i interuppt bit it still looks like i can click it again ... no cooldown
     -- indicator"): a sweep over the icon, run by the client from a duration object it hands us for our own spell -
     -- never a number read. Asked when the client says a cooldown changed (SPELL_UPDATE_COOLDOWN), only while PvP shows.
@@ -11098,23 +11120,31 @@ do
     ev.__scripts.OnEvent(ev, "SPELL_UPDATE_COOLDOWN")
     ok(durAsked[1] == "Earth Shock" and kc.kickCd.__durObj == durObj,
        "your interrupt's cooldown handed to the sweep as the client gave it", tostring(durAsked[1]))
+    ok(durAsked[2] == "Grounding Totem" and kc.kick2Cd.__durObj == durObj,
+       "and the backup's to its own sweep - which one is ready is the client's to show", tostring(durAsked[2]))
     local hiddenObj = secretString()
     _G.C_Spell.GetSpellCooldownDuration = function() return hiddenObj end
     ok(pcall(ev.__scripts.OnEvent, ev, "SPELL_UPDATE_COOLDOWN") and kc.kickCd.__durObj == hiddenObj,
        "a hidden answer is handed on untouched, never tested")
     _G.C_Spell.GetSpellCooldownDuration = keepDur
+    STATE.casting[tok] = "cast"
+    FG.PaintPvPCell(kc)
+    kc.kickGlow:Hide()
     kb.__scripts.OnEnter(kb)
-    ok(kc.kickGlow:IsShown(), "under the mouse it lights (the family rule)")
+    ok(kc.kickGlow:IsShown(), "shown (a cast), under the mouse it lights (the family rule)")
     kb.__scripts.OnLeave(kb)
-    ok(not kc.kickGlow:IsShown(), "and goes out again when nothing is being cast")
     STATE.casting[tok] = nil
     FG.PaintPvPCell(kc)
-    ok(kc.kick.__alpha and kc.kick.__alpha < 0.5, "their target not casting: the icon is dim", tostring(kc.kick.__alpha))
+    ok(kc.kick.__alpha == 0 and kc.kickFx.__alpha == 0,
+       "their target not casting: the icons are HIDDEN (Arn, 8 Nov: 'hidden till needed')", tostring(kc.kickFx.__alpha))
+    kb.__scripts.OnEnter(kb)
+    ok(not kc.kickGlow:IsShown(), "and the mouse over the hidden spot lights nothing")
+    kb.__scripts.OnLeave(kb)
     ok(kc.kickFx and not kc.kickGlow:IsShown() and not (kc.kickBounce and kc.kickBounce:IsPlaying()),
        "at rest: no glow, no bounce")
     STATE.casting[tok] = "cast"
     FG.PaintPvPCell(kc)
-    ok(kc.kick.__alpha == 1, "casting: the icon at full strength")
+    ok(kc.kick.__alpha == 1 and kc.kickFx.__alpha == 1, "casting: the icons show, at full strength")
     -- AND IT MOVES (Arn, 8 Nov: "can it also add a glow or bounce animation"): a gold glow behind it, and the icon
     -- bouncing - the client runs the bounce itself; nothing of ours ticks for it
     ok(kc.kickGlow:IsShown(), "casting: a glow behind the icon")
@@ -11181,6 +11211,11 @@ do
     local kc2 = FG.pvpCells[1]
     ok(kc2 and kc2.kickFx:GetAttribute("*type-kick") == nil and kc2.kickFx.__mouse == false,
        "and nothing to cast: the icon lets the click through to the cell's own binds")
+    ok(kc2.kick2Fx:IsShown() == false and kc2.kick2Fx:GetAttribute("*type-kick2") == nil,
+       "and no backup beside an interrupt you do not have")
+    BOOK[44] = keepBook44
+    NS.FM.BookChanged()
+    FG.backupSpell = nil
     NS.DO.pvp("off")
 
     -- (9) THE COST of one repaint pass over a 40-man where everyone has a target

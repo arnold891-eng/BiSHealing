@@ -62,7 +62,12 @@ RD.GAUGE = { x = 1, w = 7, top = 8, foot = 34, flag = 5 }
 -- solid, so the stabilizer's cover (the same dark) melts into its rail.
 RD.RAIL_GAP = 3                                    -- between the rails, and between the tool rail and the square
 RD.TOOL_RAIL_W = 22 + 8                            -- a system pip and a margin
-RD.GAUGE_RAIL_W = 7 + 5 + 10                       -- the tape, its caret/flag, a margin
+RD.GAUGE_RAIL_W = 54                               -- the HUD scale's numbers and readout, the tape, its caret/flag
+-- THE HUD TAPE (Arn, 8 Nov, a fighter HUD's speed tape: "the picture is an idea of how the guage should look not just a
+-- line"): a spine with a tick every 10%, longer ticks and numbers at 0/25/50/75/100, and a BOXED READOUT riding at the top
+-- of your fuel with your mana % in it - the client writes the number (SetFormattedText, UnitPowerPercent ScaleTo100; a
+-- secret is handed on, never read) - pointing into the tape. The race (red above green, BINGO) stays, in the slim tape.
+RD.HUD = { minor = 3, major = 6, label = 9, boxW = 24, boxH = 13 }
 -- THE MANA COLUMN (Arn, 8 Nov: "put the mana tools close to the fuel tape and the water shield ... its essential for a
 -- pilot to always click that button when it lights"): right beside the tape, top to bottom the stabilizer, Mana Tide,
 -- the potion, the drink. Its x from the radar's left edge; clear of every pip, party and raid (the suite measures it).
@@ -854,6 +859,7 @@ local function buildGauge(f)
     g.tickFrame = CreateFrame("Frame", nil, g)
     g.tickFrame:SetAllPoints(g)
     g.tickFrame:SetFrameLevel(L + 3)
+    RD.BuildHUD(g, L)
     g.ticks = {}
     for q = 1, 3 do g.ticks[q] = line(g.tickFrame, "OVERLAY", 0, 0, 1, 0, RD.PHOS, 1) end
     -- the boss's level, over your mana
@@ -940,13 +946,80 @@ function RD.BuildRails(f)
     return t, g
 end
 
+--- The HUD scale left of the tape: the spine, the ticks, the numbers, and the readout box on your fuel's top.
+function RD.BuildHUD(g, L)
+    local H = RD.HUD
+    local hud = CreateFrame("Frame", nil, g)
+    hud:SetPoint("TOPRIGHT", g, "TOPLEFT", -1, 0)
+    hud:SetPoint("BOTTOMRIGHT", g, "BOTTOMLEFT", -1, 0)
+    hud:SetWidth(RD.GAUGE_RAIL_W - RD.GAUGE.w - RD.GAUGE.flag - 6)
+    hud:SetFrameLevel(L + 3)
+    g.hud = hud
+    hud.spine = tex(hud, "ARTWORK", RD.PHOS)
+    hud.spine:SetPoint("TOPRIGHT", hud, "TOPRIGHT", 0, 0)
+    hud.spine:SetPoint("BOTTOMRIGHT", hud, "BOTTOMRIGHT", 0, 0)
+    hud.spine:SetWidth(1)
+    hud.ticks, hud.labels = {}, {}
+    for k = 0, 10 do
+        local major = (k % 5 == 0) or k == 0
+        local t = tex(hud, "ARTWORK", RD.PHOS)
+        t:SetSize((k % 5 == 0 or k == 10) and H.major or H.minor, 1)
+        hud.ticks[k] = t
+    end
+    for q = 0, 4 do
+        local fs = hud:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(STANDARD_TEXT_FONT, H.label, "")
+        fs:SetTextColor(RD.PHOS[1], RD.PHOS[2], RD.PHOS[3])
+        fs:SetJustifyH("RIGHT")
+        fs:SetText(tostring(q * 25))
+        hud.labels[q] = fs
+    end
+    -- the readout: a box riding the mana fill's top, the number inside, a pointer into the tape
+    local box = CreateFrame("Frame", nil, g)
+    box:SetSize(H.boxW, H.boxH)
+    box:SetPoint("RIGHT", g.mana:GetStatusBarTexture(), "TOPLEFT", -3, 0)
+    box:SetFrameLevel(L + 6)
+    box.fill = tex(box, "BACKGROUND", { RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1 })
+    box.fill:SetAllPoints(box)
+    for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
+                         { "TOPLEFT", "BOTTOMLEFT", false }, { "TOPRIGHT", "BOTTOMRIGHT", false } }) do
+        local t = tex(box, "BORDER", RD.PHOS)
+        t:SetPoint(e[1]) t:SetPoint(e[2])
+        if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+    end
+    box.tip1 = line(box, "OVERLAY", H.boxW / 2, 3, H.boxW / 2 + 3, 0, RD.PHOS, 1)
+    box.tip2 = line(box, "OVERLAY", H.boxW / 2, -3, H.boxW / 2 + 3, 0, RD.PHOS, 1)
+    box.num = box:CreateFontString(nil, "OVERLAY")
+    box.num:SetFont(STANDARD_TEXT_FONT, 10, "")
+    box.num:SetTextColor(RD.PHOS[1], RD.PHOS[2], RD.PHOS[3])
+    box.num:SetPoint("CENTER", box, "CENTER", 0, 0)
+    g.readout = box
+    return hud
+end
+
+--- The HUD scale's places for a tape `h` tall: a tick every 10%, numbers every 25%.
+function RD.SizeHUD(h)
+    local g = RD.gauge
+    local hud = g and g.hud
+    if not hud then return end
+    for k, t in pairs(hud.ticks) do
+        t:ClearAllPoints()
+        t:SetPoint("RIGHT", hud, "BOTTOMRIGHT", 0, k / 10 * h)
+    end
+    for q, fs in pairs(hud.labels) do
+        fs:ClearAllPoints()
+        fs:SetPoint("RIGHT", hud, "BOTTOMRIGHT", -(RD.HUD.major + 2), q / 4 * h)
+    end
+end
+
 function RD.SizeGauge(size)
     local g, G = RD.gauge, RD.GAUGE
     if not g then return nil end
     local h = size - G.top - G.foot
     g:ClearAllPoints()
-    g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", RD.gaugeRail and (RD.GAUGE_RAIL_W - G.w - G.flag) / 2 or G.x, G.foot)
+    g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", RD.gaugeRail and (RD.GAUGE_RAIL_W - G.w - G.flag - 3) or G.x, G.foot)
     g:SetSize(G.w, h)
+    RD.SizeHUD(h)
     for q, l in ipairs(g.ticks) do
         local y = (q / 4 - 0.5) * h
         l:SetStartPoint("CENTER", g.tickFrame, -G.w / 2 - 2, y)
@@ -1855,6 +1928,13 @@ end
 function RD.PaintMana()
     local g = RD.gauge
     if not (g and UnitPower and UnitPowerMax) then return false end
+    -- the readout's number: the client writes your mana % into it (a secret is handed on, never read)
+    local num = g.readout and g.readout.num
+    if num and UnitPowerPercent and CurveConstants and CurveConstants.ScaleTo100 then
+        if not pcall(function() num:SetFormattedText("%d", UnitPowerPercent("player", 0, true, CurveConstants.ScaleTo100)) end) then
+            num:SetText("")
+        end
+    end
     return handTo({ g.mana, g.ruler }, UnitPowerMax, UnitPower, "player", 0)
 end
 

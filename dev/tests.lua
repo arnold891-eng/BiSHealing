@@ -11468,9 +11468,11 @@ do
     local names = 0
     for _, fs in ipairs(LABELS) do
         local p = fs.__parent
-        while p do if p == f then if fs.__text and fs.__text ~= "" then names = names + 1 end break end p = p.__parent end
+        -- the HUD tape's numbers are allowed (Arn's HUD picture): digits only, never a word or a name
+        local t = fs.__text
+        while p do if p == f then if t and t ~= "" and not t:match("^%d+$") and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
     end
-    ok(names == 0, "no names, no words on the scope", names)
+    ok(names == 0, "no names, no words on the scope (the HUD tape's numbers are digits only)", names)
 
     -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
     local function shade(sp)
@@ -11927,11 +11929,29 @@ do
         ok(RD.fuelUnit == nil and g.bossLayer:GetAlpha() == 0 and g.chev:GetAlpha() == 0, "the fight ends: calm again")
         local okTip = pcall(g.__scripts.OnEnter, g)
         local words = 0
+        local digits = 0
         for _, fs in ipairs(LABELS) do
             local q = fs.__parent
-            while q do if q == g then words = words + 1 break end q = q.__parent end
+            local t = fs.__text or ""
+            while q do
+                if q == g then
+                    if t:match("^%d+$") or t == "(secret)" then digits = digits + 1 elseif t ~= "" then words = words + 1 end
+                    break
+                end
+                q = q.__parent
+            end
         end
         ok(okTip and #RD.FuelTip() >= 3 and words == 0, "its words live in the tooltip, none on the tape")
+        -- THE HUD TAPE (Arn 8 Nov, a fighter HUD's speed tape: "the picture is an idea of how the guage should look")
+        local hud, box = g.hud, g.readout
+        local labs = {}
+        for q2 = 0, 4 do labs[#labs + 1] = hud and hud.labels[q2] and hud.labels[q2].__text end
+        ok(hud and #hud.ticks == 10 and table.concat(labs, ",") == "0,25,50,75,100", "the scale: a tick every 10%, numbers at 0/25/50/75/100")
+        local bp = box and box.points and box.points[1]
+        ok(bp and bp[1] == "RIGHT" and bp[2] == g.mana:GetStatusBarTexture(), "the readout box rides the top of your fuel")
+        RD.PaintMana()
+        local fmt = box.num.__formatted
+        ok(fmt and fmt[1] == "%d", "and the client writes your mana % into it", fmt and tostring(fmt[2]))
     end
 
     -- THE MANA COLUMN (Arn 8 Nov: "the fuel button trick is that they are always there and we use ingame calculations out

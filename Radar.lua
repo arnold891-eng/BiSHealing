@@ -305,6 +305,9 @@ end
 --- is on - a heal pip, a cure pip, a bogey, a corner system - even an invisible one, so you see what a click would do.
 --- A ring, not a box (Arn: no boxes). Its own plain frame on the button, only its ALPHA ever changes (in a fight too);
 --- remade only when the pip's size changes. Hooked, never Set: a secure button keeps its own scripts.
+--- SWITCHED OFF (8 Nov 2026, Arn: "it kills the immersion when i am moving the mouse over empty spaces and it shows where
+--- something will light up ... might make them want to click that place"): built, never shown. RD.HALO_ON brings it back.
+RD.HALO_ON = false
 RD.HALO_PAD, RD.HALO_SEG = 6, 18
 RD.HALO_COL = { 1, 1, 1, 0.95 }
 function RD.Halo(owner, px)
@@ -317,7 +320,7 @@ function RD.Halo(owner, px)
         h:SetFrameLevel(owner:GetFrameLevel() + 30)
         h:SetAlpha(0)
         owner.halo = h
-        owner:HookScript("OnEnter", function() h:SetAlpha(1) end)
+        owner:HookScript("OnEnter", function() if RD.HALO_ON then h:SetAlpha(1) end end)
         owner:HookScript("OnLeave", function() h:SetAlpha(0) end)
     end
     for _, t in ipairs(h.ring or {}) do t:Hide() end

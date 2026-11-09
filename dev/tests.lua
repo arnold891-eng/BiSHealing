@@ -11643,12 +11643,19 @@ do
         local off = btn.halo and btn.halo:GetAlpha()
         return on, off
     end
+    -- ...AND THEN TAKEN OFF (Arn 8 Nov: "it kills the immersion when i am moving the mouse over empty spaces and it shows
+    -- where something will light up ... might make them want to click that place"): the ring is built but never shown
+    ok(RD.HALO_ON == false, "the hover ring is switched off")
     for what, btn in pairs({ heal = sp2.heal, bogey = sp2.bogey, cure = sp2.cures[1] and sp2.cures[1].box,
                              stabilizer = RD.shield, fuel = RD.fuel }) do
         local on, off = hover(btn)
-        ok(btn.halo and #btn.halo.ring == RD.HALO_SEG and on == 1 and off == 0,
-           "the " .. what .. " pops a white ring under the mouse, and lets it go", tostring(on) .. "/" .. tostring(off))
+        ok(btn.halo and #btn.halo.ring == RD.HALO_SEG and on == 0 and off == 0,
+           "the mouse over the " .. what .. ": no ring - an empty spot never says something lives there", tostring(on) .. "/" .. tostring(off))
     end
+    RD.HALO_ON = true
+    local on1 = hover(sp2.heal)
+    ok(on1 == 1, "switched back on, it would pop again (kept, not deleted)")
+    RD.HALO_ON = false
     STATE.inCombat = true
     local okFight = pcall(hover, sp2.heal)
     ok(okFight, "in a fight too: only the ring's alpha changes, nothing secure is touched")

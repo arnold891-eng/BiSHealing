@@ -636,8 +636,16 @@ function RD.Roster()
     return out, false, 1
 end
 
---- tank (BiS> now's tank, or a raid main tank), heal (a healing class), or damage. Out of a fight.
+--- tank, heal or damage. Out of a fight (the only time a role is not a secret). THE GAME'S ROLE FIRST (8 Nov 2026, Arn:
+--- "tank shows up as a sword instead of a shield" - his Ellesmere frames showed Legaian's shield from it):
+--- UnitGroupRolesAssigned TANK / HEALER / DAMAGER; then BiS> now's tank or a raid main tank; then a healing class.
+RD.ROLE_WORD = { TANK = "tank", HEALER = "heal", DAMAGER = "damage" }
 function RD.Role(unit)
+    if UnitGroupRolesAssigned then
+        local okR, r = pcall(UnitGroupRolesAssigned, unit)
+        r = okR and plain(r) or nil
+        if type(r) == "string" and RD.ROLE_WORD[r] then return RD.ROLE_WORD[r] end
+    end
     local tank = NS.FN and NS.FN.Tank and NS.FN.Tank()
     local okN, name = pcall(GetUnitName, unit, false)
     name = okN and plain(name) or nil
@@ -1283,7 +1291,8 @@ local ev = CreateFrame("Frame")
 RD.events = ev
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "GROUP_ROSTER_UPDATE",
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
-                     "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET" }) do
+                     "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
+                     "PLAYER_ROLES_ASSIGNED" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnEvent", function(_, event, a1, a2)
@@ -1300,7 +1309,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
         return
     end
     if not RD.Active() then return end
-    if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED" then
+    if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED"
+       or event == "PLAYER_ROLES_ASSIGNED" then                -- a role set: the pip's sign follows
         RD.Arm()                           -- in a fight it only marks RD.pending
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
         for _, sp in ipairs(RD.spokes) do if sp.unit == a1 then RD.PaintHeal(sp) end end

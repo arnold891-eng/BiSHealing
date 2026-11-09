@@ -11504,6 +11504,18 @@ do
     -- NO BOXES, AND YOU IN THE MIDDLE (Arn 8 Nov: "the box outlines are not needed if we want to heal ourselves we are in
     -- the middle and stuff build out from us")
     ok(sp2.heal.edges == nil and #sp2.paintTex == #sp2.glyph, "a pip is its role glyph alone - no box round it")
+    -- THE GAME'S ROLE FIRST (Arn 8 Nov: "tank shows up as a sword instead of a shield")
+    local keepRoles = STATE.roles
+    STATE.roles = { party1 = "TANK" }
+    ok(RD.Role("party1") == "tank", "the game says party1 tanks: a tank")
+    fire(RD.events, "PLAYER_ROLES_ASSIGNED")
+    ok(sp2.role == "tank" and #sp2.glyph == 4, "a role set: their pip's sign becomes the tank's diamond", tostring(sp2.role))
+    STATE.roles = { party1 = "HEALER" }
+    ok(RD.Role("party1") == "heal", "HEALER: the cross")
+    STATE.roleSecret = true
+    ok(pcall(RD.Role, "party1"), "a secret role (a fight) is never read - the old rules answer")
+    STATE.roleSecret, STATE.roles = nil, keepRoles
+    fire(RD.events, "PLAYER_ROLES_ASSIGNED")
     ok(RD.dims:GetAlpha() == 0, "and no dim slot outlines, in or out of a fight")
     local mx, my = RD.Point(sp1.slot, sp1.slot.rh)
     ok(sp1.slot.self and math.abs(mx) < 0.01 and math.abs(my) < 0.01, "your heal pip is the centre")

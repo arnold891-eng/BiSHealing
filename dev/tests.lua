@@ -11621,6 +11621,15 @@ do
     STATE.units.party1target = nil
     ok(sp2.bogey:GetAttribute("type2") == "target" and sp2.bogey:GetAttribute("unit") == "party1target",
        "a right-click on it targets their target")
+    -- THE INTERRUPT'S SWEEP (Arn 8 Nov: "cooldown sweep on interrupt icon"): the client's duration object, untouched
+    local keepDur2 = _G.C_Spell.GetSpellCooldownDuration
+    local durObj2, asked2 = { kick = true }, nil
+    _G.C_Spell.GetSpellCooldownDuration = function(s) asked2 = s return durObj2 end
+    fire(RD.events, "SPELL_UPDATE_COOLDOWN")
+    ok(sp2.bogey.cd and sp2.bogey.cd.__durObj == durObj2 and asked2 == NS.FG.KickSpell(),
+       "your interrupt's cooldown runs as a sweep on the bogey, from the client's own object", tostring(asked2))
+    ok(sp2.bogey.cd:GetParent() == sp2.bogey.face, "on the bogey's face: seen only while it shows")
+    _G.C_Spell.GetSpellCooldownDuration = keepDur2
     -- CROSSHAIRS ON YOUR TARGET (Arn 8 Nov: "need a target pip indicated by crosshairs like on our regular frames")
     local keepIU = _G.UnitIsUnit
     _G.UnitIsUnit = function(a, b) return b == "target" and a == "party1" end

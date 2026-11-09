@@ -428,6 +428,16 @@ local function buildSpoke(f, i)
     k.face = CreateFrame("Frame", nil, k)
     k.face:SetAllPoints(k)
     k.face:SetAlpha(0)
+    -- YOUR INTERRUPT'S COOLDOWN (Arn, 8 Nov: "cooldown sweep on interrupt icon"): the grid's own sweep (FG.PvPCooldown's
+    -- road) - the client runs it from the duration object it hands us for our own spell, no number read. On the face, so
+    -- it is seen only while the bogey is (a cast to answer); RD.KickCooldown feeds it.
+    local okCd, cd = pcall(CreateFrame, "Cooldown", nil, k.face, "CooldownFrameTemplate")
+    if okCd and cd then
+        cd:SetAllPoints(k.face)
+        if cd.SetDrawBling then cd:SetDrawBling(false) end
+        if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+        k.cd = cd
+    end
     sp.bogey = k
     -- ALERT: a dashed arc on the rim of this spoke, out of range (steady) or LOS (a flash) - three dashes each,
     -- their ends set by RD.PlaceSpoke
@@ -1243,6 +1253,22 @@ function RD.PaintTape()
     end
 end
 
+--- The interrupt's sweep on every bogey (SPELL_UPDATE_COOLDOWN, a layout): your own spell's duration object, handed
+--- untouched to each sweep. false when you have no interrupt or the client will not say.
+function RD.KickCooldown()
+    local FG = NS.FG
+    local name = FG and FG.KickSpell and FG.KickSpell()
+    local get = C_Spell and C_Spell.GetSpellCooldownDuration
+    if not (name and get) then return false end
+    local ok, dur = pcall(get, name)
+    if not ok then return false end
+    for _, sp in ipairs(RD.spokes or {}) do
+        local cd = sp.bogey and sp.bogey.cd
+        if cd and cd.SetCooldownFromDurationObject then pcall(cd.SetCooldownFromDurationObject, cd, dur) end
+    end
+    return true
+end
+
 --- THE SHIELD, ASKED DIRECTLY (8 Nov 2026, Arn: "water shield missing again" - the pip lit only when the client's aura
 --- container took its button away, and when that hook was missed it never lit). The buff reminder's own question,
 --- FS.Present (by spell id, the client's readable answer): on you = dark, gone = lit. When the client will not say
@@ -1269,6 +1295,7 @@ function RD.Paint()
     RD.PaintQuiet()
     RD.PaintTape()
     RD.PaintCross()
+    RD.KickCooldown()
     RD.Look()
 end
 
@@ -1359,7 +1386,7 @@ RD.events = ev
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "GROUP_ROSTER_UPDATE",
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
-                     "PLAYER_ROLES_ASSIGNED" }) do
+                     "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnEvent", function(_, event, a1, a2)
@@ -1389,6 +1416,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
             local want = RD.FoodWanted()
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
         end
+    elseif event == "SPELL_UPDATE_COOLDOWN" then
+        RD.KickCooldown()
     elseif event == "UNIT_TARGET" then
         if a1 == "target" then RD.PaintCross() end      -- your target picked someone else: the amber mark moves
     elseif event == "PLAYER_TARGET_CHANGED" then

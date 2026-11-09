@@ -23,12 +23,14 @@
                casts the cure. No words.
     BOGEY      their target (yours on your own spoke): a red triangle only while it casts (FG.Casting, `type()` only);
                a click is your interrupt, on an enemy only (the client's own harm switch, as the PvP cells).
-  SYSTEMS in the corners, icons only: the REFUEL shield (your watched self buff - Water Shield - lights while it is
-  NOT on you: the client's own icon arriving hides the red), FUEL (your mana through a curve, lit low; out of a fight a
-  click drinks the best water in your bags), RATIONS (out of a fight, Well Fed missing and a well-fed food in your
-  bags: a click eats it). MISSILES: your mana as a tape along the bottom (the value handed untouched), a tick for
-  every radar heal it holds (worked out of a fight). ALERTS: a dashed red arc on the rim of the spoke - out of range
-  (the client's own answer through its ternary), or a line-of-sight failure on a click there (UI_ERROR_MESSAGE).
+  THE FUEL GAUGE on the left edge (buildGauge): your mana racing the boss's health on one tape, the red you are behind
+  by, a magenta caret on the boss, a hot pulsing BINGO band when the boss is 30% ahead, a cyan chevron while you are
+  generating (out of the five second rule). THE MANA COLUMN beside it, icons only, top to bottom: the STABILIZER (your
+  keep-up self buff - Water Shield - red while it is NOT on you: the client's own icon arriving covers the red), MANA
+  TIDE, the best MANA POTION, the best DRINK (each lit by its own curve once you miss what it restores - learned out of a
+  fight; the drink out of a fight only), RATIONS (out of a fight, Well Fed missing and a well-fed food in your bags).
+  ALERTS: a dashed red arc on the rim of the spoke - out of range (the client's own answer through its ternary), or a
+  line-of-sight failure on a click there (UI_ERROR_MESSAGE). Everything lit pulses (RD.Pulse) and carries the GCD sweep.
 
   OUT OF A FIGHT everything is drawn dim, so the hand learns the places. IN A FIGHT the scope and every empty slot go
   to alpha 0 - in the same place and still clickable, like the PvP interrupt - and only what needs a click shows.
@@ -45,11 +47,30 @@ NS.RD = RD
 RD.KEY = "radar"
 RD.SIZE = 300                 -- the square, before its scale
 RD.SPOKES = 5                 -- a party's spokes; a raid has 40 fixed slots (RD.Geometry)
-RD.SYS_PX = 26
+RD.SYS_PX = 22                 -- a system pip (Arn, 8 Nov: five in the mana column - 26 reached a raid cure ring)
 RD.RINGS = { 40, 80, 120, 142 }
 RD.RING_SEG = 40
 RD.GREEN, RD.AMBER, RD.RED = 0.90, 0.80, 0.35    -- below: green / amber (when the heal size is unknown) / red
 RD.FUEL_LOW = 0.30
+-- THE FUEL GAUGE (8 Nov 2026, Arn: "a quasi mana/heal efficiency gauge ... my mana to track the boss health bar ... the
+-- delta indicates we are keeping pace or bingo fuel"). A tape on the left edge: x from the edge, width, room kept at the
+-- top and the foot (the regen chevron, then the missile tape); `flag` = how far the BINGO window reaches past the tape.
+RD.GAUGE = { x = 1, w = 7, top = 8, foot = 34, flag = 5 }
+-- THE MANA COLUMN (Arn, 8 Nov: "put the mana tools close to the fuel tape and the water shield ... its essential for a
+-- pilot to always click that button when it lights"): right beside the tape, top to bottom the stabilizer, Mana Tide,
+-- the potion, the drink. Its x from the radar's left edge; clear of every pip, party and raid (the suite measures it).
+RD.COLUMN_X = 12
+RD.BINGO = 0.30                                    -- the boss this far ahead of your mana (of the tape) = BINGO
+RD.MANA_COL = { 0.22, 1.00, 0.53, 0.95 }           -- your fuel: the scope's phosphor
+RD.BOSS_COL = { 1.00, 0.23, 0.30, 0.85 }           -- the boss's health: the red your fuel has to cover
+RD.HOT = { 1.00, 0.08, 0.58, 1 }                   -- BINGO: a hot magenta-red, pulsing
+RD.CARET = { 1.00, 0.24, 0.92, 1 }                 -- the boss's level: the cockpit's magenta
+-- THE REGEN TOOLS (Arn, 8 Nov: "light up the mana regen buttons, mana potions, mana tide"): always in their places down
+-- the right edge, each lit by its own curve (RD.ToolCurve) once you are missing what it restores
+RD.TIDE = "Mana Tide Totem"
+RD.POTION = "Restore Mana"                         -- the use-spell of every mana potion (the drink's is "Drink")
+RD.TOOL_GUESS = 0.50                               -- the amount unknown: light at half mana, and say it is a guess
+RD.TOOL_GAP = 3
 RD.TICK = 0.5
 RD.FOOD_EVERY = 10            -- ticks: the food is asked again every 5 s out of a fight
 RD.WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -156,10 +177,30 @@ function RD.Curve(amber)
     local R, A, G = RD.COL.red, RD.COL.amber, RD.COL.green
     local function at(x, col, a) pcall(c.AddPoint, c, x, CreateColor(col[1], col[2], col[3], a or col[4])) end
     at(0.00, R) at(RD.RED, R)
-    at(RD.RED + 0.0001, A) at(amber, A)
+    -- amber: the colour, see-through - the pulsing amber layer (RD.AmberCurve) is what shows there, so green holds still
+    at(RD.RED + 0.0001, A, 0) at(amber, A, 0)
     at(amber + 0.0001, G) at(RD.GREEN, G)
     at(RD.GREEN + 0.0001, G, 0) at(1.00, G, 0)
     RD.curves[key] = c
+    return c
+end
+
+--- The amber layer: solid amber between RD.RED and `amber`, nothing elsewhere (the client pulses that layer gently).
+RD.amberCurves = {}
+function RD.AmberCurve(amber)
+    amber = math.max(RD.RED + 0.02, math.min(amber or RD.AMBER, RD.GREEN - 0.01))
+    local key = math.floor(amber * 100 + 0.5)
+    if RD.amberCurves[key] then return RD.amberCurves[key] end
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
+    local ok, c = pcall(C_CurveUtil.CreateColorCurve)
+    if not ok or not c or not c.AddPoint then return nil end
+    if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then pcall(c.SetType, c, Enum.LuaCurveType.Linear) end
+    local A = RD.COL.amber
+    local function at(x, a) pcall(c.AddPoint, c, x, CreateColor(A[1], A[2], A[3], a)) end
+    at(0.00, 0) at(RD.RED, 0)
+    at(RD.RED + 0.0001, 1) at(amber, 1)
+    at(amber + 0.0001, 0) at(1.00, 0)
+    RD.amberCurves[key] = c
     return c
 end
 
@@ -179,21 +220,30 @@ function RD.RedCurve()
     return c
 end
 
---- Fuel: cyan below RD.FUEL_LOW, nothing above.
-function RD.FuelCurve()
-    if RD.fuelCurve then return RD.fuelCurve end
+--- A REGEN TOOL'S CURVE (8 Nov 2026, Arn: "we change the color of our bar because the game tells us then at when it
+--- tells us a certain shade we light up the button" - the heal pips' amber trick): cyan at and below `at` (your mana
+--- fraction), nothing above. `at` = 1 - what the tool restores / your full mana, learned out of a fight - so the tool
+--- lights the moment you are missing at least what it gives back. The client evaluates it on your mana; Lua never does.
+RD.toolCurves = {}
+function RD.ToolCurve(at)
+    at = math.max(0.02, math.min(tonumber(at) or RD.TOOL_GUESS, 0.98))
+    local key = math.floor(at * 100 + 0.5)
+    if RD.toolCurves[key] then return RD.toolCurves[key], key / 100 end
     if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
     local ok, c = pcall(C_CurveUtil.CreateColorCurve)
     if not ok or not c or not c.AddPoint then return nil end
     if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then pcall(c.SetType, c, Enum.LuaCurveType.Linear) end
-    local C = RD.COL.cyan
+    local C, x = RD.COL.cyan, key / 100
     pcall(c.AddPoint, c, 0.00, CreateColor(C[1], C[2], C[3], 1))
-    pcall(c.AddPoint, c, RD.FUEL_LOW, CreateColor(C[1], C[2], C[3], 1))
-    pcall(c.AddPoint, c, RD.FUEL_LOW + 0.0001, CreateColor(C[1], C[2], C[3], 0))
+    pcall(c.AddPoint, c, x, CreateColor(C[1], C[2], C[3], 1))
+    pcall(c.AddPoint, c, x + 0.0001, CreateColor(C[1], C[2], C[3], 0))
     pcall(c.AddPoint, c, 1.00, CreateColor(C[1], C[2], C[3], 0))
-    RD.fuelCurve = c
-    return c
+    RD.toolCurves[key] = c
+    return c, x
 end
+
+--- The old fuel curve (lit below RD.FUEL_LOW): a tool curve at that point.
+function RD.FuelCurve() return (RD.ToolCurve(RD.FUEL_LOW)) end
 
 --- A colour the client worked out, onto textures. false when the client handed none back.
 local function paint(texs, col)
@@ -443,29 +493,47 @@ local function buildSpoke(f, i)
     -- HEAL: a secure unit button; its face is ours
     local b = CreateFrame("Button", "BiSHealingRadarHeal" .. i, f, "SecureUnitButtonTemplate")
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
-    b.face = CreateFrame("Frame", nil, b)
+    -- EVERY LIT PIP PULSES (Arn, 8 Nov: "make the heal pips pulse too"): the face sits in a wrapper with a gentle pulse
+    -- (green: hurt, can wait); amber's own layer a touch stronger; red's own layer hard. The pulse multiplies the
+    -- curve's colour, so a pip the curve hides stays hidden.
+    b.beat = CreateFrame("Frame", nil, b)
+    b.beat:SetAllPoints(b)
+    sp.beat = RD.Pulse(b.beat, RD.PULSE_SOFT)
+    b.face = CreateFrame("Frame", nil, b.beat)
     b.face:SetAllPoints(b)
     -- NO BOX (Arn, 8 Nov: "the box outlines are not needed"): the pip is its role glyph alone, in the game's colour.
-    -- Red has its own glyph on its own layer, coloured by the red curve, and only THAT layer pulses (a green or amber
-    -- pip holds still).
+    -- Red has its own glyph on its own layer, coloured by the red curve, on its own hard pulse.
     b.redFace = CreateFrame("Frame", nil, b)
     b.redFace:SetAllPoints(b)
     if b.redFace.CreateAnimationGroup then
         local ok, pulse = pcall(b.redFace.CreateAnimationGroup, b.redFace)
         if ok and pulse then
             local fade = pulse:CreateAnimation("Alpha")
-            fade:SetFromAlpha(1) fade:SetToAlpha(0.35) fade:SetDuration(0.35)
+            fade:SetFromAlpha(1) fade:SetToAlpha(RD.PULSE_HARD[1]) fade:SetDuration(RD.PULSE_HARD[2])
             pulse:SetLooping("BOUNCE")
             sp.pulse = pulse
         end
     end
+    -- AMBER PULSES A TOUCH STRONGER (Arn, 8 Nov: whack-a-mole - "it lights up and pulses a little"): its own glyph layer,
+    -- lit only between the red and amber points by its own curve (RD.AmberCurve), on its own pulse. The main face goes
+    -- see-through over amber, so only the amber layer's beat shows there.
+    b.amberFace = CreateFrame("Frame", nil, b)
+    b.amberFace:SetAllPoints(b)
+    sp.amberPulse = RD.Pulse(b.amberFace, RD.PULSE_MID)
+    -- the GCD's sweep, its swipe dark only while the pip is lit (RD.SwipeCurve on their health, RD.PaintHeal)
+    sp.cd = RD.Sweep(b.face)
     b:HookScript("OnEnter", function() RD.over = sp end)
     b:HookScript("OnLeave", function() if RD.over == sp then RD.over = nil end end)
     sp.heal = b
     -- BOGEY: their target, a red triangle only while it casts; a click is your interrupt (enemies only)
     local k = CreateFrame("Button", "BiSHealingRadarBogey" .. i, f, "SecureActionButtonTemplate")
     if k.RegisterForClicks then k:RegisterForClicks("AnyDown") end
-    k.face = CreateFrame("Frame", nil, k)
+    -- AN INCOMING MISSILE PULSES HARD (Arn, 8 Nov: "make the bogeys pulse red when they show up"): the red heal pip's
+    -- pulse, on a wrapper round the face - the face is alpha 0 unless a cast is on, so the pulse shows only then
+    k.beat = CreateFrame("Frame", nil, k)
+    k.beat:SetAllPoints(k)
+    k.pulse = RD.Pulse(k.beat, RD.PULSE_HARD)
+    k.face = CreateFrame("Frame", nil, k.beat)
     k.face:SetAllPoints(k)
     k.face:SetAlpha(0)
     -- YOUR INTERRUPT'S COOLDOWN (Arn, 8 Nov: "cooldown sweep on interrupt icon"): the grid's own sweep (FG.PvPCooldown's
@@ -596,13 +664,96 @@ function RD.Spoke(i)
     return RD.spokes[i]
 end
 
---- A system pip in a corner: a secure button (for its click) with our own face.
+--[[ WHACK-A-MOLE (8 Nov 2026, Arn: "something lights up we click, it lights up and pulses a little it grabs more of our
+  attention"). EVERYTHING THAT LIGHTS ALSO PULSES: a client AnimationGroup, alpha BOUNCE, looping, playing always - no
+  OnUpdate, nothing read. It runs on a WRAPPER frame whose alpha we never set (`beat`), with the lit face inside it, so
+  the pulse only ever multiplies what the game's curve or boolean decided: an invisible pip stays invisible.
+  Gentle (RD.PULSE_SOFT) for a tool, a cure, amber; hard (RD.PULSE_HARD) for red and for a bogey - an incoming missile. ]]
+RD.PULSE_SOFT = { 0.55, 0.5 }                     -- to alpha, seconds
+RD.PULSE_MID = { 0.45, 0.45 }                      -- amber: a touch stronger than soft
+RD.PULSE_HARD = { 0.35, 0.35 }
+function RD.Pulse(frame, kind)
+    if not (frame and frame.CreateAnimationGroup) then return nil end
+    local p = kind or RD.PULSE_SOFT
+    local ok, g = pcall(frame.CreateAnimationGroup, frame)
+    if not (ok and g) then return nil end
+    local a = g:CreateAnimation("Alpha")
+    a:SetFromAlpha(1) a:SetToAlpha(p[1]) a:SetDuration(p[2])
+    g:SetLooping("BOUNCE")
+    g:Play()
+    return g
+end
+
+--[[ THE GLOBAL COOLDOWN'S SWEEP ON EVERYTHING LIT (8 Nov 2026, Arn: "would be kinda cool to also put the global cooldown
+  sweep on everything that lit"). The bogey's own kind of sweep (no bling, no numbers) on each clickable face, all fed
+  ONE duration object per SPELL_UPDATE_COOLDOWN (RD.Sweeps): the GCD's (spell 61304), or the radar heal's own cooldown
+  when the client will not answer for it. Mana Tide and the potion show their own cooldown instead. A face that is lit
+  by its COLOUR (a heal pip, a tool) has its swipe coloured by a curve too (RD.SwipeCurve), so it is dark only while the
+  face is lit and see-through otherwise; a face lit by its alpha (rations, a cure marker) needs nothing more. ]]
+RD.GCD = 61304
+RD.SWIPE = { 0, 0, 0, 0.6 }
+RD.sweeps = {}                                     -- every GCD sweep, fed in one loop
+function RD.Sweep(parent, own)
+    local ok, cd = pcall(CreateFrame, "Cooldown", nil, parent, "CooldownFrameTemplate")
+    if not (ok and cd) then return nil end
+    cd:SetAllPoints(parent)
+    if cd.SetDrawBling then cd:SetDrawBling(false) end
+    if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+    if not own then RD.sweeps[#RD.sweeps + 1] = cd end
+    return cd
+end
+
+--- A sweep back in the loop (its marker switched on again); never twice.
+function RD.Resweep(cd)
+    if not cd then return false end
+    for _, x in ipairs(RD.sweeps) do if x == cd then return false end end
+    RD.sweeps[#RD.sweeps + 1] = cd
+    return true
+end
+
+--- A sweep whose marker was thrown away (a cure re-placed): out of the list, so the loop stays the size of what is seen.
+function RD.Unsweep(cd)
+    if not cd then return false end
+    for i = #RD.sweeps, 1, -1 do if RD.sweeps[i] == cd then table.remove(RD.sweeps, i) return true end end
+    return false
+end
+
+--- The swipe's shade by a fraction (health or mana): dark at and below `at`, nothing above.
+RD.swipeCurves = {}
+function RD.SwipeCurve(at)
+    local key = math.floor((tonumber(at) or 1) * 100 + 0.5)
+    if RD.swipeCurves[key] then return RD.swipeCurves[key] end
+    if not (C_CurveUtil and C_CurveUtil.CreateColorCurve and CreateColor) then return nil end
+    local ok, c = pcall(C_CurveUtil.CreateColorCurve)
+    if not ok or not c or not c.AddPoint then return nil end
+    if c.SetType and Enum and Enum.LuaCurveType and Enum.LuaCurveType.Linear then pcall(c.SetType, c, Enum.LuaCurveType.Linear) end
+    local S, x = RD.SWIPE, key / 100
+    pcall(c.AddPoint, c, 0.00, CreateColor(S[1], S[2], S[3], S[4]))
+    pcall(c.AddPoint, c, x, CreateColor(S[1], S[2], S[3], S[4]))
+    pcall(c.AddPoint, c, x + 0.0001, CreateColor(S[1], S[2], S[3], 0))
+    pcall(c.AddPoint, c, 1.00, CreateColor(S[1], S[2], S[3], 0))
+    RD.swipeCurves[key] = c
+    return c
+end
+
+--- A sweep's swipe in the colour the client worked out; no colour back = no swipe (never a dark disc on nothing).
+local function swipeTo(cd, col)
+    if not cd then return false end
+    if type(col) == "table" and col.GetRGBA and cd.SetSwipeColor
+       and pcall(function() cd:SetSwipeColor(col:GetRGBA()) end) then return true end
+    if cd.SetSwipeColor then pcall(cd.SetSwipeColor, cd, 0, 0, 0, 0) end
+    return false
+end
+
+--- A system pip in the column: a secure button (for its click) with our own face, inside its pulse wrapper.
 local function buildSystem(f, name, point, x, y)
     local b = CreateFrame("Button", "BiSHealingRadar" .. name, f, "SecureActionButtonTemplate")
     b:SetSize(RD.SYS_PX, RD.SYS_PX)
     b:SetPoint(point, f, point, x, y)
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
-    b.face = CreateFrame("Frame", nil, b)
+    b.beat = CreateFrame("Frame", nil, b)
+    b.beat:SetAllPoints(b)
+    b.face = CreateFrame("Frame", nil, b.beat)
     b.face:SetAllPoints(b)
     b.ring = {}
     local r = RD.SYS_PX / 2 - 1
@@ -626,6 +777,163 @@ local function buildSystem(f, name, point, x, y)
     return b
 end
 
+--[[ THE FUEL GAUGE (8 Nov 2026). Arn: "I want to end the boss fight at 0% mana ... if its at 50% I should be at 50% mana
+  ... if its at 70% and im at 20% thats a warning". THE GPU COMPARES, LUA NEVER DOES. Bottom to top, all on the same tape:
+    boss      a StatusBar of the boss's health (boss1, else a hostile target), red, 0..max handed untouched
+    mana      your mana over it, the same size and place, green: where you are behind, red shows above your fuel
+    ticks     25 / 50 / 75, phosphor
+    caret     a magenta mark on the boss bar's FILL TOP (the heal-absorb anchoring), drawn over the mana
+    BINGO     a ruler: your mana again, in a frame lifted 30% of the tape and clipped to it (never seen). A window
+              whose FLOOR is anchored to that ruler's fill top - so it starts at mana + 30% - clips a copy of the boss
+              bar in a pulsing hot magenta and a hot flag under the caret. Boss more than 30% ahead of you: the hot
+              band shows from mana + 30% up to the boss, the flag with it. Not that far behind: the window is above the
+              boss's fill, and nothing shows. Exact to the pixel: two fill edges and a fixed offset, no number read.
+  The boss layer's alpha says whether there is a boss at all (a secret "hostile?" goes to SetAlphaFromBoolean). ]]
+local function fuelBar(parent, col, lvl)
+    local s = CreateFrame("StatusBar", nil, parent)
+    s:SetStatusBarTexture(RD.WHITE)
+    s:SetStatusBarColor(col[1], col[2], col[3], col[4] or 1)
+    if s.SetOrientation then s:SetOrientation("VERTICAL") end          -- fills from the bottom
+    s:SetMinMaxValues(0, 1)
+    s:SetValue(0)
+    s:SetFrameLevel(lvl)
+    return s
+end
+
+local function buildGauge(f)
+    local G = RD.GAUGE
+    local g = CreateFrame("Frame", nil, f)
+    RD.gauge = g
+    g:SetFrameLevel(f:GetFrameLevel() + 2)
+    local L = g:GetFrameLevel()
+    g.track = g:CreateTexture(nil, "BACKGROUND")
+    g.track:SetAllPoints(g)
+    g.track:SetColorTexture(0.02, 0.09, 0.05, 0.9)
+    -- the boss layer: everything that is the boss's, so one alpha says "is there one"
+    g.bossLayer = CreateFrame("Frame", nil, g)
+    g.bossLayer:SetAllPoints(g)
+    g.bossLayer:SetFrameLevel(L + 1)
+    g.bossLayer:SetAlpha(0)
+    g.boss = fuelBar(g.bossLayer, RD.BOSS_COL, L + 1)
+    g.boss:SetAllPoints(g)
+    g.mana = fuelBar(g, RD.MANA_COL, L + 2)
+    g.mana:SetAllPoints(g)
+    g.tickFrame = CreateFrame("Frame", nil, g)
+    g.tickFrame:SetAllPoints(g)
+    g.tickFrame:SetFrameLevel(L + 3)
+    g.ticks = {}
+    for q = 1, 3 do g.ticks[q] = line(g.tickFrame, "OVERLAY", 0, 0, 1, 0, RD.PHOS, 1) end
+    -- the boss's level, over your mana
+    g.caretFrame = CreateFrame("Frame", nil, g.bossLayer)
+    g.caretFrame:SetAllPoints(g)
+    g.caretFrame:SetFrameLevel(L + 4)
+    g.caret = tex(g.caretFrame, "OVERLAY", RD.CARET)
+    g.caret:SetSize(G.w + 3, 3)
+    g.caret:SetPoint("LEFT", g.boss:GetStatusBarTexture(), "TOPLEFT", 0, 0)
+    -- BINGO: the lifted ruler (clipped to the tape, its colour see-through - it is only an edge)
+    g.rulerClip = CreateFrame("Frame", nil, g)
+    g.rulerClip:SetAllPoints(g)
+    g.rulerClip:SetClipsChildren(true)
+    g.rulerClip:SetFrameLevel(L + 1)
+    g.lift = CreateFrame("Frame", nil, g.rulerClip)
+    g.ruler = fuelBar(g.lift, { 0, 0, 0, 0 }, L + 1)
+    g.ruler:SetAllPoints(g.lift)
+    -- the window: floor on the ruler's fill top, roof above the tape (mana + 30% can reach 130%), wide enough for the flag
+    g.hotClip = CreateFrame("Frame", nil, g.bossLayer)
+    g.hotClip:SetClipsChildren(true)
+    g.hotClip:SetFrameLevel(L + 5)
+    g.hotClip:SetPoint("BOTTOMLEFT", g.ruler:GetStatusBarTexture(), "TOPLEFT", 0, 0)
+    g.hot = fuelBar(g.hotClip, RD.HOT, L + 5)
+    g.hot:SetAllPoints(g)
+    g.flagFrame = CreateFrame("Frame", nil, g.hotClip)
+    g.flagFrame:SetAllPoints(g)
+    g.flagFrame:SetFrameLevel(L + 6)
+    -- the BINGO flag: a hot bar just under the magenta caret, as wide - shown only inside the window (the column of
+    -- buttons starts right of it, so it never covers one)
+    g.flag = tex(g.flagFrame, "OVERLAY", RD.HOT)
+    g.flag:SetSize(G.w + 3, 3)
+    g.flag:SetPoint("TOPLEFT", g.boss:GetStatusBarTexture(), "TOPLEFT", 0, -3)
+    -- BINGO pulses hard, always playing: it is seen only while the window holds some of the boss's fill
+    g.pulse = RD.Pulse(g.hotClip, RD.PULSE_HARD)
+    -- REGEN, "generating fuel": a cyan inflow chevron at the foot (RD.PaintRegen)
+    g.chev = CreateFrame("Frame", nil, f)
+    g.chev:SetSize(12, 10)
+    g.chev:SetPoint("TOP", g, "BOTTOM", 0, -3)
+    g.chev:SetAlpha(0)
+    local C = RD.COL.cyan
+    g.chevLines = { line(g.chev, "OVERLAY", -5, -1, 0, 4, C, 2), line(g.chev, "OVERLAY", 0, 4, 5, -1, C, 2),
+                    line(g.chev, "OVERLAY", -5, -5, 0, 0, C, 2), line(g.chev, "OVERLAY", 0, 0, 5, -5, C, 2) }
+    -- what it is, under the mouse only; the radar's own drag goes on through it
+    g:EnableMouse(true)
+    g:RegisterForDrag("LeftButton")
+    g:SetScript("OnDragStart", function() local s = f:GetScript("OnDragStart") if s then s(f) end end)
+    g:SetScript("OnDragStop", function() endDrag(f) end)
+    g:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("FUEL")
+        for _, l in ipairs(RD.FuelTip()) do GameTooltip:AddLine(l, 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    g:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    RD.SizeGauge(RD.SIZE)
+    return g
+end
+
+--- The tape's size for a square `size` across: its height, the ticks, the 30% lift and the window's roof.
+function RD.SizeGauge(size)
+    local g, G = RD.gauge, RD.GAUGE
+    if not g then return nil end
+    local h = size - G.top - G.foot
+    g:ClearAllPoints()
+    g:SetPoint("BOTTOMLEFT", RD.frame, "BOTTOMLEFT", G.x, G.foot)
+    g:SetSize(G.w, h)
+    for q, l in ipairs(g.ticks) do
+        local y = (q / 4 - 0.5) * h
+        l:SetStartPoint("CENTER", g.tickFrame, -G.w / 2 - 2, y)
+        l:SetEndPoint("CENTER", g.tickFrame, G.w / 2 + 2, y)
+    end
+    g.lift:ClearAllPoints()
+    g.lift:SetPoint("BOTTOMLEFT", g, "BOTTOMLEFT", 0, RD.BINGO * h)
+    g.lift:SetSize(G.w, h)
+    g.hotClip:SetPoint("TOPRIGHT", g, "TOPRIGHT", G.flag, RD.BINGO * h + 2)
+    g.h = h
+    return h
+end
+
+--- A regen tool's face: a ring and its sign, PLAIN TEXTURES ONLY (the client's curve colour lands on a texture, never
+--- on a Line - Arn's white blade), every piece born invisible so a colour that does not land shows nothing.
+local function toolFace(b, kind)
+    for _, l in ipairs(b.ring or {}) do l:Hide() end
+    b.icon:Hide()
+    local out, face = {}, b.face
+    local s = 1                                                -- the signs are drawn for a 26px pip, then scaled
+    local function bar(w, h, x, y, rot)
+        local t = face:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(1, 1, 1, 0)
+        t:SetSize(math.max(1, w * s), math.max(1, h * s))
+        t:SetPoint("CENTER", face, "CENTER", x * s, y * s)
+        if rot and t.SetRotation then t:SetRotation(rot) end
+        out[#out + 1] = t
+    end
+    local r, n = RD.SYS_PX / 2 - 1, 16
+    for k = 0, n - 1 do
+        local a = (k + 0.5) * 2 * math.pi / n
+        bar(2 * math.pi * r / n + 1, 2, math.sin(a) * r, math.cos(a) * r, -a)
+    end
+    s = RD.SYS_PX / 26
+    if kind == "tide" then                                     -- a totem: the pole, its arms, a wave at its foot
+        bar(4, 14, 0, 0) bar(12, 2, 0, 3) bar(10, 2, 0, -6)
+    elseif kind == "potion" then                               -- a flask: the neck and the body
+        bar(3, 5, 0, 5) bar(6, 2, 0, 3) bar(10, 8, 0, -3)
+    else                                                       -- a drop
+        bar(2, 9, -2.2, 2, -0.45) bar(2, 9, 2.2, 2, 0.45) bar(8, 5, 0, -3.5)
+    end
+    b.pieces = out
+    return out
+end
+
 function RD.Build()
     if RD.frame then return RD.frame end
     local f = CreateFrame("Frame", "BiSHealingRadar", UIParent)
@@ -646,25 +954,31 @@ function RD.Build()
     f:SetScript("OnHide", endDrag)
     buildScope(f)
     RD.spokes = {}                      -- made as the roster needs them (RD.Spoke)
-    RD.shield = buildSystem(f, "Shield", "TOPLEFT", 8, -8)
-    RD.fuel = buildSystem(f, "Fuel", "TOPRIGHT", -8, -8)
-    RD.rations = buildSystem(f, "Rations", "BOTTOMRIGHT", -8, 8)
-    -- the fuel pip's own face: a drop; rations: a fork
-    RD.fuel.drop = { line(RD.fuel.face, "OVERLAY", 0, 7, 5, -2, RD.COL.cyan, 2), line(RD.fuel.face, "OVERLAY", 0, 7, -5, -2, RD.COL.cyan, 2),
-                     line(RD.fuel.face, "OVERLAY", -5, -2, 5, -2, RD.COL.cyan, 2) }
+    -- THE MANA COLUMN beside the fuel tape (RD.COLUMN_X): the STABILIZER on top (only the button moved - its client
+    -- cover is anchored to the button, so it follows), then the regen tools: Mana Tide, the best mana potion, the best
+    -- drink (the old FUEL pip, its name kept). Each always in its place, invisible until its own curve lights it.
+    local step, X = RD.SYS_PX + RD.TOOL_GAP, RD.COLUMN_X
+    RD.shield = buildSystem(f, "Shield", "TOPLEFT", X, -8)
+    RD.tide = buildSystem(f, "Tide", "TOPLEFT", X, -8 - step)
+    RD.potion = buildSystem(f, "Potion", "TOPLEFT", X, -8 - 2 * step)
+    RD.fuel = buildSystem(f, "Fuel", "TOPLEFT", X, -8 - 3 * step)
+    -- RATIONS, last in the column (Arn, 8 Nov: "move the rations next to the drink too")
+    RD.rations = buildSystem(f, "Rations", "TOPLEFT", X, -8 - 4 * step)
+    RD.COLUMN = { RD.shield, RD.tide, RD.potion, RD.fuel, RD.rations }
+    RD.tide.kind, RD.potion.kind, RD.fuel.kind = "tide", "potion", "drink"
+    RD.fuel.restOnly = true                          -- a drink is out of a fight only
+    RD.TOOLS = { RD.tide, RD.potion, RD.fuel }
+    for _, b in ipairs(RD.TOOLS) do toolFace(b, b.kind) b.face:SetAlpha(0) end
+    RD.fuel.drop = RD.fuel.pieces
+    -- every lit thing pulses (gently here; the stabilizer keeps its own breath on its red), and carries a sweep: the
+    -- GCD's, or for Mana Tide and the potion their own cooldown (RD.Sweeps)
+    for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
+    for _, b in ipairs(RD.COLUMN) do b.cd = RD.Sweep(b.face, b == RD.tide or b == RD.potion) end
+    buildGauge(f)
+    -- rations: a fork
     RD.rations.fork = { line(RD.rations.face, "OVERLAY", -4, 7, -4, -7, RD.COL.cyan, 2), line(RD.rations.face, "OVERLAY", 4, 7, 4, -7, RD.COL.cyan, 2),
                         line(RD.rations.face, "OVERLAY", -4, 0, 4, 0, RD.COL.cyan, 2) }
-    -- missiles: your mana as a tape along the bottom, ticks per heal
-    local tape = CreateFrame("StatusBar", nil, f)
-    tape:SetSize(RD.SIZE * 0.5, 6)
-    tape:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 14, 12)
-    tape:SetStatusBarTexture(RD.WHITE)
-    tape:SetStatusBarColor(RD.PHOS[1], RD.PHOS[2], RD.PHOS[3], 0.85)
-    tape.track = tape:CreateTexture(nil, "BACKGROUND")
-    tape.track:SetAllPoints(tape)
-    tape.track:SetColorTexture(0.04, 0.14, 0.08, 0.9)
-    tape.ticks = {}
-    RD.tape = tape
+    -- (the missile tape along the bottom is gone - Arn, 8 Nov: "the guage does the same thing")
     f:Hide()
     RD.Place()
     return f
@@ -741,9 +1055,11 @@ local function armHeal(sp, unit)
     if sp.role ~= role then
         for _, t in ipairs(sp.glyph or {}) do t:Hide() end
         for _, t in ipairs(sp.redGlyph or {}) do t:Hide() end
+        for _, t in ipairs(sp.amberGlyph or {}) do t:Hide() end
         local px = ((sp.slot and sp.slot.ph) or RD.PARTY.ph) * RD.GLYPH
         sp.glyph = glyph(b.face, role, px)
         sp.redGlyph = glyph(b.redFace, role, px)
+        sp.amberGlyph = glyph(b.amberFace, role, px)
         sp.role = role
     end
     sp.paintTex = {}
@@ -778,6 +1094,7 @@ local function armCures(sp, unit)
     for n, c in ipairs(sp.cures) do
         if not cures[n] then
             if c.container and c.container.SetEnabled then pcall(c.container.SetEnabled, c.container, false) end
+            RD.Unsweep(c.sweep)                -- a marker switched off is fed no sweep (kept, for when it comes back)
             c.box:SetAttribute("spell", nil)
             c.box:EnableMouse(false)
         end
@@ -793,6 +1110,11 @@ local function armCures(sp, unit)
             c = {}
             c.box = CreateFrame("Button", nil, f, "SecureActionButtonTemplate")
             if c.box.RegisterForClicks then c.box:RegisterForClicks("AnyDown") end
+            -- the client's marker lives in a plain holder that pulses gently (whack-a-mole): the marker itself is
+            -- never animated, and it draws only while there is something to cure, so the pulse shows only then
+            c.holder = CreateFrame("Frame", nil, f)
+            c.holder:SetAllPoints(f)
+            c.pulse = RD.Pulse(c.holder, RD.PULSE_SOFT)
             sp.cures[n] = c
         end
         c.box:SetSize(px + 4, px + 4)
@@ -810,10 +1132,13 @@ local function armCures(sp, unit)
         if c.key == key and c.container then
             pcall(c.container.SetUnit, c.container, unit)
             if c.container.SetEnabled then pcall(c.container.SetEnabled, c.container, true) end
+            RD.Resweep(c.sweep)
         else
             if c.container and c.container.SetEnabled then pcall(c.container.SetEnabled, c.container, false) end
             c.container, c.key = nil, nil
-            local ok, container = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+            RD.Unsweep(c.sweep)                -- the old marker's sweep is fed no more
+            c.sweep = nil
+            local ok, container = pcall(CreateFrame, "AuraContainer", nil, c.holder or f, "CustomAuraContainerTemplate")
             if ok and container then
                 container:SetSize(1, 1)
                 container:SetPoint("CENTER", f, "CENTER", cx, cy)
@@ -839,6 +1164,8 @@ local function armCures(sp, unit)
                         if d.SetRotation then d:SetRotation(math.pi / 4) end
                         if button.EnableMouse then pcall(button.EnableMouse, button, false) end
                         if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+                        -- the GCD sweep on the marker: drawn only while the client draws the marker
+                        if not button.bisSweep then button.bisSweep = RD.Sweep(button) c.sweep = button.bisSweep end
                     end, px, "CENTER", f, cx, cy),
                 })
             end
@@ -892,6 +1219,10 @@ function RD.ShieldWash(button)
     local clip = CreateFrame("Frame", nil, button)
     clip:SetAllPoints(button)
     if clip.SetClipsChildren then clip:SetClipsChildren(true) end
+    -- THE LAST CHARGE ASKS FOR A CLICK, SO IT PULSES (Arn, 8 Nov: "make the stabilizer pulse too"): gently, on this clip
+    -- only - the orange the client writes into it beats, the green cover beside it holds still
+    RD.washPulse = RD.Pulse(clip, RD.PULSE_SOFT)
+    RD.washClip = clip
     local fs = clip:CreateFontString(nil, "OVERLAY")
     if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
     fs:SetPoint("CENTER", clip, "CENTER", 0, 0)
@@ -952,7 +1283,8 @@ local function armShield()
         local okA, g = pcall(b.face.CreateAnimationGroup, b.face)
         if okA and g then
             local fade = g:CreateAnimation("Alpha")
-            fade:SetFromAlpha(1) fade:SetToAlpha(0.35) fade:SetDuration(0.6)
+            -- moderate, as the column's (Arn, 8 Nov: "nothing crazy"): the soft pulse's depth, a breath's pace
+            fade:SetFromAlpha(1) fade:SetToAlpha(RD.PULSE_SOFT[1]) fade:SetDuration(0.6)
             g:SetLooping("BOUNCE")
             g:Play()
             b.breath = g
@@ -1046,6 +1378,90 @@ local function armUse(b, id)
     b.item = id
 end
 
+--- HOW MUCH MANA A TOOL GIVES BACK, from its own words (out of a fight, plain): "Restores 1350 to 2250 mana" -> the
+--- middle; "Restores 4200 mana over 30 sec" -> 4200; "restores 170 mana every 3 seconds ... for 12 sec" -> 170 x 4.
+--- nil when the words say no number.
+function RD.RestoreAmount(text)
+    if type(text) ~= "string" then return nil end
+    local function num(s) return tonumber((tostring(s or ""):gsub(",", ""))) end
+    -- a number may carry a decimal ("Restores 835.2 mana"): read whole, never as its last digit
+    local N = "(%d[%d,]*%.?%d*)"
+    local a, b = text:match(N .. "%s+to%s+" .. N .. "%s+mana")
+    local n = (num(a) and num(b)) and (num(a) + num(b)) / 2 or num(text:match(N .. "%s+mana"))
+    if not n then return nil end
+    local every = num(text:match("every%s+(%d+)%s+sec"))
+    local dur = num(text:match("for%s+(%d+)%s+sec"))
+    if every and dur and every > 0 and dur >= every then n = n * math.floor(dur / every) end
+    return n
+end
+
+local function describe(spell)
+    local get = C_Spell and C_Spell.GetSpellDescription
+    if not (get and spell) then return nil end
+    local ok, text = pcall(get, spell)
+    text = ok and plain(text) or nil
+    return type(text) == "string" and text or nil
+end
+
+--- An item's use, in words: its use-spell's description.
+local function itemWords(id)
+    local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+    if not (getSpell and id) then return nil end
+    local ok, _, sid = pcall(getSpell, id)
+    sid = ok and plain(sid) or nil
+    return sid and describe(sid) or nil
+end
+
+--- Learn where a tool lights: `at` = 1 - restores / your full mana (both plain out of a fight), else RD.TOOL_GUESS and
+--- `guess` = true. Kept on the button; its curve is RD.ToolCurve(b.at).
+function RD.LearnTool(b, words)
+    local amount = RD.RestoreAmount(words)
+    local okM, mx = pcall(UnitPowerMax, "player", 0)
+    mx = okM and plain(mx) or nil
+    b.amount = amount
+    if amount and type(mx) == "number" and mx > 0 then
+        b.at, b.guess = math.max(0.02, math.min(1 - amount / mx, 0.98)), false
+    else
+        b.at, b.guess = RD.TOOL_GUESS, true
+    end
+    b.at = math.floor(b.at * 100 + 0.5) / 100                     -- the curve's own point (RD.ToolCurve rounds to 1%)
+    return b.at, amount
+end
+
+local function toolTip(b, title, what)
+    local where = b.guess and ("its amount unknown - lights below %d%% mana (a guess)"):format(b.at * 100 + 0.5)
+                  or ("restores ~%d mana - lights below %d%% mana, when none of it is wasted"):format(b.amount, b.at * 100 + 0.5)
+    b.tip = { title, what .. ".  " .. where .. "." .. (b.restOnly and "  Out of a fight only." or "") }
+end
+
+--- Arm one tool: its click (a macro written out of a fight) and its light point. `macro` nil = this tool is not here.
+local function armTool(b, macro, words, title, what)
+    b:SetAttribute("*type1", macro and "macro" or nil)
+    b:SetAttribute("*macrotext1", macro)
+    b:EnableMouse(macro and true or false)
+    b.macro = macro
+    if not macro then b.tip = nil return end
+    RD.LearnTool(b, words)
+    toolTip(b, title, what)
+end
+
+--- THE REGEN TOOLS, out of a fight (Arn: "they are always there and we use ingame calculations out of fight"): Mana Tide
+--- if you know it, the best mana potion, the best drink - each learns its amount and gets its click.
+function RD.ArmTools()
+    if combat() or not RD.tide then return false end
+    local FM = NS.FM
+    local tide = FM and FM.Ranks and #FM.Ranks(RD.TIDE) > 0
+    armTool(RD.tide, tide and ("/cast " .. RD.TIDE) or nil, tide and describe(RD.TIDE), "MANA TIDE", RD.TIDE)
+    local potion = RD.BestItem(RD.POTION)
+    RD.potion.item = potion
+    armTool(RD.potion, potion and ("/use item:" .. potion) or nil, itemWords(potion), "MANA POTION",
+            "the best mana potion in your bags")
+    local drink = RD.BestItem("Drink")
+    RD.fuel.item = drink
+    armTool(RD.fuel, drink and ("/use item:" .. drink) or nil, itemWords(drink), "DRINK", "the best drink in your bags")
+    return true
+end
+
 --- The food the rations pip offers now, out of a fight. BiS TOOLS FIRST (Arn, 8 Nov: "bis tool still shows the eat food
 --- icon in the toolbox but its not in the radar need it there too"): BiSToolsAPI.FoodNow (v7) is the tools box's own
 --- rule and its own food, so both light together. Without BiS Tools: Well Fed missing and a well-fed food in the bags.
@@ -1069,38 +1485,6 @@ function RD.WellFed()
     local ok, name = pcall(find, "Well Fed", "player", "HELPFUL")
     if not ok then return nil end
     return plain(name) ~= nil
-end
-
---- The missile tape's ticks: one per radar heal your full mana holds, worked out of a fight when the numbers are plain.
-local function armTape()
-    local tape = RD.tape
-    for _, t in ipairs(tape.ticks) do t:Hide() end
-    if combat() or not RD.heal then return end
-    local cost
-    local getCost = C_Spell and C_Spell.GetSpellPowerCost
-    if getCost then
-        local ok, list = pcall(getCost, RD.heal.cast or RD.heal.name)
-        list = ok and plain(list) or nil
-        if type(list) == "table" and type(list[1]) == "table" then cost = plain(list[1].cost) end
-    end
-    local okM, mx = pcall(UnitPowerMax, "player", 0)
-    mx = okM and plain(mx) or nil
-    if not (type(cost) == "number" and cost > 0 and type(mx) == "number" and mx > 0) then return end
-    local n = math.min(30, math.floor(mx / cost))
-    local w = tape:GetWidth()
-    for k = 1, n - 1 do
-        local t = tape.ticks[k]
-        if not t then
-            t = tape:CreateTexture(nil, "OVERLAY")
-            t:SetColorTexture(0.01, 0.06, 0.03, 1)
-            tape.ticks[k] = t
-        end
-        t:ClearAllPoints()
-        t:SetSize(1, 6)
-        t:SetPoint("LEFT", tape, "LEFT", w * k * cost / mx, 0)
-        t:Show()
-    end
-    RD.missiles = n
 end
 
 --- Everything secure, written once per change - OUT OF A FIGHT ONLY (asked in one, it waits: RD.pending).
@@ -1131,6 +1515,7 @@ function RD.Arm()
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
     RD.scope:SetScale(size / RD.PARTY.size)
+    RD.SizeGauge(size)                 -- the fuel tape runs the square's height
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)
         local unit = units[i]
@@ -1163,9 +1548,9 @@ function RD.Arm()
         sp.arc:SetAlpha(0)
     end
     armShield()
-    armUse(RD.fuel, RD.BestItem("Drink"))
+    RD.ArmTools()
     armUse(RD.rations, RD.FoodWanted())
-    armTape()
+    RD.PickFuel()
     RD.Paint()
     return true
 end
@@ -1197,28 +1582,53 @@ function RD.PaintHeal(sp)
         if okR and sp.redGlyph then paint(sp.redGlyph, rc) end
         if sp.pulse and not (sp.pulse.IsPlaying and sp.pulse:IsPlaying()) then sp.pulse:Play() end
     end
+    local amber = RD.AmberCurve(sp.amber)
+    if amber and sp.amberGlyph then
+        local okA, ac = pcall(UnitHealthPercent, sp.unit, true, amber)
+        if okA then paint(sp.amberGlyph, ac) end
+    end
+    -- the GCD sweep's swipe: dark while the pip is lit (below RD.GREEN), see-through when it is not
+    local sw = sp.cd and RD.SwipeCurve(RD.GREEN)
+    if sw then
+        local okS, scol = pcall(UnitHealthPercent, sp.unit, true, sw)
+        swipeTo(sp.cd, okS and scol or nil)
+    end
     return drew
 end
 
 --- In a fight the scope, the empty slots and the idle bogeys are see-through; out of one they are drawn dim.
 function RD.PaintQuiet()
-    local fight = combat()
+    -- a fight: the lockdown, or the moment PLAYER_REGEN_DISABLED says one starts (the lockdown begins just after it)
+    local fight = RD.inFight or combat()
     -- THE SCOPE STAYS IN A FIGHT (Arn, 8 Nov: "i like this green outline in combat too"): rings, cross and corners are
     -- the instrument; only the pips come and go
     if RD.scope then RD.scope:SetAlpha(1) end
     -- the dim slot outlines are never drawn (Arn, 8 Nov: "the box outlines are not needed"); the scope alone says where
     if RD.dims then RD.dims:SetAlpha(0) end
-    if RD.tape then RD.tape.track:SetAlpha(fight and 0 or 1) end
-    for _, b in ipairs({ RD.fuel, RD.rations }) do
-        if b then b.face:SetAlpha((not fight and b.item) and 1 or 0) end
-    end
-    if RD.fuel and not fight then
-        -- out of a fight the fuel pip says "low" from the curve too, and shows only with water to drink
-        local c = RD.FuelCurve()
-        if c and UnitPowerPercent and RD.fuel.item then
-            local ok, col = pcall(UnitPowerPercent, "player", 0, true, c)
-            if ok then paint(RD.fuel.drop, col) paint(RD.fuel.ring, col) end
+    if RD.rations then RD.rations.face:SetAlpha((not fight and RD.rations.item) and 1 or 0) end
+    RD.PaintTools(fight)
+end
+
+--- THE REGEN TOOLS' LIGHTS: each tool's own curve on your mana (lit once you miss what it restores), the client's
+--- colour landing on its pieces and its sweep's swipe. Nothing compared. A tool that is not here, or a drink in a fight,
+--- is dark; no colour back from the client = dark, never a stale sign.
+function RD.PaintTools(fight)
+    if not RD.TOOLS then return end
+    for _, b in ipairs(RD.TOOLS) do
+        local drew = false
+        if b.macro and not (b.restOnly and fight) and UnitPowerPercent then
+            local c = RD.ToolCurve(b.at)
+            if c then
+                local ok, col = pcall(UnitPowerPercent, "player", 0, true, c)
+                drew = ok and paint(b.pieces, col) or false
+            end
+            local sw = b.cd and RD.SwipeCurve(b.at)
+            if drew and sw then
+                local okS, scol = pcall(UnitPowerPercent, "player", 0, true, sw)
+                swipeTo(b.cd, okS and scol or nil)
+            end
         end
+        b.face:SetAlpha(drew and 1 or 0)
     end
 end
 
@@ -1327,16 +1737,132 @@ function RD.PaintRange(sp)
     return answer
 end
 
---- The fuel tape: the client's numbers, handed on untouched.
-function RD.PaintTape()
-    local tape = RD.tape
-    if not tape then return end
-    local okM, mx = pcall(UnitPowerMax, "player", 0)
-    local okV, v = pcall(UnitPower, "player", 0)
-    if okM and okV then
-        pcall(tape.SetMinMaxValues, tape, 0, mx)
-        pcall(tape.SetValue, tape, v)
+-- ------------------------------------------------------------------ the fuel gauge (handed untouched, never read)
+
+--- nil, asked without testing a secret (a secret refuses even `== nil`): a secret is never nil.
+local function isNil(v)
+    if NS.Secret and NS.Secret(v) then return false end
+    return v == nil
+end
+
+--- Hand a unit's pair of numbers to bars, untouched: 0..max, then the value. false when the client refused.
+local function handTo(bars, getMax, getNow, unit, kind)
+    local okM, mx = pcall(getMax, unit, kind)
+    local okV, v = pcall(getNow, unit, kind)
+    if not (okM and okV) then return false end
+    for _, s in ipairs(bars) do
+        pcall(s.SetMinMaxValues, s, 0, mx)
+        pcall(s.SetValue, s, v)
     end
+    return true
+end
+
+--- Your fuel: your mana on the tape and on the BINGO ruler, as the client gives it.
+function RD.PaintMana()
+    local g = RD.gauge
+    if not (g and UnitPower and UnitPowerMax) then return false end
+    return handTo({ g.mana, g.ruler }, UnitPowerMax, UnitPower, "player", 0)
+end
+
+--- WHOSE HEALTH THE TAPE RACES: the boss (boss1) while the client has one, else your target, hostile or not decided by
+--- the client (a secret "hostile?" stays the client's: RD.fuelHostile goes to SetAlphaFromBoolean). nil: nothing to race.
+--- Asked when the target or the encounter changes, never per health tick.
+function RD.PickFuel()
+    RD.fuelUnit, RD.fuelHostile = nil, nil
+    local okB, b = pcall(UnitExists, "boss1")
+    if okB and plain(b) == true then RD.fuelUnit, RD.fuelHostile = "boss1", true return "boss1" end
+    local okT, t = pcall(UnitExists, "target")
+    if not okT then return nil end
+    if not (NS.Secret and NS.Secret(t)) and t ~= true then return nil end
+    local okH, h = pcall(UnitCanAttack, "player", "target")
+    if not okH or isNil(h) then return nil end
+    RD.fuelUnit, RD.fuelHostile = "target", h
+    return "target"
+end
+
+--- The boss's side of the tape: its health handed to the red bar and the hot copy; the boss layer's alpha says whether
+--- there is one. Out of a fight with no boss: nothing, the tape is calm (Arn's brief).
+function RD.PaintBoss()
+    local g = RD.gauge
+    if not g then return nil end
+    local unit, h = RD.fuelUnit, RD.fuelHostile
+    local show = unit and (unit == "boss1" or RD.inFight or combat())
+    if not show then g.bossLayer:SetAlpha(0) return nil end
+    handTo({ g.boss, g.hot }, UnitHealthMax, UnitHealth, unit)
+    if NS.Secret and NS.Secret(h) then
+        if not pcall(function() g.bossLayer:SetAlphaFromBoolean(h, 1, 0) end) then g.bossLayer:SetAlpha(0) end
+        return "secret"
+    end
+    g.bossLayer:SetAlpha(h == true and 1 or 0)
+    return h == true
+end
+
+--- GENERATING FUEL: the cyan chevron at the tape's foot, in a fight only. Lit while you are out of the five second rule
+--- (Regen.lua's own clock - your own casts, plain); inside it, dimmed to the share you keep while casting (the pair
+--- Regen.lua remembered out of a fight; nothing asked now). Out of a fight: nothing.
+function RD.PaintRegen()
+    local g, FR = RD.gauge, NS.FR
+    if not g then return nil end
+    if not (RD.inFight or combat()) or not (FR and FR.Left) then g.chev:SetAlpha(0) return 0 end
+    local a = 1
+    if FR.Left() > 0 then
+        local k = FR.known
+        a = (k and type(k.base) == "number" and k.base > 0 and type(k.casting) == "number") and (k.casting / k.base) or 0
+        a = math.max(0, math.min(a, 1))
+    end
+    g.chev:SetAlpha(a)
+    return a
+end
+
+function RD.PaintFuel()
+    RD.PaintMana()
+    RD.PaintBoss()
+    RD.PaintRegen()
+end
+
+--- What the tape says, in words, under the mouse only.
+function RD.FuelTip()
+    local FR = NS.FR
+    local who = RD.fuelUnit == "boss1" and "the boss" or (RD.fuelUnit == "target" and "your target, when it is hostile")
+                or "nothing - no boss, no hostile target"
+    return {
+        "Green: your mana.  Red above it: the boss's health you are behind by.  Magenta mark: the boss.",
+        ("Hot pulsing band: BINGO - the boss more than %d%% ahead of your mana.  Drink, potion, Mana Tide (the column)."):format(RD.BINGO * 100),
+        "Cyan chevron at the foot: generating fuel - out of the five second rule (dim: your while-casting share).",
+        "Racing: " .. who .. ".  " .. ((FR and FR.Text) and FR.Text() or ""),
+    }
+end
+
+--- THE SWEEPS, BATCHED (SPELL_UPDATE_COOLDOWN, a layout): ONE duration object for the GCD - spell 61304, else the radar
+--- heal's own cooldown, which carries it - handed untouched to every GCD sweep in one loop; Mana Tide its own spell's
+--- object; the potion its item cooldown (plain start + duration, handed on as given). Answers how many were fed.
+function RD.Sweeps()
+    local get = C_Spell and C_Spell.GetSpellCooldownDuration
+    if not get then return 0 end
+    local ok, gcd = pcall(get, RD.GCD)
+    if not ok or isNil(gcd) then
+        local h = RD.heal and (RD.heal.cast or RD.heal.name)
+        ok, gcd = false, nil
+        if h then ok, gcd = pcall(get, h) end
+    end
+    local n = 0
+    if ok and not isNil(gcd) then
+        for _, cd in ipairs(RD.sweeps) do
+            if pcall(cd.SetCooldownFromDurationObject, cd, gcd) then n = n + 1 end
+        end
+    end
+    local tide = RD.tide
+    if tide and tide.macro and tide.cd then
+        local okT, td = pcall(get, RD.TIDE)
+        if okT and not isNil(td) and pcall(tide.cd.SetCooldownFromDurationObject, tide.cd, td) then n = n + 1 end
+    end
+    local pot = RD.potion
+    local itemCd = C_Container and C_Container.GetItemCooldown
+    if pot and pot.item and pot.cd and itemCd then
+        local okI, start, dur = pcall(itemCd, pot.item)
+        if okI and not isNil(start) and not isNil(dur) and pcall(pot.cd.SetCooldown, pot.cd, start, dur) then n = n + 1 end
+    end
+    return n
 end
 
 --- The interrupt's sweep on every bogey (SPELL_UPDATE_COOLDOWN, a layout): your own spell's duration object, handed
@@ -1379,9 +1905,10 @@ function RD.Paint()
     for _, sp in ipairs(RD.spokes or {}) do RD.PaintHeal(sp) end
     RD.PaintShield()
     RD.PaintQuiet()
-    RD.PaintTape()
+    RD.PaintFuel()
     RD.PaintCross()
     RD.KickCooldown()
+    RD.Sweeps()
     RD.Look()
 end
 
@@ -1393,6 +1920,7 @@ local function startTicker()
     RD.ticker = C_Timer.NewTicker(RD.TICK, function()
         if not RD.Active() then return end
         RD.Look()
+        RD.PaintRegen()                     -- the five second rule runs out on a clock, not an event
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
         n = n + 1
@@ -1460,8 +1988,14 @@ function RD.Command(rest)
         P("radar: back in its place")
     else
         local h = RD.heal or RD.Heal()
-        P("radar: heal %s, %d missiles a full tank.  |cff968ead/bish alpha radar heal <spell> | scale <50-200> | center|r",
-          h and h.cast or "none", RD.missiles or 0)
+        P("radar: heal %s.  |cff968ead/bish alpha radar heal <spell> | scale <50-200> | center|r", h and h.cast or "none")
+        -- THE FUEL GAUGE AND THE MANA COLUMN, SAID PLAINLY: what the tape races, and where each tool lights
+        local function tool(b, name)
+            if not (b and b.macro) then return name .. " none" end
+            return ("%s %s%%%s"):format(name, math.floor((b.at or 0) * 100 + 0.5), b.guess and " (guess)" or "")
+        end
+        P("radar fuel: racing %s.  lights at: %s, %s, %s", RD.fuelUnit or "nothing", tool(RD.tide, "tide"),
+          tool(RD.potion, "potion"), tool(RD.fuel, "drink"))
         -- THE SHIELD PIP, SAID PLAINLY (Arn, 8 Nov: "no water shield icon"): what it watches, whether the client took the
         -- marker, and what it last handed over - so the next screenshot says which part is missing
         local b, FA = RD.shield, NS.FA
@@ -1483,7 +2017,8 @@ RD.events = ev
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "GROUP_ROSTER_UPDATE",
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
-                     "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN" }) do
+                     "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
+                     "PLAYER_LEVEL_UP" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnEvent", function(_, event, a1, a2)
@@ -1491,22 +2026,33 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
     if event == "PLAYER_REGEN_DISABLED" then
         -- a fight: the drag ends first (before the lockdown takes the mouse), then everything goes quiet
         if RD.frame then endDrag(RD.frame) end
-        if RD.Active() then RD.PaintQuiet() end
+        RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
+        if RD.Active() then RD.PaintQuiet() RD.PickFuel() RD.PaintFuel() end
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
+        RD.inFight = nil
         if RD.pending then RD.Apply() if RD.Active() then RD.Arm() end
-        elseif RD.Active() then RD.PaintQuiet() RD.PaintShield() end
+        elseif RD.Active() then
+            RD.ArmTools()                  -- the numbers are plain again: each tool re-learns where it lights
+            RD.PaintQuiet() RD.PaintShield() RD.PickFuel() RD.PaintFuel()
+        end
         return
     end
     if not RD.Active() then return end
     if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED"
-       or event == "PLAYER_ROLES_ASSIGNED" then                -- a role set: the pip's sign follows
+       or event == "PLAYER_ROLES_ASSIGNED" or event == "PLAYER_LEVEL_UP" then   -- a role set: the pip's sign follows
         RD.Arm()                           -- in a fight it only marks RD.pending
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
+        if NS.Secret and NS.Secret(a1) then return end
         for _, sp in ipairs(RD.spokes) do if sp.unit == a1 then RD.PaintHeal(sp) end end
-    elseif event == "UNIT_POWER_UPDATE" then
-        if a1 == "player" then RD.PaintTape() RD.PaintQuiet() end
+        if a1 ~= nil and a1 == RD.fuelUnit then RD.PaintBoss() end
+    elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
+        if a1 == "player" then
+            -- a bigger or smaller pool between pulls (gear, a buff): the tools re-learn where they light
+            if event == "UNIT_MAXPOWER" and not combat() then RD.ArmTools() end
+            RD.PaintMana() RD.PaintQuiet()
+        end
     elseif event == "UNIT_AURA" then
         if a1 == "player" then RD.PaintShield() end
         if a1 == "player" and not combat() then
@@ -1515,11 +2061,15 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
         end
     elseif event == "SPELL_UPDATE_COOLDOWN" then
         RD.KickCooldown()
+        RD.Sweeps()
     elseif event == "UNIT_TARGET" then
         if a1 == "target" then RD.PaintCross() end      -- your target picked someone else: the amber mark moves
     elseif event == "PLAYER_TARGET_CHANGED" then
         RD.PaintCross()
         RD.Look()
+        RD.PickFuel() RD.PaintBoss()
+    elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+        RD.PickFuel() RD.PaintBoss()       -- a boss came (or went): the tape races it
     elseif event == "UI_ERROR_MESSAGE" then
         -- a heal that failed on line of sight: the spoke under the mouse flashes amber at its rim
         local text = a2

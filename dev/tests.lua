@@ -11984,24 +11984,28 @@ do
         ok(RD.RestoreAmount(WORDS[1135]) == 835.2 and RD.RestoreAmount(WORDS[2023]) == 800
            and RD.RestoreAmount(WORDS["Mana Tide Totem"]) == 680 and RD.RestoreAmount("Heals for 5.") == nil,
            "what each restores, read off its own words (a decimal read whole; a totem's ticks added up)")
-        -- each curve's point = 1 - restores / your full mana (both plain out of a fight)
+        -- each curve's point = restores / your full mana (both plain out of a fight): it lights when it keeps you off empty
         local function point(b)
             local c = RD.ToolCurve(b.at)
             table.sort(c.points, function(a2, b2) return a2.x < b2.x end)
             return c.points[2].x
         end
-        local function want(amount) return math.floor((1 - amount / 1375) * 100 + 0.5) / 100 end
-        ok(RD.tide.at == want(680) and point(RD.tide) == want(680) and not RD.tide.guess, "Mana Tide lights at 1 - 680/1375", RD.tide.at)
-        ok(RD.potion.at == want(800) and point(RD.potion) == want(800), "the potion at 1 - 800/1375", RD.potion.at)
-        ok(RD.fuel.at == want(835.2) and point(RD.fuel) == want(835.2), "the drink at 1 - 835/1375", RD.fuel.at)
+        local function want(amount) return math.floor((amount / 1375) * 100 + 0.5) / 100 end
+        ok(RD.tide.at == want(680) and point(RD.tide) == want(680) and not RD.tide.guess, "Mana Tide lights at 680/1375 (49%), not at 1 - 680/1375", RD.tide.at)
+        ok(RD.potion.at == want(800) and point(RD.potion) == want(800), "the potion at 800/1375", RD.potion.at)
+        ok(RD.fuel.at == want(835.2) and point(RD.fuel) == want(835.2), "the drink at 835/1375", RD.fuel.at)
         local function lit(b) local v = b.pieces[1].__vertex return b.face:GetAlpha() == 1 and v and v[4] == 1 end
-        STATE.mana = 0.60
+        STATE.mana = 0.70
         RD.PaintQuiet()
         ok(not lit(RD.tide) and not lit(RD.potion) and not lit(RD.fuel) and RD.tide.face:GetAlpha() == 1,
-           "60% mana: every tool there and dark (its pieces see-through)")
+           "70% mana: every tool there and dark (its pieces see-through)")
+        STATE.mana = 0.55
+        RD.PaintQuiet()
+        ok(not lit(RD.tide) and lit(RD.potion) and lit(RD.fuel),
+           "55%: the drink's 835 and the potion's 800 are what you have left - they light; Mana Tide's 680 waits")
         STATE.mana = 0.45
         RD.PaintQuiet()
-        ok(lit(RD.tide) and not lit(RD.potion) and not lit(RD.fuel), "45%: Mana Tide's 680 fits - it lights; the others would waste")
+        ok(lit(RD.tide) and lit(RD.potion) and lit(RD.fuel), "45%: Mana Tide's 680 is more than you have left - all three lit")
         STATE.mana = 0.30
         STATE.inCombat = true
         fire(RD.events, "PLAYER_REGEN_DISABLED")
@@ -12015,7 +12019,7 @@ do
         STATE.inCombat = false
         STATE.powerMax = 2000
         fire(RD.events, "PLAYER_REGEN_ENABLED")
-        ok(RD.tide.at == math.floor((1 - 680 / 2000) * 100 + 0.5) / 100, "the fight ends: each tool re-learns against your pool", RD.tide.at)
+        ok(RD.tide.at == math.floor((680 / 2000) * 100 + 0.5) / 100, "the fight ends: each tool re-learns against your pool", RD.tide.at)
         STATE.powerMax = 1375
         fire(RD.events, "PLAYER_LEVEL_UP")
         ok(RD.tide.at == want(680), "and at a level up")

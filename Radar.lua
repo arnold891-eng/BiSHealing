@@ -1560,15 +1560,18 @@ local function itemWords(id)
     return sid and describe(sid) or nil
 end
 
---- Learn where a tool lights: `at` = 1 - restores / your full mana (both plain out of a fight), else RD.TOOL_GUESS and
+--- Learn where a tool lights: `at` = restores / your full mana (both plain out of a fight), else RD.TOOL_GUESS and
 --- `guess` = true. Kept on the button; its curve is RD.ToolCurve(b.at).
+--- KEEP YOU OFF EMPTY, NOT TOP YOU UP (Arn, 8 Nov: "run these backwards we dont want to light them as soon as they will
+--- bring us back to 100% we want to use them when they will keep us from reaching 0%"): a tool lights once your mana is
+--- down to what it gives back - Mana Tide's 352 of 1,400 lights at 25%, not at 75%.
 function RD.LearnTool(b, words)
     local amount = RD.RestoreAmount(words)
     local okM, mx = pcall(UnitPowerMax, "player", 0)
     mx = okM and plain(mx) or nil
     b.amount = amount
     if amount and type(mx) == "number" and mx > 0 then
-        b.at, b.guess = math.max(0.02, math.min(1 - amount / mx, 0.98)), false
+        b.at, b.guess = math.max(0.02, math.min(amount / mx, 0.98)), false
     else
         b.at, b.guess = RD.TOOL_GUESS, true
     end
@@ -1578,7 +1581,7 @@ end
 
 local function toolTip(b, title, what)
     local where = b.guess and ("its amount unknown - lights below %d%% mana (a guess)"):format(b.at * 100 + 0.5)
-                  or ("restores ~%d mana - lights below %d%% mana, when none of it is wasted"):format(b.amount, b.at * 100 + 0.5)
+                  or ("restores ~%d mana - lights below %d%% mana, when it keeps you off empty"):format(b.amount, b.at * 100 + 0.5)
     b.tip = { title, what .. ".  " .. where .. "." .. (b.restOnly and "  Out of a fight only." or "") }
 end
 

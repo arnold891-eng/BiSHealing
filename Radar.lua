@@ -56,6 +56,13 @@ RD.FUEL_LOW = 0.30
 -- delta indicates we are keeping pace or bingo fuel"). A tape on the left edge: x from the edge, width, room kept at the
 -- top and the foot (the regen chevron, then the missile tape); `flag` = how far the BINGO window reaches past the tape.
 RD.GAUGE = { x = 1, w = 7, top = 8, foot = 34, flag = 5 }
+-- THE RAILS, OUTSIDE THE SQUARE (Arn, 8 Nov: "pop out the rail to the left of the radar square and the gauge too in its own
+-- rail"): two solid strips in RD.PLATE's dark on the radar's left, outermost the fuel GAUGE's rail, then the TOOL rail
+-- (stabilizer, Mana Tide, potion, drink, rations), then the square. Children of the radar, so they move and hide with it;
+-- solid, so the stabilizer's cover (the same dark) melts into its rail.
+RD.RAIL_GAP = 3                                    -- between the rails, and between the tool rail and the square
+RD.TOOL_RAIL_W = 22 + 8                            -- a system pip and a margin
+RD.GAUGE_RAIL_W = 7 + 5 + 10                       -- the tape, its caret/flag, a margin
 -- THE MANA COLUMN (Arn, 8 Nov: "put the mana tools close to the fuel tape and the water shield ... its essential for a
 -- pilot to always click that button when it lights"): right beside the tape, top to bottom the stabilizer, Mana Tide,
 -- the potion, the drink. Its x from the radar's left edge; clear of every pip, party and raid (the suite measures it).
@@ -772,10 +779,10 @@ local function swipeTo(cd, col)
 end
 
 --- A system pip in the column: a secure button (for its click) with our own face, inside its pulse wrapper.
-local function buildSystem(f, name, point, x, y)
+local function buildSystem(f, name, point, x, y, rel)
     local b = CreateFrame("Button", "BiSHealingRadar" .. name, f, "SecureActionButtonTemplate")
     b:SetSize(RD.SYS_PX, RD.SYS_PX)
-    b:SetPoint(point, f, point, x, y)
+    b:SetPoint(point, rel or f, point, x, y)
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
     b.beat = CreateFrame("Frame", nil, b)
     b.beat:SetAllPoints(b)
@@ -907,17 +914,30 @@ local function buildGauge(f)
 end
 
 --- The tape's size for a square `size` across: its height, the ticks, the 30% lift and the window's roof.
---- The rail's width in the frame's pixels (the column's right edge and a little), drawn in the scope's units.
-RD.RAIL_W = RD.COLUMN_X + RD.SYS_PX + 5
-function RD.SizeRail(scale)
-    local r = RD.rail
-    if not r then return nil end
-    scale = (type(scale) == "number" and scale > 0) and scale or 1
-    r:ClearAllPoints()
-    r:SetPoint("TOPLEFT", RD.scope, "TOPLEFT", 0, 0)
-    r:SetPoint("BOTTOMLEFT", RD.scope, "BOTTOMLEFT", 0, 0)
-    r:SetWidth(RD.RAIL_W / scale)
-    return RD.RAIL_W / scale
+--- The two rails, outside the square on its left, the radar's full height. Their own frames under the radar's level so
+--- the tape and the tools draw over them; the radar's clamp grows to keep them on the screen.
+local function rail(f, w)
+    local r = CreateFrame("Frame", nil, f)
+    r:SetWidth(w)
+    r:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    r.bg = r:CreateTexture(nil, "BACKGROUND")
+    r.bg:SetAllPoints(r)
+    r.bg:SetTexture(RD.WHITE)
+    r.bg:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+    return r
+end
+function RD.BuildRails(f)
+    if RD.toolRail then return RD.toolRail, RD.gaugeRail end
+    local gap = RD.RAIL_GAP
+    local t = rail(f, RD.TOOL_RAIL_W)
+    t:SetPoint("TOPRIGHT", f, "TOPLEFT", -gap, 0)
+    t:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", -gap, 0)
+    local g = rail(f, RD.GAUGE_RAIL_W)
+    g:SetPoint("TOPRIGHT", t, "TOPLEFT", -gap, 0)
+    g:SetPoint("BOTTOMRIGHT", t, "BOTTOMLEFT", -gap, 0)
+    RD.toolRail, RD.gaugeRail = t, g
+    if f.SetClampRectInsets then pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + RD.GAUGE_RAIL_W + 2 * gap), 0, 0, 0) end
+    return t, g
 end
 
 function RD.SizeGauge(size)
@@ -925,7 +945,7 @@ function RD.SizeGauge(size)
     if not g then return nil end
     local h = size - G.top - G.foot
     g:ClearAllPoints()
-    g:SetPoint("BOTTOMLEFT", RD.frame, "BOTTOMLEFT", G.x, G.foot)
+    g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", RD.gaugeRail and (RD.GAUGE_RAIL_W - G.w - G.flag) / 2 or G.x, G.foot)
     g:SetSize(G.w, h)
     for q, l in ipairs(g.ticks) do
         local y = (q / 4 - 0.5) * h
@@ -993,16 +1013,17 @@ function RD.Build()
     f:SetScript("OnHide", endDrag)
     buildScope(f)
     RD.spokes = {}                      -- made as the roster needs them (RD.Spoke)
-    -- THE MANA COLUMN beside the fuel tape (RD.COLUMN_X): the STABILIZER on top (only the button moved - its client
+    -- THE MANA COLUMN on its own rail outside the square (RD.toolRail): the STABILIZER on top (only the button moved - its client
     -- cover is anchored to the button, so it follows), then the regen tools: Mana Tide, the best mana potion, the best
     -- drink (the old FUEL pip, its name kept). Each always in its place, invisible until its own curve lights it.
-    local step, X = RD.SYS_PX + RD.TOOL_GAP, RD.COLUMN_X
-    RD.shield = buildSystem(f, "Shield", "TOPLEFT", X, -8)
-    RD.tide = buildSystem(f, "Tide", "TOPLEFT", X, -8 - step)
-    RD.potion = buildSystem(f, "Potion", "TOPLEFT", X, -8 - 2 * step)
-    RD.fuel = buildSystem(f, "Fuel", "TOPLEFT", X, -8 - 3 * step)
+    RD.BuildRails(f)
+    local step, X, rail = RD.SYS_PX + RD.TOOL_GAP, (RD.TOOL_RAIL_W - RD.SYS_PX) / 2, RD.toolRail
+    RD.shield = buildSystem(f, "Shield", "TOPLEFT", X, -8, rail)
+    RD.tide = buildSystem(f, "Tide", "TOPLEFT", X, -8 - step, rail)
+    RD.potion = buildSystem(f, "Potion", "TOPLEFT", X, -8 - 2 * step, rail)
+    RD.fuel = buildSystem(f, "Fuel", "TOPLEFT", X, -8 - 3 * step, rail)
     -- RATIONS, last in the column (Arn, 8 Nov: "move the rations next to the drink too")
-    RD.rations = buildSystem(f, "Rations", "TOPLEFT", X, -8 - 4 * step)
+    RD.rations = buildSystem(f, "Rations", "TOPLEFT", X, -8 - 4 * step, rail)
     RD.COLUMN = { RD.shield, RD.tide, RD.potion, RD.fuel, RD.rations }
     RD.tide.kind, RD.potion.kind, RD.fuel.kind = "tide", "potion", "drink"
     RD.fuel.restOnly = true                          -- a drink is out of a fight only
@@ -1014,14 +1035,7 @@ function RD.Build()
     for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
     for _, b in ipairs(RD.COLUMN) do b.cd = RD.Sweep(b.face, b == RD.tide or b == RD.potion) end
     buildGauge(f)
-    -- THE RAIL (Arn, 8 Nov: "dont like that dark plate it still looks like something i want to click" - he picked "the
-    -- rail"): a solid strip in the plate's own dark behind the fuel tape and the mana column, drawn in the scope's
-    -- background layer (under the tape and the tools, over the see-through scope). The stabilizer's cover is that same
-    -- dark, so with the shield up there is nothing to see. Sized with the scope's scale (RD.SizeRail).
-    RD.rail = RD.scope:CreateTexture(nil, "BACKGROUND", nil, 2)
-    RD.rail:SetTexture(RD.WHITE)
-    RD.rail:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
-    RD.SizeRail(1)
+    -- (the rail drawn inside the scope is gone: the rails stand outside the square now - RD.BuildRails)
     -- rations: a fork
     RD.rations.fork = { line(RD.rations.face, "OVERLAY", -4, 7, -4, -7, RD.COL.cyan, 2), line(RD.rations.face, "OVERLAY", 4, 7, 4, -7, RD.COL.cyan, 2),
                         line(RD.rations.face, "OVERLAY", -4, 0, 4, 0, RD.COL.cyan, 2) }
@@ -1576,7 +1590,6 @@ function RD.Arm()
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
     RD.scope:SetScale(size / RD.PARTY.size)
-    RD.SizeRail(size / RD.PARTY.size)
     RD.SizeGauge(size)                 -- the fuel tape runs the square's height
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)

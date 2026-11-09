@@ -11606,14 +11606,15 @@ do
     ok(c1 and #cov == 1 and c1.__allpoints and cc[1] == RD.PLATE[1] and cc[2] == RD.PLATE[2] and cc[4] == 1,
        "the cover: one square the whole pip, opaque, in the plate's dark - it hides the red whole")
     ok(pc[1] == RD.PLATE[1] and pc[2] == RD.PLATE[2], "and the plate under it the same dark: up, you see no symbol at all")
-    -- THE RAIL (Arn 8 Nov: "dont like that dark plate it still looks like something i want to click" - "the rail"): the
-    -- whole left column sits on that same solid dark, so the covered stabilizer is part of the rail, not a button
-    local rail = RD.rail
-    local rc2 = rail and (rail.__vertex or {}) or {}
-    ok(rail and rc2[1] == RD.PLATE[1] and rc2[2] == RD.PLATE[2] and rc2[4] == 1, "a solid rail in the cover's own dark")
-    ok(RD.RAIL_W >= RD.COLUMN_X + RD.SYS_PX, "wide enough to sit behind every tool in the column")
-    ok(math.abs(RD.SizeRail(2) - RD.RAIL_W / 2) < 0.001, "drawn in the scope's units: the same width on screen when the scope is scaled (a raid)")
-    RD.SizeRail(1)
+    -- THE RAILS, OUTSIDE THE SQUARE (Arn 8 Nov: "pop out the rail to the left of the radar square and the gauge too in
+    -- its own rail"): solid strips in the cover's own dark, so the covered stabilizer is part of its rail
+    local tr, gr = RD.toolRail, RD.gaugeRail
+    local function dark(r) local c = r and r.bg and (r.bg.__vertex or {}) or {} return c[1] == RD.PLATE[1] and c[2] == RD.PLATE[2] and c[4] == 1 end
+    ok(tr and gr and dark(tr) and dark(gr), "two solid rails in the cover's own dark")
+    local tp = tr.__points and tr.__points[1] or (tr.points and tr.points[1])
+    local gp = gr.__points and gr.__points[1] or (gr.points and gr.points[1])
+    ok(tp and tp[1] == "TOPRIGHT" and tp[3] == "TOPLEFT" and gp and gp[2] == tr and gp[3] == "TOPLEFT",
+       "outside the square on its left: the tool rail beside it, the gauge's rail beyond that")
     ok(RD.shield.tip and RD.shield.tip[1] == "STABILIZER" and RD.shield.tip[2]:find("Water Shield", 1, true),
        "under the mouse: STABILIZER, and which spell it casts")
     ok(not RD.shield.icon:IsShown(), "no spell picture")
@@ -11837,8 +11838,8 @@ do
         ok(RD.tape == nil, "the missile tape along the bottom is gone (Arn: \"the guage does the same thing\")")
         ok(g and g.boss and g.mana and g.ruler and g.hot, "the fuel tape: the boss, your mana, the BINGO ruler and its hot copy")
         local p = pt(g, "BOTTOMLEFT")
-        ok(p and p[2] == f and p[4] == RD.GAUGE.x and p[5] == RD.GAUGE.foot and g:GetHeight() == RD.SIZE - RD.GAUGE.top - RD.GAUGE.foot,
-           "on the left edge, the square's height less its top and foot", g:GetHeight())
+        ok(p and p[2] == RD.gaugeRail and p[5] == RD.GAUGE.foot and g:GetHeight() == RD.SIZE - RD.GAUGE.top - RD.GAUGE.foot,
+           "on its own rail outside the square, the square's height less its top and foot", g:GetHeight())
         local allVertical = true
         for _, s in ipairs({ g.boss, g.mana, g.ruler, g.hot }) do if s:GetOrientation() ~= "VERTICAL" then allVertical = false end end
         ok(allVertical, "every bar fills from the bottom")
@@ -12013,20 +12014,17 @@ do
         local step = RD.SYS_PX + RD.TOOL_GAP
         for k, b in ipairs(col) do
             local q = b.points[#b.points]
-            if not (q[1] == "TOPLEFT" and q[2] == f and q[4] == RD.COLUMN_X and q[5] == -8 - (k - 1) * step) then inOrder = false end
+            if not (q[1] == "TOPLEFT" and q[2] == RD.toolRail and q[5] == -8 - (k - 1) * step) then inOrder = false end
         end
-        ok(inOrder, "the column: stabilizer, Mana Tide, potion, drink, rations - beside the tape")
-        ok(RD.COLUMN_X >= RD.GAUGE.x + RD.GAUGE.w + 3, "the column starts past the tape and its caret")
+        ok(inOrder, "the column: stabilizer, Mana Tide, potion, drink, rations - on the tool rail, outside the square")
         -- clear of every pip: party and a full raid, every heal, cure (two cures) and bogey
         local function clash(raid, size)
             local slots = RD.Geometry(raid, 3)
             local n = 0
             local boxes = {}
-            for k = 1, #col do
-                local y0 = 8 + (k - 1) * step
-                boxes[#boxes + 1] = { RD.COLUMN_X, y0, RD.COLUMN_X + RD.SYS_PX, y0 + RD.SYS_PX }
-            end
-            boxes[#boxes + 1] = { RD.GAUGE.x, RD.GAUGE.top, RD.GAUGE.x + RD.GAUGE.w + 3, size - RD.GAUGE.foot }
+            -- the rails stand outside the square (x < 0): nothing of theirs can sit on a pip
+            local railRight = -RD.RAIL_GAP
+            boxes[#boxes + 1] = { -1000, 0, railRight, size }
             for _, s in ipairs(slots) do
                 local spots = { { s.rh, s.ph, 0 }, { s.rb, s.pb, 0 } }
                 if s.rc then

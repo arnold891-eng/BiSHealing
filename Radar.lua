@@ -82,6 +82,18 @@ RD.CARET = { 1.00, 0.24, 0.92, 1 }                 -- the boss's level: the cock
 RD.TIDE = "Mana Tide Totem"
 RD.POTION = "Restore Mana"                         -- the use-spell of every mana potion (the drink's is "Drink")
 RD.TOOL_GUESS = 0.50                               -- the amount unknown: light at half mana, and say it is a guess
+-- THE RESERVE TANK (8 Nov 2026, Arn: "add mana spring to the rail and we light it up when everything else is on cooldown
+-- as a scraping the barrel option. reserve reserve tank for a pilot"): Mana Spring, lit only once Mana Tide and the
+-- potion are spent (cooling, or not here) and - in a fight, or with no drink - your mana is down to what it gives back.
+-- What is spent is OUR OWN CLOCK of OUR OWN casts (UNIT_SPELLCAST_SUCCEEDED for you - plain), seeded out of a fight from
+-- the client's cooldowns; nothing secret is read. A water totem of yours already down (the Spring, or Mana Tide for its
+-- 12 s) keeps it dark: a second one would only replace it.
+RD.FSR = { n = 5, w = 6, h = 3, gap = 2, spent = 0.2 }   -- the five second rule's segments (RD.PaintFSR)
+RD.SPRING = "Mana Spring Totem"
+RD.COOLS = { tide = 300, potion = 120 }            -- seconds, when the client gives no cooldown to seed from
+RD.WATER = { tide = 12, spring = 300 }             -- how long each water totem stands
+RD.readyAt = {}                                    -- kind -> GetTime() when it is ready again
+RD.waterUntil = 0
 RD.TOOL_GAP = 3
 RD.TICK = 0.5
 RD.FOOD_EVERY = 10            -- ticks: the food is asked again every 5 s out of a fight
@@ -924,9 +936,23 @@ local function buildGauge(f)
     g.regen = f:CreateFontString(nil, "OVERLAY")
     g.regen:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
     g.regen:SetTextColor(C[1], C[2], C[3])
-    g.regen:SetPoint("CENTER", RD.gaugeRail or f, "BOTTOM", 0, math.floor(G.foot / 2) - 2)
+    g.regen:SetPoint("CENTER", RD.gaugeRail or f, "BOTTOM", 0, math.floor(G.foot / 2) + 2)   -- the pair centred
     g.regen:SetText("100%")
     g.chev:SetPoint("LEFT", g.regen, "RIGHT", 3, 0)
+    -- THE FIVE SECOND RULE, COUNTED DOWN (Arn, 8 Nov: "somewhere on there the 5 second casting rule for 100% mana regen
+    -- ... so they know if i wait a little bit i can get full mana regen"): five segments under the readout, one per
+    -- second left, draining as you hold your casts; all gone = 100% again. Shown in a fight, inside the rule only.
+    g.fsr = CreateFrame("Frame", nil, f)
+    g.fsr:SetSize(RD.FSR.n * RD.FSR.w + (RD.FSR.n - 1) * RD.FSR.gap, RD.FSR.h)
+    g.fsr:SetPoint("TOP", g.regen, "BOTTOM", 0, -2)
+    g.fsr:SetAlpha(0)
+    g.fsrSegs = {}
+    for k = 1, RD.FSR.n do
+        local t = tex(g.fsr, "OVERLAY", C)
+        t:SetSize(RD.FSR.w, RD.FSR.h)
+        t:SetPoint("LEFT", g.fsr, "LEFT", (k - 1) * (RD.FSR.w + RD.FSR.gap), 0)
+        g.fsrSegs[k] = t
+    end
     -- what it is, under the mouse only; the radar's own drag goes on through it
     g:EnableMouse(true)
     g:RegisterForDrag("LeftButton")
@@ -1084,6 +1110,8 @@ local function toolFace(b, kind)
         bar(4, 14, 0, 0) bar(12, 2, 0, 3) bar(10, 2, 0, -6)
     elseif kind == "potion" then                               -- a flask: the neck and the body
         bar(3, 5, 0, 5) bar(6, 2, 0, 3) bar(10, 8, 0, -3)
+    elseif kind == "reserve" then                              -- a reserve can: the body, its handle, the spout
+        bar(10, 10, -1, -2) bar(6, 2, -2, 5) bar(2, 6, 5, 4, -0.6)
     else                                                       -- a drop
         bar(2, 9, -2.2, 2, -0.45) bar(2, 9, 2.2, 2, 0.45) bar(8, 5, 0, -3.5)
     end
@@ -1119,18 +1147,21 @@ function RD.Build()
     RD.shield = buildSystem(f, "Shield", "TOPLEFT", X, -8, rail)
     RD.tide = buildSystem(f, "Tide", "TOPLEFT", X, -8 - step, rail)
     RD.potion = buildSystem(f, "Potion", "TOPLEFT", X, -8 - 2 * step, rail)
-    RD.fuel = buildSystem(f, "Fuel", "TOPLEFT", X, -8 - 3 * step, rail)
+    -- the RESERVE TANK after the fight tools it stands behind (Mana Spring, RD.ReserveOpen)
+    RD.reserve = buildSystem(f, "Reserve", "TOPLEFT", X, -8 - 3 * step, rail)
+    RD.fuel = buildSystem(f, "Fuel", "TOPLEFT", X, -8 - 4 * step, rail)
     -- RATIONS, last in the column (Arn, 8 Nov: "move the rations next to the drink too")
-    RD.rations = buildSystem(f, "Rations", "TOPLEFT", X, -8 - 4 * step, rail)
-    RD.COLUMN = { RD.shield, RD.tide, RD.potion, RD.fuel, RD.rations }
-    RD.tide.kind, RD.potion.kind, RD.fuel.kind = "tide", "potion", "drink"
+    RD.rations = buildSystem(f, "Rations", "TOPLEFT", X, -8 - 5 * step, rail)
+    RD.COLUMN = { RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations }
+    RD.tide.kind, RD.potion.kind, RD.reserve.kind, RD.fuel.kind = "tide", "potion", "reserve", "drink"
     RD.fuel.restOnly = true                          -- a drink is out of a fight only
-    RD.TOOLS = { RD.tide, RD.potion, RD.fuel }
+    RD.reserve.gate = function(fight) return RD.ReserveOpen(fight) end
+    RD.TOOLS = { RD.tide, RD.potion, RD.reserve, RD.fuel }
     for _, b in ipairs(RD.TOOLS) do toolFace(b, b.kind) b.face:SetAlpha(0) end
     RD.fuel.drop = RD.fuel.pieces
     -- every lit thing pulses (gently here; the stabilizer keeps its own breath on its red), and carries a sweep: the
     -- GCD's, or for Mana Tide and the potion their own cooldown (RD.Sweeps)
-    for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
+    for _, b in ipairs({ RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
     for _, b in ipairs(RD.COLUMN) do
         if b == RD.tide or b == RD.potion then b.cd = RD.WaitSweep(b) else b.cd = RD.Sweep(b.face) end
     end
@@ -1567,6 +1598,8 @@ function RD.RestoreAmount(text)
     if not n then return nil end
     local every = num(text:match("every%s+(%d+)%s+sec"))
     local dur = num(text:match("for%s+(%d+)%s+sec"))
+    local mins = num(text:match("for%s+(%d+)%s+min"))              -- Mana Spring: "for 5 min ... every 2 seconds"
+    if not dur and mins then dur = mins * 60 end
     if every and dur and every > 0 and dur >= every then n = n * math.floor(dur / every) end
     return n
 end
@@ -1638,7 +1671,82 @@ function RD.ArmTools()
     local drink = RD.BestItem("Drink")
     RD.fuel.item = drink
     armTool(RD.fuel, drink and ("/use item:" .. drink) or nil, itemWords(drink), "DRINK", "the best drink in your bags")
+    local spring = FM and FM.Ranks and #FM.Ranks(RD.SPRING) > 0
+    armTool(RD.reserve, spring and ("/cast " .. RD.SPRING) or nil, spring and describe(RD.SPRING), "RESERVE TANK",
+            RD.SPRING .. " - the last resort: lights only when Mana Tide and your potion are spent (or not here)")
+    -- the potion's use-spell, so our own clock knows it when you drink one in a fight
+    local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
+    RD.potion.spellId = nil
+    if potion and getSpell then
+        local okS, _, sid = pcall(getSpell, potion)
+        RD.potion.spellId = okS and plain(sid) or nil
+    end
+    RD.SeedCooldowns()
     return true
+end
+
+--- What is still cooling, from the client while it will say (out of a fight): seeds our own clock, so a Mana Tide used
+--- before a /reload still counts as spent. Plain numbers only; anything else leaves the clock as it was.
+function RD.SeedCooldowns()
+    if combat() then return false end
+    local now = (GetTime and GetTime()) or 0
+    local getCd = C_Spell and C_Spell.GetSpellCooldown
+    if RD.tide and RD.tide.macro and getCd then
+        local ok, info = pcall(getCd, RD.TIDE)
+        local s, d = ok and type(info) == "table" and plain(info.startTime), ok and type(info) == "table" and plain(info.duration)
+        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.tide = s + d end
+    end
+    local itemCd = C_Container and C_Container.GetItemCooldown
+    if RD.potion and RD.potion.item and itemCd then
+        local ok, s, d = pcall(itemCd, RD.potion.item)
+        s, d = ok and plain(s), ok and plain(d)
+        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.potion = s + d end
+    end
+    return true
+end
+
+--- Is a tool spent right now? Not here at all counts as spent (nothing to reach for); else our clock.
+local function spent(b, kind, now)
+    if not (b and b.macro) then return true end
+    return (RD.readyAt[kind] or 0) > now
+end
+
+--- THE RESERVE TANK'S GATE: armed, no water totem of yours standing, Mana Tide and the potion both spent, and - out of a
+--- fight - no drink to reach for instead. Plain booleans from our own clock; the mana level is the curve's (PaintTools).
+function RD.ReserveOpen(fight)
+    local b = RD.reserve
+    if not (b and b.macro) then return false end
+    local now = (GetTime and GetTime()) or 0
+    if RD.waterUntil > now then return false end
+    if not (spent(RD.tide, "tide", now) and spent(RD.potion, "potion", now)) then return false end
+    if not fight and RD.fuel and RD.fuel.macro then return false end
+    return true
+end
+
+--- One of YOUR casts (UNIT_SPELLCAST_SUCCEEDED, you only): Mana Tide, Mana Spring or a mana potion starts our clock.
+--- The spell's name is asked of the client for your own cast; a secret or no answer = not one of ours.
+function RD.OnCast(unit, spellID)
+    if (NS.IsPlayer and NS.IsPlayer(unit)) ~= true then return false end
+    spellID = plain(spellID)
+    if type(spellID) ~= "number" then return false end
+    local now = (GetTime and GetTime()) or 0
+    if RD.potion and RD.potion.spellId and spellID == RD.potion.spellId then
+        RD.readyAt.potion = now + RD.COOLS.potion
+        return "potion"
+    end
+    local getName = C_Spell and C_Spell.GetSpellName
+    local ok, name = false, nil
+    if getName then ok, name = pcall(getName, spellID) end
+    name = ok and plain(name) or nil
+    if name == RD.TIDE then
+        RD.readyAt.tide = now + RD.COOLS.tide
+        RD.waterUntil = now + RD.WATER.tide
+        return "tide"
+    elseif name == RD.SPRING then
+        RD.waterUntil = now + RD.WATER.spring
+        return "spring"
+    end
+    return false
 end
 
 --- The food the rations pip offers now, out of a fight. BiS TOOLS FIRST (Arn, 8 Nov: "bis tool still shows the eat food
@@ -1799,7 +1907,7 @@ function RD.PaintTools(fight)
     if not RD.TOOLS then return end
     for _, b in ipairs(RD.TOOLS) do
         local drew = false
-        if b.macro and not (b.restOnly and fight) and UnitPowerPercent then
+        if b.macro and not (b.restOnly and fight) and not (b.gate and not b.gate(fight)) and UnitPowerPercent then
             local c = RD.ToolCurve(b.at)
             if c then
                 local ok, col = pcall(UnitPowerPercent, "player", 0, true, c)
@@ -2011,16 +2119,32 @@ function RD.PaintRegen()
     local fight = RD.inFight or combat()
     -- the readout: 100% out of a fight; in one, the header's own number (your while-casting share inside the five
     -- seconds, 100% once they are up, "?" when the client never said)
-    if g.regen then g.regen:SetText((fight and FR and FR.Text) and FR.Text(true) or "100%") end
+    -- THE RAMJET (Arn, 8 Nov: "a fighter pilot able to lay off the thruster for 5 seconds and his ram jet kicks in to
+    -- regen his fuel"): the clock is read ONCE - the dashes count it down, the chevron lights when it is out
+    local left = (fight and FR and FR.Left) and FR.Left() or 0
+    if g.regen then g.regen:SetText((left > 0 and FR.Text) and FR.Text(true) or "100%") end
+    RD.PaintFSR(left)
     if not fight or not (FR and FR.Left) then g.chev:SetAlpha(0) return 0 end
     local a = 1
-    if FR.Left() > 0 then
+    if left > 0 then
         local k = FR.known
         a = (k and type(k.base) == "number" and k.base > 0 and type(k.casting) == "number") and (k.casting / k.base) or 0
         a = math.max(0, math.min(a, 1))
     end
     g.chev:SetAlpha(a)
     return a
+end
+
+--- The five segments: one lit per second the rule still holds (a part-second counts), spent ones dim; nothing left =
+--- hidden. `left` = Regen.lua's own clock (plain - your own casts). Answers how many are lit.
+function RD.PaintFSR(left)
+    local g = RD.gauge
+    if not (g and g.fsr) then return nil end
+    if type(left) ~= "number" or left <= 0 then g.fsr:SetAlpha(0) return 0 end
+    local lit = math.min(RD.FSR.n, math.ceil(left))
+    for k, t in ipairs(g.fsrSegs) do t:SetAlpha(k <= lit and 1 or RD.FSR.spent) end
+    g.fsr:SetAlpha(1)
+    return lit
 end
 
 function RD.PaintFuel()
@@ -2037,7 +2161,7 @@ function RD.FuelTip()
     return {
         "Green: your mana.  Red above it: the boss's health you are behind by.  Magenta mark: the boss.",
         ("Hot pulsing band: BINGO - the boss more than %d%% ahead of your mana.  Drink, potion, Mana Tide (the column)."):format(RD.BINGO * 100),
-        "Cyan chevron at the foot: generating fuel - out of the five second rule (dim: your while-casting share).  The % beside it: your mana regen now (100% out of a fight).",
+        "RAMJET, at the foot: the % is your mana regen now (100% out of a fight).  The five dashes: seconds left of the five second rule - lay off the throttle (hold your casts) till they are gone and the ramjet kicks in, 100%.  The cyan chevron: the ramjet running (dim: only your while-casting share).",
         "Racing: " .. who .. ".  " .. ((FR and FR.Text) and FR.Text() or ""),
     }
 end
@@ -2136,6 +2260,11 @@ local function startTicker()
         if not RD.Active() then return end
         RD.Look()
         RD.PaintRegen()                     -- the five second rule runs out on a clock, not an event
+        -- the reserve tank opens on a clock too (a cooldown running out): repainted only when its gate turns
+        if RD.reserve and RD.reserve.macro then
+            local open = RD.ReserveOpen(RD.inFight or combat())
+            if open ~= RD.reserveWas then RD.reserveWas = open RD.PaintQuiet() end
+        end
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
         n = n + 1
@@ -2236,8 +2365,14 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "PLAYER_LEVEL_UP" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
-ev:SetScript("OnEvent", function(_, event, a1, a2)
+-- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
+if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player") end
+ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
+    if event == "UNIT_SPELLCAST_SUCCEEDED" then
+        if RD.OnCast(a1, a3) and RD.Active() then RD.PaintQuiet() end
+        return
+    end
     if event == "PLAYER_REGEN_DISABLED" then
         -- a fight: the drag ends first (before the lockdown takes the mouse), then everything goes quiet
         if RD.frame then endDrag(RD.frame) end

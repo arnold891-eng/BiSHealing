@@ -12025,8 +12025,8 @@ do
         ok(okPaint and lit(RD.tide) and lit(RD.potion) and not lit(RD.fuel) and RD.fuel.face:GetAlpha() == 0,
            "30% in a fight: tide and potion lit by the game's shade; the drink waits for the fight's end")
         local seen = 0
-        for _, b in ipairs(RD.TOOLS) do if b.pieces[1].__vertex then seen = seen + 1 end end
-        ok(seen == 3, "the shade lands on plain textures (never a Line), all three")
+        for _, b in ipairs({ RD.tide, RD.potion, RD.fuel }) do if b.pieces[1].__vertex then seen = seen + 1 end end
+        ok(seen == 3, "the shade lands on plain textures (never a Line), all three", seen)
         -- re-learnt when the numbers are plain again: a bigger pool after the fight moves the light point
         STATE.inCombat = false
         STATE.powerMax = 2000
@@ -12035,6 +12035,79 @@ do
         STATE.powerMax = 1375
         fire(RD.events, "PLAYER_LEVEL_UP")
         ok(RD.tide.at == want(680), "and at a level up")
+        -- THE RESERVE TANK (Arn 8 Nov: "add mana spring to the rail and we light it up when everything else is on cooldown
+        -- as a scraping the barrel option")
+        do
+            local keepB47, keepName = BOOK[47], C_Spell.GetSpellName
+            local SPRING = "Summons a Mana Spring Totem with 5 health at the feet of the caster for 5 min that restores 4 mana every 2 seconds to group members within 30 yards."
+            WORDS["Mana Spring Totem"] = SPRING
+            ok(RD.RestoreAmount(SPRING) == 600, "Mana Spring's words: 4 mana every 2 s for 5 MIN = 600", RD.RestoreAmount(SPRING))
+            ok(RD.reserve and not RD.reserve.macro and not RD.ReserveOpen(true), "no Mana Spring trained: no reserve, never lit")
+            BOOK[47] = { name = "Mana Spring Totem", rank = "Rank 1" }
+            NS.FM.BookChanged()
+            RD.Arm()
+            ok(RD.reserve.macro == "/cast Mana Spring Totem" and RD.reserve.at == math.floor(600 / 1375 * 100 + 0.5) / 100
+               and RD.reserve.tip and RD.reserve.tip[1] == "RESERVE TANK", "Mana Spring trained: the reserve tank casts it, lights at 600/1375", RD.reserve.at)
+            ok(RD.potion.spellId == 2023, "the potion's use-spell is known, for our own clock", RD.potion.spellId)
+            RD.readyAt, RD.waterUntil = {}, 0
+            ok(not RD.ReserveOpen(true), "Mana Tide and the potion both ready: the reserve stays dark")
+            C_Spell.GetSpellName = function(id) return ({ [16190] = "Mana Tide Totem", [5675] = "Mana Spring Totem" })[id] end
+            ok(RD.OnCast("party1", 16190) == false and RD.readyAt.tide == nil, "someone else's Mana Tide is not yours")
+            ok(RD.OnCast("player", secretNumber()) == false, "a spell id it will not show: not counted")
+            ok(RD.OnCast("player", 16190) == "tide" and RD.readyAt.tide == CLOCK + RD.COOLS.tide and RD.waterUntil == CLOCK + 12,
+               "you drop Mana Tide: spent for 5 min by our own clock, your water totem standing 12 s")
+            ok(not RD.ReserveOpen(true), "the potion still in hand: dark")
+            ok(RD.OnCast("player", 2023) == "potion" and RD.readyAt.potion == CLOCK + RD.COOLS.potion, "a potion drunk: spent 2 min")
+            ok(not RD.ReserveOpen(true), "Mana Tide's totem still standing: a Spring would only knock it down - dark")
+            TICK(13)
+            ok(RD.ReserveOpen(true), "the tide totem gone, tide and potion cooling: the reserve tank opens (in a fight)")
+            ok(not RD.ReserveOpen(false), "out of a fight with a drink in the bags: drink instead - dark")
+            local function litR() local v = RD.reserve.pieces[1].__vertex return RD.reserve.face:GetAlpha() == 1 and v and v[4] == 1 end
+            STATE.mana = 0.30
+            RD.PaintTools(true)
+            ok(litR(), "open and down to 30% (what it gives back is 44%): lit")
+            STATE.mana = 0.60
+            RD.PaintTools(true)
+            ok(not litR(), "open but at 60%: not yet")
+            STATE.mana = 0.30
+            ok(RD.OnCast("player", 5675) == "spring" and not RD.ReserveOpen(true), "you drop it: your Spring stands 5 min - dark")
+            RD.PaintTools(true)
+            ok(not litR(), "and painted dark")
+            TICK(301)
+            ok(not RD.ReserveOpen(true), "5 min on: Mana Tide is ready again - the reserve is not the answer")
+            RD.readyAt.tide, RD.readyAt.potion = CLOCK + 60, CLOCK + 60
+            RD.reserveWas = nil
+            local keepFight = RD.inFight
+            RD.inFight = true
+            local Cost = dofile("../_bisdev/dev/cost.lua")
+            local rc = Cost.Count(function() RD.ReserveOpen(true) end)
+            ok(rc <= 2, "the gate is our own clock: a time read, nothing asked of the client", rc)
+            RD.inFight = keepFight
+            RD.readyAt, RD.waterUntil = {}, 0
+            BOOK[47], C_Spell.GetSpellName = keepB47, keepName
+            NS.FM.BookChanged()
+            RD.Arm()
+        end
+        -- THE RAMJET'S DASHES (Arn 8 Nov: "somewhere on there the 5 second casting rule for 100% mana regen")
+        do
+            local g = RD.gauge
+            ok(g.fsr and #g.fsrSegs == 5, "five dashes under the regen readout")
+            ok(RD.PaintFSR(3.2) == 4 and g.fsr:GetAlpha() == 1 and g.fsrSegs[4]:GetAlpha() == 1 and g.fsrSegs[5]:GetAlpha() == RD.FSR.spent,
+               "3.2 s left: four dashes lit, the fifth spent")
+            ok(RD.PaintFSR(0.4) == 1 and g.fsrSegs[1]:GetAlpha() == 1 and g.fsrSegs[2]:GetAlpha() == RD.FSR.spent, "a part-second: the last dash")
+            ok(RD.PaintFSR(0) == 0 and g.fsr:GetAlpha() == 0, "the rule over: the dashes gone, the ramjet runs (100%)")
+            local FR = NS.FR
+            local keepSpent, keepFight, keepCombat = FR.spentAt, RD.inFight, STATE.inCombat
+            FR.Spend(GetTime())
+            RD.inFight, STATE.inCombat = false, false
+            RD.PaintRegen()
+            ok(g.fsr:GetAlpha() == 0 and g.regen:GetText() == "100%", "out of a fight: no dashes, 100%")
+            RD.inFight = true
+            RD.PaintRegen()
+            ok(g.fsr:GetAlpha() == 1 and g.fsrSegs[5]:GetAlpha() == 1, "a cast in a fight: all five dashes")
+            FR.spentAt, RD.inFight, STATE.inCombat = keepSpent, keepFight, keepCombat
+            RD.PaintRegen()
+        end
         WORDS[1135] = "Must remain seated while drinking."
         RD.Arm()
         ok(RD.fuel.guess and RD.fuel.at == RD.TOOL_GUESS and RD.fuel.tip[2]:find("guess", 1, true),
@@ -12044,15 +12117,16 @@ do
         ok(RD.tide.tip and RD.tide.tip[1] == "MANA TIDE" and RD.tide.tip[2]:find("680", 1, true), "under the mouse: what it restores")
 
         -- THE COLUMN'S PLACE (Arn 8 Nov: "put the mana tools close to the fuel tape and the water shield"): beside the
-        -- tape, top to bottom stabilizer, tide, potion, drink, rations; no corner keeps a button
+        -- tape, top to bottom stabilizer, tide, potion, the reserve tank, drink, rations; no corner keeps a button
         local col = RD.COLUMN
-        local inOrder = col[1] == RD.shield and col[2] == RD.tide and col[3] == RD.potion and col[4] == RD.fuel and col[5] == RD.rations
+        local inOrder = col[1] == RD.shield and col[2] == RD.tide and col[3] == RD.potion and col[4] == RD.reserve
+                        and col[5] == RD.fuel and col[6] == RD.rations and #col == 6
         local step = RD.SYS_PX + RD.TOOL_GAP
         for k, b in ipairs(col) do
             local q = b.points[#b.points]
             if not (q[1] == "TOPLEFT" and q[2] == RD.toolRail and q[5] == -8 - (k - 1) * step) then inOrder = false end
         end
-        ok(inOrder, "the column: stabilizer, Mana Tide, potion, drink, rations - on the tool rail, outside the square")
+        ok(inOrder, "the column: stabilizer, Mana Tide, potion, reserve tank, drink, rations - on the tool rail, outside the square")
         -- clear of every pip: party and a full raid, every heal, cure (two cures) and bogey
         local function clash(raid, size)
             local slots = RD.Geometry(raid, 3)

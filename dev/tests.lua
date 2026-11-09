@@ -11597,17 +11597,15 @@ do
     -- THE STABILIZER (Arn 8 Nov: "i dont want a shield icon i want an icon that a jet pilot would see ... call it
     -- stabilizer"): one cockpit symbol, red under, a green copy over it piece for piece
     local red = RD.shield.gyroRed
-    ok(type(cov) == "table" and red and #cov == #red and #red == RD.GYRO_SEG + 4,
-       "the client's button carries the green stabilizer, the same pieces as the red one under it")
-    local same = true
-    for i, t in ipairs(red) do
-        local g = cov[i]
-        local tc = (t.__vertex or {})
-        local gc = (g.__vertex or {})
-        if not (g.__w == t.__w and g.__h == t.__h and (g.__rot or 0) == (t.__rot or 0)) then same = false end
-        if not (tc[1] == 1 and gc[2] == RD.SHIELD_OK[2]) then same = false end
-    end
-    ok(same, "piece for piece: same size, same turn - green over red, so the red is hidden exactly while the buff is up")
+    ok(red and #red == RD.GYRO_SEG + 4, "the red stabilizer symbol under the pip")
+    -- NOTHING TO CLICK WHILE IT IS UP (Arn 8 Nov: "this stabilizer is 3/3 it needs to go away or ill keep trying to click
+    -- it"): the client's button is one plain square in the plate's dark, over a plate of the same dark
+    local c1 = type(cov) == "table" and cov[1]
+    local cc = c1 and (c1.__vertex or {}) or {}
+    local pc = RD.shield.plate and (RD.shield.plate.__vertex or {}) or {}
+    ok(c1 and #cov == 1 and c1.__allpoints and cc[1] == RD.PLATE[1] and cc[2] == RD.PLATE[2] and cc[4] == 1,
+       "the cover: one square the whole pip, opaque, in the plate's dark - it hides the red whole")
+    ok(pc[1] == RD.PLATE[1] and pc[2] == RD.PLATE[2], "and the plate under it the same dark: up, you see no symbol at all")
     ok(RD.shield.tip and RD.shield.tip[1] == "STABILIZER" and RD.shield.tip[2]:find("Water Shield", 1, true),
        "under the mouse: STABILIZER, and which spell it casts")
     ok(not RD.shield.icon:IsShown(), "no spell picture")
@@ -11863,7 +11861,8 @@ do
         ok(hotBand(0.70, 0.20) > 0 and hotBand(0.50, 0.50) < 0 and hotBand(0.70, 0.45) < 0,
            "Arn's numbers: boss 70% / you 20% = BINGO; 50 / 50 and 70 / 45 = keeping pace")
         local gp = g.pulse
-        ok(gp and gp.playing and gp.looping == "BOUNCE" and gp.anims[1].to == RD.PULSE_HARD[1], "BINGO pulses (the client's animation)")
+        ok(gp and gp.playing and gp.looping == "BOUNCE" and gp.anims[1].kind == "Alpha" and gp.anims[1].to == RD.FADE_HARD[1],
+           "BINGO pulses (a fade: its band is a clipped window, nothing in it is hidden by alpha)")
 
         -- WHO IT RACES: out of a fight with nothing targeted, nothing - just the mana tape, calm
         STATE.units.target, STATE.hostile.target = nil, nil
@@ -12044,25 +12043,36 @@ do
         local sc = RD.shield.container
         local cpt = sc and sc.points and sc.points[1]
         ok(cpt and cpt[1] == "CENTER" and cpt[2] == RD.shield, "the stabilizer's client cover sits on the button's centre - it moved with it")
-        local same = RD.shield.cover and RD.shield.gyroRed and #RD.shield.cover == #RD.shield.gyroRed
-        for i2, t in ipairs(RD.shield.gyroRed or {}) do
-            local c2 = RD.shield.cover[i2]
-            if not (c2 and t.__point and c2.__point and t.__point[2] == c2.__point[2] and t.__point[3] == c2.__point[3]) then same = false end
-        end
-        ok(same, "red under, green over, piece for piece on the same spot")
+        local cv = RD.shield.cover and RD.shield.cover[1]
+        ok(cv and cv.__allpoints, "the cover fills the client's button, which sits on the pip - the red is hidden whole")
 
         -- WHACK-A-MOLE (Arn 8 Nov: "it lights up and pulses a little it grabs more of our attention"): everything lit
         -- pulses; green holds still; red and a bogey pulse hard
+        -- A PULSE OF SIZE (Arn's screenshots: an alpha animation brought hidden things back): a Scale bounce; the two fades
+        -- left (BINGO's window, the wash) are checked with `fading`
         local function pulsing(gr, kind)
-            return gr and gr.playing and gr.looping == "BOUNCE" and gr.anims[1].to == kind[1] and gr.anims[1].duration == kind[2]
+            local a = gr and gr.anims[1]
+            return gr and gr.playing and gr.looping == "BOUNCE" and a and a.kind == "Scale" and a.scaleTo
+                and a.scaleTo[1] == kind[1] and a.duration == kind[2]
         end
+        local function fading(gr, kind)
+            local a = gr and gr.anims[1]
+            return gr and gr.playing and gr.looping == "BOUNCE" and a and a.kind == "Alpha" and a.to == kind[1]
+        end
+        local alphaAnims = 0
+        for _, gname in ipairs({ "beat", "amberPulse", "pulse" }) do
+            local g0 = sp2[gname]
+            if g0 and g0.anims[1] and g0.anims[1].kind == "Alpha" then alphaAnims = alphaAnims + 1 end
+        end
+        ok(alphaAnims == 0 and not (sp2.bogey.pulse and sp2.bogey.pulse.anims[1].kind == "Alpha"),
+           "nothing hidden by alpha sits under an ALPHA animation: heal pips and bogeys pulse by size")
         local soft = true
         for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do
             if not (pulsing(b.pulse, RD.PULSE_SOFT) and b.pulse == b.beat.__animGroups[1] and b.face:GetParent() == b.beat) then soft = false end
         end
         ok(soft, "the tools and rations pulse gently, on a wrapper round the lit face (\"nothing crazy\")")
         ok(RD.shield.breath and RD.shield.breath.playing and RD.shield.breath.looping == "BOUNCE"
-           and RD.shield.breath.anims[1].to == RD.PULSE_SOFT[1], "the stabilizer's red (buff gone) breathes, moderately")
+           and RD.shield.breath.anims[1].to == RD.FADE_SOFT[1], "the stabilizer's red (buff gone) breathes, moderately")
         -- THE LAST CHARGE PULSES TOO (Arn 8 Nov: "make the stabilizer pulse too"); the green cover holds still
         local keepSU2, keepFmt = _G.C_StringUtil, RD.washFmt
         _G.C_StringUtil = { CreateNumericRuleFormatter = function()
@@ -12079,16 +12089,22 @@ do
         local auraBtn = CreateFrame("Button")
         function auraBtn:SetApplicationCount(fs, o) self.countText, self.countOpts = fs, o end
         local washed = RD.ShieldWash(auraBtn)
-        ok(washed and pulsing(RD.washPulse, RD.PULSE_SOFT) and RD.washClip:GetParent() == auraBtn
+        ok(washed and fading(RD.washPulse, RD.FADE_SOFT) and RD.washClip:GetParent() == auraBtn
            and auraBtn.countText and auraBtn.countText.__parent == RD.washClip,
            "the orange last-charge wash pulses gently, on its own clip inside the client's button")
         ok(auraBtn.__animGroups == nil and (RD.shield.cover and RD.shield.cover[1] and rawget(RD.shield.cover[1], "__parent")) ~= RD.washClip,
            "the green cover (buff up, all good) holds still")
         _G.C_StringUtil, RD.washFmt = keepSU2, keepFmt
+        -- NO SWEEP WHERE NOBODY IS (Arn 8 Nov: "cool down sweep show up when pips are not there")
+        local empty = RD.spokes[4]
+        ok(empty and empty.unit == nil and empty.cd and empty.cd.active == false, "an empty slot's sweep is switched off")
+        ok(sp2.cd and sp2.cd.active == true, "a teammate's sweep runs")
+        ok(sp2.cd.__drawEdge == false or sp2.cd.drawEdge == false or sp2.cd.__edge == false or sp2.cd.SetDrawEdge,
+           "and no sweep draws its bright edge (the curve cannot colour it)")
         ok(pulsing(sp2.bogey.pulse, RD.PULSE_HARD) and sp2.bogey.face:GetParent() == sp2.bogey.beat,
            "a bogey pulses HARD - an incoming missile - round its face, seen only while it casts")
         ok(pulsing(sp2.beat, RD.PULSE_SOFT) and sp2.heal.face:GetParent() == sp2.heal.beat and pulsing(sp2.amberPulse, RD.PULSE_MID)
-           and sp2.pulse and sp2.pulse.anims[1].to == RD.PULSE_HARD[1] and RD.PULSE_MID[1] < RD.PULSE_SOFT[1],
+           and pulsing(sp2.pulse, RD.PULSE_HARD) and RD.PULSE_MID[1] > RD.PULSE_SOFT[1] and RD.PULSE_HARD[1] > RD.PULSE_MID[1],
            "every lit heal pip pulses (Arn: \"make the heal pips pulse too\"): green gently, amber a touch stronger, red hard")
         local cure = sp2.cures[1]
         ok(cure and pulsing(cure.pulse, RD.PULSE_SOFT) and cure.container:GetParent() == cure.holder,
@@ -12113,8 +12129,13 @@ do
         end
         fire(RD.events, "SPELL_UPDATE_COOLDOWN")
         local every = #RD.sweeps > 0
-        for _, cd in ipairs(RD.sweeps) do if cd.__durObj ~= gcdObj then every = false end end
-        ok(every, "every GCD sweep fed the GCD's own object (spell 61304)", #RD.sweeps)
+        local idle = 0
+        for _, cd in ipairs(RD.sweeps) do
+            if cd.active == false then idle = idle + 1                -- an empty slot: no sweep at all
+            elseif cd.__durObj ~= gcdObj then every = false end
+        end
+        ok(every, "every GCD sweep in use fed the GCD's own object (spell 61304); " .. idle .. " empty slots run none",
+           #RD.sweeps)
         local has = sp2.cd and sp2.cd:GetParent() == sp2.heal.face and RD.shield.cd and RD.fuel.cd and RD.rations.cd
                     and cure.sweep and cure.sweep.__durObj == gcdObj and sp2.cd.__durObj == gcdObj and RD.rations.cd.__durObj == gcdObj
         ok(has, "a sweep on the heal pip, the cure marker, the stabilizer, the drink and rations")

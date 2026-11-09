@@ -87,6 +87,7 @@ RD.CROSSHAIRS = false                              -- Arn, 8 Nov: "no crosshairs
 RD.TOT_PAD = 22
 RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
 RD.CONTACT_SHOWN = false                           -- Arn, 8 Nov: a bogey shows only while it casts
+RD.PLATE = { 0.02, 0.06, 0.04 }                    -- the stabilizer's backing plate, and the cover's colour over it
 RD.SHIELD_OK = { 0.18, 0.62, 0.36 }                -- the cover while your shield is up: its icon, greyed, a dim phosphor
                                                    -- green (Arn, 8 Nov: "no water shield icon" - the first dark one read as nothing)
 RD.SHIELD_LAST = { 255, 120, 0 }                   -- the last charge: an orange wash (r, g, b 0-255, a texture escape's)
@@ -505,15 +506,7 @@ local function buildSpoke(f, i)
     -- Red has its own glyph on its own layer, coloured by the red curve, on its own hard pulse.
     b.redFace = CreateFrame("Frame", nil, b)
     b.redFace:SetAllPoints(b)
-    if b.redFace.CreateAnimationGroup then
-        local ok, pulse = pcall(b.redFace.CreateAnimationGroup, b.redFace)
-        if ok and pulse then
-            local fade = pulse:CreateAnimation("Alpha")
-            fade:SetFromAlpha(1) fade:SetToAlpha(RD.PULSE_HARD[1]) fade:SetDuration(RD.PULSE_HARD[2])
-            pulse:SetLooping("BOUNCE")
-            sp.pulse = pulse
-        end
-    end
+    sp.pulse = RD.Pulse(b.redFace, RD.PULSE_HARD)            -- a size pulse: the red curve alone decides it is seen
     -- AMBER PULSES A TOUCH STRONGER (Arn, 8 Nov: whack-a-mole - "it lights up and pulses a little"): its own glyph layer,
     -- lit only between the red and amber points by its own curve (RD.AmberCurve), on its own pulse. The main face goes
     -- see-through over amber, so only the amber layer's beat shows there.
@@ -670,12 +663,38 @@ end
   OnUpdate, nothing read. It runs on a WRAPPER frame whose alpha we never set (`beat`), with the lit face inside it, so
   the pulse only ever multiplies what the game's curve or boolean decided: an invisible pip stays invisible.
   Gentle (RD.PULSE_SOFT) for a tool, a cure, amber; hard (RD.PULSE_HARD) for red and for a bogey - an incoming missile. ]]
-RD.PULSE_SOFT = { 0.55, 0.5 }                     -- to alpha, seconds
-RD.PULSE_MID = { 0.45, 0.45 }                      -- amber: a touch stronger than soft
-RD.PULSE_HARD = { 0.35, 0.35 }
+-- A PULSE OF SIZE, NOT OF ALPHA (8 Nov 2026, Arn's screenshots: an amber cross at the centre at 98% health, "center
+-- cross still pulsing", and bogeys showing with nothing casting). In the client an ALPHA animation on a frame drove that
+-- frame's alpha itself - what we hid by alpha under it came back. A SCALE bounce never touches whether a thing is seen:
+-- an invisible pip grows invisibly, a lit one breathes. { grow to, seconds }.
+RD.PULSE_SOFT = { 1.08, 0.5 }                      -- grow to, seconds
+RD.PULSE_MID = { 1.13, 0.45 }                      -- amber: a touch stronger than soft
+RD.PULSE_HARD = { 1.20, 0.35 }
 function RD.Pulse(frame, kind)
     if not (frame and frame.CreateAnimationGroup) then return nil end
     local p = kind or RD.PULSE_SOFT
+    local ok, g = pcall(frame.CreateAnimationGroup, frame)
+    if not (ok and g) then return nil end
+    local a = g:CreateAnimation("Scale")
+    if a.SetScaleFrom and a.SetScaleTo then
+        a:SetScaleFrom(1, 1)
+        a:SetScaleTo(p[1], p[1])
+    elseif a.SetScale then
+        a:SetScale(p[1], p[1])
+    end
+    if a.SetOrigin then pcall(a.SetOrigin, a, "CENTER", 0, 0) end
+    a:SetDuration(p[2])
+    g:SetLooping("BOUNCE")
+    g:Play()
+    return g
+end
+
+--- The ALPHA pulse, kept only where what is seen is decided by SHAPE, not by alpha: the BINGO band (a clipped window)
+--- and the stabilizer's last-charge wash (the client's own text). Never under anything hidden by alpha.
+RD.FADE_SOFT, RD.FADE_HARD = { 0.55, 0.5 }, { 0.35, 0.35 }
+function RD.PulseAlpha(frame, kind)
+    if not (frame and frame.CreateAnimationGroup) then return nil end
+    local p = kind or RD.FADE_SOFT
     local ok, g = pcall(frame.CreateAnimationGroup, frame)
     if not (ok and g) then return nil end
     local a = g:CreateAnimation("Alpha")
@@ -700,6 +719,9 @@ function RD.Sweep(parent, own)
     cd:SetAllPoints(parent)
     if cd.SetDrawBling then cd:SetDrawBling(false) end
     if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+    -- NO EDGE (Arn, 8 Nov: "cool down sweep show up when pips are not there" - the bright edge line is not coloured by
+    -- the pip's curve, so it ran over unlit and empty spots). Only the swipe, which the curve makes see-through there.
+    if cd.SetDrawEdge then cd:SetDrawEdge(false) end
     if not own then RD.sweeps[#RD.sweeps + 1] = cd end
     return cd
 end
@@ -855,7 +877,7 @@ local function buildGauge(f)
     g.flag:SetSize(G.w + 3, 3)
     g.flag:SetPoint("TOPLEFT", g.boss:GetStatusBarTexture(), "TOPLEFT", 0, -3)
     -- BINGO pulses hard, always playing: it is seen only while the window holds some of the boss's fill
-    g.pulse = RD.Pulse(g.hotClip, RD.PULSE_HARD)
+    g.pulse = RD.PulseAlpha(g.hotClip, RD.FADE_HARD)
     -- REGEN, "generating fuel": a cyan inflow chevron at the foot (RD.PaintRegen)
     g.chev = CreateFrame("Frame", nil, f)
     g.chev:SetSize(12, 10)
@@ -1222,7 +1244,7 @@ function RD.ShieldWash(button)
     if clip.SetClipsChildren then clip:SetClipsChildren(true) end
     -- THE LAST CHARGE ASKS FOR A CLICK, SO IT PULSES (Arn, 8 Nov: "make the stabilizer pulse too"): gently, on this clip
     -- only - the orange the client writes into it beats, the green cover beside it holds still
-    RD.washPulse = RD.Pulse(clip, RD.PULSE_SOFT)
+    RD.washPulse = RD.PulseAlpha(clip, RD.FADE_SOFT)
     RD.washClip = clip
     local fs = clip:CreateFontString(nil, "OVERLAY")
     if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
@@ -1278,6 +1300,13 @@ local function armShield()
     b.icon:Hide()
     for _, l in ipairs(b.ring or {}) do l:Hide() end        -- the gyro has its own ring
     if not b.gyroRed then b.gyroRed = RD.Gyro(b.face, RD.SYS_PX, RD.COL.red, "ARTWORK") end
+    -- the plate: the dark the cover is painted in, so a covered pip looks like the plate alone
+    if not b.plate then
+        b.plate = b:CreateTexture(nil, "BACKGROUND")
+        b.plate:SetAllPoints(b)
+        b.plate:SetTexture(RD.WHITE)
+        b.plate:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+    end
     b.tip = { "STABILIZER", name .. " - click to cast it.  Dim green: on you.  Orange: the last charge.  Red: gone." }
     b.face:SetAlpha(1)
     if not b.breath and b.face.CreateAnimationGroup then
@@ -1285,7 +1314,7 @@ local function armShield()
         if okA and g then
             local fade = g:CreateAnimation("Alpha")
             -- moderate, as the column's (Arn, 8 Nov: "nothing crazy"): the soft pulse's depth, a breath's pace
-            fade:SetFromAlpha(1) fade:SetToAlpha(RD.PULSE_SOFT[1]) fade:SetDuration(0.6)
+            fade:SetFromAlpha(1) fade:SetToAlpha(RD.FADE_SOFT[1]) fade:SetDuration(0.6)
             g:SetLooping("BOUNCE")
             g:Play()
             b.breath = g
@@ -1314,8 +1343,15 @@ local function armShield()
             if button.GetRegions then for _, r in ipairs({ button:GetRegions() }) do if r.Hide then pcall(r.Hide, r) end end end
             b.handed = true
             pcall(function()
-                -- the green STABILIZER, piece for piece over the red one (RD.Gyro with the same size and spot)
-                b.cover = RD.Gyro(button, RD.SYS_PX, { RD.SHIELD_OK[1], RD.SHIELD_OK[2], RD.SHIELD_OK[3], 1 }, "OVERLAY")
+                -- NOTHING TO CLICK WHILE IT IS UP (Arn, 8 Nov: "this stabilizer is 3/3 it needs to go away or ill keep
+                -- trying to click it"): the cover is a plain square in the PLATE's own dark (RD.PLATE, drawn under the
+                -- pip by armShield), so with the buff up you see only the dark plate - no symbol. It still hides the red
+                -- whole. The last charge washes it orange; gone, the client stops drawing it and the red shows.
+                local t = button:CreateTexture(nil, "OVERLAY")
+                t:SetAllPoints(button)
+                t:SetTexture(RD.WHITE)
+                t:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+                b.cover = { t }
             end)
             pcall(RD.ShieldWash, button)
             if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
@@ -1521,6 +1557,10 @@ function RD.Arm()
         local sp = RD.Spoke(i)
         local unit = units[i]
         sp.unit = unit
+        if sp.cd then
+            sp.cd.active = unit and true or false
+            if not unit and sp.cd.Clear then pcall(sp.cd.Clear, sp.cd) end
+        end
         RD.PlaceSpoke(sp, s, rim)
         sp.heal:Show()
         if unit then
@@ -1864,7 +1904,8 @@ function RD.Sweeps()
     local n = 0
     if ok and not isNil(gcd) then
         for _, cd in ipairs(RD.sweeps) do
-            if pcall(cd.SetCooldownFromDurationObject, cd, gcd) then n = n + 1 end
+            -- a slot with nobody in it (cd.active false, set by RD.Arm) runs no sweep at all
+            if cd.active ~= false and pcall(cd.SetCooldownFromDurationObject, cd, gcd) then n = n + 1 end
         end
     end
     local tide = RD.tide
@@ -1904,7 +1945,12 @@ end
 function RD.PaintShield()
     local b = RD.shield
     if not b then return nil end
-    if not b.shieldName then b.face:SetAlpha(0) return nil end
+    if not b.shieldName then
+        if b.breath and b.breath.Stop then b.breath:Stop() end
+        b.face:SetAlpha(0)
+        return nil
+    end
+    if b.breath and b.breath.IsPlaying and not b.breath:IsPlaying() then b.breath:Play() end
     -- the red is ALWAYS under the client's cover (armShield): it never decides anything itself, so nothing here can
     -- leave it dark while the shield is gone - the fight-proof part. The question is only kept for the suite and for
     -- /bish alpha radar, never to hide the red.

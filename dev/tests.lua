@@ -51,10 +51,20 @@ local function secretString()
     secretStrings[s] = true
     return s
 end
+-- A SECRET NUMBER (8 Nov 2026, Arn's BugSack: the radar compared a party member's max health). On the client `type()`
+-- of one says "number", so a `type(mx) == "number"` guard does NOT stop it - the plain secret above is a table, which
+-- that guard did stop, and the bug went through green. These answer "number"; everything else is the secret above.
+local secretNumbers = setmetatable({}, { __mode = "k" })
+local function secretNumber()
+    local s = setmetatable({}, secretMeta)
+    secretNumbers[s] = true
+    return s
+end
 do
     local rawType = type
     _G.type = function(v)
         if secretStrings[v] then return "string" end
+        if secretNumbers[v] then return "number" end
         return rawType(v)
     end
 end
@@ -547,7 +557,7 @@ _G.UnitIsDeadOrGhost = function(u)
     return STATE.dead[u] and true or false
 end
 _G.UnitHealth = function() return secret() end
-_G.UnitHealthMax = function(u) if u == "player" then return 297 end return secret() end
+_G.UnitHealthMax = function(u) if u == "player" then return 297 end return secretNumber() end
 -- IN COMBAT THE ANSWER IS A SECRET, like everything else about somebody else. It used to answer
 -- plainly always, so "the dimming works" was only ever proved for the half of the time it is not
 -- needed - and the pcall round it swallowed the refusal in the other half without a word.
@@ -11505,6 +11515,17 @@ do
     _G.BiSToolsAPI.FoodNow = function() return 5477 end
     RD.Arm()
     ok(RD.rations.item == 5477 and RD.rations:GetAttribute("*macrotext1") == "/use item:5477", "armed: a click eats it")
+    -- A KNOWN HEAL SIZE AGAINST A HIDDEN MAX HEALTH (Arn's BugSack 8 Nov: "attempt to compare local 'mx' (a secret
+    -- number value)" at Radar.lua's armHeal - his heal read 182.5, so the compare ran; ours read nothing and skipped it)
+    local keepDesc = C_Spell.GetSpellDescription
+    C_Spell.GetSpellDescription = function() return "Heals a friendly target for 170 to 195." end
+    RD.healAmount = nil
+    ok(RD.HealAmount() == 182.5, "the heal's size read off its own words", tostring(RD.HealAmount()))
+    local okHide, whyHide = pcall(RD.Arm)
+    ok(okHide and sp2.amber == RD.AMBER, "party1's max health is secret: amber falls back to 80%, nothing compared",
+       tostring(whyHide))
+    C_Spell.GetSpellDescription = keepDesc
+    RD.healAmount = nil
     -- THE SHIELD PIP IS NOT THE REMINDER'S SWITCH (Arn 8 Nov: "i dont have water shield where is the button on my radar" -
     -- his buff reminder was off): the class's shield is watched either way, once it is trained
     local keepSB, keepBook = d.selfBuffs, BOOK[21]

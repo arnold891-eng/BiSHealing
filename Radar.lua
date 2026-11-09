@@ -72,7 +72,13 @@ RD.HEALS = { SHAMAN = { "Healing Wave" }, PRIEST = { "Greater Heal", "Heal", "Le
 RD.HEALER_CLASS = { PRIEST = true, DRUID = true, SHAMAN = true, PALADIN = true }
 
 local function combat() return (InCombatLockdown and InCombatLockdown()) and true or false end
-local function plain(v) return NS.Plain and NS.Plain(v) or v end
+-- NIL FOR A SECRET, ALWAYS (8 Nov 2026, Arn's BugSack: "attempt to compare local 'mx' (a secret number value)"). This
+-- was `NS.Plain and NS.Plain(v) or v`: NS.Plain answers nil for a secret, and `nil or v` handed the secret straight back.
+local function plain(v)
+    if NS.Plain then return NS.Plain(v) end
+    if issecretvalue and issecretvalue(v) then return nil end
+    return v
+end
 local function db()
     local d = NS.DB()
     d.radar = type(d.radar) == "table" and d.radar or {}

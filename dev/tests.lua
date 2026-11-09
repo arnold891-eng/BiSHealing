@@ -11548,6 +11548,18 @@ do
     RD.Arm()
     ok(RD.shield.shieldName == "Water Shield" and RD.shield:GetAttribute("*macrotext1") == "/cast Water Shield",
        "the refuel pip is armed: a click casts it")
+    -- ASKED DIRECTLY (Arn 8 Nov: "water shield missing again" - the container's hook alone was missed): FS.Present decides
+    local keepPresent = NS.FS.Present
+    NS.FS.Present = function() return false end
+    fire(RD.events, "UNIT_AURA", "player")
+    ok(RD.shield.face:GetAlpha() == 1, "Water Shield gone: the refuel pip lights at the next aura change")
+    NS.FS.Present = function() return true end
+    fire(RD.events, "UNIT_AURA", "player")
+    ok(RD.shield.face:GetAlpha() == 0, "recast: dark")
+    NS.FS.Present = function() return nil end
+    fire(RD.events, "UNIT_AURA", "player")
+    ok(RD.shield.face:GetAlpha() == 0, "the client will not say (a fight): left as it was, the container decides")
+    NS.FS.Present = keepPresent
     d.selfBuffs, BOOK[21] = keepSB, keepBook
     RD.Arm()
     _G.BiSToolsAPI = keepAPI

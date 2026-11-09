@@ -1171,9 +1171,26 @@ function RD.PaintTape()
     end
 end
 
+--- THE SHIELD, ASKED DIRECTLY (8 Nov 2026, Arn: "water shield missing again" - the pip lit only when the client's aura
+--- container took its button away, and when that hook was missed it never lit). The buff reminder's own question,
+--- FS.Present (by spell id, the client's readable answer): on you = dark, gone = lit. When the client will not say
+--- (nil, inside the lockdown) the container's hooks decide, as before.
+function RD.PaintShield()
+    local b = RD.shield
+    if not b then return nil end
+    if not b.shieldName then b.face:SetAlpha(0) return nil end
+    local FS = NS.FS
+    if not (FS and FS.Present) then return nil end
+    local ok, present = pcall(FS.Present, b.shieldName)
+    if not ok or present == nil then return nil end
+    b.face:SetAlpha(present and 0 or 1)
+    return present
+end
+
 function RD.Paint()
     if not RD.frame then return end
     for _, sp in ipairs(RD.spokes or {}) do RD.PaintHeal(sp) end
+    RD.PaintShield()
     RD.PaintQuiet()
     RD.PaintTape()
     RD.PaintCross()
@@ -1195,6 +1212,7 @@ local function startTicker()
             n = 0
             local want = RD.FoodWanted()
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
+            RD.PaintShield()                -- and the shield, in case an aura change went unheard
         end
     end)
 end
@@ -1278,7 +1296,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
     end
     if event == "PLAYER_REGEN_ENABLED" then
         if RD.pending then RD.Apply() if RD.Active() then RD.Arm() end
-        elseif RD.Active() then RD.PaintQuiet() end
+        elseif RD.Active() then RD.PaintQuiet() RD.PaintShield() end
         return
     end
     if not RD.Active() then return end
@@ -1289,6 +1307,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
     elseif event == "UNIT_POWER_UPDATE" then
         if a1 == "player" then RD.PaintTape() RD.PaintQuiet() end
     elseif event == "UNIT_AURA" then
+        if a1 == "player" then RD.PaintShield() end
         if a1 == "player" and not combat() then
             local want = RD.FoodWanted()
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end

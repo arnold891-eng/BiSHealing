@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Mouse-wheel binds keep working with the grid hidden.** Your wheel binds heal whatever frame is under the mouse, other addons' party frames included. With the grid hidden (`/bish hide`), they stopped working after a reload. They're set up either way now.
 - **Healing they can't take, shown on the bar.** Some debuffs swallow the next chunk of healing before any of it lands. That part of their health now shows as a **dark red piece cut back from the end of their health**, with a thin white line where it starts. Heal into it and the bar won't move until it's gone. Both looks have it; it shows nothing when there's nothing to show. `/bish healabsorb test` paints it on every cell for 10 seconds so you can see what it looks like.
 
 ## 1.0.4

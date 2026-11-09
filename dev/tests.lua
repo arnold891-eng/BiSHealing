@@ -1976,6 +1976,17 @@ do
     FG.Layout(anchor)
     ok(BOUND["MOUSEWHEELUP"] ~= nil,
        "the layout arms the wheel, with no drag to prompt it: " .. tostring(BOUND["MOUSEWHEELUP"]))
+    -- AND WITH THE GRID HIDDEN (Arn 8 Nov: "when i tried to do my heals on the ellesmere frames my binds used to work on
+    -- that"): the wheel is a mouseover binding over ANY addon's frames, so a hidden grid must not leave it dead
+    local dd = NS.DB()
+    local keepShown = dd.shown
+    dd.shown = false
+    BOUND = {}
+    FG.Layout(anchor)
+    ok(BOUND["MOUSEWHEELUP"] ~= nil, "the grid hidden (/bish hide), a fresh layout: the wheel is still armed for other frames",
+       tostring(BOUND["MOUSEWHEELUP"]))
+    dd.shown = keepShown
+    FG.Layout(anchor)
     NS.FM.Clear("", "wheelup")
 end
 

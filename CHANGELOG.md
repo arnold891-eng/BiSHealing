@@ -1,6 +1,6 @@
 # BiS Healing
 
-## Unreleased
+## 1.1.0
 
 - **PvP mode: the interrupt icon stays hidden until it's needed.** It used to sit there dimmed; now it only appears while that enemy is casting or channelling.
 - **PvP mode: a backup beside your interrupt.** When your interrupt is cooling down, the second icon is your fallback: a shaman's **Grounding Totem** next to Earth Shock, a rogue's **Gouge** next to Kick, a mage's **Polymorph** next to Counterspell (also Shield Bash for warriors, Psychic Scream for priests, Death Coil for warlocks). Each icon shows its own cooldown sweep, so you can see which one is ready - click that one. It only appears once you've trained it.

@@ -2033,6 +2033,11 @@ function FG.Layout(anchor)
         for _, f in ipairs(FG.frames) do FG.Unwatch(f); f:Hide() end
         FG.HidePvP()                 -- the target cells beside them go with them
         if anchor.Hide then anchor:Hide() end
+        -- THE WHEEL IS NOT THE GRID'S (8 Nov 2026, Arn: "when i tried to do my heals on the ellesmere frames my binds used
+        -- to work on that"). The wheel binds are BINDINGS over whatever unit is under the mouse - any addon's frames - and
+        -- this early return used to skip arming them, so a hidden grid (`/bish hide`) left them dead after every reload.
+        -- They are armed either way.
+        if NS.FM and NS.FM.ApplyWheel then NS.FM.ApplyWheel(anchor) end
         return true, 0
     end
     if anchor.Show then anchor:Show() end

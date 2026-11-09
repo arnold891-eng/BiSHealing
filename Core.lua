@@ -2066,6 +2066,76 @@ function NS.Expand(input)
     return lead .. long .. rest
 end
 
+--[[ THE SECRET ALPHA (8 Nov 2026, Arn: "want to work on a secret alpha testing on bis healing" - and of three roads, a
+  "Hidden switch in the release"). Test features ship INSIDE the normal release, OFF and UNLISTED: not in /bish help,
+  not on the options window or the BiS> page. `/bish alpha on` (a tester who has been told) lights them; `/bish alpha`
+  says what is in it; `/bish alpha <feature> off` puts one back while the rest stay on. Saved on the account
+  (`alpha`, `alphaOff`). Nobody gets stuck on an alpha FILE (Arn, 21 Oct: the cousin got stuck on one) - there is none.
+  A feature asks `NS.AlphaOn("key")` at the moment it would act, so switching never needs a reload unless its own
+  description says so. Registering: `NS.AlphaFeature{ key = "x", name = "words", desc = "what to try" }`. ]]
+NS.ALPHA = NS.ALPHA or {}         -- key -> { key, name, desc }, in the order registered (NS.ALPHA_ORDER)
+NS.ALPHA_ORDER = NS.ALPHA_ORDER or {}
+
+function NS.AlphaFeature(spec)
+    if type(spec) ~= "table" or type(spec.key) ~= "string" or spec.key == "" then return nil end
+    local key = spec.key:lower()
+    if not NS.ALPHA[key] then NS.ALPHA_ORDER[#NS.ALPHA_ORDER + 1] = key end
+    NS.ALPHA[key] = { key = key, name = spec.name or key, desc = spec.desc }
+    return NS.ALPHA[key]
+end
+
+--- The switch: is the alpha on (and, given a feature, is that one on too)?
+function NS.AlphaOn(key)
+    local d = NS.DB()
+    if d.alpha ~= true then return false end
+    if key == nil then return true end
+    local off = type(d.alphaOff) == "table" and d.alphaOff or {}
+    return NS.ALPHA[key] ~= nil and off[key] ~= true
+end
+
+local function alphaList()
+    if #NS.ALPHA_ORDER == 0 then
+        Print("  |cff968eadno test features in this copy right now|r")
+        return
+    end
+    for _, key in ipairs(NS.ALPHA_ORDER) do
+        local f = NS.ALPHA[key]
+        local on = NS.AlphaOn(key)
+        Print("  %s %s  |cff968ead%s|r", on and "|cff5dff9bON |r" or "|cff968eadoff|r", f.name,
+            "/bish alpha " .. key .. (on and " off" or " on"))
+        if f.desc then Print("      |cff968ead%s|r", f.desc) end
+    end
+end
+
+function NS.DO.alpha(arg)
+    local d = DB()
+    arg = tostring(arg or ""):lower():match("^%s*(.-)%s*$")
+    local word, onoff = arg:match("^(%S+)%s+(%S+)$")
+    if arg == "on" or arg == "off" then
+        d.alpha = (arg == "on") or nil
+        Print("alpha testing: %s", d.alpha and "|cff5dff9bon|r - thank you for testing" or "off - the release as everyone has it")
+        if d.alpha then alphaList() end
+    elseif word and (onoff == "on" or onoff == "off") then
+        if not NS.ALPHA[word] then Print("alpha: no test feature called %s", word) alphaList() return NS.AlphaOn() end
+        d.alphaOff = type(d.alphaOff) == "table" and d.alphaOff or {}
+        d.alphaOff[word] = (onoff == "off") or nil
+        Print("alpha: %s %s%s", NS.ALPHA[word].name, onoff, d.alpha and "" or " (the alpha itself is off: /bish alpha on)")
+    else
+        Print("alpha testing: %s  |cff968ead/bish alpha on|off|r", d.alpha and "|cff5dff9bon|r" or "off")
+        alphaList()
+    end
+    return NS.AlphaOn()
+end
+
+--- Once a login, while the alpha is on: so a tester never forgets they are on a test road.
+function NS.AlphaHello()
+    if not NS.AlphaOn() then return false end
+    local n = 0
+    for _, key in ipairs(NS.ALPHA_ORDER) do if NS.AlphaOn(key) then n = n + 1 end end
+    Print("|cffffb340alpha testing is on|r - %d test feature%s.  |cff968ead/bish alpha|r", n, n == 1 and "" or "s")
+    return true
+end
+
 if not SlashCmdList then SlashCmdList = {} end
 SlashCmdList.BISHEALING = function(input)
     input = NS.Expand(input)
@@ -2106,6 +2176,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.pets()
     elseif msg:match("^pets?%s+%a+$") then
         NS.DO.pets(msg:match("^pets?%s+(%a+)$"))
+    elseif msg == "alpha" or msg:match("^alpha%s") then        -- unlisted on purpose (the secret alpha)
+        NS.DO.alpha(msg:match("^alpha%s+(.+)$"))
     elseif msg == "pvpmode" or msg == "pvp" then
         NS.DO.pvp()
     elseif msg:match("^pvpmode%s+%a+$") or msg:match("^pvp%s+%a+$") then
@@ -2484,6 +2556,7 @@ ev:SetScript("OnEvent", function(_, event, name)
     pcall(NS.Comm.Boot)                    -- never let the channel stop the grid from starting
     if NS.FG and NS.FG.Start then NS.FG.Start() end
     Print(("%s -- /bish, or the button on your minimap"):format(NS.VERSION))
+    pcall(NS.AlphaHello)                   -- a tester's reminder; nothing for anyone else
     warnLost()
 end)
 NS.events = ev

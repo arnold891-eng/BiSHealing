@@ -11282,6 +11282,48 @@ do
     FG.Layout(FG.anchor)
 end
 
+-- THE SECRET ALPHA (Arn 8 Nov: "want to work on a secret alpha testing on bis healing" - a hidden switch in the
+-- release): off for everyone, never in /bish help or the options, on for a tester who types it; features one by one
+do
+    local d = NS.DB()
+    local heard = {}
+    local realChat = _G.DEFAULT_CHAT_FRAME
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local function said(word) for _, t in ipairs(heard) do if tostring(t):find(word, 1, true) then return true end end end
+    ok(d.alpha == nil and NS.AlphaOn() == false, "the alpha starts off - the release as everyone has it")
+    NS.DO.help()
+    ok(not said("alpha"), "/bish help never mentions it")
+    local inRows = false
+    for _, o in ipairs(NS.UI.Rows()) do if tostring(o.key):find("alpha") or tostring(o.label or ""):lower():find("alpha") then inRows = true end end
+    ok(not inRows, "and neither does the options window")
+    heard = {}
+    ok(NS.AlphaHello() == false and #heard == 0, "off: nothing at login")
+
+    local f1 = NS.AlphaFeature{ key = "Probe", name = "the probe", desc = "try it" }
+    ok(f1 and f1.key == "probe" and NS.ALPHA.probe and not NS.AlphaOn("probe"), "a test feature registers, off with the switch")
+    SlashCmdList.BISHEALING("alpha")
+    ok(said("alpha testing: off") and said("the probe"), "/bish alpha: the state and what is in it")
+    heard = {}
+    SlashCmdList.BISHEALING("alpha on")
+    ok(d.alpha == true and NS.AlphaOn() and NS.AlphaOn("probe") and said("thank you for testing"), "/bish alpha on: on, every feature with it")
+    heard = {}
+    ok(NS.AlphaHello() and said("alpha testing is on") and said("1 test feature"), "on: one line at login, so a tester never forgets")
+    SlashCmdList.BISHEALING("alpha probe off")
+    ok(NS.AlphaOn() and not NS.AlphaOn("probe") and d.alphaOff.probe == true, "/bish alpha probe off: that one back, the switch still on")
+    SlashCmdList.BISHEALING("alpha probe on")
+    ok(NS.AlphaOn("probe") and d.alphaOff.probe == nil, "and on again")
+    ok(not NS.AlphaOn("nothing"), "a feature that does not exist is never on")
+    heard = {}
+    SlashCmdList.BISHEALING("alpha nothing on")
+    ok(said("no test feature called nothing"), "a wrong name says so")
+    SlashCmdList.BISHEALING("alpha off")
+    ok(d.alpha == nil and not NS.AlphaOn("probe"), "/bish alpha off: the release again")
+    NS.ALPHA.probe = nil
+    for i, k in ipairs(NS.ALPHA_ORDER) do if k == "probe" then table.remove(NS.ALPHA_ORDER, i) break end end
+    d.alphaOff = nil
+    _G.DEFAULT_CHAT_FRAME = realChat
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

@@ -61,6 +61,15 @@ local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
 --- carries the long one. `width` is the bar's, in pixels; nothing passed means plenty of room.
 local NARROW = 120                      -- a bar one group wide (84) plus a little; two groups fit
 
+
+--- Is the grid hidden? Its own switch (`shown`), or the radar standing in for it (the secret alpha, Radar.lua) - which
+--- never touches the switch, so turning the radar off brings back exactly what was there.
+function FG.Hidden(d)
+    d = d or (NS.DB and NS.DB())
+    if type(d) == "table" and d.shown == false then return true end
+    return (NS.RD and NS.RD.Active and NS.RD.Active()) and true or false
+end
+
 function FG.HeaderWord(width)
     local short = type(width) == "number" and width > 0 and width < NARROW
     local fighting = InCombatLockdown and InCombatLockdown()
@@ -1004,7 +1013,7 @@ function FG.LayoutTarget(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.target == true and d.shown ~= false
+    local want = type(d) == "table" and d.target == true and not FG.Hidden(d)
     if not want then
         if FG.target then
             FG.Unwatch(FG.target)
@@ -1052,7 +1061,7 @@ function FG.LayoutToT(parent)
     if InCombatLockdown and InCombatLockdown() then return false end
     parent = parent or FG.target
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.tot == true and d.target == true and d.shown ~= false
+    local want = type(d) == "table" and d.tot == true and d.target == true and not FG.Hidden(d)
     if not (want and parent) then
         if FG.tot then
             FG.Unwatch(FG.tot)
@@ -1235,7 +1244,7 @@ function FG.LayoutPets(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = FG.PetsOwnBlock() and type(d) == "table" and d.shown ~= false
+    local want = FG.PetsOwnBlock() and type(d) == "table" and not FG.Hidden(d)
     local roster = want and FG.PetRoster() or {}
     if #roster == 0 then
         -- no pets, or not wanted: the block goes away entirely rather than sitting there empty
@@ -1381,7 +1390,7 @@ function FG.LayoutMana(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.mana == true and d.shown ~= false
+    local want = type(d) == "table" and d.mana == true and not FG.Hidden(d)
     local healers = want and FG.Healers() or {}
     if #healers == 0 then
         if FG.manaAnchor then FG.manaAnchor:Hide() end
@@ -1584,6 +1593,24 @@ function FG.PaintHeaders(h)
     end
 end
 
+--- EVERY BAR THAT DRAGS SOMETHING, and the one moment their drags must end (8 Nov 2026, the drag audit after BiS
+--- Tools' boss window held Arn's mouse until he killed the game). The frames these bars move are secure (a cell) or
+--- hold secure frames (the anchor), and inside the lockdown the client will not let go of them: a drag still on when
+--- the fight starts would have its mouse-up refused and ride the cursor all fight, and its save would fall into the
+--- lockdown too. PLAYER_REGEN_DISABLED comes a moment BEFORE the lockdown, so the drag ends there, through the bar's
+--- own OnDragStop - the place is written while that is still allowed. The real mouse-up later finds nothing moving.
+FG.dragBars = {}
+function FG.EndDrags()
+    local n = 0
+    for _, h in ipairs(FG.dragBars) do
+        if h.moving then
+            local stop = h.GetScript and h:GetScript("OnDragStop")
+            if stop then pcall(stop, h) n = n + 1 end
+        end
+    end
+    return n
+end
+
 function FG.CellHeader(f, word, moves, keys)
     if not f or f.handle then return f and f.handle end
     moves = moves or f
@@ -1627,6 +1654,7 @@ function FG.CellHeader(f, word, moves, keys)
     h.title, h.word = title, word
 
     moves:SetMovable(true)
+    FG.dragBars[#FG.dragBars + 1] = h                -- a fight mid-drag ends it (FG.EndDrags)
     h:SetScript("OnDragStart", function()
         if InCombatLockdown and InCombatLockdown() then return end
         moves:StartMoving()
@@ -2029,10 +2057,15 @@ function FG.Layout(anchor)
     -- showing up". The watch is lifted, the cells hidden, and the anchor with them (the header
     -- lives on it), so nothing is left on screen but the minimap button to bring it back.
     local d = NS.DB and NS.DB()
-    if type(d) == "table" and d.shown == false then
+    if FG.Hidden(d) then
         for _, f in ipairs(FG.frames) do FG.Unwatch(f); f:Hide() end
         FG.HidePvP()                 -- the target cells beside them go with them
         if anchor.Hide then anchor:Hide() end
+        -- THE WHEEL IS NOT THE GRID'S (8 Nov 2026, Arn, radar on: "when i tried to do my heals on the ellesmere frames
+        -- my binds used to work on that"). The wheel binds are BINDINGS over whatever unit is under the mouse - any
+        -- addon's frames - and this early return used to skip arming them, so a hidden grid (the radar, or `/bish
+        -- hide`) left them dead after every reload. They are armed either way.
+        if NS.FM and NS.FM.ApplyWheel then NS.FM.ApplyWheel(anchor) end
         return true, 0
     end
     if anchor.Show then anchor:Show() end
@@ -3723,6 +3756,7 @@ function FG.PaintRegen(header)
 end
 
     anchor:SetMovable(true)
+    FG.dragBars[#FG.dragBars + 1] = h                -- a fight mid-drag ends it (FG.EndDrags)
     h:SetScript("OnDragStart", function()
         if InCombatLockdown and InCombatLockdown() then return end
         anchor:StartMoving()
@@ -3736,7 +3770,8 @@ end
         FG.SavePos()
         -- AND INTO THE MACRO. A saved variable does not survive a restart on this client, so the
         -- grid came back in the middle at every login (Arn, 21 Sep). Keep.lua writes it beside
-        -- the binds; a drag always ends out of combat, which is when the client allows that.
+        -- the binds; a drag always ends out of combat, which is when the client allows that - one still on when a
+        -- fight starts is ended at PLAYER_REGEN_DISABLED (FG.EndDrags), the moment before the lockdown.
         local d = NS.DB and NS.DB()
         if NS.FK and NS.FK.Save and type(d) == "table" then NS.FK.Save(d.binds or {}) end
     end)
@@ -3947,6 +3982,7 @@ function FG.Start()
     local isAll = {}
     for _, e in ipairs(FG.ALL_EVENTS) do isAll[e] = true end
     uev:SetScript("OnEvent", function(_, event, unit)
+        if event == "PLAYER_REGEN_DISABLED" then FG.EndDrags() end   -- before the lockdown: a drag still on ends
         if FG.SPREAD_EVENTS[event] then FG.MarkAllSoon()
         elseif isAll[event] then FG.dirtyAll = true
         else FG.MarkUnit(unit) end

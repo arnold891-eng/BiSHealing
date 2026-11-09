@@ -344,6 +344,9 @@ local function newFrame(kind, name, parent)
             -- AND ITS TINT (12 Oct 2026, the shield's red icon): "is it red" needs an answer
             SetVertexColor = function(t, r, g, b, a) t.__vertex = { r, g, b, a } end,
             SetDesaturated = function(t, v) t.__desat = v and true or false end,
+            -- A TURN, in radians (8 Nov 2026, the radar's role signs: rotated plain textures, since a Line's colour from
+            -- the client's curve left a pip white in Arn's game)
+            SetRotation = function(t, r) if type(r) ~= "number" then error("SetRotation wants radians", 2) end t.__rot = r end,
             -- WHAT it covers, not just that it does (8 Oct 2026): a mask laid over curClip must say so
             SetAllPoints = function(t, rel) t.__allpoints = rel or true end,
             -- A MASK ON A TEXTURE (8 Oct 2026, the overheal rebuilt on EllesmereUI's mask). An auto
@@ -11456,6 +11459,26 @@ do
     STATE.hp.party1 = 0.6
     RD.PaintHeal(sp2)
     ok(((rg.__vertex or rg.vertex or {})[4] or 0) == 0, "amber: the red layer is invisible - only red blinks")
+    -- ARN'S WHITE BLADE (8 Nov: "this white pip showed up and nothing when i click it and not going away"): the signs are
+    -- plain textures (never Lines), born invisible; no colour back, or nobody there, means nothing at that spot
+    local lines = 0
+    for _, t in ipairs(sp2.glyph) do if rawget(t, "SetStartPoint") then lines = lines + 1 end end
+    ok(lines == 0, "every role sign is plain textures - the colour lands on them", lines)
+    local born = RD.Spoke(9)
+    ok(born and born.heal.face, "a spoke made fresh")
+    local keepHP = _G.UnitHealthPercent
+    _G.UnitHealthPercent = function() return nil end
+    sp2.heal.face:SetAlpha(1)
+    RD.PaintHeal(sp2)
+    ok(sp2.heal.face:GetAlpha() == 0, "no colour back from the client: the pip hides, never a stale white sign")
+    _G.UnitHealthPercent = keepHP
+    STATE.units.party1 = nil
+    RD.PaintHeal(sp2)
+    ok(sp2.heal.face:GetAlpha() == 0, "they left the party (the re-layout waits): nothing at their spot")
+    STATE.units.party1 = true
+    STATE.hp.party1 = 0.6
+    RD.PaintHeal(sp2)
+    ok(sp2.heal.face:GetAlpha() == 1, "back: their pip again")
 
     -- NO BOXES, AND YOU IN THE MIDDLE (Arn 8 Nov: "the box outlines are not needed if we want to heal ourselves we are in
     -- the middle and stuff build out from us")
@@ -11488,7 +11511,7 @@ do
     -- A FIGHT: everything quiet - the scope, the empty places, the idle bogeys - and nothing secure is touched
     STATE.inCombat = true
     fire(RD.events, "PLAYER_REGEN_DISABLED")
-    ok(RD.scope:GetAlpha() == 0 and RD.dims:GetAlpha() == 0, "a fight: the scope and the empty places are invisible")
+    ok(RD.scope:GetAlpha() == 1 and RD.dims:GetAlpha() == 0, "a fight: the scope stays (Arn: \"i like this green outline in combat too\"), the empty places are not drawn")
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "an idle bogey: invisible, but in its place")
     STATE.casting.party1target = true
@@ -11497,6 +11520,40 @@ do
     STATE.casting.party1target = nil
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "and goes when the cast does")
+    -- THEIR TARGET WHERE THE INTERRUPT LIVES (Arn 8 Nov: "a pip for their target where the interrupt button would live"):
+    -- a quiet phosphor triangle while they have a hostile target; red when it casts
+    STATE.units.party1target, STATE.hostile.party1target = true, true
+    RD.Look()
+    local tri = sp2.bogey.lines and sp2.bogey.lines[1]
+    local tc = tri and (tri.color or tri.__vertex or tri.vertex) or {}
+    ok(sp2.bogey.face:GetAlpha() == RD.CONTACT[4] and tc[2] and tc[2] > 0.9, "a hostile target, not casting: a quiet green triangle",
+       tostring(sp2.bogey.face:GetAlpha()))
+    STATE.casting.party1target = true
+    RD.Look()
+    tc = tri and (tri.color or tri.__vertex or tri.vertex) or {}
+    ok(sp2.bogey.face:GetAlpha() == 1 and tc[1] == 1 and tc[2] < 0.3, "it casts: red - flare it")
+    STATE.casting.party1target = nil
+    STATE.hostile.party1target = nil
+    RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 0, "a friendly target: nothing")
+    STATE.units.party1target = nil
+    ok(sp2.bogey:GetAttribute("type2") == "target" and sp2.bogey:GetAttribute("unit") == "party1target",
+       "a right-click on it targets their target")
+    -- CROSSHAIRS ON YOUR TARGET (Arn 8 Nov: "need a target pip indicated by crosshairs like on our regular frames")
+    local keepIU = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return b == "target" and a == "party1" end
+    RD.PaintCross()
+    ok(sp2.cross:GetAlpha() == 1 and sp1.cross:GetAlpha() == 0 and sp2.bogeyCross:GetAlpha() == 0,
+       "party1 is your target: the crosshair on their pip, nowhere else")
+    _G.UnitIsUnit = function(a, b) return b == "target" and a == "party1target" end
+    RD.PaintCross()
+    ok(sp2.cross:GetAlpha() == 0 and sp2.bogeyCross:GetAlpha() == 1, "their target is yours: the crosshair on their bogey")
+    ok(sp2.cross.cross and #sp2.cross.cross == 12, "the regular frames' own reticle: four corners, four ticks")
+    _G.UnitIsUnit = function() return secret() end
+    local okS = pcall(RD.PaintCross)
+    ok(okS, "a secret answer (inside an instance) goes to the client, never tested")
+    _G.UnitIsUnit = keepIU
+    RD.PaintCross()
     local okArm = pcall(RD.Arm)
     ok(okArm and RD.pending, "a re-arm mid-fight touches nothing secure, it waits (the mock refuses secure calls in combat)")
     local okRoster = pcall(fire, RD.events, "GROUP_ROSTER_UPDATE")

@@ -57,6 +57,9 @@ RD.PHOS = { 0.22, 1.00, 0.53 }                   -- the scope's green
 RD.DIM = { 0.11, 0.36, 0.22, 0.9 }               -- an empty slot out of a fight
 RD.COL = { green = { 0.22, 1.00, 0.53, 1 }, amber = { 1.00, 0.70, 0.25, 1 }, red = { 1.00, 0.23, 0.30, 1 },
            cyan = { 0.25, 0.96, 1.00, 1 }, bogey = { 1.00, 0.23, 0.30, 1 } }
+RD.CROSS = { 1.00, 0.24, 0.92 }                    -- your target's crosshair: the cockpit's magenta (FG.COCKPIT.target)
+RD.CROSS_PAD = 12                                  -- px round a pip
+RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
 RD.CURE_COL = { Poison = { 0.49, 1.00, 0.35, 1 }, Disease = { 0.88, 0.69, 0.29, 1 }, Magic = { 0.30, 0.64, 1.00, 1 },
                 Curse = { 0.77, 0.35, 1.00, 1 } }
 -- your class's single-target heal, the first one trained wins (Arn: "we always use our biggest heal minus 2 ranks")
@@ -180,8 +183,11 @@ end
 --- A colour the client worked out, onto textures. false when the client handed none back.
 local function paint(texs, col)
     if type(col) ~= "table" or not col.GetRGBA then return false end
-    for _, t in ipairs(texs) do pcall(function() t:SetVertexColor(col:GetRGBA()) end) end
-    return true
+    local any = false
+    for _, t in ipairs(texs) do
+        if pcall(function() t:SetVertexColor(col:GetRGBA()) end) then any = true end
+    end
+    return any                     -- true only if the colour LANDED somewhere (Arn's white blade: it never had)
 end
 
 -- ------------------------------------------------------------------ drawing helpers
@@ -273,20 +279,37 @@ local function edge(f, col, w)
 end
 
 --- The role glyph, our own shapes: "tank" a diamond outline, "heal" a cross, "damage" a blade.
+--- PLAIN TEXTURES ONLY, turned with SetRotation (8 Nov 2026, Arn's screenshot: a WHITE blade that never went away). The
+--- blade and the diamond were Lines, and the client's curve colour never landed on them - the pip kept its starting
+--- white. BiS> now proves the road that works: a texture's SetVertexColor(col:GetRGBA()). Every piece starts INVISIBLE
+--- (alpha 0), so a colour that does not land shows nothing rather than a stale white sign.
 local function glyph(f, role, px)
     local out = {}
-    local c = { 1, 1, 1, 1 }
+    local c = { 1, 1, 1, 0 }
+    local function bar(w, h, x, y, rot)
+        local t = tex(f, "OVERLAY", c)
+        t:SetSize(w, h)
+        t:SetPoint("CENTER", f, "CENTER", x or 0, y or 0)
+        if rot and t.SetRotation then t:SetRotation(rot) end
+        out[#out + 1] = t
+        return t
+    end
     if role == "heal" then
-        local a = tex(f, "OVERLAY", c) a:SetSize(px * 0.22, px * 0.62) a:SetPoint("CENTER")
-        local b = tex(f, "OVERLAY", c) b:SetSize(px * 0.62, px * 0.22) b:SetPoint("CENTER")
-        out = { a, b }
+        bar(px * 0.22, px * 0.62)
+        bar(px * 0.62, px * 0.22)
     elseif role == "tank" then
-        local s = px * 0.30
-        out = { line(f, "OVERLAY", 0, s, s, 0, c, 2), line(f, "OVERLAY", s, 0, 0, -s, c, 2),
-                line(f, "OVERLAY", 0, -s, -s, 0, c, 2), line(f, "OVERLAY", -s, 0, 0, s, c, 2) }
+        -- a diamond: four bars on its edges, each turned 45 degrees
+        local s, q = px * 0.30, math.pi / 4
+        local len = s * math.sqrt(2)
+        bar(len, 2, s / 2, s / 2, -q)
+        bar(len, 2, s / 2, -s / 2, q)
+        bar(len, 2, -s / 2, -s / 2, -q)
+        bar(len, 2, -s / 2, s / 2, q)
     else
+        -- a blade: a long bar on the diagonal, a short crossguard across it near the hilt
         local s = px * 0.28
-        out = { line(f, "OVERLAY", -s, -s, s, s, c, 3), line(f, "OVERLAY", -s * 0.2, s * 0.6, s * 0.6, -s * 0.2, c, 2) }
+        bar(s * 2 * math.sqrt(2), 3, 0, 0, math.pi / 4)
+        bar(s * 0.9, 3, -s * 0.45, -s * 0.45, -math.pi / 4)
     end
     return out
 end
@@ -424,6 +447,17 @@ local function buildSpoke(f, i)
     end
     sp.los = los
     sp.cures = {}
+    -- CROSSHAIRS ON YOUR TARGET (Arn, 8 Nov: "need a target pip indicated by crosshairs like on our regular frames"): the
+    -- grid's own reticle (FG.Crosshair), magenta like the cockpit's target, round the heal pip when that person is your
+    -- target and round the bogey when THEIR target is yours. Plain frames on the radar (not on the secure pips), so only
+    -- their alpha ever changes - in a fight too.
+    sp.cross = CreateFrame("Frame", nil, f)
+    sp.bogeyCross = CreateFrame("Frame", nil, f)
+    for _, c in ipairs({ sp.cross, sp.bogeyCross }) do
+        if NS.FG and NS.FG.Crosshair then NS.FG.Crosshair(c, RD.CROSS) end
+        c:SetFrameLevel(f:GetFrameLevel() + 20)
+        c:SetAlpha(0)
+    end
     return sp
 end
 
@@ -463,6 +497,15 @@ function RD.PlaceSpoke(sp, s, rim)
         sp.arcLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * rim, math.cos(p1) * rim)
         sp.losLines[d]:SetStartPoint("CENTER", f, math.sin(p0) * (rim - 6), math.cos(p0) * (rim - 6))
         sp.losLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * (rim - 6), math.cos(p1) * (rim - 6))
+    end
+    -- the crosshairs sit on the pips they frame
+    sp.cross:SetSize(s.ph + RD.CROSS_PAD, s.ph + RD.CROSS_PAD)
+    sp.cross:ClearAllPoints()
+    sp.cross:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
+    if s.rb then
+        sp.bogeyCross:SetSize(s.pb + RD.CROSS_PAD, s.pb + RD.CROSS_PAD)
+        sp.bogeyCross:ClearAllPoints()
+        sp.bogeyCross:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rb))
     end
     local spots = { { s.rh, s.ph }, { s.rc, s.pc }, { s.rb, s.pb } }
     for d, fr in ipairs(sp.dims) do
@@ -628,12 +671,13 @@ local function armBogey(sp, unit)
     local k = sp.bogey
     local tok = unit == "player" and "target" or (unit .. "target")
     local cast = NS.FG and NS.FG.KickCast and NS.FG.KickCast() or nil
-    k:SetAttribute("type", nil)
     k:SetAttribute("*harmbutton1", cast and "kick" or nil)
     k:SetAttribute("*type-kick", cast and "spell" or nil)
     k:SetAttribute("*spell-kick", cast)
-    k:SetAttribute("unit", cast and tok or nil)
-    k:EnableMouse(cast and true or false)
+    k:SetAttribute("unit", tok)
+    -- a right-click targets their target (any time: your crosshairs go on it); a left-click on an enemy is the kick
+    k:SetAttribute("type2", "target")
+    k:EnableMouse(true)
     sp.tok, sp.kick = tok, cast
 end
 
@@ -934,9 +978,12 @@ end
 --- One spoke's heal pip, coloured by the client from their health.
 function RD.PaintHeal(sp)
     if not (sp and sp.unit and sp.paintTex) then
-        if sp and sp.heal then sp.heal.face:SetAlpha(sp.unit and 1 or 0) end
+        if sp and sp.heal then sp.heal.face:SetAlpha(0) end
         return false
     end
+    -- somebody who left (a slot whose re-layout waits for the fight's end): nothing at their spot, not a stale sign
+    local okE, there = pcall(UnitExists, sp.unit)
+    if okE and plain(there) == false then sp.heal.face:SetAlpha(0) return false end
     sp.heal.face:SetAlpha(1)
     local curve = RD.Curve(sp.amber)
     if not (curve and UnitHealthPercent) then
@@ -946,6 +993,7 @@ function RD.PaintHeal(sp)
     end
     local ok, col = pcall(UnitHealthPercent, sp.unit, true, curve)
     local drew = ok and paint(sp.paintTex, col)
+    if not drew then sp.heal.face:SetAlpha(0) end              -- no colour back: nothing, never a stale sign
     local red = RD.RedCurve()
     if red then
         local okR, rc = pcall(UnitHealthPercent, sp.unit, true, red)
@@ -958,7 +1006,9 @@ end
 --- In a fight the scope, the empty slots and the idle bogeys are see-through; out of one they are drawn dim.
 function RD.PaintQuiet()
     local fight = combat()
-    if RD.scope then RD.scope:SetAlpha(fight and 0 or 1) end
+    -- THE SCOPE STAYS IN A FIGHT (Arn, 8 Nov: "i like this green outline in combat too"): rings, cross and corners are
+    -- the instrument; only the pips come and go
+    if RD.scope then RD.scope:SetAlpha(1) end
     -- the dim slot outlines are never drawn (Arn, 8 Nov: "the box outlines are not needed"); the scope alone says where
     if RD.dims then RD.dims:SetAlpha(0) end
     if RD.tape then RD.tape.track:SetAlpha(fight and 0 or 1) end
@@ -976,12 +1026,65 @@ function RD.PaintQuiet()
 end
 
 --- Bogeys and range arcs: the ticker's work while shown.
+--- Is `unit` your target? Onto `frame`'s alpha: plain yes/no, or a SECRET answer handed to the client
+--- (SetAlphaFromBoolean, the grid's own road - FG.PaintTarget), so it still works inside an instance. Never tested by us.
+local function crossOn(frame, unit)
+    if not (frame and unit and UnitIsUnit) then if frame then frame:SetAlpha(0) end return false end
+    local ok, same = pcall(UnitIsUnit, unit, "target")
+    if not ok or same == nil then frame:SetAlpha(0) return false end
+    if NS.Secret and NS.Secret(same) then
+        if not pcall(function() frame:SetAlphaFromBoolean(same, 1, 0) end) then frame:SetAlpha(0) end
+        return "secret"
+    end
+    frame:SetAlpha((same == true or same == 1) and 1 or 0)
+    return same == true or same == 1
+end
+
+--- The crosshairs: on the pip of whoever is your target, and on the bogey of whoever's target is yours. Asked when your
+--- target changes (and after a layout), never on the ticker - a 40-man raid is 40 pips.
+function RD.PaintCross()
+    for _, sp in ipairs(RD.spokes or {}) do
+        crossOn(sp.cross, sp.unit)
+        crossOn(sp.bogeyCross, (sp.unit and sp.slot and sp.slot.rb) and sp.tok or nil)
+    end
+end
+
+--- THEIR TARGET, WHERE THE INTERRUPT LIVES (Arn, 8 Nov: "a pip for their target where the interrupt button would live"):
+--- a quiet phosphor triangle while they have a HOSTILE target, red the moment it casts (a click = your interrupt; a
+--- right-click targets it, so your crosshairs go on it). Hostile is the client's answer (UnitCanAttack); a secret one
+--- goes through its own curve into the alpha. Nothing to show: invisible.
+local function paintContact(sp, lit)
+    local k = sp.bogey
+    local col = lit and RD.COL.bogey or RD.CONTACT
+    for _, l in ipairs(k.lines or {}) do l:SetVertexColor(col[1], col[2], col[3], 1) end
+    if lit then k.face:SetAlpha(1) return true end
+    local okE, there = pcall(UnitExists, sp.tok)
+    there = okE and there
+    if NS.Secret and NS.Secret(there) then there = true end           -- let the hostile answer decide
+    if not there then k.face:SetAlpha(0) return false end
+    local okH, hostile = pcall(UnitCanAttack, "player", sp.tok)
+    if not okH then k.face:SetAlpha(0) return false end
+    if NS.Secret and NS.Secret(hostile) then
+        local tern = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+        local made, a = false, 0
+        if tern then made, a = pcall(tern, hostile, RD.CONTACT[4], 0) end
+        if not (made and pcall(k.face.SetAlpha, k.face, a)) then k.face:SetAlpha(0) end
+        return "secret"
+    end
+    k.face:SetAlpha(hostile == true and RD.CONTACT[4] or 0)
+    return hostile == true
+end
+
 function RD.Look()
     local FG = NS.FG
     for _, sp in ipairs(RD.spokes or {}) do
-        if sp.unit then
+        if sp.unit and sp.tok and sp.slot and sp.slot.rb then
+            -- red only when you have an interrupt to answer it with; the quiet pip shows either way
             local lit = sp.kick and FG and FG.Casting and FG.Casting(sp.tok) or false
-            sp.bogey.face:SetAlpha(lit and 1 or (combat() and 0 or 0.3))
+            paintContact(sp, lit)
+            RD.PaintRange(sp)
+        elseif sp.unit then
+            sp.bogey.face:SetAlpha(0)
             RD.PaintRange(sp)
         else
             sp.bogey.face:SetAlpha(0)
@@ -1032,6 +1135,7 @@ function RD.Paint()
     for _, sp in ipairs(RD.spokes or {}) do RD.PaintHeal(sp) end
     RD.PaintQuiet()
     RD.PaintTape()
+    RD.PaintCross()
     RD.Look()
 end
 
@@ -1149,6 +1253,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
         end
     elseif event == "PLAYER_TARGET_CHANGED" then
+        RD.PaintCross()
         RD.Look()
     elseif event == "UI_ERROR_MESSAGE" then
         -- a heal that failed on line of sight: the spoke under the mouse flashes amber at its rim

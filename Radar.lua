@@ -2404,7 +2404,9 @@ if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUC
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if RD.OnCast(a1, a3) and RD.Active() then RD.PaintQuiet() end
+        local kind = RD.OnCast(a1, a3)
+        if kind and RD.Active() then RD.PaintQuiet() end
+        if kind and NS.CamShot then NS.CamShot(kind) end   -- the test camera (TestCam.lua), when armed
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then

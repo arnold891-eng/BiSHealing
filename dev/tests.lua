@@ -12475,6 +12475,160 @@ do
     d.radar, d.shown = nil, keepShown
 end
 
+-- THE TEST CAMERA (9 Nov 2026, Arn: "If this pip ever fires, please take a screenshot ... then we compare with the
+-- logs"): armed by hand, shoots at the pull / on a timer / on a tool cast / at the end, writes the stem and the reason
+do
+    local CAM, RD, d = NS.CAM, NS.RD, NS.DB()
+    local heard = {}
+    local keep = { chat = _G.DEFAULT_CHAT_FRAME, shot = _G.Screenshot, time = _G.time, date = _G.date,
+                   name = C_Spell.GetSpellName, alpha = d.alpha, alphaOff = d.alphaOff, cam = d.cam,
+                   cap = CAM.CAP, keepN = CAM.KEEP, tide = RD.readyAt.tide, tideStart = RD.coolStart.tide,
+                   water = RD.waterUntil }
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local function said(word) for _, t in ipairs(heard) do if tostring(t):find(word, 1, true) then return true end end end
+    local shots = 0
+    _G.Screenshot = function() shots = shots + 1 end
+    local WALL = 1800000000
+    _G.time = function() return WALL end
+    _G.date = function(fmt) return fmt == "%m%d%y_%H%M%S" and ("110926_" .. string.format("%06d", WALL % 1000000)) or "?" end
+    local function onUpdate() return CAM.ticker.__scripts.OnUpdate end
+    local function frames(n, dt) for _ = 1, n do local u = onUpdate() if u then u(CAM.ticker, dt) end end end
+    d.cam, d.alphaOff = nil, nil
+
+    ok(CAM and NS.ALPHA.cam and NS.ALPHA.cam.cmd, "the camera is a secret alpha feature with its own words")
+    heard = {}
+    NS.DO.help()
+    ok(not said("camera"), "/bish help never mentions it")
+
+    d.alpha = nil
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(not CAM.Armed() and said("alpha is off") and CAM.DB().run == nil, "alpha off: start refuses, no run counted")
+
+    d.alpha = true
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(shots == 0 and onUpdate() == nil, "the alpha on is not enough: not started, no shot at the pull and no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots == 0, "and none at the end")
+
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start 30")
+    local c = CAM.DB()
+    ok(CAM.Armed() and c.run == 1 and c.untilAt == WALL + 1800 and said("for 30 min"), "start 30: armed for half an hour, run 1")
+
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    local e1 = c.shots[1]
+    ok(shots == 1 and e1 and e1.why == "pull" and e1.fight == 1 and e1.run == 1, "the pull: one shot, written down", e1 and e1.why)
+    ok(e1 and e1.stem == "WoWScrnShot_110926_" .. string.format("%06d", WALL % 1000000), "named the way the client names it", e1 and e1.stem)
+    ok(onUpdate() ~= nil, "and the fight's clock runs")
+    fire(CAM.events, "SCREENSHOT_SUCCEEDED")
+    ok(e1.ok == true, "the client said it was written: noted on the shot")
+
+    TICK(15) frames(3, 5)
+    ok(shots == 1, "15 s in: nothing yet (every 20 s)")
+    TICK(5) WALL = WALL + 20 frames(1, 5)
+    local e2 = c.shots[2]
+    ok(shots == 2 and e2 and e2.why == "timer", "20 s: a timer shot", e2 and e2.why)
+
+    ok(NS.CamShot("tide") == nil and shots == 2 and e2.why == "timer+tide", "a Mana Tide inside 2 s joins the shot just taken", e2.why)
+    NS.CamShot("tide")
+    ok(e2.why == "timer+tide", "never twice")
+    TICK(3) WALL = WALL + 3
+    ok(NS.CamShot("spring") == nil and shots == 2, "Mana Spring: too often to be worth a picture")
+    local e3 = NS.CamShot("potion")
+    ok(shots == 3 and e3 and e3.why == "potion", "a potion 3 s later: its own shot")
+
+    -- the hook: the radar's own cast clock hands the kind over
+    C_Spell.GetSpellName = function(id) if id == 16190 then return RD.TIDE end return keep.name and keep.name(id) end
+    TICK(3) WALL = WALL + 3
+    fire(RD.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 16190)
+    ok(shots == 4 and c.shots[4].why == "tide", "your Mana Tide cast (UNIT_SPELLCAST_SUCCEEDED): a shot", c.shots[4] and c.shots[4].why)
+    C_Spell.GetSpellName = keep.name
+
+    -- THE PROBE: the game refuses a screenshot in a fight
+    TICK(3) WALL = WALL + 3
+    fire(CAM.events, "ADDON_ACTION_BLOCKED", "SomeOtherAddon", "Screenshot()")
+    ok(not c.blocked and onUpdate() ~= nil, "another addon refused: not our answer")
+    fire(CAM.events, "ADDON_ACTION_BLOCKED", "BiSHealing", "Screenshot()")
+    ok(c.blocked == true and onUpdate() == nil, "refused for us in a fight: remembered, the clock stops")
+    ok(NS.CamShot("potion") == nil and shots == 4, "no more shots in a fight")
+    heard = {}
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots == 5 and c.shots[5].why == "end" and c.shots[5].fight == nil, "the end: out of the fight, one shot", c.shots[5] and c.shots[5].why)
+    ok(said("refused a screenshot in the fight") and onUpdate() == nil, "says so once, and no clock out of a fight")
+    TICK(3) WALL = WALL + 3
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(shots == 6 and c.shots[6].why == "pull" and onUpdate() == nil, "blocked: the pull still shoots (out of the lockdown yet), no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+
+    -- a fight's cap
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam clear")
+    ok(#c.shots == 0 and not c.blocked and said("untouched"), "clear: the list goes, the pictures stay, the refusal forgotten")
+    CAM.CAP = 3
+    TICK(3) WALL = WALL + 3
+    local before = shots
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    for _ = 1, 6 do TICK(20) frames(1, 20) end
+    ok(shots - before == 3, "at most CAP shots in one fight (the pull is one)", shots - before)
+    heard = {}
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots - before == 4 and said("shots in that fight"), "the end still shoots, and a line counts the fight")
+    CAM.CAP = keep.cap
+
+    -- the timer's words
+    SlashCmdList.BISHEALING("alpha cam every 3")
+    ok(c.every == 5, "every 3: 5 s is the least", c.every)
+    SlashCmdList.BISHEALING("alpha cam every 0")
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(onUpdate() == nil, "every 0: the pull shoots, no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    c.every = nil
+
+    -- the cost of a fight's frames while armed: arithmetic, nothing asked of the client
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    local okCost, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+    if not okCost then okCost, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+    if okCost then
+        local n = Cost.Count(function() frames(100, 0.01) end)
+        print(("   cost: test camera, 100 fight frames armed = %d calls"):format(n))
+        ok(n == 0, "a second and a half of fight frames asks the client nothing", n)
+    end
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+
+    -- the list keeps KEEP at most
+    CAM.KEEP = 4
+    for _ = 1, 6 do TICK(3) SlashCmdList.BISHEALING("alpha cam now") end
+    ok(#c.shots == 4 and c.shots[4].why == "asked", "the oldest go first", #c.shots)
+    CAM.KEEP = keep.keepN
+
+    -- it stops by itself, and on stop
+    WALL = c.untilAt + 1
+    local n0 = shots
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(not CAM.Armed() and shots == n0 and onUpdate() == nil, "after its time: disarmed by itself, no shot")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(CAM.Armed() and c.run == 2 and c.untilAt == WALL + 7200, "start again: run 2, two hours by default")
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam status")
+    ok(said("armed") and said("Say done to Claude"), "/bish alpha cam status: the state and what to do after")
+    SlashCmdList.BISHEALING("alpha cam stop")
+    ok(not CAM.Armed() and c.untilAt == nil, "stop: off")
+    SlashCmdList.BISHEALING("alpha cam start")
+    SlashCmdList.BISHEALING("alpha cam off")
+    ok(not CAM.Armed(), "/bish alpha cam off (the switch): off with the feature")
+
+    _G.DEFAULT_CHAT_FRAME, _G.Screenshot, _G.time, _G.date = keep.chat, keep.shot, keep.time, keep.date
+    d.alpha, d.alphaOff, d.cam = keep.alpha, keep.alphaOff, keep.cam
+    RD.readyAt.tide, RD.coolStart.tide, RD.waterUntil = keep.tide, keep.tideStart, keep.water
+    CAM.inFight, CAM.last, CAM.pending = nil, nil, nil
+end
+
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")
       or ("!! BiS Healing: " .. fail .. " of " .. checks .. " failed"))
 os.exit(fail == 0 and 0 or 1)

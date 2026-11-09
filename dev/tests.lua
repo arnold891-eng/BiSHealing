@@ -11578,7 +11578,7 @@ do
     ok(slot and slot.opts.candidateFilters.includeSpellIDs and next(slot.opts.candidateFilters.includeSpellIDs),
        "the client's aura slot, filtered to the shield's own spell ids")
     local cov = RD.shield.cover
-    ok(cov and cov.__desat and cov.__vertex and cov.__vertex[2] < 0.3, "its button: the shield's icon greyed into the dark - the cover")
+    ok(cov and cov.__desat and cov.__vertex and cov.__vertex[2] == RD.SHIELD_OK[2] and RD.shield.handed, "its button: the shield's icon greyed, a dim green - the cover")
     ok((RD.shield.container:GetFrameLevel() or 0) > (RD.shield:GetFrameLevel() or 0), "drawn over the red")
     d.selfBuffs, BOOK[21] = keepSB, keepBook
     RD.Arm()
@@ -11630,6 +11630,13 @@ do
        "your interrupt's cooldown runs as a sweep on the bogey, from the client's own object", tostring(asked2))
     ok(sp2.bogey.cd:GetParent() == sp2.bogey.face, "on the bogey's face: seen only while it shows")
     _G.C_Spell.GetSpellCooldownDuration = keepDur2
+    -- CROSSHAIRS: TAKEN OFF (Arn 8 Nov: "no crosshairs" - "take them off"); the code is kept, checked switched on
+    local keepIU0 = _G.UnitIsUnit
+    _G.UnitIsUnit = function(a, b) return b == "target" and a == "party1" end
+    RD.PaintCross()
+    ok(not RD.CROSSHAIRS and sp2.cross:GetAlpha() == 0, "off by default: no crosshairs on the radar")
+    _G.UnitIsUnit = keepIU0
+    RD.CROSSHAIRS = true
     -- CROSSHAIRS ON YOUR TARGET (Arn 8 Nov: "need a target pip indicated by crosshairs like on our regular frames")
     local keepIU = _G.UnitIsUnit
     _G.UnitIsUnit = function(a, b) return b == "target" and a == "party1" end
@@ -11656,6 +11663,7 @@ do
     local okS = pcall(RD.PaintCross)
     ok(okS, "a secret answer (inside an instance) goes to the client, never tested")
     _G.UnitIsUnit = keepIU
+    RD.CROSSHAIRS = false
     RD.PaintCross()
     local okArm = pcall(RD.Arm)
     ok(okArm and RD.pending, "a re-arm mid-fight touches nothing secure, it waits (the mock refuses secure calls in combat)")

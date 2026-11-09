@@ -62,10 +62,12 @@ RD.CROSS_PAD = 12                                  -- px round a pip
 -- TARGET OF TARGET (Arn, 8 Nov: "target of target?"): who your target is on - the same reticle in amber, a size bigger,
 -- so it frames the magenta one when you target a friend's attacker and never hides under it
 RD.TOT = { 1.00, 0.70, 0.25 }
+RD.CROSSHAIRS = false                              -- Arn, 8 Nov: "no crosshairs" - taken off (the code stays)
 RD.TOT_PAD = 22
 RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
 RD.CONTACT_SHOWN = false                           -- Arn, 8 Nov: a bogey shows only while it casts
-RD.SHIELD_OK = { 0.05, 0.16, 0.10 }                -- the cover while your shield is up: its icon, greyed into the dark
+RD.SHIELD_OK = { 0.18, 0.62, 0.36 }                -- the cover while your shield is up: its icon, greyed, a dim phosphor
+                                                   -- green (Arn, 8 Nov: "no water shield icon" - the first dark one read as nothing)
 RD.SHIELD_LAST = { 255, 120, 0 }                   -- the last charge: an orange wash (r, g, b 0-255, a texture escape's)
 RD.CURE_COL = { Poison = { 0.49, 1.00, 0.35, 1 }, Disease = { 0.88, 0.69, 0.29, 1 }, Magic = { 0.30, 0.64, 1.00, 1 },
                 Curse = { 0.77, 0.35, 1.00, 1 } }
@@ -896,6 +898,7 @@ local function armShield()
         -- too: the last one washes the cover orange (RD.ShieldWash), any more write nothing.
         initializeFrame = FA.Placed(function(button)
             if button.GetRegions then for _, r in ipairs({ button:GetRegions() }) do if r.Hide then pcall(r.Hide, r) end end end
+            b.handed = true
             pcall(function()
                 local t = button:CreateTexture(nil, "OVERLAY")
                 t:SetAllPoints(button)
@@ -1161,6 +1164,13 @@ end
 --- The crosshairs: on the pip of whoever is your target, and on the bogey of whoever's target is yours. Asked when your
 --- target changes (and after a layout), never on the ticker - a 40-man raid is 40 pips.
 function RD.PaintCross()
+    if not RD.CROSSHAIRS then
+        -- OFF (Arn, 8 Nov, after trying them: "no crosshairs" - "take them off"); kept behind RD.CROSSHAIRS
+        for _, sp in ipairs(RD.spokes or {}) do
+            for _, c in ipairs({ sp.cross, sp.bogeyCross, sp.totCross }) do if c then c:SetAlpha(0) end end
+        end
+        return false
+    end
     for _, sp in ipairs(RD.spokes or {}) do
         crossOn(sp.cross, sp.unit)
         crossOn(sp.totCross, sp.unit, "targettarget")       -- who your target is on
@@ -1376,6 +1386,17 @@ function RD.Command(rest)
         local h = RD.heal or RD.Heal()
         P("radar: heal %s, %d missiles a full tank.  |cff968ead/bish alpha radar heal <spell> | scale <50-200> | center|r",
           h and h.cast or "none", RD.missiles or 0)
+        -- THE SHIELD PIP, SAID PLAINLY (Arn, 8 Nov: "no water shield icon"): what it watches, whether the client took the
+        -- marker, and what it last handed over - so the next screenshot says which part is missing
+        local b, FA = RD.shield, NS.FA
+        local present = b and b.shieldName and NS.FS and NS.FS.Present and select(2, pcall(NS.FS.Present, b.shieldName))
+        P("radar shield: %s - markers %s, slot %s, button %s, cover %s, on you now: %s%s",
+          b and b.shieldName or "none trained (or not your class)",
+          (FA and FA.Available and FA.Available()) and "yes" or ("no (" .. tostring(FA and FA.refused) .. ")"),
+          (b and b.slot) and "placed" or "none", (b and b.handed) and "handed over" or "not yet",
+          (b and b.cover) and "on" or "none",
+          present == true and "yes" or (present == false and "no" or "the client will not say"),
+          (FA and FA.initRefused) and ("  |cfff08cb0refused: " .. tostring(FA.initRefused) .. "|r") or "")
     end
 end
 

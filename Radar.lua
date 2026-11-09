@@ -1693,13 +1693,22 @@ function RD.SeedCooldowns()
     local getCd = C_Spell and C_Spell.GetSpellCooldown
     if RD.tide and RD.tide.macro and getCd then
         local ok, info = pcall(getCd, RD.TIDE)
-        local s, d = ok and type(info) == "table" and plain(info.startTime), ok and type(info) == "table" and plain(info.duration)
+        local s, d = nil, nil
+        if ok and type(info) == "table" then
+            s = plain(info.startTime)
+            d = plain(info.duration)
+        end
         if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.tide = s + d end
     end
     local itemCd = C_Container and C_Container.GetItemCooldown
     if RD.potion and RD.potion.item and itemCd then
         local ok, s, d = pcall(itemCd, RD.potion.item)
-        s, d = ok and plain(s), ok and plain(d)
+        if ok then
+            s = plain(s)
+            d = plain(d)
+        else
+            s, d = nil, nil
+        end
         if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.potion = s + d end
     end
     return true

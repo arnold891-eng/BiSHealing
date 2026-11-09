@@ -11505,6 +11505,19 @@ do
     _G.BiSToolsAPI.FoodNow = function() return 5477 end
     RD.Arm()
     ok(RD.rations.item == 5477 and RD.rations:GetAttribute("*macrotext1") == "/use item:5477", "armed: a click eats it")
+    -- THE SHIELD PIP IS NOT THE REMINDER'S SWITCH (Arn 8 Nov: "i dont have water shield where is the button on my radar" -
+    -- his buff reminder was off): the class's shield is watched either way, once it is trained
+    local keepSB, keepBook = d.selfBuffs, BOOK[21]
+    BOOK[21] = { name = "Water Shield", rank = "Rank 1" }
+    if NS.FM and NS.FM.Invalidate then pcall(NS.FM.Invalidate) end
+    d.selfBuffs = { none = true }
+    ok(#NS.FS.List() == 0, "the buff reminder is off")
+    ok(RD.ShieldTarget() == "Water Shield", "the radar still watches Water Shield", tostring(RD.ShieldTarget()))
+    RD.Arm()
+    ok(RD.shield.shieldName == "Water Shield" and RD.shield:GetAttribute("*macrotext1") == "/cast Water Shield",
+       "the refuel pip is armed: a click casts it")
+    d.selfBuffs, BOOK[21] = keepSB, keepBook
+    RD.Arm()
     _G.BiSToolsAPI = keepAPI
     RD.Arm()
 

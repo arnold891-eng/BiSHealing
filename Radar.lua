@@ -767,11 +767,32 @@ end
 
 --- Your watched self buff (Water Shield): the red lights while it is NOT on you. The client's own icon arriving (its
 --- aura button shown) hides the red - so the pip is dark exactly while the buff is up, and nothing is read.
+--- The shield the refuel pip watches. NOT the buff reminder's switch (Arn, 8 Nov: "i dont have water shield where is the
+--- button on my radar" - his reminder was off, `selfBuffs.none`, so FS.Target answered nothing and the pip never armed):
+--- the names the player chose for the reminder if there are any, else the class's own (FS.CLASS: Water Shield for a
+--- shaman); the first one this character has trained.
+function RD.ShieldTarget()
+    local FS = NS.FS
+    if not FS then return nil end
+    local d = NS.DB()
+    local own = type(d.selfBuffs) == "table" and d.selfBuffs or nil
+    local list = (own and #own > 0) and own or nil
+    if not list then
+        local okC, _, class = pcall(UnitClass, "player")
+        list = (FS.CLASS and FS.CLASS[(okC and plain(class)) or ""]) or {}
+    end
+    for _, name in ipairs(list) do
+        if FS.Knows and FS.Knows(name) and FS.SpellIds then
+            local ids = FS.SpellIds(name)
+            if #ids > 0 then return name, ids end
+        end
+    end
+    return nil
+end
+
 local function armShield()
     local b = RD.shield
-    local FS = NS.FS
-    local name, ids
-    if FS and FS.Target then name, ids = FS.Target() end
+    local name, ids = RD.ShieldTarget()
     b:SetAttribute("*type1", name and "macro" or nil)
     b:SetAttribute("*macrotext1", name and ("/cast " .. name) or nil)
     b:EnableMouse(name and true or false)

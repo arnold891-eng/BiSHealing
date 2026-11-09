@@ -65,6 +65,8 @@ RD.TOT = { 1.00, 0.70, 0.25 }
 RD.TOT_PAD = 22
 RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
 RD.CONTACT_SHOWN = false                           -- Arn, 8 Nov: a bogey shows only while it casts
+RD.SHIELD_OK = { 0.05, 0.16, 0.10 }                -- the cover while your shield is up: its icon, greyed into the dark
+RD.SHIELD_LAST = { 255, 120, 0 }                   -- the last charge: an orange wash (r, g, b 0-255, a texture escape's)
 RD.CURE_COL = { Poison = { 0.49, 1.00, 0.35, 1 }, Disease = { 0.88, 0.69, 0.29, 1 }, Magic = { 0.30, 0.64, 1.00, 1 },
                 Curse = { 0.77, 0.35, 1.00, 1 } }
 -- your class's single-target heal, the first one trained wins (Arn: "we always use our biggest heal minus 2 ranks")
@@ -805,6 +807,34 @@ function RD.ShieldTarget()
     return nil
 end
 
+--- THE LAST CHARGE, AS A COLOUR THE CLIENT CHOOSES (the reminder's road, FS.Wash): the client writes the charge count into
+--- a font string through a formatter we hand it; 1 is written as one orange square (cut to the pip), anything else as
+--- nothing. Never read by us.
+local function washText(px, rgb)
+    return ("|TInterface\\Buttons\\WHITE8X8:%d:%d:0:0:8:8:0:8:0:8:%d:%d:%d|t"):format(px, px, rgb[1], rgb[2], rgb[3])
+end
+function RD.ShieldWash(button)
+    local make = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
+    if not (make and button and button.SetApplicationCount) then return false end
+    local px = RD.SYS_PX * 3
+    if not RD.washFmt then
+        local ok, f = pcall(make)
+        if not ok or not f or not f.SetBreakpoints then return false end
+        local points = { { threshold = 0, format = "" }, { threshold = 1, format = washText(px, RD.SHIELD_LAST) },
+                         { threshold = 2, format = "" } }
+        if not pcall(f.SetBreakpoints, f, points) then return false end
+        RD.washFmt = f
+    end
+    local clip = CreateFrame("Frame", nil, button)
+    clip:SetAllPoints(button)
+    if clip.SetClipsChildren then clip:SetClipsChildren(true) end
+    local fs = clip:CreateFontString(nil, "OVERLAY")
+    if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
+    fs:SetPoint("CENTER", clip, "CENTER", 0, 0)
+    fs:SetAlpha(0.8)
+    return pcall(button.SetApplicationCount, button, fs, { formatter = RD.washFmt })
+end
+
 local function armShield()
     local b = RD.shield
     local name, ids = RD.ShieldTarget()
@@ -817,31 +847,65 @@ local function armShield()
     local get = C_Spell and C_Spell.GetSpellTexture
     if get then
         local ok, t = pcall(get, name)
-        if ok and t and not (NS.Secret and NS.Secret(t)) then b.icon:SetTexture(t) end
+        if ok and t and not (NS.Secret and NS.Secret(t)) then b.icon:SetTexture(t) b.iconFile = t end
     end
+    -- the red under it: the shield's own icon, greyed and washed red, the whole pip, breathing (the reminder's look)
     if b.icon.SetDesaturated then b.icon:SetDesaturated(true) end
     b.icon:SetVertexColor(1, 0.25, 0.3, 1)
+    b.icon:ClearAllPoints() b.icon:SetAllPoints(b)
+    for _, l in ipairs(b.ring or {}) do l:Hide() end        -- no ring: the cover hides the whole pip, or nothing
+    b.face:SetAlpha(1)
+    if not b.breath and b.face.CreateAnimationGroup then
+        local okA, g = pcall(b.face.CreateAnimationGroup, b.face)
+        if okA and g then
+            local fade = g:CreateAnimation("Alpha")
+            fade:SetFromAlpha(1) fade:SetToAlpha(0.35) fade:SetDuration(0.6)
+            g:SetLooping("BOUNCE")
+            g:Play()
+            b.breath = g
+        end
+    end
     local FA = NS.FA
     if not (FA and FA.Available and FA.Available() and FA.AddSlot and ids and #ids > 0) then return end
     local ok, container = pcall(CreateFrame, "AuraContainer", nil, b, "CustomAuraContainerTemplate")
     if not (ok and container) then return end
     container:SetSize(1, 1)
     container:SetPoint("CENTER", b)
+    if container.SetFrameLevel then container:SetFrameLevel(b:GetFrameLevel() + 10) end   -- over the red
     container:SetUnit("player")
     local want = {}
     for _, id in ipairs(ids) do want[id] = true end
     b.container = container
     b.slot = FA.AddSlot(container, "BiSRadarShield", "HELPFUL", {
         candidateFilters = { includeSpellIDs = want },
+        -- THE REMINDER'S OWN ROAD, WHICH WORKS IN A FIGHT (8 Nov 2026, Arn: "watershield reminder used to work in
+        -- combat"; SelfBuff.lua's badge, 12 Oct). Nothing of ours decides "missing": the red pip is ALWAYS drawn under
+        -- this button, and while the buff is up the CLIENT draws the button over it - our cover, the shield's own icon
+        -- greyed into the scope's dark - so the red is hidden. Gone: the client stops drawing it, the red shows. The
+        -- old hooks (OnShow/OnHide flipping the red's alpha) missed changes and are gone. The charges are the client's
+        -- too: the last one washes the cover orange (RD.ShieldWash), any more write nothing.
         initializeFrame = FA.Placed(function(button)
             if button.GetRegions then for _, r in ipairs({ button:GetRegions() }) do if r.Hide then pcall(r.Hide, r) end end end
+            pcall(function()
+                local t = button:CreateTexture(nil, "OVERLAY")
+                t:SetAllPoints(button)
+                t:SetTexture(b.iconFile or 136048)
+                if t.SetTexCoord then t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
+                if t.SetDesaturated then t:SetDesaturated(true) end
+                t:SetVertexColor(RD.SHIELD_OK[1], RD.SHIELD_OK[2], RD.SHIELD_OK[3], 1)
+                b.cover = t
+            end)
+            pcall(RD.ShieldWash, button)
+            if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
+            if button.SetMouseMotionEnabled then pcall(button.SetMouseMotionEnabled, button, false) end
             if button.EnableMouse then pcall(button.EnableMouse, button, false) end
-            -- the buff is here: the red goes dark; it comes back when the client takes the button away
-            b.face:SetAlpha(0)
-            button:HookScript("OnShow", function() b.face:SetAlpha(0) end)
-            button:HookScript("OnHide", function() b.face:SetAlpha(1) end)
         end, RD.SYS_PX, "CENTER", b, 0, 0),
     })
+    -- switched on and asked to look now, as the reminder's badge is: a shield already on you is not news to a container
+    -- that only listens for changes. No slot placed: the red would never be covered - so no pip at all.
+    if not b.slot then b.face:SetAlpha(0) b.shieldName = nil return end
+    if container.SetEnabled then pcall(container.SetEnabled, container, true) end
+    if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
 end
 
 --- The best item in your bags whose use is `spellName` ("Drink" / "Food"; `needWords` in its use text), by the level it
@@ -1187,11 +1251,14 @@ function RD.PaintShield()
     local b = RD.shield
     if not b then return nil end
     if not b.shieldName then b.face:SetAlpha(0) return nil end
+    -- the red is ALWAYS under the client's cover (armShield): it never decides anything itself, so nothing here can
+    -- leave it dark while the shield is gone - the fight-proof part. The question is only kept for the suite and for
+    -- /bish alpha radar, never to hide the red.
+    b.face:SetAlpha(1)
     local FS = NS.FS
     if not (FS and FS.Present) then return nil end
     local ok, present = pcall(FS.Present, b.shieldName)
-    if not ok or present == nil then return nil end
-    b.face:SetAlpha(present and 0 or 1)
+    if not ok then return nil end
     return present
 end
 

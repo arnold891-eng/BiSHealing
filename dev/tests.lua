@@ -11565,13 +11565,21 @@ do
     NS.FS.Present = function() return false end
     fire(RD.events, "UNIT_AURA", "player")
     ok(RD.shield.face:GetAlpha() == 1, "Water Shield gone: the refuel pip lights at the next aura change")
+    -- THE REMINDER'S ROAD (Arn 8 Nov: "watershield reminder used to work in combat"): the red is ALWAYS under, and the
+    -- client's own button covers it while the shield is up - nothing of ours decides "missing", so a fight cannot fool it
     NS.FS.Present = function() return true end
     fire(RD.events, "UNIT_AURA", "player")
-    ok(RD.shield.face:GetAlpha() == 0, "recast: dark")
+    ok(RD.shield.face:GetAlpha() == 1, "the shield up: the red stays drawn underneath (the client's cover hides it)")
     NS.FS.Present = function() return nil end
     fire(RD.events, "UNIT_AURA", "player")
-    ok(RD.shield.face:GetAlpha() == 0, "the client will not say (a fight): left as it was, the container decides")
+    ok(RD.shield.face:GetAlpha() == 1, "the client will not say (a fight): the red still under, never switched off")
     NS.FS.Present = keepPresent
+    local slot = RD.shield.container and RD.shield.container.slots and RD.shield.container.slots["BiSRadarShield"]
+    ok(slot and slot.opts.candidateFilters.includeSpellIDs and next(slot.opts.candidateFilters.includeSpellIDs),
+       "the client's aura slot, filtered to the shield's own spell ids")
+    local cov = RD.shield.cover
+    ok(cov and cov.__desat and cov.__vertex and cov.__vertex[2] < 0.3, "its button: the shield's icon greyed into the dark - the cover")
+    ok((RD.shield.container:GetFrameLevel() or 0) > (RD.shield:GetFrameLevel() or 0), "drawn over the red")
     d.selfBuffs, BOOK[21] = keepSB, keepBook
     RD.Arm()
     _G.BiSToolsAPI = keepAPI

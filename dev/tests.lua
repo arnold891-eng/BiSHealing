@@ -12052,8 +12052,9 @@ do
         -- left (BINGO's window, the wash) are checked with `fading`
         local function pulsing(gr, kind)
             local a = gr and gr.anims[1]
-            return gr and gr.playing and gr.looping == "BOUNCE" and a and a.kind == "Scale" and a.scaleTo
-                and a.scaleTo[1] == kind[1] and a.duration == kind[2]
+            -- built, and NOT playing while RD.SIZE_PULSE is off (Arn's screenshot: a pip blown up to the whole screen)
+            return gr and (gr.playing == (RD.SIZE_PULSE and true or false)) and gr.looping == "BOUNCE" and a and a.kind == "Scale"
+                and a.scaleTo and a.scaleTo[1] == kind[1] and a.duration == kind[2]
         end
         local function fading(gr, kind)
             local a = gr and gr.anims[1]

@@ -667,6 +667,7 @@ end
 -- cross still pulsing", and bogeys showing with nothing casting). In the client an ALPHA animation on a frame drove that
 -- frame's alpha itself - what we hid by alpha under it came back. A SCALE bounce never touches whether a thing is seen:
 -- an invisible pip grows invisibly, a lit one breathes. { grow to, seconds }.
+RD.SIZE_PULSE = false                              -- the size pulse is OFF: it blew a pip up to the whole screen
 RD.PULSE_SOFT = { 1.08, 0.5 }                      -- grow to, seconds
 RD.PULSE_MID = { 1.13, 0.45 }                      -- amber: a touch stronger than soft
 RD.PULSE_HARD = { 1.20, 0.35 }
@@ -685,7 +686,9 @@ function RD.Pulse(frame, kind)
     if a.SetOrigin then pcall(a.SetOrigin, a, "CENTER", 0, 0) end
     a:SetDuration(p[2])
     g:SetLooping("BOUNCE")
-    g:Play()
+    -- OFF (8 Nov 2026, Arn's screenshot: in a fight his own green heal pip filled the whole screen - the client's SCALE
+    -- bounce grew it without bound). Built, never played, until a probe says how this client runs a Scale animation.
+    if RD.SIZE_PULSE then g:Play() end
     return g
 end
 
@@ -1621,7 +1624,7 @@ function RD.PaintHeal(sp)
     if red then
         local okR, rc = pcall(UnitHealthPercent, sp.unit, true, red)
         if okR and sp.redGlyph then paint(sp.redGlyph, rc) end
-        if sp.pulse and not (sp.pulse.IsPlaying and sp.pulse:IsPlaying()) then sp.pulse:Play() end
+        if RD.SIZE_PULSE and sp.pulse and not (sp.pulse.IsPlaying and sp.pulse:IsPlaying()) then sp.pulse:Play() end
     end
     local amber = RD.AmberCurve(sp.amber)
     if amber and sp.amberGlyph then

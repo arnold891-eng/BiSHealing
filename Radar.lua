@@ -224,6 +224,44 @@ local function tex(parent, layer, col)
     return t
 end
 
+--- THE POP UNDER THE MOUSE (8 Nov 2026, Arn: "need to also make the icons pop a little so i know im hovering over the
+--- right icon" - the family rule, rows pop on hover). A bright white RING snaps round whatever clickable thing the mouse
+--- is on - a heal pip, a cure pip, a bogey, a corner system - even an invisible one, so you see what a click would do.
+--- A ring, not a box (Arn: no boxes). Its own plain frame on the button, only its ALPHA ever changes (in a fight too);
+--- remade only when the pip's size changes. Hooked, never Set: a secure button keeps its own scripts.
+RD.HALO_PAD, RD.HALO_SEG = 6, 18
+RD.HALO_COL = { 1, 1, 1, 0.95 }
+function RD.Halo(owner, px)
+    local h = owner.halo
+    if h and h.px == px then return h end
+    if not h then
+        h = CreateFrame("Frame", nil, owner)
+        h:SetPoint("CENTER", owner, "CENTER", 0, 0)
+        h:SetSize(1, 1)
+        h:SetFrameLevel(owner:GetFrameLevel() + 30)
+        h:SetAlpha(0)
+        owner.halo = h
+        owner:HookScript("OnEnter", function() h:SetAlpha(1) end)
+        owner:HookScript("OnLeave", function() h:SetAlpha(0) end)
+    end
+    for _, t in ipairs(h.ring or {}) do t:Hide() end
+    h.ring = {}
+    local r = px / 2 + RD.HALO_PAD
+    local seg = 2 * math.pi * r / RD.HALO_SEG + 1
+    for k = 0, RD.HALO_SEG - 1 do
+        local a = (k + 0.5) * 2 * math.pi / RD.HALO_SEG
+        local t = h:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(RD.HALO_COL[1], RD.HALO_COL[2], RD.HALO_COL[3], RD.HALO_COL[4])
+        t:SetSize(seg, 2)
+        t:SetPoint("CENTER", h, "CENTER", math.sin(a) * r, math.cos(a) * r)
+        if t.SetRotation then t:SetRotation(-a) end
+        h.ring[#h.ring + 1] = t
+    end
+    h.px = px
+    return h
+end
+
 --[[ WHERE EVERY SLOT SITS (the geometry). A slot = { b = bearing (radians, 0 up, clockwise), rh / rc / rb = the heal,
   cure and bogey radii (rb nil: no bogey), ph / pc / pb = their sizes, own = your group }.
   PARTY / SOLO (v1): five spokes, 72 degrees apart, the first straight up.
@@ -496,6 +534,7 @@ function RD.PlaceSpoke(sp, s, rim)
     b:SetSize(s.ph, s.ph)
     b:ClearAllPoints()
     b:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
+    RD.Halo(b, s.ph)
     if sp.glyphPx ~= s.ph then
         for _, t in ipairs(sp.glyph or {}) do t:Hide() end
         sp.glyph, sp.role, sp.glyphPx = nil, nil, s.ph
@@ -503,6 +542,7 @@ function RD.PlaceSpoke(sp, s, rim)
     local k = sp.bogey
     if s.rb then
         k:SetSize(s.pb, s.pb)
+        RD.Halo(k, s.pb)
         k:ClearAllPoints()
         k:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rb))
         if not k.lines or k.linesPx ~= s.pb then
@@ -572,6 +612,7 @@ local function buildSystem(f, name, point, x, y)
     end
     b.icon = b.face:CreateTexture(nil, "OVERLAY")
     b.icon:SetPoint("CENTER") b.icon:SetSize(RD.SYS_PX - 10, RD.SYS_PX - 10)
+    RD.Halo(b, RD.SYS_PX)
     -- what it is, under the mouse only (no words on the scope): b.tip = { title, line }
     b:HookScript("OnEnter", function(self)
         local tip = self.tip
@@ -755,6 +796,7 @@ local function armCures(sp, unit)
             sp.cures[n] = c
         end
         c.box:SetSize(px + 4, px + 4)
+        RD.Halo(c.box, px + 4)
         c.box:ClearAllPoints()
         c.box:SetPoint("CENTER", f, "CENTER", cx, cy)
         c.box:SetAttribute("type", "spell")

@@ -11595,6 +11595,27 @@ do
     ok(RD.shield.tip and RD.shield.tip[1] == "STABILIZER" and RD.shield.tip[2]:find("Water Shield", 1, true),
        "under the mouse: STABILIZER, and which spell it casts")
     ok(not RD.shield.icon:IsShown(), "no spell picture")
+    -- THE POP UNDER THE MOUSE (Arn 8 Nov: "make the icons pop a little so i know im hovering over the right icon"): a
+    -- white ring round whatever is under the mouse - a heal pip, a bogey, a cure pip, a corner system
+    local function hover(btn)
+        local s = btn.__scripts or btn.scripts or {}
+        local enter, leave = s.OnEnter, s.OnLeave
+        if enter then enter(btn) end
+        local on = btn.halo and btn.halo:GetAlpha()
+        if leave then leave(btn) end
+        local off = btn.halo and btn.halo:GetAlpha()
+        return on, off
+    end
+    for what, btn in pairs({ heal = sp2.heal, bogey = sp2.bogey, cure = sp2.cures[1] and sp2.cures[1].box,
+                             stabilizer = RD.shield, fuel = RD.fuel }) do
+        local on, off = hover(btn)
+        ok(btn.halo and #btn.halo.ring == RD.HALO_SEG and on == 1 and off == 0,
+           "the " .. what .. " pops a white ring under the mouse, and lets it go", tostring(on) .. "/" .. tostring(off))
+    end
+    STATE.inCombat = true
+    local okFight = pcall(hover, sp2.heal)
+    ok(okFight, "in a fight too: only the ring's alpha changes, nothing secure is touched")
+    STATE.inCombat = false
     ok((RD.shield.container:GetFrameLevel() or 0) > (RD.shield:GetFrameLevel() or 0), "drawn over the red")
     d.selfBuffs, BOOK[21] = keepSB, keepBook
     RD.Arm()

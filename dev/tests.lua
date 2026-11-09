@@ -599,10 +599,15 @@ end
 local WATCHED = setmetatable({}, { __mode = "k" })
 _G.RegisterUnitWatch = function(f) WATCHED[f] = true end
 _G.UnregisterUnitWatch = function(f) WATCHED[f] = nil end
+-- the CLIENT showing and hiding is never "an addon in combat": it goes round the lockdown guard (f.__client)
+local function clientShow(f, on)
+    local c = f.__client
+    if c then if on then c.Show(f) else c.Hide(f) end elseif on then f:Show() else f:Hide() end
+end
 local function WATCH_TICK()
     for f in pairs(WATCHED) do
         local u = f.GetAttribute and f:GetAttribute("unit")
-        if u and STATE.units[u] then f:Show() else f:Hide() end
+        clientShow(f, u and STATE.units[u])
     end
 end
 -- A STATE DRIVER IS THE CLIENT'S TOO (18 Oct: the target cell's cure boxes). A driven frame is shown
@@ -617,7 +622,7 @@ local function DRIVE_TICK()
     for f, cond in pairs(DRIVEN) do
         local u = tostring(cond):match("^%[@([%w]+),help%] show; hide$")
         assert(u, "a state driver this mock does not understand: " .. tostring(cond))
-        if STATE.units[u] and not HOSTILE[u] then f:Show() else f:Hide() end
+        clientShow(f, STATE.units[u] and not HOSTILE[u])
     end
 end
 -- THE CLIENT'S OWN ANSWERS ABOUT SECRECY. There is a C_Secrets question for every kind of secret
@@ -667,7 +672,31 @@ _G.C_XMLUtil = { GetTemplateInfo = function(t)
     return (t == "CustomAuraContainerTemplate" and containersExist) and { name = t } or nil
 end }
 local realCreateFrame = _G.CreateFrame
+-- A SECURE FRAME IN A FIGHT IS THE CLIENT'S (8 Nov 2026, the radar; BiS Tools' boss list hit it the same night:
+-- "tried to call the protected function 'Button:Show()'"). Show, Hide, SetShown, SetAttribute and EnableMouse on a
+-- frame made from a Secure template are REFUSED inside the lockdown - the call itself, even one that changes
+-- nothing. The client blocks it and fires ADDON_ACTION_BLOCKED; here it is an error, so a suite sees it.
+local function lockdownGuard(f)
+    f.__client = { Show = f.Show, Hide = f.Hide }
+    for _, m in ipairs({ "Show", "Hide", "SetShown", "SetAttribute", "EnableMouse" }) do
+        local real = f[m]
+        if real then
+            f[m] = function(self, ...)
+                if STATE.inCombat then
+                    error("ADDON_ACTION_BLOCKED: " .. m .. " on a secure frame in combat", 2)
+                end
+                return real(self, ...)
+            end
+        end
+    end
+    return f
+end
 _G.CreateFrame = function(kind, name, parent, template)
+    local f = _G.CreateFrameUnguarded(kind, name, parent, template)
+    if type(f) == "table" and type(template) == "string" and template:find("Secure", 1, true) then lockdownGuard(f) end
+    return f
+end
+_G.CreateFrameUnguarded = function(kind, name, parent, template)
     -- SecureUnitButtonTemplate ARRIVES WITH AN OnEnter ALREADY ON IT. That handler is what makes
     -- the button the mouseover, and the help button's `/ping [@mouseover] assist` aims at exactly
     -- it. A mock that handed back a bare frame made "did we put our own script in its place" a
@@ -11307,7 +11336,7 @@ do
     SlashCmdList.BISHEALING("alpha on")
     ok(d.alpha == true and NS.AlphaOn() and NS.AlphaOn("probe") and said("thank you for testing"), "/bish alpha on: on, every feature with it")
     heard = {}
-    ok(NS.AlphaHello() and said("alpha testing is on") and said("1 test feature"), "on: one line at login, so a tester never forgets")
+    ok(NS.AlphaHello() and said("alpha testing is on") and said(#NS.ALPHA_ORDER .. " test feature"), "on: one line at login, so a tester never forgets")
     SlashCmdList.BISHEALING("alpha probe off")
     ok(NS.AlphaOn() and not NS.AlphaOn("probe") and d.alphaOff.probe == true, "/bish alpha probe off: that one back, the switch still on")
     SlashCmdList.BISHEALING("alpha probe on")
@@ -11322,6 +11351,211 @@ do
     for i, k in ipairs(NS.ALPHA_ORDER) do if k == "probe" then table.remove(NS.ALPHA_ORDER, i) break end end
     d.alphaOff = nil
     _G.DEFAULT_CHAT_FRAME = realChat
+end
+
+-- THE RADAR (Arn 8 Nov: "make a radar that hides everything and only lights up when it needs to be clicked" ...
+-- "Build it"; then "raid sectors next"). The secret alpha's first feature.
+do
+    local RD = NS.RD
+    local d = NS.DB()
+    local keep = { CU = _G.C_CurveUtil, CC = _G.CreateColor, E = _G.Enum, HP = _G.UnitHealthPercent, PP = _G.UnitPowerPercent,
+                   raid = _G.IsInRaid, num = _G.GetNumGroupMembers, info = _G.GetRaidRosterInfo, isu = _G.UnitIsUnit,
+                   cast = _G.UnitCastingDuration, chan = _G.UnitChannelDuration, b43 = BOOK[43], b44 = BOOK[44], b45 = BOOK[45] }
+    -- THE CLIENT'S CURVES, as it evaluates them: a colour curve is points; the health fraction is the client's alone
+    -- (STATE.hp, never handed to the addon); the answer is a colour object whose numbers only a texture takes
+    STATE.hp = {}
+    _G.Enum = { LuaCurveType = { Step = "step", Linear = "linear" } }
+    _G.CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a } end
+    _G.C_CurveUtil = { EvaluateColorValueFromBoolean = keep.CU.EvaluateColorValueFromBoolean, CreateColorCurve = function()
+        local c = { points = {} }
+        function c:SetType(t) self.type = t end
+        function c:AddPoint(x, col) self.points[#self.points + 1] = { x = x, col = col } end
+        return c
+    end }
+    local function evaluate(curve, x)
+        local p = curve.points
+        table.sort(p, function(a, b) return a.x < b.x end)
+        if x <= p[1].x then return p[1].col end
+        for i = 2, #p do
+            if x <= p[i].x then
+                local a, b = p[i - 1], p[i]
+                local t = (x - a.x) / math.max(1e-9, b.x - a.x)
+                local function mix(k) return a.col[k] + (b.col[k] - a.col[k]) * t end
+                return { r = mix("r"), g = mix("g"), b = mix("b"), a = mix("a") }
+            end
+        end
+        return p[#p].col
+    end
+    local function colourOut(c) return { GetRGBA = function() return c.r, c.g, c.b, c.a end } end
+    _G.UnitHealthPercent = function(u, predicted, curve)
+        if type(curve) ~= "table" or not curve.points then return secret() end
+        return colourOut(evaluate(curve, STATE.hp[u] or 1))
+    end
+    STATE.mana = 1
+    _G.UnitPowerPercent = function(u, p, predicted, curve)
+        if type(curve) == "table" and curve.points then return colourOut(evaluate(curve, STATE.mana)) end
+        return secret()
+    end
+    STATE.casting = {}
+    _G.UnitCastingDuration = function(u) return STATE.casting[u] and { duration = 1 } or nil end
+    _G.UnitChannelDuration = function() return nil end
+    BOOK[43] = { name = "Earth Shock", rank = "Rank 1" }
+    BOOK[44] = { name = "Cure Poison", rank = "" }
+    BOOK[45] = { name = "Cure Disease", rank = "" }
+    NS.FM.BookChanged()
+    if NS.FG then NS.FG.kickSpell = nil end
+    STATE.inCombat = false
+    STATE.units.party1, STATE.units.party2 = true, true
+
+    local keepShown = d.shown
+    d.shown = true                                   -- the grid ON, so its giving way is seen
+    local shownBefore = d.shown
+    ok(RD and not RD.Active() and NS.ALPHA.radar, "the radar is a test feature, off while the alpha is")
+    SlashCmdList.BISHEALING("alpha on")
+    local f = _G.BiSHealingRadar
+    ok(RD.Active() and f and f:IsShown(), "/bish alpha on: the radar comes up")
+    ok(NS.FG.Hidden() and d.shown == shownBefore, "and the grid gives way - its own `shown` switch untouched", tostring(d.shown))
+    local sp1, sp2 = RD.spokes[1], RD.spokes[2]
+    ok(#RD.slots == 5 and sp1.unit == "player" and sp2.unit == "party1" and RD.spokes[3].unit == "party2" and RD.spokes[4].unit == nil,
+       "a party: five spokes - you, party1, party2, and two empty")
+    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "spell"
+       and sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)",
+       "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("spell1"))
+    ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
+       and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
+    ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
+       and sp2.cures[1].container and sp2.cures[1].container.unit == "party1", "two cure pips on the spoke: the client's markers, your cures")
+    local names = 0
+    for _, fs in ipairs(LABELS) do
+        local p = fs.__parent
+        while p do if p == f then if fs.__text and fs.__text ~= "" then names = names + 1 end break end p = p.__parent end
+    end
+    ok(names == 0, "no names, no words on the scope", names)
+
+    -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
+    local function shade(sp)
+        RD.PaintHeal(sp)
+        local c = sp.paintTex[1].__vertex or sp.paintTex[1].vertex or sp.paintTex[1].__color
+        return c
+    end
+    local function alphaOf(sp) local c = shade(sp) return c and c[4] end
+    local function colourOf(sp) local c = shade(sp) return c and c[1], c and c[2] end
+    STATE.hp.party1 = 0.97
+    ok(alphaOf(sp2) == 0, "nearly full: invisible", tostring(alphaOf(sp2)))
+    STATE.hp.party1 = 0.85
+    local r, g = colourOf(sp2)
+    ok(alphaOf(sp2) == 1 and g and g > 0.9 and r < 0.5, "below 90%: green - hurt, can wait")
+    STATE.hp.party1 = 0.6
+    r, g = colourOf(sp2)
+    ok(r == 1 and g and g > 0.6 and g < 0.8, "below your heal's size (unknown here: 80%): amber - click now")
+    STATE.hp.party1 = 0.2
+    r, g = colourOf(sp2)
+    ok(r == 1 and g and g < 0.3, "under 35%: red - drop everything")
+    ok(sp2.heal.red and (sp2.heal.red.__vertex or sp2.heal.red.vertex or {})[4] ~= 0 and sp2.pulse, "and the red layer pulses (the client's animation)")
+
+    -- A FIGHT: everything quiet - the scope, the empty places, the idle bogeys - and nothing secure is touched
+    STATE.inCombat = true
+    fire(RD.events, "PLAYER_REGEN_DISABLED")
+    ok(RD.scope:GetAlpha() == 0 and RD.dims:GetAlpha() == 0, "a fight: the scope and the empty places are invisible")
+    RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 0, "an idle bogey: invisible, but in its place")
+    STATE.casting.party1target = true
+    RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 1, "their target casts: the bogey shows - flare it")
+    STATE.casting.party1target = nil
+    RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 0, "and goes when the cast does")
+    local okArm = pcall(RD.Arm)
+    ok(okArm and RD.pending, "a re-arm mid-fight touches nothing secure, it waits (the mock refuses secure calls in combat)")
+    local okRoster = pcall(fire, RD.events, "GROUP_ROSTER_UPDATE")
+    ok(okRoster and RD.pending, "a roster change mid-fight: queued, no error")
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local look = Cost.Count(function() RD.Look() end)
+    print(("   cost: radar, one look (5 bogeys + 5 ranges) = %d calls"):format(look))
+    ok(look <= 40, "a look of a party stays in its budget", look)
+    STATE.inCombat = false
+    fire(RD.events, "PLAYER_REGEN_ENABLED")
+    ok(not RD.pending and RD.scope:GetAlpha() == 1, "the fight ends: the queued re-arm runs, the scope is back")
+
+    -- the drag ends before a fight takes the mouse (BiS Tools' boss window, the same night)
+    f.__scripts.OnDragStart(f)
+    ok(f.dragging, "dragging the radar")
+    STATE.inCombat = true
+    fire(RD.events, "PLAYER_REGEN_DISABLED")
+    ok(not f.dragging and type(d.radar.pos) == "table", "a pull mid-drag: the drag ends and the spot is kept")
+    STATE.inCombat = false
+    fire(RD.events, "PLAYER_REGEN_ENABLED")
+
+    -- the hidden setting: another heal, typed with its capitals
+    SlashCmdList.BISHEALING("alpha radar heal Lesser Healing Wave")
+    ok(sp2.heal:GetAttribute("spell1") == "Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
+       "/bish alpha radar heal Lesser Healing Wave: that heal, its top rank minus 2 (it has one)", sp2.heal:GetAttribute("spell1"))
+    SlashCmdList.BISHEALING("alpha radar heal default")
+    ok(sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)", "and back to the default")
+
+    -- RAID SECTORS: 40 fixed slots, your own group on top and nearer the middle; a full 40
+    _G.IsInRaid = function() return true end
+    _G.GetNumGroupMembers = function() return 40 end
+    _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, math.ceil(i / 5) end
+    _G.UnitIsUnit = function(a, b) return a == "raid12" and b == "player" end
+    for i = 1, 40 do STATE.units["raid" .. i] = true end
+    fire(RD.events, "GROUP_ROSTER_UPDATE")
+    ok(RD.raid and RD.ownGroup == 3 and #RD.slots == 40 and #RD.spokes == 40, "a raid: 40 slots, you in group 3")
+    local own = RD.spokes[11].slot
+    ok(RD.spokes[11].unit == "raid11" and own.own and math.abs(own.b) < math.rad(32) and own.rh < RD.RAID.other.rh,
+       "your own group's sector is the top one, nearer the centre", own.b)
+    ok(RD.spokes[1].slot.rh == RD.RAID.other.rh and not RD.spokes[1].slot.rb and RD.spokes[1].heal:GetAttribute("unit") == "raid1",
+       "group 1 sits on the outer ring, no bogey (bogeys: your own group only)")
+    ok(RD.spokes[16].slot.b > own.b and RD.spokes[16].slot.b < RD.spokes[1].slot.b,
+       "group 4 comes right after yours, clockwise; group 1 last")
+    ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
+    -- every pip in its own place: no two slots on top of each other
+    local clash = 0
+    for i = 1, 40 do
+        for j = i + 1, 40 do
+            local a, b = RD.slots[i], RD.slots[j]
+            local ax, ay = RD.Point(a, a.rh)
+            local bx, by = RD.Point(b, b.rh)
+            if math.abs(ax - bx) < (a.ph + b.ph) / 2 and math.abs(ay - by) < (a.ph + b.ph) / 2 then clash = clash + 1 end
+        end
+    end
+    ok(clash == 0, "every heal pip has its own place in a full 40", clash)
+    -- a 40-man repaint pass, and a look
+    local paint = Cost.Count(function() RD.Paint() end)
+    print(("   cost: radar, a 40-man repaint pass = %d calls"):format(paint))
+    ok(paint <= 900, "a 40-man repaint stays in its budget", paint)
+    STATE.inCombat = true
+    fire(RD.events, "PLAYER_REGEN_DISABLED")
+    local look40 = Cost.Count(function() RD.Look() end)
+    print(("   cost: radar, one 40-man look (5 bogeys + 40 ranges) = %d calls"):format(look40))
+    ok(look40 <= 220, "a 40-man look stays in its budget", look40)
+    -- a raid roster change mid-fight: refused and queued
+    _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, math.ceil((41 - i) / 5) end     -- the groups turned round
+    local okR = pcall(fire, RD.events, "GROUP_ROSTER_UPDATE")
+    ok(okR and RD.pending and RD.spokes[1].heal:GetAttribute("unit") == "raid1", "a raid roster change mid-fight: nothing moves, it waits")
+    STATE.inCombat = false
+    fire(RD.events, "PLAYER_REGEN_ENABLED")
+    ok(not RD.pending and RD.spokes[1].heal:GetAttribute("unit") == "raid36", "after the fight: the new roster in its places",
+       RD.spokes[1].heal:GetAttribute("unit"))
+
+    -- back to a party: the raid's extra spokes go away
+    _G.IsInRaid, _G.GetNumGroupMembers, _G.GetRaidRosterInfo, _G.UnitIsUnit = keep.raid, keep.num, keep.info, keep.isu
+    for i = 1, 40 do STATE.units["raid" .. i] = nil end
+    fire(RD.events, "GROUP_ROSTER_UPDATE")
+    ok(not RD.raid and #RD.slots == 5 and not RD.spokes[20].heal:IsShown() and RD.spokes[20].heal:GetAttribute("unit") == nil,
+       "a party again: five spokes, the rest off")
+
+    -- off: the grid comes back exactly as it was
+    SlashCmdList.BISHEALING("alpha off")
+    ok(not RD.Active() and not f:IsShown() and NS.FG.Hidden() == (shownBefore == false), "/bish alpha off: the radar goes, the grid is as it was")
+
+    STATE.units.party1, STATE.units.party2 = true, true
+    BOOK[43], BOOK[44], BOOK[45] = keep.b43, keep.b44, keep.b45
+    NS.FM.BookChanged()
+    if NS.FG then NS.FG.kickSpell = nil end
+    _G.C_CurveUtil, _G.CreateColor, _G.Enum, _G.UnitHealthPercent, _G.UnitPowerPercent = keep.CU, keep.CC, keep.E, keep.HP, keep.PP
+    _G.UnitCastingDuration, _G.UnitChannelDuration = keep.cast, keep.chan
+    d.radar, d.shown = nil, keepShown
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

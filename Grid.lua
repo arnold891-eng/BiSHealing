@@ -61,6 +61,15 @@ local GRID_HEADER_H, GRID_HEADER_LIFT = 16, 2
 --- carries the long one. `width` is the bar's, in pixels; nothing passed means plenty of room.
 local NARROW = 120                      -- a bar one group wide (84) plus a little; two groups fit
 
+
+--- Is the grid hidden? Its own switch (`shown`), or the radar standing in for it (the secret alpha, Radar.lua) - which
+--- never touches the switch, so turning the radar off brings back exactly what was there.
+function FG.Hidden(d)
+    d = d or (NS.DB and NS.DB())
+    if type(d) == "table" and d.shown == false then return true end
+    return (NS.RD and NS.RD.Active and NS.RD.Active()) and true or false
+end
+
 function FG.HeaderWord(width)
     local short = type(width) == "number" and width > 0 and width < NARROW
     local fighting = InCombatLockdown and InCombatLockdown()
@@ -1004,7 +1013,7 @@ function FG.LayoutTarget(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.target == true and d.shown ~= false
+    local want = type(d) == "table" and d.target == true and not FG.Hidden(d)
     if not want then
         if FG.target then
             FG.Unwatch(FG.target)
@@ -1052,7 +1061,7 @@ function FG.LayoutToT(parent)
     if InCombatLockdown and InCombatLockdown() then return false end
     parent = parent or FG.target
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.tot == true and d.target == true and d.shown ~= false
+    local want = type(d) == "table" and d.tot == true and d.target == true and not FG.Hidden(d)
     if not (want and parent) then
         if FG.tot then
             FG.Unwatch(FG.tot)
@@ -1235,7 +1244,7 @@ function FG.LayoutPets(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = FG.PetsOwnBlock() and type(d) == "table" and d.shown ~= false
+    local want = FG.PetsOwnBlock() and type(d) == "table" and not FG.Hidden(d)
     local roster = want and FG.PetRoster() or {}
     if #roster == 0 then
         -- no pets, or not wanted: the block goes away entirely rather than sitting there empty
@@ -1381,7 +1390,7 @@ function FG.LayoutMana(anchor)
     anchor = anchor or FG.anchor
     if not anchor then return false end
     local d = NS.DB and NS.DB()
-    local want = type(d) == "table" and d.mana == true and d.shown ~= false
+    local want = type(d) == "table" and d.mana == true and not FG.Hidden(d)
     local healers = want and FG.Healers() or {}
     if #healers == 0 then
         if FG.manaAnchor then FG.manaAnchor:Hide() end
@@ -2029,7 +2038,7 @@ function FG.Layout(anchor)
     -- showing up". The watch is lifted, the cells hidden, and the anchor with them (the header
     -- lives on it), so nothing is left on screen but the minimap button to bring it back.
     local d = NS.DB and NS.DB()
-    if type(d) == "table" and d.shown == false then
+    if FG.Hidden(d) then
         for _, f in ipairs(FG.frames) do FG.Unwatch(f); f:Hide() end
         FG.HidePvP()                 -- the target cells beside them go with them
         if anchor.Hide then anchor:Hide() end

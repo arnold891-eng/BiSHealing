@@ -35,6 +35,7 @@ Now.lua
 Buffs.lua
 # the heals probe (`/bish heals`), read only
 Heals.lua
+Radar.lua
 # last before the UI-only files: BiSHealingAPI, for other addons (playbook 5a)
 API.lua
 

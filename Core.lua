@@ -2080,7 +2080,8 @@ function NS.AlphaFeature(spec)
     if type(spec) ~= "table" or type(spec.key) ~= "string" or spec.key == "" then return nil end
     local key = spec.key:lower()
     if not NS.ALPHA[key] then NS.ALPHA_ORDER[#NS.ALPHA_ORDER + 1] = key end
-    NS.ALPHA[key] = { key = key, name = spec.name or key, desc = spec.desc }
+    -- apply = run after the switch changes (on, off, this feature on/off); cmd = `/bish alpha <key> <words>`
+    NS.ALPHA[key] = { key = key, name = spec.name or key, desc = spec.desc, apply = spec.apply, cmd = spec.cmd }
     return NS.ALPHA[key]
 end
 
@@ -2107,19 +2108,38 @@ local function alphaList()
     end
 end
 
-function NS.DO.alpha(arg)
+--- Every feature told the switch moved (its `apply`) - each one decides for itself what that means now.
+local function alphaApply()
+    for _, key in ipairs(NS.ALPHA_ORDER) do
+        local f = NS.ALPHA[key]
+        if f and f.apply then pcall(f.apply) end
+    end
+end
+NS.AlphaApply = alphaApply
+
+function NS.DO.alpha(raw)
     local d = DB()
-    arg = tostring(arg or ""):lower():match("^%s*(.-)%s*$")
+    raw = tostring(raw or ""):match("^%s*(.-)%s*$")
+    local arg = raw:lower()
     local word, onoff = arg:match("^(%S+)%s+(%S+)$")
+    -- a feature's own words (`/bish alpha radar heal Healing Wave`): handed over as typed, capitals kept
+    local fkey, rest = raw:match("^(%S+)%s+(.+)$")
+    local feat = fkey and NS.ALPHA[fkey:lower()]
+    if feat and feat.cmd and not (onoff == "on" or onoff == "off") then
+        pcall(feat.cmd, rest)
+        return NS.AlphaOn()
+    end
     if arg == "on" or arg == "off" then
         d.alpha = (arg == "on") or nil
         Print("alpha testing: %s", d.alpha and "|cff5dff9bon|r - thank you for testing" or "off - the release as everyone has it")
         if d.alpha then alphaList() end
+        alphaApply()
     elseif word and (onoff == "on" or onoff == "off") then
         if not NS.ALPHA[word] then Print("alpha: no test feature called %s", word) alphaList() return NS.AlphaOn() end
         d.alphaOff = type(d.alphaOff) == "table" and d.alphaOff or {}
         d.alphaOff[word] = (onoff == "off") or nil
         Print("alpha: %s %s%s", NS.ALPHA[word].name, onoff, d.alpha and "" or " (the alpha itself is off: /bish alpha on)")
+        alphaApply()
     else
         Print("alpha testing: %s  |cff968ead/bish alpha on|off|r", d.alpha and "|cff5dff9bon|r" or "off")
         alphaList()
@@ -2177,7 +2197,7 @@ SlashCmdList.BISHEALING = function(input)
     elseif msg:match("^pets?%s+%a+$") then
         NS.DO.pets(msg:match("^pets?%s+(%a+)$"))
     elseif msg == "alpha" or msg:match("^alpha%s") then        -- unlisted on purpose (the secret alpha)
-        NS.DO.alpha(msg:match("^alpha%s+(.+)$"))
+        NS.DO.alpha(tostring(input or ""):match("^%s*%S+%s+(.+)$"))      -- as typed: a spell name keeps its capitals
     elseif msg == "pvpmode" or msg == "pvp" then
         NS.DO.pvp()
     elseif msg:match("^pvpmode%s+%a+$") or msg:match("^pvp%s+%a+$") then

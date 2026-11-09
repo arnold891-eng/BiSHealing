@@ -11571,8 +11571,13 @@ do
     RD.Look()
     local tri = sp2.bogey.lines and sp2.bogey.lines[1]
     local tc = tri and (tri.color or tri.__vertex or tri.vertex) or {}
-    ok(sp2.bogey.face:GetAlpha() == RD.CONTACT[4] and tc[2] and tc[2] > 0.9, "a hostile target, not casting: a quiet green triangle",
+    ok(sp2.bogey.face:GetAlpha() == 0, "a hostile target, not casting: nothing (Arn: \"why is it showing interrupt buttons when its not casting\")",
        tostring(sp2.bogey.face:GetAlpha()))
+    RD.CONTACT_SHOWN = true
+    RD.Look()
+    tc = tri and (tri.color or tri.__vertex or tri.vertex) or {}
+    ok(sp2.bogey.face:GetAlpha() == RD.CONTACT[4] and tc[2] and tc[2] > 0.9, "(the quiet green contact, if ever switched back on)")
+    RD.CONTACT_SHOWN = false
     STATE.casting.party1target = true
     RD.Look()
     tc = tri and (tri.color or tri.__vertex or tri.vertex) or {}

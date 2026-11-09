@@ -64,6 +64,7 @@ RD.CROSS_PAD = 12                                  -- px round a pip
 RD.TOT = { 1.00, 0.70, 0.25 }
 RD.TOT_PAD = 22
 RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
+RD.CONTACT_SHOWN = false                           -- Arn, 8 Nov: a bogey shows only while it casts
 RD.CURE_COL = { Poison = { 0.49, 1.00, 0.35, 1 }, Disease = { 0.88, 0.69, 0.29, 1 }, Magic = { 0.30, 0.64, 1.00, 1 },
                 Curse = { 0.77, 0.35, 1.00, 1 } }
 -- your class's single-target heal, the first one trained wins (Arn: "we always use our biggest heal minus 2 ranks")
@@ -1094,6 +1095,10 @@ local function paintContact(sp, lit)
     local col = lit and RD.COL.bogey or RD.CONTACT
     for _, l in ipairs(k.lines or {}) do l:SetVertexColor(col[1], col[2], col[3], 1) end
     if lit then k.face:SetAlpha(1) return true end
+    -- ONLY WHEN IT CASTS (Arn, 8 Nov, four green triangles over a party on one mob: "why is it showing interrupt buttons
+    -- when its not casting" - picked "only when casting"). The quiet green contact below is kept, switched off by
+    -- RD.CONTACT_SHOWN, should it ever be wanted back.
+    if not RD.CONTACT_SHOWN then k.face:SetAlpha(0) return false end
     local okE, there = pcall(UnitExists, sp.tok)
     there = okE and there
     if NS.Secret and NS.Secret(there) then there = true end           -- let the hostile answer decide

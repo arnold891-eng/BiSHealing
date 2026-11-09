@@ -137,7 +137,30 @@ local function newFrame(kind, name, parent)
     function f:GetNumPoints() return #self.points end
     -- WHAT A FRAME LISTENS TO, recorded (8 Nov 2026, the dashboard). A Button the client was not told
     -- RegisterForClicks("RightButtonUp") never sees a right-click, and an auto no-op could not say so.
-    function f:EnableMouse(v) self.__mouse = v and true or false end
+    -- A DRAG, AS THE CLIENT HOLDS IT (8 Nov 2026, the drag audit after BiS Tools' boss window held Arn's mouse until he
+    -- killed the game). StartMoving glues the frame to the cursor; only StopMovingOrSizing lets go. The client refuses
+    -- both on a SECURE frame inside the lockdown - so a drag on a cell still going when the fight starts can never be
+    -- stopped from the mouse-up. A frame that hides or stops taking the mouse mid-drag never hears the button come up
+    -- either. Each of those counts STATE.strandedDrag, so a suite can forbid it. These were auto no-ops: every drag
+    -- "ended" here, whenever and however it was asked to.
+    -- PROTECTED = secure itself, or holding a secure frame (IsProtected's second answer, "explicit", exists because of
+    -- the second kind): the grid's anchor carries every cell, so moving it moves them
+    function f:IsProtected() return (self.__secure or self.__secureKids) and true or false, self.__secure and true or false end
+    function f:StartMoving()
+        if self:IsProtected() and STATE.inCombat then error("StartMoving on a protected frame in combat", 2) end
+        self.__moving = true
+    end
+    function f:StopMovingOrSizing()
+        if self.__moving and self:IsProtected() and STATE.inCombat then
+            STATE.strandedDrag = (STATE.strandedDrag or 0) + 1      -- refused: still on the cursor
+            return
+        end
+        self.__moving = nil
+    end
+    function f:EnableMouse(v)
+        if not v and self.__moving then STATE.strandedDrag = (STATE.strandedDrag or 0) + 1 end
+        self.__mouse = v and true or false
+    end
     function f:IsMouseEnabled() return self.__mouse == true end
     function f:RegisterForClicks(...) self.__clicks = { ... } end
     function f:GetPoint(i)
@@ -172,7 +195,10 @@ local function newFrame(kind, name, parent)
     function f:SetAttribute(k, v) self.__attrs[k] = v end
     function f:GetAttribute(k) return self.__attrs[k] end
     function f:Show() self.__shown = true end
-    function f:Hide() self.__shown = false end
+    function f:Hide()
+        if self.__shown and self.__moving then STATE.strandedDrag = (STATE.strandedDrag or 0) + 1 end
+        self.__shown = false
+    end
     function f:IsShown() return self.__shown end
     function f:SetShown(v) self.__shown = v and true or false end
     -- A CLICK RUNS OnClick, as the client's Button:Click() does - and not on a disabled button
@@ -741,6 +767,8 @@ _G.CreateFrameUnguarded = function(kind, name, parent, template)
     if type(template) == "string" and template:find("SecureUnitButton", 1, true) then
         local b = newFrame(kind, name, parent)
         b.__scripts.OnEnter = function(self) self.__wasMouseover = true end
+        b.__secure, b.__template = true, template                        -- protected: the lockdown applies
+        if type(parent) == "table" then parent.__secureKids = true end    -- and so is what holds it
         return b
     end
     if kind == "AuraContainer" then
@@ -814,6 +842,10 @@ _G.CreateFrameUnguarded = function(kind, name, parent, template)
     end
     local made = realCreateFrame(kind, name, parent, template)
     if type(made) == "table" then made.__template = template end      -- which template, so a suite can ask
+    if type(made) == "table" and type(template) == "string" and template:find("Secure", 1, true) then
+        made.__secure = true
+        if type(parent) == "table" then parent.__secureKids = true end
+    end
     -- A COOLDOWN FRAME, as the client's: it takes a duration object (secret or not) and runs the sweep itself
     if type(made) == "table" and kind == "Cooldown" then
         function made:SetCooldownFromDurationObject(o) self.__durObj = o end
@@ -3993,6 +4025,41 @@ do
        "and the grid stays where it was put when it is resized",
        ("%s,%s -> %s,%s"):format(gx, gy, gx2, gy2))
     FG.SetScale(1)
+
+    -- A FIGHT MID-DRAG (8 Nov 2026, the drag audit after BiS Tools' boss window held Arn's mouse until he killed the
+    -- game). The target block is a SECURE frame: inside the lockdown the client will not let go of it, so a mouse-up
+    -- that comes in the fight is refused and the block rides the cursor all fight. The drag must END at
+    -- PLAYER_REGEN_DISABLED - the moment before the lockdown - and where it was dropped is kept.
+    STATE.strandedDrag = nil
+    d.targetPos = nil
+    h.__scripts.OnDragStart(h)
+    ok(t.__moving, "the target block is being dragged when the pull comes")
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    STATE.inCombat = true
+    h.__scripts.OnDragStop(h)                                      -- the button comes up inside the fight
+    STATE.inCombat = false
+    ok(not t.__moving and not STATE.strandedDrag, "the pull ENDS the drag: the block is not left on the cursor",
+       tostring(STATE.strandedDrag))
+    ok(d.targetPos and d.targetPos.x == -300 and d.targetPos.y == -100,
+       "and where it was dropped is kept, written before the lockdown",
+       d.targetPos and ("%s,%s"):format(d.targetPos.x, d.targetPos.y))
+    -- the grid's own header: the anchor holds every secure cell, so it is protected too
+    local gh = FG.header
+    local gx3, gy3 = anchorScreenXY()
+    gh.__scripts.OnDragStart(gh)
+    ok(FG.anchor.__moving, "the whole grid is being dragged when the pull comes")
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    STATE.inCombat = true
+    gh.__scripts.OnDragStop(gh)
+    STATE.inCombat = false
+    ok(not FG.anchor.__moving and not STATE.strandedDrag, "and the grid's drag ends at the pull too",
+       tostring(STATE.strandedDrag))
+    local gx4, gy4 = anchorScreenXY()
+    ok(math.abs(gx4 - gx3) < 1 and math.abs(gy4 - gy3) < 1, "and the grid stays where it was dropped",
+       ("%s,%s -> %s,%s"):format(gx3, gy3, gx4, gy4))
+    -- a fight that starts with nothing dragged touches nothing
+    fire(FG.unitEvents, "PLAYER_REGEN_DISABLED")
+    ok(not STATE.strandedDrag and not t.__moving and not FG.anchor.__moving, "a pull with no drag on: nothing to end")
 
     UIParent.GetCenter, t.GetCenter = realUC, nil
 

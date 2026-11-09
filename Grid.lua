@@ -1593,6 +1593,24 @@ function FG.PaintHeaders(h)
     end
 end
 
+--- EVERY BAR THAT DRAGS SOMETHING, and the one moment their drags must end (8 Nov 2026, the drag audit after BiS
+--- Tools' boss window held Arn's mouse until he killed the game). The frames these bars move are secure (a cell) or
+--- hold secure frames (the anchor), and inside the lockdown the client will not let go of them: a drag still on when
+--- the fight starts would have its mouse-up refused and ride the cursor all fight, and its save would fall into the
+--- lockdown too. PLAYER_REGEN_DISABLED comes a moment BEFORE the lockdown, so the drag ends there, through the bar's
+--- own OnDragStop - the place is written while that is still allowed. The real mouse-up later finds nothing moving.
+FG.dragBars = {}
+function FG.EndDrags()
+    local n = 0
+    for _, h in ipairs(FG.dragBars) do
+        if h.moving then
+            local stop = h.GetScript and h:GetScript("OnDragStop")
+            if stop then pcall(stop, h) n = n + 1 end
+        end
+    end
+    return n
+end
+
 function FG.CellHeader(f, word, moves, keys)
     if not f or f.handle then return f and f.handle end
     moves = moves or f
@@ -1636,6 +1654,7 @@ function FG.CellHeader(f, word, moves, keys)
     h.title, h.word = title, word
 
     moves:SetMovable(true)
+    FG.dragBars[#FG.dragBars + 1] = h                -- a fight mid-drag ends it (FG.EndDrags)
     h:SetScript("OnDragStart", function()
         if InCombatLockdown and InCombatLockdown() then return end
         moves:StartMoving()
@@ -3651,6 +3670,7 @@ function FG.PaintRegen(header)
 end
 
     anchor:SetMovable(true)
+    FG.dragBars[#FG.dragBars + 1] = h                -- a fight mid-drag ends it (FG.EndDrags)
     h:SetScript("OnDragStart", function()
         if InCombatLockdown and InCombatLockdown() then return end
         anchor:StartMoving()
@@ -3664,7 +3684,8 @@ end
         FG.SavePos()
         -- AND INTO THE MACRO. A saved variable does not survive a restart on this client, so the
         -- grid came back in the middle at every login (Arn, 21 Sep). Keep.lua writes it beside
-        -- the binds; a drag always ends out of combat, which is when the client allows that.
+        -- the binds; a drag always ends out of combat, which is when the client allows that - one still on when a
+        -- fight starts is ended at PLAYER_REGEN_DISABLED (FG.EndDrags), the moment before the lockdown.
         local d = NS.DB and NS.DB()
         if NS.FK and NS.FK.Save and type(d) == "table" then NS.FK.Save(d.binds or {}) end
     end)
@@ -3875,6 +3896,7 @@ function FG.Start()
     local isAll = {}
     for _, e in ipairs(FG.ALL_EVENTS) do isAll[e] = true end
     uev:SetScript("OnEvent", function(_, event, unit)
+        if event == "PLAYER_REGEN_DISABLED" then FG.EndDrags() end   -- before the lockdown: a drag still on ends
         if FG.SPREAD_EVENTS[event] then FG.MarkAllSoon()
         elseif isAll[event] then FG.dirtyAll = true
         else FG.MarkUnit(unit) end

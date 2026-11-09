@@ -907,6 +907,19 @@ local function buildGauge(f)
 end
 
 --- The tape's size for a square `size` across: its height, the ticks, the 30% lift and the window's roof.
+--- The rail's width in the frame's pixels (the column's right edge and a little), drawn in the scope's units.
+RD.RAIL_W = RD.COLUMN_X + RD.SYS_PX + 5
+function RD.SizeRail(scale)
+    local r = RD.rail
+    if not r then return nil end
+    scale = (type(scale) == "number" and scale > 0) and scale or 1
+    r:ClearAllPoints()
+    r:SetPoint("TOPLEFT", RD.scope, "TOPLEFT", 0, 0)
+    r:SetPoint("BOTTOMLEFT", RD.scope, "BOTTOMLEFT", 0, 0)
+    r:SetWidth(RD.RAIL_W / scale)
+    return RD.RAIL_W / scale
+end
+
 function RD.SizeGauge(size)
     local g, G = RD.gauge, RD.GAUGE
     if not g then return nil end
@@ -1001,6 +1014,14 @@ function RD.Build()
     for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
     for _, b in ipairs(RD.COLUMN) do b.cd = RD.Sweep(b.face, b == RD.tide or b == RD.potion) end
     buildGauge(f)
+    -- THE RAIL (Arn, 8 Nov: "dont like that dark plate it still looks like something i want to click" - he picked "the
+    -- rail"): a solid strip in the plate's own dark behind the fuel tape and the mana column, drawn in the scope's
+    -- background layer (under the tape and the tools, over the see-through scope). The stabilizer's cover is that same
+    -- dark, so with the shield up there is nothing to see. Sized with the scope's scale (RD.SizeRail).
+    RD.rail = RD.scope:CreateTexture(nil, "BACKGROUND", nil, 2)
+    RD.rail:SetTexture(RD.WHITE)
+    RD.rail:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+    RD.SizeRail(1)
     -- rations: a fork
     RD.rations.fork = { line(RD.rations.face, "OVERLAY", -4, 7, -4, -7, RD.COL.cyan, 2), line(RD.rations.face, "OVERLAY", 4, 7, 4, -7, RD.COL.cyan, 2),
                         line(RD.rations.face, "OVERLAY", -4, 0, 4, 0, RD.COL.cyan, 2) }
@@ -1555,6 +1576,7 @@ function RD.Arm()
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
     RD.scope:SetScale(size / RD.PARTY.size)
+    RD.SizeRail(size / RD.PARTY.size)
     RD.SizeGauge(size)                 -- the fuel tape runs the square's height
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)

@@ -11606,6 +11606,14 @@ do
     ok(c1 and #cov == 1 and c1.__allpoints and cc[1] == RD.PLATE[1] and cc[2] == RD.PLATE[2] and cc[4] == 1,
        "the cover: one square the whole pip, opaque, in the plate's dark - it hides the red whole")
     ok(pc[1] == RD.PLATE[1] and pc[2] == RD.PLATE[2], "and the plate under it the same dark: up, you see no symbol at all")
+    -- THE RAIL (Arn 8 Nov: "dont like that dark plate it still looks like something i want to click" - "the rail"): the
+    -- whole left column sits on that same solid dark, so the covered stabilizer is part of the rail, not a button
+    local rail = RD.rail
+    local rc2 = rail and (rail.__vertex or {}) or {}
+    ok(rail and rc2[1] == RD.PLATE[1] and rc2[2] == RD.PLATE[2] and rc2[4] == 1, "a solid rail in the cover's own dark")
+    ok(RD.RAIL_W >= RD.COLUMN_X + RD.SYS_PX, "wide enough to sit behind every tool in the column")
+    ok(math.abs(RD.SizeRail(2) - RD.RAIL_W / 2) < 0.001, "drawn in the scope's units: the same width on screen when the scope is scaled (a raid)")
+    RD.SizeRail(1)
     ok(RD.shield.tip and RD.shield.tip[1] == "STABILIZER" and RD.shield.tip[2]:find("Water Shield", 1, true),
        "under the mouse: STABILIZER, and which spell it casts")
     ok(not RD.shield.icon:IsShown(), "no spell picture")

@@ -11451,7 +11451,39 @@ do
     STATE.hp.party1 = 0.2
     r, g = colourOf(sp2)
     ok(r == 1 and g and g < 0.3, "under 35%: red - drop everything")
-    ok(sp2.heal.red and (sp2.heal.red.__vertex or sp2.heal.red.vertex or {})[4] ~= 0 and sp2.pulse, "and the red layer pulses (the client's animation)")
+    local rg = sp2.redGlyph and sp2.redGlyph[1]
+    ok(rg and (rg.__vertex or rg.vertex or {})[4] ~= 0 and sp2.pulse, "and the red glyph's own layer pulses (the client's animation)")
+    STATE.hp.party1 = 0.6
+    RD.PaintHeal(sp2)
+    ok(((rg.__vertex or rg.vertex or {})[4] or 0) == 0, "amber: the red layer is invisible - only red blinks")
+
+    -- NO BOXES, AND YOU IN THE MIDDLE (Arn 8 Nov: "the box outlines are not needed if we want to heal ourselves we are in
+    -- the middle and stuff build out from us")
+    ok(sp2.heal.edges == nil and #sp2.paintTex == #sp2.glyph, "a pip is its role glyph alone - no box round it")
+    ok(RD.dims:GetAlpha() == 0, "and no dim slot outlines, in or out of a fight")
+    local mx, my = RD.Point(sp1.slot, sp1.slot.rh)
+    ok(sp1.slot.self and math.abs(mx) < 0.01 and math.abs(my) < 0.01, "your heal pip is the centre")
+    local cx, cy = RD.Point(sp1.slot, sp1.slot.rc)
+    ok(math.abs(cx) < 0.01 and cy > 0 and cy < RD.PARTY.rh, "your cure just above you")
+    local diag = true
+    for i = 2, 5 do
+        local b = RD.slots[i].b % (math.pi / 2)
+        if math.abs(b - math.pi / 4) > 0.01 then diag = false end
+    end
+    ok(diag, "your party builds out from you on the four diagonals")
+
+    -- RATIONS: the tools box's food (Arn 8 Nov: "bis tool still shows the eat food icon in the toolbox but its not in the
+    -- radar"): BiSToolsAPI.FoodNow first, the radar's own rule only without it
+    local keepAPI = _G.BiSToolsAPI
+    _G.BiSToolsAPI = { major = 1, version = 7, FoodNow = function() return 5477 end }
+    ok(RD.FoodWanted() == 5477, "BiS Tools says eat the stew: the radar offers the stew")
+    _G.BiSToolsAPI.FoodNow = function() return nil, "not now" end
+    ok(RD.FoodWanted() == nil, "BiS Tools says not now: neither does the radar")
+    _G.BiSToolsAPI.FoodNow = function() return 5477 end
+    RD.Arm()
+    ok(RD.rations.item == 5477 and RD.rations:GetAttribute("*macrotext1") == "/use item:5477", "armed: a click eats it")
+    _G.BiSToolsAPI = keepAPI
+    RD.Arm()
 
     -- A FIGHT: everything quiet - the scope, the empty places, the idle bogeys - and nothing secure is touched
     STATE.inCombat = true
@@ -11501,6 +11533,10 @@ do
     for i = 1, 40 do STATE.units["raid" .. i] = true end
     fire(RD.events, "GROUP_ROSTER_UPDATE")
     ok(RD.raid and RD.ownGroup == 3 and #RD.slots == 40 and #RD.spokes == 40, "a raid: 40 slots, you in group 3")
+    local me = RD.slots[12]
+    local mx2, my2 = RD.Point(me, me.rh)
+    ok(me.self and math.abs(mx2) < 0.01 and math.abs(my2) < 0.01 and RD.spokes[12].heal:GetAttribute("unit") == "raid12",
+       "in a raid too, you are the centre")
     local own = RD.spokes[11].slot
     ok(RD.spokes[11].unit == "raid11" and own.own and math.abs(own.b) < math.rad(32) and own.rh < RD.RAID.other.rh,
        "your own group's sector is the top one, nearer the centre", own.b)

@@ -51,6 +51,7 @@ RD.RING_SEG = 40
 RD.GREEN, RD.AMBER, RD.RED = 0.90, 0.80, 0.35    -- below: green / amber (when the heal size is unknown) / red
 RD.FUEL_LOW = 0.30
 RD.TICK = 0.5
+RD.FOOD_EVERY = 10            -- ticks: the food is asked again every 5 s out of a fight
 RD.WHITE = "Interface\\Buttons\\WHITE8X8"
 RD.PHOS = { 0.22, 1.00, 0.53 }                   -- the scope's green
 RD.DIM = { 0.11, 0.36, 0.22, 0.9 }               -- an empty slot out of a fight
@@ -210,15 +211,23 @@ end
   the other seven go round clockwise in group order on the outer ring. Bogeys in a raid: your own group only (40
   cast checks twice a second is a second grid's cost for a picture nobody can watch) - the cures are on everyone. ]]
 RD.PARTY = { size = 300, rim = 146, rh = 58, rc = 92, rb = 124, ph = 26, pc = 14, pb = 22 }
+-- YOU ARE THE MIDDLE (Arn, 8 Nov: "if we want to heal ourselves we are in the middle and stuff build out from us"): your
+-- heal pip sits on the centre, your cure just above it, your target's bogey straight up; everyone else builds out from
+-- you - a party's four on the diagonals, a raid's on their sectors (your own slot there moves to the centre).
+RD.SELF = { b = 0, rh = 0, rc = 30, rb = 124, ph = 28, pc = 14, pb = 22 }
+RD.GLYPH = 1.5                -- no box round a pip any more: its role glyph is drawn this much bigger to read alone
 RD.RAID = { size = 440, rim = 212, span = math.rad(72), gap = math.rad(6),
             own = { rh = 100, rc = 126, rb = 150, ph = 22, pc = 12, pb = 18 },
             other = { rh = 172, rc = 196, ph = 16, pc = 10 } }
 function RD.Geometry(raid, ownGroup)
     local out = {}
     if not raid then
-        local P = RD.PARTY
-        for i = 1, RD.SPOKES do
-            out[i] = { b = (i - 1) * 2 * math.pi / RD.SPOKES, rh = P.rh, rc = P.rc, rb = P.rb, ph = P.ph, pc = P.pc,
+        local P, S = RD.PARTY, RD.SELF
+        -- slot 1 is you (RD.Roster puts "player" first): the centre
+        out[1] = { b = S.b, rh = S.rh, rc = S.rc, rb = S.rb, ph = S.ph, pc = S.pc, pb = S.pb, own = true, self = true,
+                   group = 1, pos = 1 }
+        for i = 2, RD.SPOKES do
+            out[i] = { b = math.pi / 4 + (i - 2) * math.pi / 2, rh = P.rh, rc = P.rc, rb = P.rb, ph = P.ph, pc = P.pc,
                        pb = P.pb, own = true, group = 1, pos = i }
         end
         return out, P.size, P.rim
@@ -360,11 +369,13 @@ local function buildSpoke(f, i)
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
     b.face = CreateFrame("Frame", nil, b)
     b.face:SetAllPoints(b)
-    b.edges = edge(b.face, { 1, 1, 1, 1 }, 2)
-    b.red = tex(b.face, "BACKGROUND", { 1, 0.23, 0.3, 0 })
-    b.red:SetAllPoints(b.face)
-    if b.face.CreateAnimationGroup then
-        local ok, pulse = pcall(b.face.CreateAnimationGroup, b.face)
+    -- NO BOX (Arn, 8 Nov: "the box outlines are not needed"): the pip is its role glyph alone, in the game's colour.
+    -- Red has its own glyph on its own layer, coloured by the red curve, and only THAT layer pulses (a green or amber
+    -- pip holds still).
+    b.redFace = CreateFrame("Frame", nil, b)
+    b.redFace:SetAllPoints(b)
+    if b.redFace.CreateAnimationGroup then
+        local ok, pulse = pcall(b.redFace.CreateAnimationGroup, b.redFace)
         if ok and pulse then
             local fade = pulse:CreateAnimation("Alpha")
             fade:SetFromAlpha(1) fade:SetToAlpha(0.35) fade:SetDuration(0.35)
@@ -598,10 +609,13 @@ local function armHeal(sp, unit)
     local role = RD.Role(unit)
     if sp.role ~= role then
         for _, t in ipairs(sp.glyph or {}) do t:Hide() end
-        sp.glyph = glyph(b.face, role, (sp.slot and sp.slot.ph) or RD.PARTY.ph)
+        for _, t in ipairs(sp.redGlyph or {}) do t:Hide() end
+        local px = ((sp.slot and sp.slot.ph) or RD.PARTY.ph) * RD.GLYPH
+        sp.glyph = glyph(b.face, role, px)
+        sp.redGlyph = glyph(b.redFace, role, px)
         sp.role = role
     end
-    sp.paintTex = { b.edges[1], b.edges[2], b.edges[3], b.edges[4] }
+    sp.paintTex = {}
     for _, t in ipairs(sp.glyph) do sp.paintTex[#sp.paintTex + 1] = t end
     -- where amber starts: your heal against their max health, both plain out of a fight
     local amount = RD.HealAmount()
@@ -791,6 +805,21 @@ local function armUse(b, id)
     b.item = id
 end
 
+--- The food the rations pip offers now, out of a fight. BiS TOOLS FIRST (Arn, 8 Nov: "bis tool still shows the eat food
+--- icon in the toolbox but its not in the radar need it there too"): BiSToolsAPI.FoodNow (v7) is the tools box's own
+--- rule and its own food, so both light together. Without BiS Tools: Well Fed missing and a well-fed food in the bags.
+function RD.FoodWanted()
+    if combat() then return nil end
+    local A = _G.BiSToolsAPI
+    if type(A) == "table" and A.major == 1 and type(A.FoodNow) == "function" then
+        local ok, item, why = pcall(A.FoodNow)
+        if ok and type(item) == "number" then return item end
+        if ok and why ~= "not ready" and why ~= "xp tool off" then return nil end   -- the box says no: so do we
+    end
+    local fed = RD.WellFed()
+    return (fed == false) and RD.BestItem("Food", "well fed") or nil
+end
+
 --- Is Well Fed on you? Out of a fight only (an aura read); nil when it cannot say.
 function RD.WellFed()
     if combat() then return nil end
@@ -843,6 +872,20 @@ function RD.Arm()
     local units, raid, mine = RD.Roster()
     RD.units, RD.raid, RD.ownGroup = units, raid, mine
     local slots, size, rim = RD.Geometry(raid, mine)
+    -- in a raid your own slot (wherever your group put you) moves to the centre; its sector keeps the gap
+    if raid then
+        for i, s in ipairs(slots) do
+            local u = units[i]
+            if u then
+                local okU, me = pcall(UnitIsUnit, u, "player")
+                if okU and plain(me) == true then
+                    local S, own = RD.SELF, RD.RAID.own
+                    slots[i] = { b = S.b, rh = S.rh, rc = S.rc, rb = S.rb, ph = own.ph + 4, pc = own.pc, pb = own.pb,
+                                 own = true, self = true, group = s.group, pos = s.pos }
+                end
+            end
+        end
+    end
     RD.slots, RD.rim = slots, rim
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
@@ -880,8 +923,7 @@ function RD.Arm()
     end
     armShield()
     armUse(RD.fuel, RD.BestItem("Drink"))
-    local fed = RD.WellFed()
-    armUse(RD.rations, (fed == false) and RD.BestItem("Food", "well fed") or nil)
+    armUse(RD.rations, RD.FoodWanted())
     armTape()
     RD.Paint()
     return true
@@ -907,7 +949,7 @@ function RD.PaintHeal(sp)
     local red = RD.RedCurve()
     if red then
         local okR, rc = pcall(UnitHealthPercent, sp.unit, true, red)
-        if okR then paint({ sp.heal.red }, rc) end
+        if okR and sp.redGlyph then paint(sp.redGlyph, rc) end
         if sp.pulse and not (sp.pulse.IsPlaying and sp.pulse:IsPlaying()) then sp.pulse:Play() end
     end
     return drew
@@ -917,7 +959,8 @@ end
 function RD.PaintQuiet()
     local fight = combat()
     if RD.scope then RD.scope:SetAlpha(fight and 0 or 1) end
-    if RD.dims then RD.dims:SetAlpha(fight and 0 or 1) end
+    -- the dim slot outlines are never drawn (Arn, 8 Nov: "the box outlines are not needed"); the scope alone says where
+    if RD.dims then RD.dims:SetAlpha(0) end
     if RD.tape then RD.tape.track:SetAlpha(fight and 0 or 1) end
     for _, b in ipairs({ RD.fuel, RD.rations }) do
         if b then b.face:SetAlpha((not fight and b.item) and 1 or 0) end
@@ -996,7 +1039,19 @@ end
 
 local function startTicker()
     if RD.ticker or not (C_Timer and C_Timer.NewTicker) then return end
-    RD.ticker = C_Timer.NewTicker(RD.TICK, function() if RD.Active() then RD.Look() end end)
+    local n = 0
+    RD.ticker = C_Timer.NewTicker(RD.TICK, function()
+        if not RD.Active() then return end
+        RD.Look()
+        -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
+        -- of a fight - one API question, and a re-arm only when the answer changed
+        n = n + 1
+        if n >= RD.FOOD_EVERY and not combat() and RD.rations then
+            n = 0
+            local want = RD.FoodWanted()
+            if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
+        end
+    end)
 end
 local function stopTicker()
     if RD.ticker then RD.ticker:Cancel() RD.ticker = nil end
@@ -1090,8 +1145,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
         if a1 == "player" then RD.PaintTape() RD.PaintQuiet() end
     elseif event == "UNIT_AURA" then
         if a1 == "player" and not combat() then
-            local fed = RD.WellFed()
-            local want = (fed == false) and RD.BestItem("Food", "well fed") or nil
+            local want = RD.FoodWanted()
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
         end
     elseif event == "PLAYER_TARGET_CHANGED" then

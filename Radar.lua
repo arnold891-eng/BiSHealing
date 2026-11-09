@@ -954,19 +954,25 @@ local function buildGauge(f)
         t:SetPoint("LEFT", g.fsr, "LEFT", (k - 1) * (RD.FSR.w + RD.FSR.gap), 0)
         g.fsrSegs[k] = t
     end
-    -- what it is, under the mouse only; the radar's own drag goes on through it
-    g:EnableMouse(true)
-    g:RegisterForDrag("LeftButton")
-    g:SetScript("OnDragStart", function() local s = f:GetScript("OnDragStart") if s then s(f) end end)
-    g:SetScript("OnDragStop", function() endDrag(f) end)
-    g:SetScript("OnEnter", function(self)
-        if not GameTooltip then return end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("FUEL")
-        for _, l in ipairs(RD.FuelTip()) do GameTooltip:AddLine(l, 1, 1, 1, true) end
-        GameTooltip:Show()
-    end)
-    g:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    -- what it is, under the mouse only; the radar's own drag goes on through it. THE WHOLE RAIL answers (Arn, 8 Nov: "the
+    -- tool tip is inconsistent only certain parts of the gauge light it up" - only the 7px tape did): the tape, the
+    -- scale, the readout and the ramjet at the foot all show the same card, anchored to the rail
+    local function tipOn(w)
+        w:EnableMouse(true)
+        w:RegisterForDrag("LeftButton")
+        w:SetScript("OnDragStart", function() local s = f:GetScript("OnDragStart") if s then s(f) end end)
+        w:SetScript("OnDragStop", function() endDrag(f) end)
+        w:SetScript("OnEnter", function()
+            if not GameTooltip then return end
+            GameTooltip:SetOwner(RD.gaugeRail or g, "ANCHOR_RIGHT")
+            GameTooltip:AddLine("FUEL")
+            for _, l in ipairs(RD.FuelTip()) do GameTooltip:AddLine(l, 1, 1, 1, true) end
+            GameTooltip:Show()
+        end)
+        w:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    end
+    tipOn(g)
+    if RD.gaugeRail then tipOn(RD.gaugeRail) end
     RD.SizeGauge(RD.SIZE)
     return g
 end

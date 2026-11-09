@@ -11850,6 +11850,10 @@ do
             for _, p in ipairs(fr.points or {}) do if p[1] == name then return p end end
         end
         ok(RD.tape == nil, "the missile tape along the bottom is gone (Arn: \"the guage does the same thing\")")
+        -- THE WHOLE RAIL ANSWERS THE MOUSE (Arn 8 Nov: "the tool tip is inconsistent only certain parts of the gauge light it up")
+        local rail = RD.gaugeRail
+        ok(rail and rail:IsMouseEnabled() and rail:GetScript("OnEnter") and rail:GetScript("OnLeave") and rail:GetScript("OnDragStart"),
+           "the gauge's whole rail shows the FUEL card (not just the 7px tape), and still drags the radar")
         ok(g and g.boss and g.mana and g.ruler and g.hot, "the fuel tape: the boss, your mana, the BINGO ruler and its hot copy")
         local p = pt(g, "BOTTOMLEFT")
         ok(p and p[2] == RD.gaugeRail and p[5] == RD.GAUGE.foot and g:GetHeight() == RD.SIZE - RD.GAUGE.top - RD.GAUGE.foot,

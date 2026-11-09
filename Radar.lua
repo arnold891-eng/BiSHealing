@@ -902,6 +902,13 @@ local function buildGauge(f)
     local C = RD.COL.cyan
     g.chevLines = { line(g.chev, "OVERLAY", -5, -1, 0, 4, C, 2), line(g.chev, "OVERLAY", 0, 4, 5, -1, C, 2),
                     line(g.chev, "OVERLAY", -5, -5, 0, 0, C, 2), line(g.chev, "OVERLAY", 0, 0, 5, -5, C, 2) }
+    -- the REGEN READOUT left of the chevron, at the gauge's foot (Arn, 8 Nov: "bottom of the gauge we should put our mana
+    -- regen % - 100% out of combat, in combat reads our talents like the bis healing header"): Regen.lua's own words
+    g.regen = f:CreateFontString(nil, "OVERLAY")
+    g.regen:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+    g.regen:SetTextColor(C[1], C[2], C[3])
+    g.regen:SetPoint("RIGHT", g.chev, "LEFT", -3, 0)
+    g.regen:SetText("100%")
     -- what it is, under the mouse only; the radar's own drag goes on through it
     g:EnableMouse(true)
     g:RegisterForDrag("LeftButton")
@@ -1980,7 +1987,11 @@ end
 function RD.PaintRegen()
     local g, FR = RD.gauge, NS.FR
     if not g then return nil end
-    if not (RD.inFight or combat()) or not (FR and FR.Left) then g.chev:SetAlpha(0) return 0 end
+    local fight = RD.inFight or combat()
+    -- the readout: 100% out of a fight; in one, the header's own number (your while-casting share inside the five
+    -- seconds, 100% once they are up, "?" when the client never said)
+    if g.regen then g.regen:SetText((fight and FR and FR.Text) and FR.Text(true) or "100%") end
+    if not fight or not (FR and FR.Left) then g.chev:SetAlpha(0) return 0 end
     local a = 1
     if FR.Left() > 0 then
         local k = FR.known
@@ -2005,7 +2016,7 @@ function RD.FuelTip()
     return {
         "Green: your mana.  Red above it: the boss's health you are behind by.  Magenta mark: the boss.",
         ("Hot pulsing band: BINGO - the boss more than %d%% ahead of your mana.  Drink, potion, Mana Tide (the column)."):format(RD.BINGO * 100),
-        "Cyan chevron at the foot: generating fuel - out of the five second rule (dim: your while-casting share).",
+        "Cyan chevron at the foot: generating fuel - out of the five second rule (dim: your while-casting share).  The % beside it: your mana regen now (100% out of a fight).",
         "Racing: " .. who .. ".  " .. ((FR and FR.Text) and FR.Text() or ""),
     }
 end

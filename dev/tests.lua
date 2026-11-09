@@ -11468,11 +11468,12 @@ do
     local names = 0
     for _, fs in ipairs(LABELS) do
         local p = fs.__parent
-        -- the HUD tape's numbers are allowed (Arn's HUD picture): digits only, never a word or a name
+        -- the HUD tape's numbers are allowed (Arn's HUD picture), and the regen readout's "100%" / "?": digits, a % sign,
+        -- a question mark - never a word or a name
         local t = fs.__text
-        while p do if p == f then if t and t ~= "" and not t:match("^%d+$") and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
+        while p do if p == f then if t and t ~= "" and not t:match("^%d+%%?$") and t ~= "?" and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
     end
-    ok(names == 0, "no names, no words on the scope (the HUD tape's numbers are digits only)", names)
+    ok(names == 0, "no names, no words on the scope (digits only: the HUD tape's numbers, the regen %)", names)
 
     -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
     local function shade(sp)
@@ -11907,14 +11908,24 @@ do
         local keepSpent, keepKnown, keepMR = FR.spentAt, FR.known, _G.GetManaRegen
         _G.GetManaRegen = function() return secretNumber(), secretNumber() end
         FR.spentAt = nil
-        ok(RD.PaintRegen() == 1 and g.chev:GetAlpha() == 1, "out of the five second rule in a fight: the chevron lit")
+        ok(RD.PaintRegen() == 1 and g.chev:GetAlpha() == 1 and g.regen:GetText() == "100%",
+           "out of the five second rule in a fight: the chevron lit, the readout 100%", g.regen:GetText())
         FR.known = { base = 10, casting = 3 }
         FR.Spend(GetTime())
-        ok(math.abs(RD.PaintRegen() - 0.3) < 1e-9, "inside it: dimmed to your while-casting share (30%)", g.chev:GetAlpha())
+        ok(math.abs(RD.PaintRegen() - 0.3) < 1e-9 and g.regen:GetText() == "30%",
+           "inside it: dimmed to your while-casting share, and the readout says it (30%, the header's number)", g.regen:GetText())
         FR.known = nil
-        ok(RD.PaintRegen() == 0, "inside it, nothing known: dark")
+        ok(RD.PaintRegen() == 0 and g.regen:GetText() == "?", "inside it, nothing known: dark, the readout '?' (never a made-up number)")
         TICK(6)
         ok(RD.PaintRegen() == 1, "the five seconds run out: lit again (the ticker asks)")
+        FR.known = { base = 10, casting = 3 }
+        FR.Spend(GetTime())
+        local keepFight, keepCombat = RD.inFight, STATE.inCombat
+        RD.inFight = false
+        STATE.inCombat = false
+        ok(RD.PaintRegen() == 0 and g.regen:GetText() == "100%", "out of a fight the readout says 100%, even just after a cast", g.regen:GetText())
+        STATE.inCombat, RD.inFight = keepCombat, keepFight
+        TICK(6)
         local Cost = dofile("../_bisdev/dev/cost.lua")
         local rc, rby = Cost.Count(function() RD.PaintRegen() end)
         ok(rc <= 2 and not (rby or {}).GetManaRegen, "the chevron costs a clock read, and never asks the hidden regen", rc)

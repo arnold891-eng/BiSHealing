@@ -572,6 +572,16 @@ local function buildSystem(f, name, point, x, y)
     end
     b.icon = b.face:CreateTexture(nil, "OVERLAY")
     b.icon:SetPoint("CENTER") b.icon:SetSize(RD.SYS_PX - 10, RD.SYS_PX - 10)
+    -- what it is, under the mouse only (no words on the scope): b.tip = { title, line }
+    b:HookScript("OnEnter", function(self)
+        local tip = self.tip
+        if not (tip and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(tip[1])
+        if tip[2] then GameTooltip:AddLine(tip[2], 1, 1, 1, true) end
+        GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
     return b
 end
 
@@ -847,6 +857,39 @@ function RD.ShieldWash(button)
     return pcall(button.SetApplicationCount, button, fs, { formatter = RD.washFmt })
 end
 
+--[[ THE STABILIZER (8 Nov 2026, Arn: "i dont want a shield icon i want an icon that a jet pilot would see in combat and
+  know i need to press this button to fly effectively maybe call it stabilizer ... cause priest would see a inner fire").
+  One cockpit symbol for every class's keep-up buff (Water Shield, Inner Fire, Omen of Clarity, Blessing of Wisdom): an
+  ATTITUDE INDICATOR - a ring, the horizon across it, the little aircraft's wings and nose. Plain textures only (the
+  colour lands on them), every piece turned with SetRotation. Drawn TWICE, identically: red on the pip (under), and a
+  dim green copy on the client's own aura button over it - piece for piece on the same spot, so the green hides the red
+  exactly while the buff is up, and the red shows the moment the client stops drawing. ]]
+RD.GYRO_SEG = 16
+function RD.Gyro(parent, px, col, layer)
+    local out = {}
+    local function bar(w, h, x, y, rot)
+        local t = parent:CreateTexture(nil, layer or "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(col[1], col[2], col[3], col[4] or 1)
+        t:SetSize(w, h)
+        t:SetPoint("CENTER", parent, "CENTER", x, y)
+        if rot and t.SetRotation then t:SetRotation(rot) end
+        out[#out + 1] = t
+        return t
+    end
+    local r = px * 0.44
+    local seg = 2 * math.pi * r / RD.GYRO_SEG + 1
+    for k = 0, RD.GYRO_SEG - 1 do                              -- the ring
+        local a = (k + 0.5) * 2 * math.pi / RD.GYRO_SEG
+        bar(seg, 2, math.sin(a) * r, math.cos(a) * r, -a)
+    end
+    bar(px * 0.80, 1, 0, 0)                                    -- the horizon
+    bar(px * 0.24, 2, -px * 0.17, -px * 0.08)                  -- the wings, either side of the nose
+    bar(px * 0.24, 2, px * 0.17, -px * 0.08)
+    bar(2, px * 0.10, 0, -px * 0.03)                           -- the nose
+    return out
+end
+
 local function armShield()
     local b = RD.shield
     local name, ids = RD.ShieldTarget()
@@ -856,16 +899,12 @@ local function armShield()
     b.shieldName = name
     if not name or b.shieldFor == name then return end
     b.shieldFor = name
-    local get = C_Spell and C_Spell.GetSpellTexture
-    if get then
-        local ok, t = pcall(get, name)
-        if ok and t and not (NS.Secret and NS.Secret(t)) then b.icon:SetTexture(t) b.iconFile = t end
-    end
-    -- the red under it: the shield's own icon, greyed and washed red, the whole pip, breathing (the reminder's look)
-    if b.icon.SetDesaturated then b.icon:SetDesaturated(true) end
-    b.icon:SetVertexColor(1, 0.25, 0.3, 1)
-    b.icon:ClearAllPoints() b.icon:SetAllPoints(b)
-    for _, l in ipairs(b.ring or {}) do l:Hide() end        -- no ring: the cover hides the whole pip, or nothing
+    -- the red under it: the STABILIZER symbol (RD.Gyro), breathing - not the spell's picture (Arn: a cockpit symbol, the
+    -- same for every class)
+    b.icon:Hide()
+    for _, l in ipairs(b.ring or {}) do l:Hide() end        -- the gyro has its own ring
+    if not b.gyroRed then b.gyroRed = RD.Gyro(b.face, RD.SYS_PX, RD.COL.red, "ARTWORK") end
+    b.tip = { "STABILIZER", name .. " - click to cast it.  Dim green: on you.  Orange: the last charge.  Red: gone." }
     b.face:SetAlpha(1)
     if not b.breath and b.face.CreateAnimationGroup then
         local okA, g = pcall(b.face.CreateAnimationGroup, b.face)
@@ -900,13 +939,8 @@ local function armShield()
             if button.GetRegions then for _, r in ipairs({ button:GetRegions() }) do if r.Hide then pcall(r.Hide, r) end end end
             b.handed = true
             pcall(function()
-                local t = button:CreateTexture(nil, "OVERLAY")
-                t:SetAllPoints(button)
-                t:SetTexture(b.iconFile or 136048)
-                if t.SetTexCoord then t:SetTexCoord(0.08, 0.92, 0.08, 0.92) end
-                if t.SetDesaturated then t:SetDesaturated(true) end
-                t:SetVertexColor(RD.SHIELD_OK[1], RD.SHIELD_OK[2], RD.SHIELD_OK[3], 1)
-                b.cover = t
+                -- the green STABILIZER, piece for piece over the red one (RD.Gyro with the same size and spot)
+                b.cover = RD.Gyro(button, RD.SYS_PX, { RD.SHIELD_OK[1], RD.SHIELD_OK[2], RD.SHIELD_OK[3], 1 }, "OVERLAY")
             end)
             pcall(RD.ShieldWash, button)
             if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end

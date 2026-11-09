@@ -11578,7 +11578,23 @@ do
     ok(slot and slot.opts.candidateFilters.includeSpellIDs and next(slot.opts.candidateFilters.includeSpellIDs),
        "the client's aura slot, filtered to the shield's own spell ids")
     local cov = RD.shield.cover
-    ok(cov and cov.__desat and cov.__vertex and cov.__vertex[2] == RD.SHIELD_OK[2] and RD.shield.handed, "its button: the shield's icon greyed, a dim green - the cover")
+    -- THE STABILIZER (Arn 8 Nov: "i dont want a shield icon i want an icon that a jet pilot would see ... call it
+    -- stabilizer"): one cockpit symbol, red under, a green copy over it piece for piece
+    local red = RD.shield.gyroRed
+    ok(type(cov) == "table" and red and #cov == #red and #red == RD.GYRO_SEG + 4,
+       "the client's button carries the green stabilizer, the same pieces as the red one under it")
+    local same = true
+    for i, t in ipairs(red) do
+        local g = cov[i]
+        local tc = (t.__vertex or {})
+        local gc = (g.__vertex or {})
+        if not (g.__w == t.__w and g.__h == t.__h and (g.__rot or 0) == (t.__rot or 0)) then same = false end
+        if not (tc[1] == 1 and gc[2] == RD.SHIELD_OK[2]) then same = false end
+    end
+    ok(same, "piece for piece: same size, same turn - green over red, so the red is hidden exactly while the buff is up")
+    ok(RD.shield.tip and RD.shield.tip[1] == "STABILIZER" and RD.shield.tip[2]:find("Water Shield", 1, true),
+       "under the mouse: STABILIZER, and which spell it casts")
+    ok(not RD.shield.icon:IsShown(), "no spell picture")
     ok((RD.shield.container:GetFrameLevel() or 0) > (RD.shield:GetFrameLevel() or 0), "drawn over the red")
     d.selfBuffs, BOOK[21] = keepSB, keepBook
     RD.Arm()

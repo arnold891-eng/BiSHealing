@@ -11427,6 +11427,17 @@ do
     SlashCmdList.BISHEALING("alpha on")
     local f = _G.BiSHealingRadar
     ok(RD.Active() and f and f:IsShown(), "/bish alpha on: the radar comes up")
+    -- THE WHEEL STAYS ARMED WITH THE GRID HIDDEN (Arn 8 Nov, radar on: "when i tried to do my heals on the ellesmere
+    -- frames my binds used to work on that"): the wheel is a mouseover BINDING over any addon's frames; a layout with the
+    -- grid hidden used to return before arming it, so a reload left it dead
+    local keepBinds = d.binds
+    d.binds = { ["wheelup"] = "Healing Wave(Rank 1)" }
+    BOUND = {}
+    NS.FG.Layout(NS.FG.anchor)
+    ok(NS.FG.Hidden() and BOUND.MOUSEWHEELUP ~= nil, "the grid hidden behind the radar, a fresh layout: the wheel bind is armed",
+       tostring(BOUND.MOUSEWHEELUP))
+    d.binds = keepBinds
+    NS.FG.Layout(NS.FG.anchor)
     ok(NS.FG.Hidden() and d.shown == shownBefore, "and the grid gives way - its own `shown` switch untouched", tostring(d.shown))
     local sp1, sp2 = RD.spokes[1], RD.spokes[2]
     ok(#RD.slots == 5 and sp1.unit == "player" and sp2.unit == "party1" and RD.spokes[3].unit == "party2" and RD.spokes[4].unit == nil,

@@ -815,6 +815,7 @@ _G.CreateFrameUnguarded = function(kind, name, parent, template)
         function made:SetDrawEdge(v) self.__edgeOn = v end
         function made:SetHideCountdownNumbers(v) self.__noNumbers = v end
         function made:SetSwipeColor(...) self.__swipe = { ... } end
+        function made:SetSwipeTexture(t) self.__swipeTex = t end
     end
     return made
 end
@@ -12134,6 +12135,12 @@ do
         ok(washed and fading(RD.washPulse, RD.FADE_SOFT) and RD.washClip:GetParent() == auraBtn
            and auraBtn.countText and auraBtn.countText.__parent == RD.washClip,
            "the orange last-charge wash pulses gently, on its own clip inside the client's button")
+        local one = RD.washFmt.points and RD.washFmt.points[2]
+        ok(one and one.threshold == 1 and one.format:find("Interface\\AddOns\\BiSHealing\\Art\\gyro:22:22:", 1, true)
+           and one.format:find(":255:120:0|t", 1, true) and not one.format:find("WHITE8X8", 1, true),
+           "the last charge is the stabilizer SYMBOL in orange (our gyro art, the pip's size) - never a square", one and one.format)
+        local f0, f2 = RD.washFmt.points[1], RD.washFmt.points[3]
+        ok(f0.format == "" and f2.format == "", "no charge, or more than one: nothing written")
         ok(auraBtn.__animGroups == nil and (RD.shield.cover and RD.shield.cover[1] and rawget(RD.shield.cover[1], "__parent")) ~= RD.washClip,
            "the green cover (buff up, all good) holds still")
         _G.C_StringUtil, RD.washFmt = keepSU2, keepFmt
@@ -12184,6 +12191,26 @@ do
         ok(sp2.cd.__bling == false and sp2.cd.__noNumbers == true, "the bogey's kind: no bling, no numbers")
         ok(RD.tide.cd.__durObj == tideObj and RD.potion.cd.__start == 100 and RD.potion.cd.__dur == 120 and itemCd[#itemCd] == 6149,
            "Mana Tide its own cooldown, the potion its item cooldown")
+        -- COOLING, SEEN WHEN DARK (Arn 8 Nov: "put it there but with a cooldown sweep")
+        local waits = true
+        for _, b in ipairs({ RD.tide, RD.potion }) do
+            local cd = b.cd
+            if not (cd and cd.wait and cd:GetParent() == b and cd.__swipeTex == RD.ART .. "disc"
+                    and cd.__swipe and cd.__swipe[4] == RD.WAIT_SWIPE[4] and cd.__edgeOn == false and cd.__bling == false
+                    and cd:GetFrameLevel() < b.beat:GetFrameLevel()) then waits = false end
+        end
+        ok(waits, "Mana Tide and the potion: their cooldown on the BUTTON (seen while the face is dark), a dim cyan disc under the face")
+        local keepMana = STATE.mana
+        STATE.mana = 0.05
+        RD.PaintQuiet()
+        ok(RD.tide.cd.__swipe[4] == RD.WAIT_SWIPE[4] and RD.potion.cd.__swipe[4] == RD.WAIT_SWIPE[4],
+           "lit or dark, the cooling disc keeps its own colour (no mana curve on it)")
+        STATE.mana = keepMana
+        RD.PaintQuiet()
+        local inLoop = false
+        for _, cd in ipairs(RD.sweeps) do if cd == RD.tide.cd or cd == RD.potion.cd then inLoop = true end end
+        ok(not inLoop, "and never fed the GCD")
+        ok(RD.ART == "Interface\\AddOns\\BiSHealing\\Art\\", "our art lives in the addon's Art folder", RD.ART)
         local sw = sp2.cd.__swipe
         ok(sw and sw[4] == RD.SWIPE[4], "the heal pip's swipe is dark while it is lit (85%: green)")
         STATE.hp.party1 = 0.97

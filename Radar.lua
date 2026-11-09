@@ -741,6 +741,23 @@ function RD.Sweep(parent, own)
     return cd
 end
 
+--[[ COOLING, SEEN WHEN DARK (8 Nov 2026, Arn, after using Mana Tide: "we should put it there but with a cooldown sweep
+  right now i think its ready to go again"). Mana Tide and the potion carry their own cooldown on the BUTTON, not on the
+  face - so it shows while the face is dark - as a dim cyan disc (Art\disc.tga) the client eats away as it comes ready:
+  there = still cooling, gone = ready. Under the face (a lower level), so a lit sign draws over it. A Cooldown frame
+  only draws while it runs, so nothing of ours decides "cooling" - the client's own object, secret or not. ]]
+RD.WAIT_SWIPE = { 0.30, 0.90, 1.00, 0.35 }
+function RD.WaitSweep(b)
+    local cd = RD.Sweep(b, true)
+    if not cd then return nil end
+    cd.wait = true
+    if cd.SetFrameLevel then cd:SetFrameLevel(b:GetFrameLevel()) end    -- under the face's wrapper (b + 1)
+    if cd.SetSwipeTexture then pcall(cd.SetSwipeTexture, cd, RD.ART .. "disc") end
+    local W = RD.WAIT_SWIPE
+    if cd.SetSwipeColor then pcall(cd.SetSwipeColor, cd, W[1], W[2], W[3], W[4]) end
+    return cd
+end
+
 --- A sweep back in the loop (its marker switched on again); never twice.
 function RD.Resweep(cd)
     if not cd then return false end
@@ -897,18 +914,19 @@ local function buildGauge(f)
     -- REGEN, "generating fuel": a cyan inflow chevron at the foot (RD.PaintRegen)
     g.chev = CreateFrame("Frame", nil, f)
     g.chev:SetSize(12, 10)
-    g.chev:SetPoint("TOP", g, "BOTTOM", 0, -3)
     g.chev:SetAlpha(0)
     local C = RD.COL.cyan
     g.chevLines = { line(g.chev, "OVERLAY", -5, -1, 0, 4, C, 2), line(g.chev, "OVERLAY", 0, 4, 5, -1, C, 2),
                     line(g.chev, "OVERLAY", -5, -5, 0, 0, C, 2), line(g.chev, "OVERLAY", 0, 0, 5, -5, C, 2) }
-    -- the REGEN READOUT left of the chevron, at the gauge's foot (Arn, 8 Nov: "bottom of the gauge we should put our mana
-    -- regen % - 100% out of combat, in combat reads our talents like the bis healing header"): Regen.lua's own words
+    -- the REGEN READOUT at the gauge's foot (Arn, 8 Nov: "bottom of the gauge we should put our mana regen % - 100% out
+    -- of combat, in combat reads our talents like the bis healing header"): Regen.lua's own words. CENTRED in the empty
+    -- foot of the gauge's rail (Arn: "more centered in the empty space"), the chevron on its right.
     g.regen = f:CreateFontString(nil, "OVERLAY")
-    g.regen:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+    g.regen:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
     g.regen:SetTextColor(C[1], C[2], C[3])
-    g.regen:SetPoint("RIGHT", g.chev, "LEFT", -3, 0)
+    g.regen:SetPoint("CENTER", RD.gaugeRail or f, "BOTTOM", 0, math.floor(G.foot / 2) - 2)
     g.regen:SetText("100%")
+    g.chev:SetPoint("LEFT", g.regen, "RIGHT", 3, 0)
     -- what it is, under the mouse only; the radar's own drag goes on through it
     g:EnableMouse(true)
     g:RegisterForDrag("LeftButton")
@@ -1113,7 +1131,9 @@ function RD.Build()
     -- every lit thing pulses (gently here; the stabilizer keeps its own breath on its red), and carries a sweep: the
     -- GCD's, or for Mana Tide and the potion their own cooldown (RD.Sweeps)
     for _, b in ipairs({ RD.tide, RD.potion, RD.fuel, RD.rations }) do b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT) end
-    for _, b in ipairs(RD.COLUMN) do b.cd = RD.Sweep(b.face, b == RD.tide or b == RD.potion) end
+    for _, b in ipairs(RD.COLUMN) do
+        if b == RD.tide or b == RD.potion then b.cd = RD.WaitSweep(b) else b.cd = RD.Sweep(b.face) end
+    end
     buildGauge(f)
     -- (the rail drawn inside the scope is gone: the rails stand outside the square now - RD.BuildRails)
     -- rations: a fork
@@ -1340,19 +1360,21 @@ function RD.ShieldTarget()
 end
 
 --- THE LAST CHARGE, AS A COLOUR THE CLIENT CHOOSES (the reminder's road, FS.Wash): the client writes the charge count into
---- a font string through a formatter we hand it; 1 is written as one orange square (cut to the pip), anything else as
---- nothing. Never read by us.
-local function washText(px, rgb)
-    return ("|TInterface\\Buttons\\WHITE8X8:%d:%d:0:0:8:8:0:8:0:8:%d:%d:%d|t"):format(px, px, rgb[1], rgb[2], rgb[3])
+--- a font string through a formatter we hand it; 1 is written as the STABILIZER SYMBOL in orange (Art\gyro.tga, the
+--- red one's shape - Arn, 8 Nov: "an amber square instead of an amber icon like the red one"), anything else as
+--- nothing. Never read by us. Our own art: white with alpha, tinted by the escape's r:g:b.
+RD.ART = "Interface\\AddOns\\" .. (ADDON or "BiSHealing") .. "\\Art\\"
+function RD.WashText(px, rgb)
+    return ("|T%sgyro:%d:%d:0:0:64:64:0:64:0:64:%d:%d:%d|t"):format(RD.ART, px, px, rgb[1], rgb[2], rgb[3])
 end
 function RD.ShieldWash(button)
     local make = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
     if not (make and button and button.SetApplicationCount) then return false end
-    local px = RD.SYS_PX * 3
+    local px = RD.SYS_PX
     if not RD.washFmt then
         local ok, f = pcall(make)
         if not ok or not f or not f.SetBreakpoints then return false end
-        local points = { { threshold = 0, format = "" }, { threshold = 1, format = washText(px, RD.SHIELD_LAST) },
+        local points = { { threshold = 0, format = "" }, { threshold = 1, format = RD.WashText(px, RD.SHIELD_LAST) },
                          { threshold = 2, format = "" } }
         if not pcall(f.SetBreakpoints, f, points) then return false end
         RD.washFmt = f
@@ -1367,7 +1389,6 @@ function RD.ShieldWash(button)
     local fs = clip:CreateFontString(nil, "OVERLAY")
     if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
     fs:SetPoint("CENTER", clip, "CENTER", 0, 0)
-    fs:SetAlpha(0.8)
     return pcall(button.SetApplicationCount, button, fs, { formatter = RD.washFmt })
 end
 
@@ -1784,7 +1805,7 @@ function RD.PaintTools(fight)
                 local ok, col = pcall(UnitPowerPercent, "player", 0, true, c)
                 drew = ok and paint(b.pieces, col) or false
             end
-            local sw = b.cd and RD.SwipeCurve(b.at)
+            local sw = b.cd and not b.cd.wait and RD.SwipeCurve(b.at)   -- a cooling disc keeps its own colour
             if drew and sw then
                 local okS, scol = pcall(UnitPowerPercent, "player", 0, true, sw)
                 swipeTo(b.cd, okS and scol or nil)

@@ -11644,9 +11644,23 @@ do
     ok(RD.scope:GetAlpha() == 1 and RD.dims:GetAlpha() == 0, "a fight: the scope stays (Arn: \"i like this green outline in combat too\"), the empty places are not drawn")
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "an idle bogey: invisible, but in its place")
+    -- ARN'S FOUR RED TRIANGLES, OUT OF A FIGHT (8 Nov): hidden by the LINES' colour, not only the face's frame alpha
+    local function lineAlpha(sp)
+        local l = sp.bogey.lines and sp.bogey.lines[1]
+        local c = l and (l.color or l.__vertex or l.vertex) or {}
+        return c[4]
+    end
+    for i = 1, 5 do
+        local s5 = RD.spokes[i]
+        if s5 and s5.bogey.lines then ok(lineAlpha(s5) == 0, "idle bogey " .. i .. ": its lines are see-through too") end
+    end
     STATE.casting.party1target = true
     RD.Look()
-    ok(sp2.bogey.face:GetAlpha() == 1, "their target casts: the bogey shows - flare it")
+    ok(sp2.bogey.face:GetAlpha() == 0 and lineAlpha(sp2) == 0,
+       "a 'cast' on a target that does not exist lights nothing (nobody there is never casting)")
+    STATE.units.party1target = true
+    RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 1 and lineAlpha(sp2) == 1, "their target casts: the bogey shows - flare it")
     STATE.casting.party1target = nil
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "and goes when the cast does")

@@ -617,8 +617,9 @@ function RD.PlaceSpoke(sp, s, rim)
             for _, l in ipairs(k.lines or {}) do l:Hide() end
             local h = s.pb * 0.42
             local rc = RD.COL.bogey
-            k.lines = { line(k.face, "OVERLAY", 0, h, h, -h * 0.8, rc, 2), line(k.face, "OVERLAY", h, -h * 0.8, -h, -h * 0.8, rc, 2),
-                        line(k.face, "OVERLAY", -h, -h * 0.8, 0, h, rc, 2) }
+            local hid = { rc[1], rc[2], rc[3], 0 }               -- born see-through: only a cast makes it solid
+            k.lines = { line(k.face, "OVERLAY", 0, h, h, -h * 0.8, hid, 2), line(k.face, "OVERLAY", h, -h * 0.8, -h, -h * 0.8, hid, 2),
+                        line(k.face, "OVERLAY", -h, -h * 0.8, 0, h, hid, 2) }
             k.linesPx = s.pb
         end
     end
@@ -1668,11 +1669,22 @@ end
 --- a quiet phosphor triangle while they have a HOSTILE target, red the moment it casts (a click = your interrupt; a
 --- right-click targets it, so your crosshairs go on it). Hostile is the client's answer (UnitCanAttack); a secret one
 --- goes through its own curve into the alpha. Nothing to show: invisible.
+--- A bogey seen or not, set ON ITS LINES (their colour's alpha) as well as its face (8 Nov 2026, Arn's screenshot, out of a
+--- fight: four red triangles and a green one, nothing casting - the face's frame alpha alone did not hide them in the
+--- client, while the heal pips, hidden by their colour's alpha, did). The sweep follows.
+local function bogeyAlpha(k, a, col)
+    col = col or RD.COL.bogey
+    for _, l in ipairs(k.lines or {}) do l:SetVertexColor(col[1], col[2], col[3], a) end
+    k.face:SetAlpha(a)
+    if k.cd and k.cd.SetAlpha then k.cd:SetAlpha(a) end
+end
+RD.BogeyAlpha = bogeyAlpha
+
 local function paintContact(sp, lit)
     local k = sp.bogey
     local col = lit and RD.COL.bogey or RD.CONTACT
-    for _, l in ipairs(k.lines or {}) do l:SetVertexColor(col[1], col[2], col[3], 1) end
-    if lit then k.face:SetAlpha(1) return true end
+    if lit then bogeyAlpha(k, 1, col) return true end
+    bogeyAlpha(k, 0, col)
     -- ONLY WHEN IT CASTS (Arn, 8 Nov, four green triangles over a party on one mob: "why is it showing interrupt buttons
     -- when its not casting" - picked "only when casting"). The quiet green contact below is kept, switched off by
     -- RD.CONTACT_SHOWN, should it ever be wanted back.
@@ -1699,14 +1711,18 @@ function RD.Look()
     for _, sp in ipairs(RD.spokes or {}) do
         if sp.unit and sp.tok and sp.slot and sp.slot.rb then
             -- red only when you have an interrupt to answer it with; the quiet pip shows either way
-            local lit = sp.kick and FG and FG.Casting and FG.Casting(sp.tok) or false
+            -- nobody there is never casting (a duration question about an empty token is not trusted to say nil)
+            local okE, there = pcall(UnitExists, sp.tok)
+            there = okE and there
+            if NS.Secret and NS.Secret(there) then there = true end
+            local lit = there and sp.kick and FG and FG.Casting and FG.Casting(sp.tok) or false
             paintContact(sp, lit)
             RD.PaintRange(sp)
         elseif sp.unit then
-            sp.bogey.face:SetAlpha(0)
+            bogeyAlpha(sp.bogey, 0)
             RD.PaintRange(sp)
         else
-            sp.bogey.face:SetAlpha(0)
+            bogeyAlpha(sp.bogey, 0)
             sp.arc:SetAlpha(0)
         end
     end

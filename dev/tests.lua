@@ -160,6 +160,14 @@ local function newFrame(kind, name, parent)
     function f:IsMouseOver() return self.__mouseOver == true end
     function f:GetScript(k) return self.__scripts[k] end
     function f:RegisterEvent(e) self.__events = self.__events or {}; self.__events[e] = true end
+    -- as the client's: the event reaches this frame only for the units named (fire() keeps the filter)
+    function f:RegisterUnitEvent(e, ...)
+        self.__events = self.__events or {}; self.__events[e] = true
+        self.__unitFilter = self.__unitFilter or {}
+        local units = {}
+        for _, u in ipairs({ ... }) do units[u] = true end
+        self.__unitFilter[e] = units
+    end
     function f:UnregisterEvent(e) if self.__events then self.__events[e] = nil end end
     function f:SetAttribute(k, v) self.__attrs[k] = v end
     function f:GetAttribute(k) return self.__attrs[k] end
@@ -938,6 +946,8 @@ end
 -- did exactly that, twice, and only a deliberate check with the fix removed caught it.)
 local function fire(f, event, ...)
     if not (f and f.__events and f.__events[event]) then return false end
+    local only = f.__unitFilter and f.__unitFilter[event]
+    if only and not only[(...)] then return false end           -- a unit event for a unit this frame did not ask for
     local h = f.__scripts and f.__scripts.OnEvent
     if not h then return false end
     h(f, event, ...)
@@ -12263,8 +12273,27 @@ do
                     and cure.sweep and cure.sweep.__durObj == gcdObj and sp2.cd.__durObj == gcdObj and RD.rations.cd.__durObj == gcdObj
         ok(has, "a sweep on the heal pip, the cure marker, the stabilizer, the drink and rations")
         ok(sp2.cd.__bling == false and sp2.cd.__noNumbers == true, "the bogey's kind: no bling, no numbers")
-        ok(RD.tide.cd.__durObj == tideObj and RD.potion.cd.__start == 100 and RD.potion.cd.__dur == 120 and itemCd[#itemCd] == 6149,
-           "Mana Tide its own cooldown, the potion its item cooldown")
+        -- THE GCD IS NOT A COOLDOWN (Arn 8 Nov: "this mana tide sweep shows up whenever i click anything ... it makes me
+        -- want to click it"): the client hands Mana Tide an object even when only the global cooldown runs on it, and in
+        -- a fight we cannot tell the two apart - so the cooling disc never takes the client's object; it runs on OUR clock
+        ok(RD.tide.cd.__durObj == nil and RD.tide.cd.__start == nil and RD.potion.cd.__start == nil,
+           "Mana Tide and the potion both ready, a GCD running: no cooling disc (the client's object is never handed to it)",
+           tostring(RD.tide.cd.__durObj) .. " " .. tostring(RD.potion.cd.__start))
+        local keepName = C_Spell.GetSpellName
+        C_Spell.GetSpellName = function(id) return id == 16190 and "Mana Tide Totem" or nil end
+        local cast = CLOCK
+        fire(RD.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", 16190)
+        ok(RD.tide.cd.__start == cast and RD.tide.cd.__dur == RD.COOLS.tide and RD.tide.cd.__durObj == nil,
+           "you drop Mana Tide: the disc runs our own 5 minutes from the cast", RD.tide.cd.__start)
+        fire(RD.events, "SPELL_UPDATE_COOLDOWN")
+        ok(RD.tide.cd.__start == cast and RD.tide.cd.__durObj == nil, "the next GCD does not touch it")
+        ok(fire(RD.events, "UNIT_SPELLCAST_SUCCEEDED", "party1", "g2", 16190) == false,
+           "a party member's casts never reach the radar (the client filters to you)")
+        TICK(RD.COOLS.tide + 1)
+        fire(RD.events, "SPELL_UPDATE_COOLDOWN")
+        ok(RD.tide.cd.__start == nil, "five minutes on: ready, the disc gone")
+        C_Spell.GetSpellName = keepName
+        RD.readyAt, RD.coolStart = {}, {}
         -- COOLING, SEEN WHEN DARK (Arn 8 Nov: "put it there but with a cooldown sweep")
         local waits = true
         for _, b in ipairs({ RD.tide, RD.potion }) do

@@ -93,6 +93,7 @@ RD.SPRING = "Mana Spring Totem"
 RD.COOLS = { tide = 300, potion = 120 }            -- seconds, when the client gives no cooldown to seed from
 RD.WATER = { tide = 12, spring = 300 }             -- how long each water totem stands
 RD.readyAt = {}                                    -- kind -> GetTime() when it is ready again
+RD.coolStart = {}                                  -- kind -> GetTime() its cooldown started (the cooling disc's start)
 RD.waterUntil = 0
 RD.TOOL_GAP = 3
 RD.TICK = 0.5
@@ -1698,7 +1699,7 @@ function RD.SeedCooldowns()
             s = plain(info.startTime)
             d = plain(info.duration)
         end
-        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.tide = s + d end
+        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.tide, RD.coolStart.tide = s + d, s end
     end
     local itemCd = C_Container and C_Container.GetItemCooldown
     if RD.potion and RD.potion.item and itemCd then
@@ -1709,9 +1710,30 @@ function RD.SeedCooldowns()
         else
             s, d = nil, nil
         end
-        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.potion = s + d end
+        if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.potion, RD.coolStart.potion = s + d, s end
     end
     return true
+end
+
+--- THE COOLING DISCS, FROM OUR OWN CLOCK (8 Nov 2026, Arn: "this mana tide sweep shows up whenever i click anything"):
+--- the client's Mana Tide cooldown carries the global cooldown too, and in a fight its object is secret - we cannot tell
+--- "on the GCD" from "spent". So the disc never takes it: it runs from the cast we saw (or the client's plain answer out
+--- of a fight, longer than a GCD), plain numbers handed to SetCooldown; ready = cleared.
+function RD.PaintWaits(now)
+    now = now or (GetTime and GetTime()) or 0
+    local n = 0
+    for kind, b in pairs({ tide = RD.tide, potion = RD.potion }) do
+        local cd = b and b.cd
+        if cd and cd.wait then
+            local s, r = RD.coolStart[kind], RD.readyAt[kind]
+            if b.macro and type(s) == "number" and type(r) == "number" and r > now then
+                if pcall(cd.SetCooldown, cd, s, r - s) then n = n + 1 end
+            elseif cd.Clear then
+                pcall(cd.Clear, cd)
+            end
+        end
+    end
+    return n
 end
 
 --- Is a tool spent right now? Not here at all counts as spent (nothing to reach for); else our clock.
@@ -1740,7 +1762,8 @@ function RD.OnCast(unit, spellID)
     if type(spellID) ~= "number" then return false end
     local now = (GetTime and GetTime()) or 0
     if RD.potion and RD.potion.spellId and spellID == RD.potion.spellId then
-        RD.readyAt.potion = now + RD.COOLS.potion
+        RD.readyAt.potion, RD.coolStart.potion = now + RD.COOLS.potion, now
+        RD.PaintWaits(now)
         return "potion"
     end
     local getName = C_Spell and C_Spell.GetSpellName
@@ -1748,7 +1771,8 @@ function RD.OnCast(unit, spellID)
     if getName then ok, name = pcall(getName, spellID) end
     name = ok and plain(name) or nil
     if name == RD.TIDE then
-        RD.readyAt.tide = now + RD.COOLS.tide
+        RD.readyAt.tide, RD.coolStart.tide = now + RD.COOLS.tide, now
+        RD.PaintWaits(now)
         RD.waterUntil = now + RD.WATER.tide
         return "tide"
     elseif name == RD.SPRING then
@@ -2194,18 +2218,10 @@ function RD.Sweeps()
             if cd.active ~= false and pcall(cd.SetCooldownFromDurationObject, cd, gcd) then n = n + 1 end
         end
     end
-    local tide = RD.tide
-    if tide and tide.macro and tide.cd then
-        local okT, td = pcall(get, RD.TIDE)
-        if okT and not isNil(td) and pcall(tide.cd.SetCooldownFromDurationObject, tide.cd, td) then n = n + 1 end
-    end
-    local pot = RD.potion
-    local itemCd = C_Container and C_Container.GetItemCooldown
-    if pot and pot.item and pot.cd and itemCd then
-        local okI, start, dur = pcall(itemCd, pot.item)
-        if okI and not isNil(start) and not isNil(dur) and pcall(pot.cd.SetCooldown, pot.cd, start, dur) then n = n + 1 end
-    end
-    return n
+    -- Mana Tide and the potion: their cooling discs run on our own clock (RD.PaintWaits) - never the client's object,
+    -- which carries the GCD; out of a fight the client's plain answer re-seeds the clock first
+    RD.SeedCooldowns()
+    return n + RD.PaintWaits()
 end
 
 --- The interrupt's sweep on every bogey (SPELL_UPDATE_COOLDOWN, a layout): your own spell's duration object, handed

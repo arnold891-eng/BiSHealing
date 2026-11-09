@@ -59,6 +59,10 @@ RD.COL = { green = { 0.22, 1.00, 0.53, 1 }, amber = { 1.00, 0.70, 0.25, 1 }, red
            cyan = { 0.25, 0.96, 1.00, 1 }, bogey = { 1.00, 0.23, 0.30, 1 } }
 RD.CROSS = { 1.00, 0.24, 0.92 }                    -- your target's crosshair: the cockpit's magenta (FG.COCKPIT.target)
 RD.CROSS_PAD = 12                                  -- px round a pip
+-- TARGET OF TARGET (Arn, 8 Nov: "target of target?"): who your target is on - the same reticle in amber, a size bigger,
+-- so it frames the magenta one when you target a friend's attacker and never hides under it
+RD.TOT = { 1.00, 0.70, 0.25 }
+RD.TOT_PAD = 22
 RD.CONTACT = { 0.22, 1.00, 0.53, 0.75 }            -- their target, quiet: a phosphor triangle (red once it casts)
 RD.CURE_COL = { Poison = { 0.49, 1.00, 0.35, 1 }, Disease = { 0.88, 0.69, 0.29, 1 }, Magic = { 0.30, 0.64, 1.00, 1 },
                 Curse = { 0.77, 0.35, 1.00, 1 } }
@@ -453,8 +457,9 @@ local function buildSpoke(f, i)
     -- their alpha ever changes - in a fight too.
     sp.cross = CreateFrame("Frame", nil, f)
     sp.bogeyCross = CreateFrame("Frame", nil, f)
-    for _, c in ipairs({ sp.cross, sp.bogeyCross }) do
-        if NS.FG and NS.FG.Crosshair then NS.FG.Crosshair(c, RD.CROSS) end
+    sp.totCross = CreateFrame("Frame", nil, f)
+    for _, c in ipairs({ sp.cross, sp.bogeyCross, sp.totCross }) do
+        if NS.FG and NS.FG.Crosshair then NS.FG.Crosshair(c, c == sp.totCross and RD.TOT or RD.CROSS) end
         c:SetFrameLevel(f:GetFrameLevel() + 20)
         c:SetAlpha(0)
     end
@@ -502,6 +507,9 @@ function RD.PlaceSpoke(sp, s, rim)
     sp.cross:SetSize(s.ph + RD.CROSS_PAD, s.ph + RD.CROSS_PAD)
     sp.cross:ClearAllPoints()
     sp.cross:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
+    sp.totCross:SetSize(s.ph + RD.TOT_PAD, s.ph + RD.TOT_PAD)
+    sp.totCross:ClearAllPoints()
+    sp.totCross:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
     if s.rb then
         sp.bogeyCross:SetSize(s.pb + RD.CROSS_PAD, s.pb + RD.CROSS_PAD)
         sp.bogeyCross:ClearAllPoints()
@@ -1028,9 +1036,9 @@ end
 --- Bogeys and range arcs: the ticker's work while shown.
 --- Is `unit` your target? Onto `frame`'s alpha: plain yes/no, or a SECRET answer handed to the client
 --- (SetAlphaFromBoolean, the grid's own road - FG.PaintTarget), so it still works inside an instance. Never tested by us.
-local function crossOn(frame, unit)
+local function crossOn(frame, unit, whose)
     if not (frame and unit and UnitIsUnit) then if frame then frame:SetAlpha(0) end return false end
-    local ok, same = pcall(UnitIsUnit, unit, "target")
+    local ok, same = pcall(UnitIsUnit, unit, whose or "target")
     if not ok or same == nil then frame:SetAlpha(0) return false end
     if NS.Secret and NS.Secret(same) then
         if not pcall(function() frame:SetAlphaFromBoolean(same, 1, 0) end) then frame:SetAlpha(0) end
@@ -1045,6 +1053,7 @@ end
 function RD.PaintCross()
     for _, sp in ipairs(RD.spokes or {}) do
         crossOn(sp.cross, sp.unit)
+        crossOn(sp.totCross, sp.unit, "targettarget")       -- who your target is on
         crossOn(sp.bogeyCross, (sp.unit and sp.slot and sp.slot.rb) and sp.tok or nil)
     end
 end
@@ -1224,7 +1233,7 @@ local ev = CreateFrame("Frame")
 RD.events = ev
 for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "GROUP_ROSTER_UPDATE",
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
-                     "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED" }) do
+                     "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 ev:SetScript("OnEvent", function(_, event, a1, a2)
@@ -1252,6 +1261,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2)
             local want = RD.FoodWanted()
             if want ~= RD.rations.item then armUse(RD.rations, want) RD.PaintQuiet() end
         end
+    elseif event == "UNIT_TARGET" then
+        if a1 == "target" then RD.PaintCross() end      -- your target picked someone else: the amber mark moves
     elseif event == "PLAYER_TARGET_CHANGED" then
         RD.PaintCross()
         RD.Look()

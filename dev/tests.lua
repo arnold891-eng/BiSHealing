@@ -11549,6 +11549,18 @@ do
     RD.PaintCross()
     ok(sp2.cross:GetAlpha() == 0 and sp2.bogeyCross:GetAlpha() == 1, "their target is yours: the crosshair on their bogey")
     ok(sp2.cross.cross and #sp2.cross.cross == 12, "the regular frames' own reticle: four corners, four ticks")
+    -- TARGET OF TARGET (Arn 8 Nov: "target of target?"): you target the enemy, the amber reticle sits on who it is on
+    _G.UnitIsUnit = function(a, b) return b == "targettarget" and a == "party1" end
+    fire(RD.events, "UNIT_TARGET", "target")
+    ok(sp2.totCross:GetAlpha() == 1 and sp2.cross:GetAlpha() == 0 and sp1.totCross:GetAlpha() == 0,
+       "your target is on party1: the amber reticle on their pip")
+    ok(sp2.totCross.tint and sp2.totCross.tint[2] < 0.8 and sp2.totCross.tint[1] == 1, "amber, apart from your magenta")
+    local tw = sp2.totCross.__w or (sp2.totCross.GetWidth and sp2.totCross:GetWidth())
+    local cw = sp2.cross.__w or (sp2.cross.GetWidth and sp2.cross:GetWidth())
+    ok(tw and cw and tw > cw, "and a size bigger, so the two never cover each other", tostring(tw) .. " " .. tostring(cw))
+    _G.UnitIsUnit = function(a, b) return b == "targettarget" and a == "player" end
+    fire(RD.events, "UNIT_TARGET", "target")
+    ok(sp1.totCross:GetAlpha() == 1 and sp2.totCross:GetAlpha() == 0, "it turns on you: the amber reticle moves to the centre")
     _G.UnitIsUnit = function() return secret() end
     local okS = pcall(RD.PaintCross)
     ok(okS, "a secret answer (inside an instance) goes to the client, never tested")

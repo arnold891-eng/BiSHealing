@@ -3813,7 +3813,12 @@ end
 -- 25-man second. Now:
 --   * the client's own events (health, heals on the way, shields, connection, death, flags) mark
 --     THAT person's cell dirty, and the next tick repaints only dirty cells;
---   * range has no event, so it alone is asked on its own, slower beat (FG.RANGE_EVERY);
+--   * range WAITS FOR THE GAME TOO (9 Nov 2026, Arn: "instead of us asking about the range we wait for the game to
+--     tell us there is a change, we want to make this lean and fast"): UNIT_IN_RANGE_UPDATE - the client's own
+--     "this person crossed the ~40 yd line", what VuhDo's and EllesmereUI's Forever frames listen to - marks THAT
+--     person's range (FG.MarkRange) and the next tick asks only them. The 0.25 s beat (FG.RANGE_EVERY) asking every
+--     cell is only the fallback, for a client that refuses the event (FG.ArmRange). A spell shorter than 40 yd (no
+--     signal at its own edge) and phasing are caught by the sweep below, within a second;
 --   * a SWEEP repaints everything every FG.SWEEP seconds, so a missed event can never leave a
 --     cell showing an old number for long - and settings changes show within that, at worst.
 -- FojjiCore's "mark dirty, do the work when needed" (Spec.lua), on a raid grid.
@@ -3835,6 +3840,35 @@ FG.SPREAD_EVENTS = { PLAYER_REGEN_DISABLED = true, PLAYER_REGEN_ENABLED = true, 
 FG.sweepAt, FG.spreadLeft = 0, 0
 
 function FG.MarkAll() FG.dirtyAll = true end
+
+-- THE RANGE SIGNAL (9 Nov 2026): which cells' range the game said changed, painted next tick and emptied
+FG.RANGE_EVENT = "UNIT_IN_RANGE_UPDATE"
+FG.rangeDirty = {}
+FG.rangeByEvent = false
+
+--- Listen for the game's range signal on `frame`. A client that does not know the event refuses the registration
+--- (an error, caught): then the old 0.25 s beat goes on asking. Answers whether the game will tell us.
+function FG.ArmRange(frame)
+    local ok = frame and pcall(frame.RegisterEvent, frame, FG.RANGE_EVENT) or false
+    FG.rangeByEvent = ok and true or false
+    return FG.rangeByEvent
+end
+
+--- The game said this person's range changed: their cells' range goes on the next tick's list (the range only,
+--- not a whole repaint). A hidden unit token cannot be looked up, so every cell's range is asked instead.
+function FG.MarkRange(unit)
+    local rd = FG.rangeDirty
+    if type(unit) ~= "string" or (NS.Secret and NS.Secret(unit)) then
+        for _, f in ipairs(FG.frames or {}) do rd[f] = true end
+        for _, f in ipairs(FG.petFrames or {}) do rd[f] = true end
+        return
+    end
+    local f = FG.byUnit and FG.byUnit[unit]
+    if f then rd[f] = true end
+    for _, c in ipairs(FG.petFrames or {}) do
+        if c.unit == unit then rd[c] = true end
+    end
+end
 
 --- Spread "everyone" over the next few ticks instead of one frame.
 function FG.MarkAllSoon() FG.spreadLeft = #(FG.frames or {}) end
@@ -3871,11 +3905,12 @@ function FG.MarkUnit(unit)
     end
 end
 
---- One cell on this tick: all of it when dirty, only its range on the range beat, else nothing.
+--- One cell on this tick: all of it when dirty, only its range when the game said it changed (or on the fallback
+--- beat), else nothing.
 local function tickCell(f, all, doRange)
     if not (f and f.unit and f:IsShown()) then return end
     if all or FG.dirty[f] then FG.Paint(f)
-    elseif doRange and FG.PaintRange then FG.PaintRange(f, f.unit, true) end
+    elseif (doRange or FG.rangeDirty[f]) and FG.PaintRange then FG.PaintRange(f, f.unit, true) end
 end
 
 function FG.Start()
@@ -3917,8 +3952,9 @@ function FG.Start()
             if FG.me then FG.dirty[FG.me] = true end
             for _, c in ipairs(FG.petFrames or {}) do FG.dirty[c] = true end
         end
-        local doRange = rangeIn >= FG.RANGE_EVERY
-        if doRange then rangeIn = 0 end
+        -- the fallback beat only: with the game's range signal heard, nobody's range is asked unless it changed
+        local doRange = (not FG.rangeByEvent) and rangeIn >= FG.RANGE_EVERY
+        if rangeIn >= FG.RANGE_EVERY then rangeIn = 0 end
         if pending and FG.Layout(anchor) then pending = false end   -- retried until out of combat
         -- the team's target cells, 4 a second while pvp mode shows (no UNIT_HEALTH for their tokens);
         -- one boolean and out when it does not
@@ -3971,17 +4007,20 @@ function FG.Start()
         end
         FG.tickRange = nil              -- the tick is over; the next asker asks for itself
         FG.tickMaxAsked = nil
-        -- painted: empty the list in place (no new table a tick)
+        -- painted: empty the lists in place (no new table a tick)
         for k in pairs(FG.dirty) do FG.dirty[k] = nil end
+        for k in pairs(FG.rangeDirty) do FG.rangeDirty[k] = nil end
     end)
 
     -- WHAT MARKS A CELL: the client's events about a person, and the few about everyone
     local uev = CreateFrame("Frame")
     for _, e in ipairs(FG.UNIT_EVENTS) do pcall(uev.RegisterEvent, uev, e) end
     for _, e in ipairs(FG.ALL_EVENTS) do pcall(uev.RegisterEvent, uev, e) end
+    FG.ArmRange(uev)
     local isAll = {}
     for _, e in ipairs(FG.ALL_EVENTS) do isAll[e] = true end
     uev:SetScript("OnEvent", function(_, event, unit)
+        if event == FG.RANGE_EVENT then FG.MarkRange(unit) return end
         if event == "PLAYER_REGEN_DISABLED" then FG.EndDrags() end   -- before the lockdown: a drag still on ends
         if FG.SPREAD_EVENTS[event] then FG.MarkAllSoon()
         elseif isAll[event] then FG.dirtyAll = true

@@ -1325,6 +1325,9 @@ function NS.DO.range()
     local call = (C_Spell and C_Spell.IsSpellInRange and "C_Spell.IsSpellInRange")
         or (IsSpellInRange and "IsSpellInRange") or "no call on this client"
     Print("  asking: |cffb980ff%s|r", call)
+    -- WHEN (9 Nov 2026): on the game's signal, or the old beat when this client refused it (FG.ArmRange)
+    Print("  when: %s", (FG and FG.rangeByEvent) and "|cff4fd0cfwhen the game says someone crossed the line|r (UNIT_IN_RANGE_UPDATE), and the 1 s sweep"
+        or ("|cffe5c04aevery %.2f s for everyone|r - this client gave no range signal"):format(FG and FG.RANGE_EVERY or 0.25))
     local unit = (UnitExists and UnitExists("target") and "target") or "player"
     local range = (C_Spell and C_Spell.IsSpellInRange) or IsSpellInRange
     if range and spell then

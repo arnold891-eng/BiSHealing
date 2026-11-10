@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.1.1
+
+- **Behind the scenes only.** Work on a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.
+
 ## 1.1.0
 
 - **PvP mode: the interrupt icon stays hidden until it's needed.** It used to sit there dimmed; now it only appears while that enemy is casting or channelling.

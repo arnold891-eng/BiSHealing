@@ -11773,7 +11773,7 @@ do
         local br = RD.brackets[1]
         ok(#RD.brackets == 8 and br.thick == cap.bw and same(br.color, cap.bracket)
            and math.abs(math.abs(br.from[1] - br.to[1]) - cap.be) < 1e-9, "the corner brackets: white, longer and heavier", br.thick)
-        ok(same(RD.meLines[1].color, cap.accent), "you in the middle in the ship's purple accent")
+        ok(#RD.meLines == 0, "no chevron in the middle: the role icon alone (Arn, 10 Nov)")
         ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
         ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
            "warnings keep their colours in every ship: red, amber, the boss's red")

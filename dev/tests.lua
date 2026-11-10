@@ -182,7 +182,12 @@ local function newFrame(kind, name, parent)
     end
     function f:IsMouseOver() return self.__mouseOver == true end
     function f:GetScript(k) return self.__scripts[k] end
-    function f:RegisterEvent(e) self.__events = self.__events or {}; self.__events[e] = true end
+    -- AN EVENT THE CLIENT DOES NOT KNOW IS REFUSED (9 Nov 2026, the range signal): the client throws "attempt to
+    -- register unknown event"; the mock accepted anything. STATE.unknownEvents names the ones a test pretends are gone.
+    function f:RegisterEvent(e)
+        if STATE.unknownEvents and STATE.unknownEvents[e] then error("Attempt to register unknown event \"" .. tostring(e) .. "\"", 2) end
+        self.__events = self.__events or {}; self.__events[e] = true
+    end
     -- as the client's: the event reaches this frame only for the units named (fire() keeps the filter)
     function f:RegisterUnitEvent(e, ...)
         self.__events = self.__events or {}; self.__events[e] = true
@@ -1930,6 +1935,10 @@ do
     local first = heard[1] or ""
     ok(first:find("40 yd", 1, true) ~= nil, "/bish range names the yards of the heal it picked", first)
     ok(first:find("left click first", 1, true) == nil, "and no longer claims the old left-click rule", first)
+    local when
+    for _, t in ipairs(heard) do if t:find("when:", 1, true) then when = t end end
+    ok(when and (when:find("UNIT_IN_RANGE_UPDATE", 1, true) or when:find("every", 1, true)),
+       "/bish range says WHEN range is asked: on the game's signal, or the old beat", when)
 end
 
 -- a client that refuses a secret max must not take the addon down with it; whether Forever does
@@ -9207,9 +9216,57 @@ do
     -- 8 Oct: 9000 -> 8500, after a crosshair crept 500 in unnoticed. 10 Oct: -> 1600 - the grid
     -- paints what the client says CHANGED (events), range on its own 0.25 s beat, a 1 s sweep; a
     -- quiet second measured 1,450 (Arn: "like Apple super optimized, not power hungry android").
-    local QUIET, AURAS = 1600, 650
+    -- 9 Nov: -> 1250 - range waits for the game's UNIT_IN_RANGE_UPDATE instead of a 0.25 s beat over every cell
+    -- (Arn: "we wait for the game to tell us there is a change, we want to make this lean and fast"); measured 1,100.
+    local QUIET, AURAS = 1250, 650
     ok(n <= QUIET, "a quiet second in a 25-man asks the client at most " .. QUIET .. " things: " .. n,
        Cost.Top(by, 6))
+    ok((by.IsSpellInRange or 0) <= 30, "range in a quiet second: only the 1 s sweep asks it, about once a cell - no beat",
+       by.IsSpellInRange or 0)
+
+    -- THE RANGE SIGNAL (9 Nov 2026): the game says who crossed the line; only they are asked
+    do
+        ok(FG.rangeByEvent and FG.unitEvents.__events.UNIT_IN_RANGE_UPDATE, "the grid listens for the game's range signal")
+        local asked, whole = {}, {}
+        local realPR, realP = FG.PaintRange, FG.Paint
+        FG.PaintRange = function(f, ...) asked[#asked + 1] = f return realPR(f, ...) end
+        FG.Paint = function(f, ...) whole[f] = true return realP(f, ...) end   -- a whole repaint asks range too
+        local cell = FG.byUnit.raid7
+        tick()
+        for i = #asked, 1, -1 do asked[i] = nil end
+        FG.sweepAt = 0
+        local keepSweep = FG.SWEEP
+        FG.SWEEP = 1e9                                   -- no sweep slice this tick: only the signal may ask
+        fire(FG.unitEvents, "UNIT_IN_RANGE_UPDATE", "raid7")
+        tick()
+        local only7, got7 = true, false
+        for _, f in ipairs(asked) do
+            if f == cell then got7 = true
+            elseif not whole[f] and f ~= FG.me and f ~= FG.target and f ~= FG.tot then only7 = false end
+        end
+        ok(got7 and only7, "raid7 crossed the line: raid7's range is asked, nobody else's (beyond the sweep's one cell)", #asked)
+        for k in pairs(whole) do whole[k] = nil end
+        for i = #asked, 1, -1 do asked[i] = nil end
+        tick()
+        local again = false
+        for _, f in ipairs(asked) do if f == cell and not whole[f] then again = true end end
+        ok(not again, "and once asked, not again until the game says so")
+        fire(FG.unitEvents, "UNIT_IN_RANGE_UPDATE", secret())
+        tick()
+        local n7 = 0
+        for _, f in ipairs(asked) do if FG.byUnit and f ~= FG.me then n7 = n7 + 1 end end
+        ok(n7 >= 25, "a unit the client hides: everyone's range asked, never a guess", n7)
+        FG.SWEEP = keepSweep
+        FG.PaintRange, FG.Paint = realPR, realP
+        -- A CLIENT WITHOUT THE EVENT: the registration is refused, the 0.25 s beat goes on asking
+        STATE.unknownEvents = { UNIT_IN_RANGE_UPDATE = true }
+        local probe = CreateFrame("Frame")
+        ok(FG.ArmRange(probe) == false and not FG.rangeByEvent, "no range signal on this client: the old beat asks instead")
+        local nb, byb = Cost.Count(function() for _ = 1, 10 do tick() end end)
+        ok((byb.IsSpellInRange or 0) >= 4 * 20, "the beat: every cell's range, four times a second", byb.IsSpellInRange or 0)
+        STATE.unknownEvents = nil
+        FG.ArmRange(FG.unitEvents)
+    end
 
     -- WHAT MARKS A CELL, and that ONLY it is repainted (10 Oct 2026)
     local painted = {}

@@ -29,8 +29,8 @@
   keep-up self buff - Water Shield - red while it is NOT on you: the client's own icon arriving covers the red), MANA
   TIDE, the best MANA POTION, the best DRINK (each lit by its own curve once you miss what it restores - learned out of a
   fight; the drink out of a fight only), RATIONS (out of a fight, Well Fed missing and a well-fed food in your bags).
-  ALERTS: a dashed red arc on the rim of the spoke - out of range (the client's own answer through its ternary), or a
-  line-of-sight failure on a click there (UI_ERROR_MESSAGE). Everything lit pulses (RD.Pulse) and carries the GCD sweep.
+  A FAILED CLICK says why under the pip, in the grid's red letters: LOS or RANGE (UI_ERROR_MESSAGE, RD.HeardError) -
+  only when you click, never standing (9 Nov 2026). Everything lit pulses (RD.Pulse) and carries the GCD sweep.
 
   OUT OF A FIGHT everything is drawn dim, so the hand learns the places. IN A FIGHT the scope and every empty slot go
   to alpha 0 - in the same place and still clickable, like the PvP interrupt - and only what needs a click shows.
@@ -90,7 +90,25 @@ RD.TOOL_GUESS = 0.50                               -- the amount unknown: light 
 -- 12 s) keeps it dark: a second one would only replace it.
 RD.FSR = { n = 5, w = 6, h = 3, gap = 2, spent = 0.2 }   -- the five second rule's segments (RD.PaintFSR)
 RD.SPRING = "Mana Spring Totem"
-RD.COOLS = { tide = 300, potion = 120 }            -- seconds, when the client gives no cooldown to seed from
+RD.COOLS = { tide = 300, potion = 120, kick = 6, chaff = 15 }  -- seconds, when the client gives no cooldown to seed from
+RD.cdLen = {}                                      -- kind -> a cooldown's length, learned from the client's plain answer
+-- THE RIGHT RAIL: DEFENCE (9 Nov 2026, Arn: "an interrupt needs to target the specific unit, if it's on cool down, our
+-- grounding totem lights up on the right rail it needs no target it just needs to know the flare missed - deploy chaff,
+-- last resort catch all"). The FLARE is the interrupt on each bogey: it needs the caster, so it lives on the caster's
+-- spoke. CHAFF is a TARGETLESS answer on its own rail right of the square, lit only while (a) an enemy on the radar is
+-- casting, (b) the flare is spent - our own clock of your interrupt (a shaman's shocks share one cooldown, so any shock
+-- spends it), or no interrupt at all - and (c) the chaff itself is ready. Plain booleans from our clock and from
+-- FG.Casting (`type()` only); nothing secret is read. Only targetless spells belong here.
+RD.CHAFF = { SHAMAN = "Grounding Totem", PRIEST = "Psychic Scream" }
+RD.KICK_SHARED = { ["Earth Shock"] = { "Flame Shock", "Frost Shock" } }   -- casts that spend the same cooldown
+RD.CHAFF_COL = { 1.00, 0.70, 0.25 }                -- amber: answer this now (a missile on its way)
+-- THE PILOT'S KNOBS (Arn, 9 Nov: "these are our knobs can be turned on and off, some fights we need a specific totem all
+-- the time so we can't afford for it to be lighting up ... we can turn off from the rail without having to go into the
+-- setting"): a small switch on each rail tool's corner, a PLAIN button (never part of the secure cast button), so a click
+-- works in a fight - it only changes what we light, and alpha is allowed in combat. Saved in `radar.off[kind]`.
+RD.KNOB_PX = 9
+RD.KNOB_ON = { 0.22, 1.00, 0.53, 0.35 }            -- lit when it needs you: a faint phosphor dot
+RD.KNOB_OFF = { 1.00, 0.23, 0.30, 1 }              -- switched off: red, plain to see
 RD.WATER = { tide = 12, spring = 300 }             -- how long each water totem stands
 RD.readyAt = {}                                    -- kind -> GetTime() when it is ready again
 RD.coolStart = {}                                  -- kind -> GetTime() its cooldown started (the cooling disc's start)
@@ -568,18 +586,23 @@ local function buildSpoke(f, i)
         k.cd = cd
     end
     sp.bogey = k
-    -- ALERT: a dashed arc on the rim of this spoke, out of range (steady) or LOS (a flash) - three dashes each,
-    -- their ends set by RD.PlaceSpoke
-    local arc = CreateFrame("Frame", nil, f)
-    arc:SetAllPoints(f)
-    sp.arcLines = {}
-    for d = 1, 3 do sp.arcLines[d] = line(arc, "OVERLAY", 0, 0, 1, 1, RD.COL.red, 3) end
-    arc:SetAlpha(0)
-    sp.arc = arc
+    -- THE CLICK'S WORD, LIKE THE GRID (Arn, 9 Nov: "flash LOS under the teammate im clicking like bis healing" ... "range
+    -- for out of range ... only when i click them"): LOS or RANGE in the grid's red and thick outline (FG.Flash), just
+    -- UNDER the pip, fading by itself in FG.FLASH_FOR (RD.HeardError). The red rim dashes for range are gone. A plain
+    -- frame on the radar anchored to the pip, built here out of a fight; in one only its text, alpha and fade change.
     local los = CreateFrame("Frame", nil, f)
-    los:SetAllPoints(f)
-    sp.losLines = {}
-    for d = 1, 3 do sp.losLines[d] = line(los, "OVERLAY", 0, 0, 1, 1, RD.COL.amber, 3) end
+    los:SetPoint("TOP", b, "BOTTOM", 0, -1)
+    los:SetSize(40, 16)
+    if los.SetFrameLevel and b.GetFrameLevel then
+        local lvl = b:GetFrameLevel()
+        if type(lvl) == "number" then los:SetFrameLevel(lvl + 25) end
+    end
+    los.word = los:CreateFontString(nil, "OVERLAY")
+    if los.word.SetFont then los.word:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 14, "THICKOUTLINE") end
+    los.word:SetPoint("CENTER", los, "CENTER", 0, 0)
+    los.word:SetText("")                  -- empty until a click fails: no words stand on the scope
+    local red = (NS.FG and NS.FG.FLASH_RED) or { 1.00, 0.25, 0.30 }
+    los.word:SetTextColor(red[1], red[2], red[3], 1)
     los:SetAlpha(0)
     -- the dim places, out of a fight
     sp.dims = {}
@@ -592,7 +615,7 @@ local function buildSpoke(f, i)
         local ok, g = pcall(los.CreateAnimationGroup, los)
         if ok and g then
             local a = g:CreateAnimation("Alpha")
-            a:SetFromAlpha(1) a:SetToAlpha(0) a:SetDuration(1.4)
+            a:SetFromAlpha(1) a:SetToAlpha(0) a:SetDuration((NS.FG and NS.FG.FLASH_FOR) or 1.2)
             if g.SetToFinalAlpha then g:SetToFinalAlpha(true) end
             sp.losFade = g
         end
@@ -643,16 +666,6 @@ function RD.PlaceSpoke(sp, s, rim)
                         line(k.face, "OVERLAY", -h, -h * 0.8, 0, h, hid, 2) }
             k.linesPx = s.pb
         end
-    end
-    -- the arcs: three dashes on the rim, either side of the bearing (a raid's slots are close: shorter dashes)
-    local step = (s.own and 0.07) or 0.04
-    for d = 1, 3 do
-        local c = s.b + (d - 2) * step
-        local p0, p1 = c - step * 0.35, c + step * 0.35
-        sp.arcLines[d]:SetStartPoint("CENTER", f, math.sin(p0) * rim, math.cos(p0) * rim)
-        sp.arcLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * rim, math.cos(p1) * rim)
-        sp.losLines[d]:SetStartPoint("CENTER", f, math.sin(p0) * (rim - 6), math.cos(p0) * (rim - 6))
-        sp.losLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * (rim - 6), math.cos(p1) * (rim - 6))
     end
     -- the crosshairs sit on the pips they frame
     sp.cross:SetSize(s.ph + RD.CROSS_PAD, s.ph + RD.CROSS_PAD)
@@ -821,6 +834,7 @@ local function buildSystem(f, name, point, x, y, rel)
     local b = CreateFrame("Button", "BiSHealingRadar" .. name, f, "SecureActionButtonTemplate")
     b:SetSize(RD.SYS_PX, RD.SYS_PX)
     b:SetPoint(point, rel or f, point, x, y)
+    b.rail = rel
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
     b.beat = CreateFrame("Frame", nil, b)
     b.beat:SetAllPoints(b)
@@ -1002,9 +1016,23 @@ function RD.BuildRails(f)
     local g = rail(f, RD.GAUGE_RAIL_W)
     g:SetPoint("TOPRIGHT", t, "TOPLEFT", -gap, 0)
     g:SetPoint("BOTTOMRIGHT", t, "BOTTOMLEFT", -gap, 0)
-    RD.toolRail, RD.gaugeRail = t, g
-    if f.SetClampRectInsets then pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + RD.GAUGE_RAIL_W + 2 * gap), 0, 0, 0) end
+    -- THE DEFENCE RAIL on the right (CHAFF): shown only when it holds something (RD.ArmTools, out of a fight)
+    local d = rail(f, RD.TOOL_RAIL_W)
+    d:SetPoint("TOPLEFT", f, "TOPRIGHT", gap, 0)
+    d:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", gap, 0)
+    d:Hide()
+    RD.toolRail, RD.gaugeRail, RD.defRail = t, g, d
+    RD.ClampRails()
     return t, g
+end
+
+--- The radar's clamp: the left rails always, the right one while it shows.
+function RD.ClampRails()
+    local f = RD.frame
+    if not (f and f.SetClampRectInsets) then return end
+    local gap = RD.RAIL_GAP
+    local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
+    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + RD.GAUGE_RAIL_W + 2 * gap), right, 0, 0)
 end
 
 --- The HUD scale left of the tape: the spine, the ticks, the numbers, and the readout box on your fuel's top.
@@ -1122,11 +1150,75 @@ local function toolFace(b, kind)
         bar(3, 5, 0, 5) bar(6, 2, 0, 3) bar(10, 8, 0, -3)
     elseif kind == "reserve" then                              -- a reserve can: the body, its handle, the spout
         bar(10, 10, -1, -2) bar(6, 2, -2, 5) bar(2, 6, 5, 4, -0.6)
+    elseif kind == "chaff" then                                -- the ground sign: a stem into three shrinking bars
+        bar(2, 8, 0, 4) bar(12, 2, 0, -1) bar(8, 2, 0, -4) bar(4, 2, 0, -7)
     else                                                       -- a drop
         bar(2, 9, -2.2, 2, -0.45) bar(2, 9, 2.2, 2, 0.45) bar(8, 5, 0, -3.5)
     end
     b.pieces = out
     return out
+end
+
+--- Is this tool switched off by its knob?
+function RD.KnobOff(kind)
+    local off = db().off
+    return type(off) == "table" and kind ~= nil and off[kind] == true or false
+end
+
+--- Switch a tool's knob (true = off). Works in a fight: it only repaints what we light.
+function RD.SetKnob(kind, isOff)
+    local d = db()
+    d.off = type(d.off) == "table" and d.off or {}
+    d.off[kind] = isOff and true or nil
+    RD.PaintKnobs()
+    if RD.Active() then RD.PaintQuiet() RD.PaintChaff() end
+    return RD.KnobOff(kind)
+end
+
+--- The knob on a tool's top-left corner: a plain button on the tool's rail, over the pip. A click flips it.
+function RD.Knob(b)
+    local k = CreateFrame("Button", nil, b.rail or RD.frame)
+    k:SetSize(RD.KNOB_PX, RD.KNOB_PX)
+    k:SetPoint("CENTER", b, "TOPLEFT", 1, -1)
+    k:SetFrameLevel((b:GetFrameLevel() or 0) + 6)
+    if k.RegisterForClicks then k:RegisterForClicks("LeftButtonUp") end
+    k.dot = k:CreateTexture(nil, "OVERLAY")
+    k.dot:SetAllPoints(k)
+    k.dot:SetTexture(RD.ART .. "disc")
+    k.owner = b
+    k:SetScript("OnClick", function(self)
+        local kind = self.owner.kind
+        RD.SetKnob(kind, not RD.KnobOff(kind))
+        if GameTooltip and GameTooltip:IsOwned(self) then self:GetScript("OnEnter")(self) end
+    end)
+    k:SetScript("OnEnter", function(self)
+        if not GameTooltip then return end
+        local tool = self.owner
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine((tool.tip and tool.tip[1] or "TOOL") .. (RD.KnobOff(tool.kind) and "  -  OFF" or "  -  ON"))
+        GameTooltip:AddLine(RD.KnobOff(tool.kind) and "Switched off: it never lights.  Click to switch it back on."
+                            or "Lights when it needs you.  Click to switch it off (works in a fight).", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    k:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    b.knob = k
+    return k
+end
+
+--- Every knob: shown on an armed tool only; red when off, a faint dot when on. Plain frames: any time, fight or not.
+function RD.PaintKnobs()
+    for _, b in ipairs(RD.knobbed or {}) do
+        local k = b.knob
+        if k then
+            if b.macro then
+                local c = RD.KnobOff(b.kind) and RD.KNOB_OFF or RD.KNOB_ON
+                k.dot:SetVertexColor(c[1], c[2], c[3], c[4])
+                k:Show()
+            else
+                k:Hide()
+            end
+        end
+    end
 end
 
 function RD.Build()
@@ -1175,6 +1267,17 @@ function RD.Build()
     for _, b in ipairs(RD.COLUMN) do
         if b == RD.tide or b == RD.potion then b.cd = RD.WaitSweep(b) else b.cd = RD.Sweep(b.face) end
     end
+    -- THE DEFENCE RAIL (right of the square): CHAFF, the targetless catch-all (RD.ChaffLit)
+    RD.chaff = buildSystem(f, "Chaff", "TOPLEFT", X, -8, RD.defRail)
+    RD.chaff.kind = "chaff"
+    toolFace(RD.chaff, "chaff")
+    RD.chaff.face:SetAlpha(0)
+    RD.chaff.pulse = RD.Pulse(RD.chaff.beat, RD.PULSE_MID)
+    RD.chaff.cd = RD.Sweep(RD.chaff.face)
+    RD.DEFENCE = { RD.chaff }
+    -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
+    RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
+    for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
     buildGauge(f)
     -- (the rail drawn inside the scope is gone: the rails stand outside the square now - RD.BuildRails)
     -- rations: a fork
@@ -1708,8 +1811,41 @@ function RD.ArmTools()
         local okS, _, sid = pcall(getSpell, potion)
         RD.potion.spellId = okS and plain(sid) or nil
     end
+    RD.ArmChaff()
     RD.SeedCooldowns()
+    RD.PaintKnobs()
     return true
+end
+
+--- Your chaff: RD.CHAFF[class] if trained, and never the same spell as your interrupt (a priest whose only interrupt is
+--- Psychic Scream has no second answer). nil = none.
+function RD.ChaffSpell()
+    local okC, _, class = pcall(UnitClass, "player")
+    class = okC and plain(class) or nil
+    local name = RD.CHAFF[class or ""]
+    local FM, FG = NS.FM, NS.FG
+    if not (name and FM and FM.Ranks and #FM.Ranks(name) > 0) then return nil end
+    if FG and FG.KickSpell and FG.KickSpell() == name then return nil end
+    return name
+end
+
+--- Arm the chaff (its click, written out of a fight) and show the defence rail only when it holds it.
+function RD.ArmChaff()
+    local b = RD.chaff
+    if combat() or not b then return false end
+    local spell = RD.ChaffSpell()
+    local macro = spell and ("/cast " .. spell) or nil
+    b:SetAttribute("*type1", macro and "macro" or nil)
+    b:SetAttribute("*macrotext1", macro)
+    b:EnableMouse(macro and true or false)
+    b.macro, b.spell = macro, spell
+    b.tip = spell and { "CHAFF", spell .. " - the catch-all: lights when an enemy on the radar casts and your interrupt "
+                        .. "(the flare on its bogey) is cooling.  No target needed." } or nil
+    if RD.defRail then
+        if spell then RD.defRail:Show() else RD.defRail:Hide() end
+        RD.ClampRails()
+    end
+    return spell
 end
 
 --- What is still cooling, from the client while it will say (out of a fight): seeds our own clock, so a Mana Tide used
@@ -1738,7 +1874,52 @@ function RD.SeedCooldowns()
         end
         if type(s) == "number" and type(d) == "number" and d > 2 then RD.readyAt.potion, RD.coolStart.potion = s + d, s end
     end
+    -- the flare and the chaff: their clocks seeded, and their real length learned (talents can shorten them)
+    local FG = NS.FG
+    local named = { kick = FG and FG.KickSpell and FG.KickSpell() or nil, chaff = RD.chaff and RD.chaff.spell or nil }
+    for kind, name in pairs(named) do
+        if name and getCd then
+            local ok, info = pcall(getCd, name)
+            local s, d = nil, nil
+            if ok and type(info) == "table" then
+                s = plain(info.startTime)
+                d = plain(info.duration)
+            end
+            if type(s) == "number" and type(d) == "number" and d > 2 then
+                RD.readyAt[kind], RD.coolStart[kind], RD.cdLen[kind] = s + d, s, d
+            end
+        end
+    end
     return true
+end
+
+--- Is the flare (your interrupt) spent? No interrupt at all counts as spent: the chaff is all you have.
+function RD.FlareSpent(now)
+    local FG = NS.FG
+    if not (FG and FG.KickSpell and FG.KickSpell()) then return true end
+    return (RD.readyAt.kick or 0) > (now or (GetTime and GetTime()) or 0)
+end
+
+--- THE CHAFF'S LIGHT: armed, knob on, in a fight, something casting, the flare spent and the chaff ready. Plain booleans.
+function RD.ChaffLit(fight, casting)
+    local b = RD.chaff
+    if not (b and b.macro) or RD.KnobOff("chaff") then return false end
+    if not (fight and casting) then return false end
+    local now = (GetTime and GetTime()) or 0
+    if (RD.readyAt.chaff or 0) > now then return false end
+    return RD.FlareSpent(now)
+end
+
+--- Paint the chaff from the last look (RD.anyCast, set by RD.Look): its sign in amber and its face seen, or dark.
+function RD.PaintChaff(casting)
+    local b = RD.chaff
+    if not b then return false end
+    if casting == nil then casting = RD.anyCast end
+    local lit = RD.ChaffLit(RD.inFight or combat(), casting)
+    local c = RD.CHAFF_COL
+    for _, t in ipairs(b.pieces or {}) do t:SetVertexColor(c[1], c[2], c[3], lit and 1 or 0) end
+    b.face:SetAlpha(lit and 1 or 0)
+    return lit
 end
 
 --- THE COOLING DISCS, FROM OUR OWN CLOCK (8 Nov 2026, Arn: "this mana tide sweep shows up whenever i click anything"):
@@ -1804,6 +1985,22 @@ function RD.OnCast(unit, spellID)
     elseif name == RD.SPRING then
         RD.waterUntil = now + RD.WATER.spring
         return "spring"
+    end
+    -- the flare: your interrupt, or a spell that spends the same cooldown (a shaman's shocks share one)
+    local FG = NS.FG
+    local kick = FG and FG.KickSpell and FG.KickSpell() or nil
+    local shares = name and kick and (name == kick)
+    if not shares and name and kick then
+        for _, other in ipairs(RD.KICK_SHARED[kick] or {}) do if other == name then shares = true end end
+    end
+    if shares then
+        RD.readyAt.kick, RD.coolStart.kick = now + (RD.cdLen.kick or RD.COOLS.kick), now
+        return "kick"
+    end
+    if name and RD.chaff and name == RD.chaff.spell then
+        RD.readyAt.chaff, RD.coolStart.chaff = now + (RD.cdLen.chaff or RD.COOLS.chaff), now
+        RD.PaintChaff()
+        return "chaff"
     end
     return false
 end
@@ -1895,7 +2092,7 @@ function RD.Arm()
         sp.bogey:SetAttribute("unit", nil) sp.bogey:EnableMouse(false) sp.bogey:Hide()
         armCures(sp, nil)
         for _, fr in ipairs(sp.dims) do fr:Hide() end
-        sp.arc:SetAlpha(0)
+        sp.los:SetAlpha(0)
     end
     armShield()
     RD.ArmTools()
@@ -1966,7 +2163,8 @@ function RD.PaintTools(fight)
     if not RD.TOOLS then return end
     for _, b in ipairs(RD.TOOLS) do
         local drew = false
-        if b.macro and not (b.restOnly and fight) and not (b.gate and not b.gate(fight)) and UnitPowerPercent then
+        if b.macro and not (b.restOnly and fight) and not (b.gate and not b.gate(fight)) and not RD.KnobOff(b.kind)
+           and UnitPowerPercent then
             local c = RD.ToolCurve(b.at)
             if c then
                 local ok, col = pcall(UnitPowerPercent, "player", 0, true, c)
@@ -2057,6 +2255,9 @@ end
 
 function RD.Look()
     local FG = NS.FG
+    local anyCast = false
+    -- asked only while the chaff could light (armed, knob on, in a fight): lean when it cannot
+    local wantChaff = RD.chaff and RD.chaff.macro and (RD.inFight or combat()) and not RD.KnobOff("chaff") or false
     for _, sp in ipairs(RD.spokes or {}) do
         if sp.unit and sp.tok and sp.slot and sp.slot.rb then
             -- red only when you have an interrupt to answer it with; the quiet pip shows either way
@@ -2064,42 +2265,54 @@ function RD.Look()
             local okE, there = pcall(UnitExists, sp.tok)
             there = okE and there
             if NS.Secret and NS.Secret(there) then there = true end
-            local lit = there and sp.kick and FG and FG.Casting and FG.Casting(sp.tok) or false
+            local casting = false
+            if there and (sp.kick or wantChaff) and FG and FG.Casting then casting = FG.Casting(sp.tok) end
+            -- the chaff answers any hostile cast on the radar, interrupt or not (Arn: "it needs no target")
+            if casting and wantChaff and not anyCast and UnitCanAttack then
+                local okH, hostile = pcall(UnitCanAttack, "player", sp.tok)
+                if okH and (hostile == true or (NS.Secret and NS.Secret(hostile))) then anyCast = true end
+            end
+            local lit = casting and sp.kick and true or false
             paintContact(sp, lit)
-            RD.PaintRange(sp)
-        elseif sp.unit then
-            bogeyAlpha(sp.bogey, 0)
-            RD.PaintRange(sp)
         else
             bogeyAlpha(sp.bogey, 0)
-            sp.arc:SetAlpha(0)
         end
     end
+    RD.anyCast = anyCast
+    RD.PaintChaff(anyCast)
 end
 
---- The range arc: shown when the client says they are out of reach (a secret answer goes through its own ternary).
-function RD.PaintRange(sp)
-    local spell = RD.heal and (RD.heal.cast or RD.heal.name)
-    local range = C_Spell and C_Spell.IsSpellInRange
-    local answer, asked
-    if range and spell then asked, answer = pcall(range, spell, sp.unit) end
-    local secret = NS.Secret and NS.Secret(answer)
-    if asked and not secret and answer == nil and UnitInRange then
-        local checked
-        asked, answer, checked = pcall(UnitInRange, sp.unit)
-        if asked and not (NS.Secret and NS.Secret(checked)) and checked == false then answer = nil end
-        secret = NS.Secret and NS.Secret(answer)
+-- THE CLICK'S WORD (Arn, 9 Nov: "LOS for line of sight, range for out of range, red letter under the teammate ... only
+-- when i click them ... like the bis grid in normal view"). No standing range mark any more (the red rim dashes asked
+-- the client about every spoke on every look): a heal that FAILS on the pip under the mouse flashes why, under it.
+local clickWords
+function RD.ClickWords()
+    if clickWords then return clickWords end
+    clickWords = {}
+    local los = NS.FG and NS.FG.FailWords and NS.FG.FailWords() or { ["Target not in line of sight"] = "LOS" }
+    for k, v in pairs(los) do clickWords[k] = v end
+    -- the client's own out-of-range strings (any language), with the English as a net
+    for _, s in ipairs({ "Out of range.", "Out of range", _G.SPELL_FAILED_OUT_OF_RANGE, _G.ERR_OUT_OF_RANGE,
+                         _G.ERR_SPELL_OUT_OF_RANGE }) do
+        if type(s) == "string" and s ~= "" and not (NS.Secret and NS.Secret(s)) then clickWords[s] = "RANGE" end
     end
-    if not asked then sp.arc:SetAlpha(0) return nil end
-    if secret then
-        local tern = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
-        if not tern then sp.arc:SetAlpha(0) return nil end
-        local made, a = pcall(tern, answer, 0, 1)
-        if not (made and pcall(sp.arc.SetAlpha, sp.arc, a)) then sp.arc:SetAlpha(0) end
-        return "secret"
-    end
-    sp.arc:SetAlpha((answer == false or answer == 0) and 1 or 0)
-    return answer
+    return clickWords
+end
+
+--- A failed click: the word under the pip under the mouse, fading by itself. The grid's switch (`flash`) turns it off
+--- here too. Answers the word, or nil.
+function RD.HeardError(msg)
+    local d = NS.DB()
+    if d.flash == false then return nil end
+    if type(msg) ~= "string" or (NS.Secret and NS.Secret(msg)) then return nil end
+    local word = RD.ClickWords()[msg]
+    local sp = RD.over
+    if not (word and sp and sp.los and sp.unit) then return nil end
+    sp.los.word:SetText(word)
+    sp.los:SetAlpha(1)
+    if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
+    RD.lastLos = sp.i
+    return word
 end
 
 -- ------------------------------------------------------------------ the fuel gauge (handed untouched, never read)
@@ -2381,6 +2594,18 @@ function RD.Command(rest)
         db().pos = nil
         RD.Place()
         P("radar: back in its place")
+    elseif word == "knob" then
+        -- `knob <tide|potion|reserve|drink|chaff> on|off` - the same switch as the knob on the rail
+        local kind, state = arg:lower():match("^(%a+)%s*(%a*)$")
+        local known = { tide = true, potion = true, reserve = true, drink = true, chaff = true }
+        if kind and known[kind] and (state == "on" or state == "off") then
+            RD.SetKnob(kind, state == "off")
+        end
+        local list = {}
+        for _, k in ipairs({ "tide", "potion", "reserve", "drink", "chaff" }) do
+            list[#list + 1] = k .. (RD.KnobOff(k) and " |cffff3a4doff|r" or " on")
+        end
+        P("radar knobs: %s.  |cff968ead/bish alpha radar knob <name> on|off|r", table.concat(list, ", "))
     else
         local h = RD.heal or RD.Heal()
         P("radar: heal %s.  |cff968ead/bish alpha radar heal <spell> | scale <50-200> | center|r", h and h.cast or "none")
@@ -2421,7 +2646,9 @@ if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUC
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if RD.OnCast(a1, a3) and RD.Active() then RD.PaintQuiet() end
+        local kind = RD.OnCast(a1, a3)
+        if kind and RD.Active() then RD.PaintQuiet() end
+        if kind and NS.CamShot then NS.CamShot(kind) end   -- the test camera (TestCam.lua), when armed
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
@@ -2472,16 +2699,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
         RD.PickFuel() RD.PaintBoss()       -- a boss came (or went): the tape races it
     elseif event == "UI_ERROR_MESSAGE" then
-        -- a heal that failed on line of sight: the spoke under the mouse flashes amber at its rim
-        local text = a2
-        if NS.Secret and NS.Secret(text) then return end
-        local words = NS.FG and NS.FG.FailWords and NS.FG.FailWords() or {}
-        if type(text) == "string" and words[text] == "LOS" and RD.over then
-            local sp = RD.over
-            sp.los:SetAlpha(1)
-            if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
-            RD.lastLos = sp.i
-        end
+        -- a heal that failed on line of sight or range: the word under the pip under the mouse
+        RD.HeardError(a2)
     end
 end)
 

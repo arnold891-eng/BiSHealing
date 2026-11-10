@@ -11599,6 +11599,43 @@ do
     end
     ok(names == 0, "no names, no words on the scope (digits only: the HUD tape's numbers, the regen %)", names)
 
+    -- THE CLICK'S WORD (Arn, 9 Nov: "LOS for line of sight, range for out of range, red letter under the teammate ... only
+    -- when i click them ... like the bis grid in normal view")
+    do
+        local keepFlash = d.flash
+        d.flash = true
+        local LOSMSG = "Target not in line of sight"
+        ok(RD.PaintRange == nil, "no standing range mark any more: nothing asks every spoke's range on a look")
+        RD.over = nil
+        fire(RD.events, "UI_ERROR_MESSAGE", 50, LOSMSG)
+        ok(sp2.los:GetAlpha() == 0, "a failed click with the mouse on no pip: nothing")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(RD.over == sp2, "the mouse on party1's pip")
+        fire(RD.events, "UI_ERROR_MESSAGE", 50, LOSMSG)
+        ok(sp2.los:GetAlpha() == 1 and sp2.los.word.__text == "LOS" and sp2.losFade and sp2.losFade.playing,
+           "line of sight: LOS under that pip, fading by itself", sp2.los.word.__text)
+        local pt, rel, rp = sp2.los:GetPoint(1)
+        ok(pt == "TOP" and rel == sp2.heal and rp == "BOTTOM", "UNDER the pip, anchored to it", tostring(pt) .. " " .. tostring(rp))
+        local c = sp2.los.word.__color
+        ok(c and c[1] == NS.FG.FLASH_RED[1] and c[2] == NS.FG.FLASH_RED[2] and c[3] == NS.FG.FLASH_RED[3],
+           "in the grid's flash red")
+        ok(sp1.los:GetAlpha() == 0, "and only there")
+        fire(RD.events, "UI_ERROR_MESSAGE", 51, "Out of range.")
+        ok(sp2.los.word.__text == "RANGE" and sp2.los:GetAlpha() == 1, "out of range: RANGE", sp2.los.word.__text)
+        ok(RD.HeardError("Not enough mana") == nil and sp2.los.word.__text == "RANGE", "any other error: nothing new")
+        ok(RD.HeardError(secretString()) == nil, "a secret error text is never read")
+        d.flash = false
+        ok(RD.HeardError(LOSMSG) == nil, "the grid's LOS flash switched off: off here too")
+        d.flash = true
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        ok(RD.over == nil and RD.HeardError(LOSMSG) == nil, "the mouse gone: nothing")
+        RD.spokes[4].heal.__scripts.OnEnter(RD.spokes[4].heal)
+        ok(RD.HeardError(LOSMSG) == nil, "an empty spot: nothing")
+        RD.spokes[4].heal.__scripts.OnLeave(RD.spokes[4].heal)
+        sp2.los:SetAlpha(0)
+        d.flash = keepFlash
+    end
+
     -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
     local function shade(sp)
         RD.PaintHeal(sp)
@@ -11829,6 +11866,101 @@ do
     STATE.units.party1target = nil
     ok(sp2.bogey:GetAttribute("type2") == "target" and sp2.bogey:GetAttribute("unit") == "party1target",
        "a right-click on it targets their target")
+
+    -- THE RIGHT RAIL: CHAFF (Arn 9 Nov: "an interrupt needs to target the specific unit, if it's on cool down, our
+    -- grounding totem lights up on the right rail it needs no target it just needs to know the flare missed - deploy
+    -- chaff, last resort catch all") and THE PILOT'S KNOBS ("we can turn off from the rail without having to go into
+    -- the setting")
+    do
+        local keep = { b48 = BOOK[48], b49 = BOOK[49], name = C_Spell.GetSpellName, cd = C_Spell.GetSpellCooldown }
+        local c = RD.chaff
+        ok(c and c.rail == RD.defRail and RD.defRail and not RD.defRail:IsShown() and not c.macro,
+           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail hidden, nothing armed")
+        ok(c.knob and not c.knob:IsShown(), "and no knob on a tool that is not there")
+        BOOK[48] = { name = "Grounding Totem", rank = "" }
+        BOOK[49] = { name = "Earth Shock", rank = "Rank 1" }
+        NS.FM.BookChanged()
+        NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
+        STATE.inCombat = true
+        ok(RD.ArmChaff() == false and not c.macro, "trained mid-fight: nothing secure is written (it waits)")
+        STATE.inCombat = false
+        RD.ArmTools()
+        ok(c.macro == "/cast Grounding Totem" and c:GetAttribute("*macrotext1") == "/cast Grounding Totem"
+           and c.tip and c.tip[1] == "CHAFF", "Grounding Totem trained: the chaff casts it, no target", tostring(c.macro))
+        ok(RD.defRail:IsShown() and c.knob:IsShown(), "the right rail shows, the knob on its corner")
+        STATE.inCombat = true
+        C_Spell.GetSpellName = function(id) return ({ [8042] = "Earth Shock", [8050] = "Flame Shock",
+                                                      [8177] = "Grounding Totem", [331] = "Healing Wave" })[id] end
+        local function chaffLit()
+            local v = c.pieces[1].__vertex
+            return c.face:GetAlpha() == 1 and v and v[4] == 1 or false
+        end
+        RD.readyAt.kick, RD.readyAt.chaff = nil, nil
+        STATE.units.party1target, STATE.hostile.party1target, STATE.casting.party1target = true, true, true
+        RD.Look()
+        ok(sp2.bogey.face:GetAlpha() == 1 and not chaffLit(), "an enemy casts, your flare is ready: the bogey lights, the chaff waits")
+        ok(RD.OnCast("player", 8042) == "kick" and RD.readyAt.kick == CLOCK + RD.COOLS.kick, "you flare it: our own clock spends the flare 6 s")
+        RD.Look()
+        ok(chaffLit(), "the flare spent, still casting: the chaff lights - deploy it")
+        STATE.casting.party1target = nil
+        RD.Look()
+        ok(not chaffLit(), "the cast is over: dark")
+        STATE.casting.party1target, STATE.hostile.party1target = true, nil
+        RD.Look()
+        ok(not chaffLit(), "a FRIENDLY target casting: nothing to ground")
+        STATE.hostile.party1target = true
+        ok(RD.OnCast("player", 8177) == "chaff" and RD.readyAt.chaff == CLOCK + RD.COOLS.chaff and not chaffLit(),
+           "you drop Grounding Totem: dark at once, spent 15 s by our clock")
+        RD.Look()
+        ok(not chaffLit(), "still casting, flare and chaff both spent: nothing to click")
+        TICK(16)
+        RD.Look()
+        ok(not chaffLit(), "16 s on: both ready again - the flare is the answer, not the chaff")
+        ok(RD.OnCast("player", 8050) == "kick", "a Flame Shock spends Earth Shock's cooldown too (the shocks share one)")
+        RD.Look()
+        ok(chaffLit(), "so the chaff lights")
+        ok(RD.OnCast("player", 331) == false, "a heal is neither")
+        -- THE KNOB: a plain button, so it flips in a fight
+        local okClick = pcall(c.knob:GetScript("OnClick"), c.knob)
+        ok(okClick and RD.KnobOff("chaff"), "a click on the chaff's knob mid-fight: switched off, nothing secure touched")
+        local kv = c.knob.dot.__vertex
+        ok(kv and kv[1] == 1 and kv[2] < 0.3 and kv[4] == 1, "the knob shows red: off")
+        RD.Look()
+        ok(not chaffLit(), "switched off: it never lights, even with a cast on its way")
+        c.knob:GetScript("OnClick")(c.knob)
+        RD.Look()
+        ok(not RD.KnobOff("chaff") and chaffLit(), "clicked again: on, and lit")
+        kv = c.knob.dot.__vertex
+        ok(kv and kv[4] < 0.5, "a faint dot when on")
+        -- every self-lighting tool has one (the stabilizer and the rations: always wanted, no knob)
+        ok(RD.tide.knob and RD.potion.knob and RD.reserve.knob and RD.fuel.knob and not RD.shield.knob and not RD.rations.knob,
+           "knobs on Mana Tide, the potion, the reserve tank, the drink and the chaff")
+        RD.Command("knob reserve off")
+        ok(RD.KnobOff("reserve"), "/bish alpha radar knob reserve off: the same switch")
+        RD.Command("knob reserve on")
+        ok(not RD.KnobOff("reserve"), "and back on")
+        -- out of a fight the chaff never lights
+        local keepFight = RD.inFight
+        RD.inFight, STATE.inCombat = nil, false
+        RD.Look()
+        ok(not chaffLit(), "out of a fight: dark")
+        RD.inFight, STATE.inCombat = keepFight, true
+        -- lean: the chaff's questions only while it could light
+        local Cost = dofile("../_bisdev/dev/cost.lua")
+        local lookC = Cost.Count(function() RD.Look() end)
+        print(("   cost: radar, one look with the chaff armed = %d calls"):format(lookC))
+        ok(lookC <= 45, "a look with the chaff armed stays in its budget", lookC)
+        STATE.casting.party1target, STATE.hostile.party1target, STATE.units.party1target = nil, nil, nil
+        RD.readyAt.kick, RD.readyAt.chaff, RD.cdLen = nil, nil, {}
+        BOOK[48], BOOK[49], C_Spell.GetSpellName, C_Spell.GetSpellCooldown = keep.b48, keep.b49, keep.name, keep.cd
+        NS.FM.BookChanged()
+        NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
+        STATE.inCombat = false
+        RD.ArmTools()
+        ok(not RD.defRail:IsShown(), "Grounding forgotten: the right rail goes away")
+        STATE.inCombat = true
+        RD.Look()
+    end
     -- THE INTERRUPT'S SWEEP (Arn 8 Nov: "cooldown sweep on interrupt icon"): the client's duration object, untouched
     local keepDur2 = _G.C_Spell.GetSpellCooldownDuration
     local durObj2, asked2 = { kick = true }, nil
@@ -11880,7 +12012,7 @@ do
     ok(okRoster and RD.pending, "a roster change mid-fight: queued, no error")
     local Cost = dofile("../_bisdev/dev/cost.lua")
     local look = Cost.Count(function() RD.Look() end)
-    print(("   cost: radar, one look (5 bogeys + 5 ranges) = %d calls"):format(look))
+    print(("   cost: radar, one look (5 bogeys) = %d calls"):format(look))
     ok(look <= 40, "a look of a party stays in its budget", look)
     STATE.inCombat = false
     fire(RD.events, "PLAYER_REGEN_ENABLED")
@@ -11943,7 +12075,7 @@ do
     STATE.inCombat = true
     fire(RD.events, "PLAYER_REGEN_DISABLED")
     local look40 = Cost.Count(function() RD.Look() end)
-    print(("   cost: radar, one 40-man look (5 bogeys + 40 ranges) = %d calls"):format(look40))
+    print(("   cost: radar, one 40-man look (5 bogeys, 40 spokes) = %d calls"):format(look40))
     ok(look40 <= 220, "a 40-man look stays in its budget", look40)
     -- a raid roster change mid-fight: refused and queued
     _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, math.ceil((41 - i) / 5) end     -- the groups turned round
@@ -12485,6 +12617,160 @@ do
     _G.C_CurveUtil, _G.CreateColor, _G.Enum, _G.UnitHealthPercent, _G.UnitPowerPercent = keep.CU, keep.CC, keep.E, keep.HP, keep.PP
     _G.UnitCastingDuration, _G.UnitChannelDuration = keep.cast, keep.chan
     d.radar, d.shown = nil, keepShown
+end
+
+-- THE TEST CAMERA (9 Nov 2026, Arn: "If this pip ever fires, please take a screenshot ... then we compare with the
+-- logs"): armed by hand, shoots at the pull / on a timer / on a tool cast / at the end, writes the stem and the reason
+do
+    local CAM, RD, d = NS.CAM, NS.RD, NS.DB()
+    local heard = {}
+    local keep = { chat = _G.DEFAULT_CHAT_FRAME, shot = _G.Screenshot, time = _G.time, date = _G.date,
+                   name = C_Spell.GetSpellName, alpha = d.alpha, alphaOff = d.alphaOff, cam = d.cam,
+                   cap = CAM.CAP, keepN = CAM.KEEP, tide = RD.readyAt.tide, tideStart = RD.coolStart.tide,
+                   water = RD.waterUntil }
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local function said(word) for _, t in ipairs(heard) do if tostring(t):find(word, 1, true) then return true end end end
+    local shots = 0
+    _G.Screenshot = function() shots = shots + 1 end
+    local WALL = 1800000000
+    _G.time = function() return WALL end
+    _G.date = function(fmt) return fmt == "%m%d%y_%H%M%S" and ("110926_" .. string.format("%06d", WALL % 1000000)) or "?" end
+    local function onUpdate() return CAM.ticker.__scripts.OnUpdate end
+    local function frames(n, dt) for _ = 1, n do local u = onUpdate() if u then u(CAM.ticker, dt) end end end
+    d.cam, d.alphaOff = nil, nil
+
+    ok(CAM and NS.ALPHA.cam and NS.ALPHA.cam.cmd, "the camera is a secret alpha feature with its own words")
+    heard = {}
+    NS.DO.help()
+    ok(not said("camera"), "/bish help never mentions it")
+
+    d.alpha = nil
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(not CAM.Armed() and said("alpha is off") and CAM.DB().run == nil, "alpha off: start refuses, no run counted")
+
+    d.alpha = true
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(shots == 0 and onUpdate() == nil, "the alpha on is not enough: not started, no shot at the pull and no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots == 0, "and none at the end")
+
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start 30")
+    local c = CAM.DB()
+    ok(CAM.Armed() and c.run == 1 and c.untilAt == WALL + 1800 and said("for 30 min"), "start 30: armed for half an hour, run 1")
+
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    local e1 = c.shots[1]
+    ok(shots == 1 and e1 and e1.why == "pull" and e1.fight == 1 and e1.run == 1, "the pull: one shot, written down", e1 and e1.why)
+    ok(e1 and e1.stem == "WoWScrnShot_110926_" .. string.format("%06d", WALL % 1000000), "named the way the client names it", e1 and e1.stem)
+    ok(onUpdate() ~= nil, "and the fight's clock runs")
+    fire(CAM.events, "SCREENSHOT_SUCCEEDED")
+    ok(e1.ok == true, "the client said it was written: noted on the shot")
+
+    TICK(15) frames(3, 5)
+    ok(shots == 1, "15 s in: nothing yet (every 20 s)")
+    TICK(5) WALL = WALL + 20 frames(1, 5)
+    local e2 = c.shots[2]
+    ok(shots == 2 and e2 and e2.why == "timer", "20 s: a timer shot", e2 and e2.why)
+
+    ok(NS.CamShot("tide") == nil and shots == 2 and e2.why == "timer+tide", "a Mana Tide inside 2 s joins the shot just taken", e2.why)
+    NS.CamShot("tide")
+    ok(e2.why == "timer+tide", "never twice")
+    TICK(3) WALL = WALL + 3
+    ok(NS.CamShot("spring") == nil and shots == 2, "Mana Spring: too often to be worth a picture")
+    local e3 = NS.CamShot("potion")
+    ok(shots == 3 and e3 and e3.why == "potion", "a potion 3 s later: its own shot")
+
+    -- the hook: the radar's own cast clock hands the kind over
+    C_Spell.GetSpellName = function(id) if id == 16190 then return RD.TIDE end return keep.name and keep.name(id) end
+    TICK(3) WALL = WALL + 3
+    fire(RD.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 16190)
+    ok(shots == 4 and c.shots[4].why == "tide", "your Mana Tide cast (UNIT_SPELLCAST_SUCCEEDED): a shot", c.shots[4] and c.shots[4].why)
+    C_Spell.GetSpellName = keep.name
+
+    -- THE PROBE: the game refuses a screenshot in a fight
+    TICK(3) WALL = WALL + 3
+    fire(CAM.events, "ADDON_ACTION_BLOCKED", "SomeOtherAddon", "Screenshot()")
+    ok(not c.blocked and onUpdate() ~= nil, "another addon refused: not our answer")
+    fire(CAM.events, "ADDON_ACTION_BLOCKED", "BiSHealing", "Screenshot()")
+    ok(c.blocked == true and onUpdate() == nil, "refused for us in a fight: remembered, the clock stops")
+    ok(NS.CamShot("potion") == nil and shots == 4, "no more shots in a fight")
+    heard = {}
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots == 5 and c.shots[5].why == "end" and c.shots[5].fight == nil, "the end: out of the fight, one shot", c.shots[5] and c.shots[5].why)
+    ok(said("refused a screenshot in the fight") and onUpdate() == nil, "says so once, and no clock out of a fight")
+    TICK(3) WALL = WALL + 3
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(shots == 6 and c.shots[6].why == "pull" and onUpdate() == nil, "blocked: the pull still shoots (out of the lockdown yet), no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+
+    -- a fight's cap
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam clear")
+    ok(#c.shots == 0 and not c.blocked and said("untouched"), "clear: the list goes, the pictures stay, the refusal forgotten")
+    CAM.CAP = 3
+    TICK(3) WALL = WALL + 3
+    local before = shots
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    for _ = 1, 6 do TICK(20) frames(1, 20) end
+    ok(shots - before == 3, "at most CAP shots in one fight (the pull is one)", shots - before)
+    heard = {}
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    ok(shots - before == 4 and said("shots in that fight"), "the end still shoots, and a line counts the fight")
+    CAM.CAP = keep.cap
+
+    -- the timer's words
+    SlashCmdList.BISHEALING("alpha cam every 3")
+    ok(c.every == 5, "every 3: 5 s is the least", c.every)
+    SlashCmdList.BISHEALING("alpha cam every 0")
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(onUpdate() == nil, "every 0: the pull shoots, no clock")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    c.every = nil
+
+    -- the cost of a fight's frames while armed: arithmetic, nothing asked of the client
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    local okCost, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+    if not okCost then okCost, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+    if okCost then
+        local n = Cost.Count(function() frames(100, 0.01) end)
+        print(("   cost: test camera, 100 fight frames armed = %d calls"):format(n))
+        ok(n == 0, "a second and a half of fight frames asks the client nothing", n)
+    end
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+
+    -- the list keeps KEEP at most
+    CAM.KEEP = 4
+    for _ = 1, 6 do TICK(3) SlashCmdList.BISHEALING("alpha cam now") end
+    ok(#c.shots == 4 and c.shots[4].why == "asked", "the oldest go first", #c.shots)
+    CAM.KEEP = keep.keepN
+
+    -- it stops by itself, and on stop
+    WALL = c.untilAt + 1
+    local n0 = shots
+    TICK(3)
+    fire(CAM.events, "PLAYER_REGEN_DISABLED")
+    ok(not CAM.Armed() and shots == n0 and onUpdate() == nil, "after its time: disarmed by itself, no shot")
+    fire(CAM.events, "PLAYER_REGEN_ENABLED")
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(CAM.Armed() and c.run == 2 and c.untilAt == WALL + 7200, "start again: run 2, two hours by default")
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam status")
+    ok(said("armed") and said("Say done to Claude"), "/bish alpha cam status: the state and what to do after")
+    SlashCmdList.BISHEALING("alpha cam stop")
+    ok(not CAM.Armed() and c.untilAt == nil, "stop: off")
+    SlashCmdList.BISHEALING("alpha cam start")
+    SlashCmdList.BISHEALING("alpha cam off")
+    ok(not CAM.Armed(), "/bish alpha cam off (the switch): off with the feature")
+
+    _G.DEFAULT_CHAT_FRAME, _G.Screenshot, _G.time, _G.date = keep.chat, keep.shot, keep.time, keep.date
+    d.alpha, d.alphaOff, d.cam = keep.alpha, keep.alphaOff, keep.cam
+    RD.readyAt.tide, RD.coolStart.tide, RD.waterUntil = keep.tide, keep.tideStart, keep.water
+    CAM.inFight, CAM.last, CAM.pending = nil, nil, nil
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

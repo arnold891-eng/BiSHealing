@@ -1040,17 +1040,23 @@ local function buildGauge(f)
     end
     tipOn(g)
     if RD.gaugeRail then tipOn(RD.gaugeRail) end
-    -- THE PLACARD at the tape's left end: the ship you are flying (RD.ApplyShip) over the word FUEL (Arn, 9 Nov: "lets
-    -- not do rpm" - a bar across the top reads as an engine gauge without it). The rail's only words; the scope has none.
+    -- THE PLACARD at the tape's left end, a pilot's seat plate: your ROLE (Arn, 9 Nov: "lets add our role here Healer,
+    -- DPS, Tank" - RD.PaintRole), the ship you are flying (RD.ApplyShip), then the word FUEL (Arn: "lets not do rpm" - a
+    -- bar across the top reads as an engine gauge without it). The rail's only words; the scope has none.
     local P = RD.gaugeRail or f
-    g.ship = P:CreateFontString(nil, "OVERLAY")
-    g.ship:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
-    g.ship:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -9)
-    g.ship:SetText(RD.SHIPS[1].name)
-    g.fuelWord = P:CreateFontString(nil, "OVERLAY")
-    g.fuelWord:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
-    g.fuelWord:SetPoint("TOPLEFT", g.ship, "BOTTOMLEFT", 0, -3)
-    g.fuelWord:SetText("FUEL")
+    local function word(text)
+        local fs = P:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+        fs:SetText(text)
+        return fs
+    end
+    g.role = word("HEALER")
+    g.role:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -5)
+    g.role:SetTextColor(1, 1, 1)
+    g.ship = word(RD.SHIPS[1].name)
+    g.ship:SetPoint("TOPLEFT", g.role, "BOTTOMLEFT", 0, -2)
+    g.fuelWord = word("FUEL")
+    g.fuelWord:SetPoint("TOPLEFT", g.ship, "BOTTOMLEFT", 0, -2)
     RD.SizeGauge(RD.SIZE)
     return g
 end
@@ -1268,6 +1274,7 @@ function RD.ApplyShip(ship)
         end
         if g.fuelWord then g.fuelWord:SetTextColor(L[1], L[2], L[3]) end
     end
+    RD.PaintRole()
     RD.PaintKnobs()                                  -- the knobs' "on" dot is the ship's line too
     return ship
 end
@@ -1500,6 +1507,17 @@ function RD.Role(unit)
     c = ok and plain(c) or nil
     if c and RD.HEALER_CLASS[c] then return "heal" end
     return "damage"
+end
+
+--- YOUR ROLE ON THE PLACARD (Arn, 9 Nov: "lets add our role here Healer, DPS, Tank"): the group's role for you, else
+--- RD.Role's own fallbacks (the tank mark, a healing class). A font string - fine in a fight; asked in RD.Arm (a role
+--- set fires PLAYER_ROLES_ASSIGNED, which re-arms). Answers the word.
+RD.ROLE_PLACARD = { tank = "TANK", heal = "HEALER", damage = "DPS" }
+function RD.PaintRole()
+    local g = RD.gauge
+    local w = RD.ROLE_PLACARD[RD.Role("player")] or "HEALER"
+    if g and g.role then g.role:SetText(w) end
+    return w
 end
 
 -- ------------------------------------------------------------------ arming (out of a fight only)

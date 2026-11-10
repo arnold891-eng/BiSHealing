@@ -11605,7 +11605,7 @@ do
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
        and sp2.cures[1].container and sp2.cures[1].container.unit == "party1", "two cure pips on the spoke: the client's markers, your cures")
     local names = 0
-    local placard = { [RD.gauge.ship] = true, [RD.gauge.fuelWord] = true }
+    local placard = { [RD.gauge.role] = true, [RD.gauge.ship] = true, [RD.gauge.fuelWord] = true }
     for _, fs in ipairs(LABELS) do
         local p = fs.__parent
         -- the HUD tape's numbers are allowed (Arn's HUD picture), and the regen readout's "100%" / "?": digits, a % sign,
@@ -11620,6 +11620,25 @@ do
     ok(RD.gauge.ship.__parent == RD.gaugeRail and RD.gauge.fuelWord.__parent == RD.gaugeRail
        and RD.gauge.ship.__text == "FIGHTER" and RD.gauge.fuelWord.__text == "FUEL",
        "the top rail's placard: FIGHTER over FUEL (a party flies the fighter)", RD.gauge.ship.__text)
+    -- YOUR ROLE ON IT (Arn 9 Nov: "lets add our role here Healer, DPS, Tank"): over the ship, from the group's role
+    do
+        local gr = RD.gauge.role
+        local rp = gr.points and gr.points[1]
+        local sp = RD.gauge.ship.points and RD.gauge.ship.points[1]
+        ok(gr.__parent == RD.gaugeRail and rp and rp[2] == RD.gaugeRail and sp and sp[2] == gr,
+           "the role sits at the top of the placard, the ship under it, FUEL under that")
+        ok(gr.__text == "HEALER", "a shaman with no group role: HEALER", gr.__text)
+        local keepRole = _G.UnitGroupRolesAssigned
+        for want, role in pairs({ TANK = "TANK", DPS = "DAMAGER", HEALER = "HEALER" }) do
+            _G.UnitGroupRolesAssigned = function(u) if u == "player" then return role end return "NONE" end
+            fire(RD.events, "PLAYER_ROLES_ASSIGNED")
+            ok(gr.__text == want, "the group says " .. role .. ": the placard says " .. want, gr.__text)
+        end
+        _G.UnitGroupRolesAssigned = keepRole
+        fire(RD.events, "PLAYER_ROLES_ASSIGNED")
+        -- three lines fit the rail: 9 pt each, 2 px apart, from 5 px down
+        ok(5 + 3 * 10 + 2 * 2 <= RD.GAUGE_RAIL_H, "role, ship and FUEL fit inside the rail")
+    end
 
     -- THE SHIPS (Arn 9 Nov: "imperial purple and white accents like a fighter and the more the group gets we change the
     -- color to finally ending in star destroyer"): the chrome follows the group's size; warnings never change

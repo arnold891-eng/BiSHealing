@@ -29,8 +29,8 @@
   keep-up self buff - Water Shield - red while it is NOT on you: the client's own icon arriving covers the red), MANA
   TIDE, the best MANA POTION, the best DRINK (each lit by its own curve once you miss what it restores - learned out of a
   fight; the drink out of a fight only), RATIONS (out of a fight, Well Fed missing and a well-fed food in your bags).
-  ALERTS: a dashed red arc on the rim of the spoke - out of range (the client's own answer through its ternary), or a
-  line-of-sight failure on a click there (UI_ERROR_MESSAGE). Everything lit pulses (RD.Pulse) and carries the GCD sweep.
+  A FAILED CLICK says why under the pip, in the grid's red letters: LOS or RANGE (UI_ERROR_MESSAGE, RD.HeardError) -
+  only when you click, never standing (9 Nov 2026). Everything lit pulses (RD.Pulse) and carries the GCD sweep.
 
   OUT OF A FIGHT everything is drawn dim, so the hand learns the places. IN A FIGHT the scope and every empty slot go
   to alpha 0 - in the same place and still clickable, like the PvP interrupt - and only what needs a click shows.
@@ -586,18 +586,23 @@ local function buildSpoke(f, i)
         k.cd = cd
     end
     sp.bogey = k
-    -- ALERT: a dashed arc on the rim of this spoke, out of range (steady) or LOS (a flash) - three dashes each,
-    -- their ends set by RD.PlaceSpoke
-    local arc = CreateFrame("Frame", nil, f)
-    arc:SetAllPoints(f)
-    sp.arcLines = {}
-    for d = 1, 3 do sp.arcLines[d] = line(arc, "OVERLAY", 0, 0, 1, 1, RD.COL.red, 3) end
-    arc:SetAlpha(0)
-    sp.arc = arc
+    -- THE CLICK'S WORD, LIKE THE GRID (Arn, 9 Nov: "flash LOS under the teammate im clicking like bis healing" ... "range
+    -- for out of range ... only when i click them"): LOS or RANGE in the grid's red and thick outline (FG.Flash), just
+    -- UNDER the pip, fading by itself in FG.FLASH_FOR (RD.HeardError). The red rim dashes for range are gone. A plain
+    -- frame on the radar anchored to the pip, built here out of a fight; in one only its text, alpha and fade change.
     local los = CreateFrame("Frame", nil, f)
-    los:SetAllPoints(f)
-    sp.losLines = {}
-    for d = 1, 3 do sp.losLines[d] = line(los, "OVERLAY", 0, 0, 1, 1, RD.COL.amber, 3) end
+    los:SetPoint("TOP", b, "BOTTOM", 0, -1)
+    los:SetSize(40, 16)
+    if los.SetFrameLevel and b.GetFrameLevel then
+        local lvl = b:GetFrameLevel()
+        if type(lvl) == "number" then los:SetFrameLevel(lvl + 25) end
+    end
+    los.word = los:CreateFontString(nil, "OVERLAY")
+    if los.word.SetFont then los.word:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 14, "THICKOUTLINE") end
+    los.word:SetPoint("CENTER", los, "CENTER", 0, 0)
+    los.word:SetText("")                  -- empty until a click fails: no words stand on the scope
+    local red = (NS.FG and NS.FG.FLASH_RED) or { 1.00, 0.25, 0.30 }
+    los.word:SetTextColor(red[1], red[2], red[3], 1)
     los:SetAlpha(0)
     -- the dim places, out of a fight
     sp.dims = {}
@@ -610,7 +615,7 @@ local function buildSpoke(f, i)
         local ok, g = pcall(los.CreateAnimationGroup, los)
         if ok and g then
             local a = g:CreateAnimation("Alpha")
-            a:SetFromAlpha(1) a:SetToAlpha(0) a:SetDuration(1.4)
+            a:SetFromAlpha(1) a:SetToAlpha(0) a:SetDuration((NS.FG and NS.FG.FLASH_FOR) or 1.2)
             if g.SetToFinalAlpha then g:SetToFinalAlpha(true) end
             sp.losFade = g
         end
@@ -661,16 +666,6 @@ function RD.PlaceSpoke(sp, s, rim)
                         line(k.face, "OVERLAY", -h, -h * 0.8, 0, h, hid, 2) }
             k.linesPx = s.pb
         end
-    end
-    -- the arcs: three dashes on the rim, either side of the bearing (a raid's slots are close: shorter dashes)
-    local step = (s.own and 0.07) or 0.04
-    for d = 1, 3 do
-        local c = s.b + (d - 2) * step
-        local p0, p1 = c - step * 0.35, c + step * 0.35
-        sp.arcLines[d]:SetStartPoint("CENTER", f, math.sin(p0) * rim, math.cos(p0) * rim)
-        sp.arcLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * rim, math.cos(p1) * rim)
-        sp.losLines[d]:SetStartPoint("CENTER", f, math.sin(p0) * (rim - 6), math.cos(p0) * (rim - 6))
-        sp.losLines[d]:SetEndPoint("CENTER", f, math.sin(p1) * (rim - 6), math.cos(p1) * (rim - 6))
     end
     -- the crosshairs sit on the pips they frame
     sp.cross:SetSize(s.ph + RD.CROSS_PAD, s.ph + RD.CROSS_PAD)
@@ -2080,7 +2075,7 @@ function RD.Arm()
         sp.bogey:SetAttribute("unit", nil) sp.bogey:EnableMouse(false) sp.bogey:Hide()
         armCures(sp, nil)
         for _, fr in ipairs(sp.dims) do fr:Hide() end
-        sp.arc:SetAlpha(0)
+        sp.los:SetAlpha(0)
     end
     armShield()
     RD.ArmTools()
@@ -2262,42 +2257,45 @@ function RD.Look()
             end
             local lit = casting and sp.kick and true or false
             paintContact(sp, lit)
-            RD.PaintRange(sp)
-        elseif sp.unit then
-            bogeyAlpha(sp.bogey, 0)
-            RD.PaintRange(sp)
         else
             bogeyAlpha(sp.bogey, 0)
-            sp.arc:SetAlpha(0)
         end
     end
     RD.anyCast = anyCast
     RD.PaintChaff(anyCast)
 end
 
---- The range arc: shown when the client says they are out of reach (a secret answer goes through its own ternary).
-function RD.PaintRange(sp)
-    local spell = RD.heal and (RD.heal.cast or RD.heal.name)
-    local range = C_Spell and C_Spell.IsSpellInRange
-    local answer, asked
-    if range and spell then asked, answer = pcall(range, spell, sp.unit) end
-    local secret = NS.Secret and NS.Secret(answer)
-    if asked and not secret and answer == nil and UnitInRange then
-        local checked
-        asked, answer, checked = pcall(UnitInRange, sp.unit)
-        if asked and not (NS.Secret and NS.Secret(checked)) and checked == false then answer = nil end
-        secret = NS.Secret and NS.Secret(answer)
+-- THE CLICK'S WORD (Arn, 9 Nov: "LOS for line of sight, range for out of range, red letter under the teammate ... only
+-- when i click them ... like the bis grid in normal view"). No standing range mark any more (the red rim dashes asked
+-- the client about every spoke on every look): a heal that FAILS on the pip under the mouse flashes why, under it.
+local clickWords
+function RD.ClickWords()
+    if clickWords then return clickWords end
+    clickWords = {}
+    local los = NS.FG and NS.FG.FailWords and NS.FG.FailWords() or { ["Target not in line of sight"] = "LOS" }
+    for k, v in pairs(los) do clickWords[k] = v end
+    -- the client's own out-of-range strings (any language), with the English as a net
+    for _, s in ipairs({ "Out of range.", "Out of range", _G.SPELL_FAILED_OUT_OF_RANGE, _G.ERR_OUT_OF_RANGE,
+                         _G.ERR_SPELL_OUT_OF_RANGE }) do
+        if type(s) == "string" and s ~= "" and not (NS.Secret and NS.Secret(s)) then clickWords[s] = "RANGE" end
     end
-    if not asked then sp.arc:SetAlpha(0) return nil end
-    if secret then
-        local tern = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
-        if not tern then sp.arc:SetAlpha(0) return nil end
-        local made, a = pcall(tern, answer, 0, 1)
-        if not (made and pcall(sp.arc.SetAlpha, sp.arc, a)) then sp.arc:SetAlpha(0) end
-        return "secret"
-    end
-    sp.arc:SetAlpha((answer == false or answer == 0) and 1 or 0)
-    return answer
+    return clickWords
+end
+
+--- A failed click: the word under the pip under the mouse, fading by itself. The grid's switch (`flash`) turns it off
+--- here too. Answers the word, or nil.
+function RD.HeardError(msg)
+    local d = NS.DB()
+    if d.flash == false then return nil end
+    if type(msg) ~= "string" or (NS.Secret and NS.Secret(msg)) then return nil end
+    local word = RD.ClickWords()[msg]
+    local sp = RD.over
+    if not (word and sp and sp.los and sp.unit) then return nil end
+    sp.los.word:SetText(word)
+    sp.los:SetAlpha(1)
+    if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
+    RD.lastLos = sp.i
+    return word
 end
 
 -- ------------------------------------------------------------------ the fuel gauge (handed untouched, never read)
@@ -2684,16 +2682,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
         RD.PickFuel() RD.PaintBoss()       -- a boss came (or went): the tape races it
     elseif event == "UI_ERROR_MESSAGE" then
-        -- a heal that failed on line of sight: the spoke under the mouse flashes amber at its rim
-        local text = a2
-        if NS.Secret and NS.Secret(text) then return end
-        local words = NS.FG and NS.FG.FailWords and NS.FG.FailWords() or {}
-        if type(text) == "string" and words[text] == "LOS" and RD.over then
-            local sp = RD.over
-            sp.los:SetAlpha(1)
-            if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
-            RD.lastLos = sp.i
-        end
+        -- a heal that failed on line of sight or range: the word under the pip under the mouse
+        RD.HeardError(a2)
     end
 end)
 

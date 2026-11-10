@@ -11599,6 +11599,43 @@ do
     end
     ok(names == 0, "no names, no words on the scope (digits only: the HUD tape's numbers, the regen %)", names)
 
+    -- THE CLICK'S WORD (Arn, 9 Nov: "LOS for line of sight, range for out of range, red letter under the teammate ... only
+    -- when i click them ... like the bis grid in normal view")
+    do
+        local keepFlash = d.flash
+        d.flash = true
+        local LOSMSG = "Target not in line of sight"
+        ok(RD.PaintRange == nil, "no standing range mark any more: nothing asks every spoke's range on a look")
+        RD.over = nil
+        fire(RD.events, "UI_ERROR_MESSAGE", 50, LOSMSG)
+        ok(sp2.los:GetAlpha() == 0, "a failed click with the mouse on no pip: nothing")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(RD.over == sp2, "the mouse on party1's pip")
+        fire(RD.events, "UI_ERROR_MESSAGE", 50, LOSMSG)
+        ok(sp2.los:GetAlpha() == 1 and sp2.los.word.__text == "LOS" and sp2.losFade and sp2.losFade.playing,
+           "line of sight: LOS under that pip, fading by itself", sp2.los.word.__text)
+        local pt, rel, rp = sp2.los:GetPoint(1)
+        ok(pt == "TOP" and rel == sp2.heal and rp == "BOTTOM", "UNDER the pip, anchored to it", tostring(pt) .. " " .. tostring(rp))
+        local c = sp2.los.word.__color
+        ok(c and c[1] == NS.FG.FLASH_RED[1] and c[2] == NS.FG.FLASH_RED[2] and c[3] == NS.FG.FLASH_RED[3],
+           "in the grid's flash red")
+        ok(sp1.los:GetAlpha() == 0, "and only there")
+        fire(RD.events, "UI_ERROR_MESSAGE", 51, "Out of range.")
+        ok(sp2.los.word.__text == "RANGE" and sp2.los:GetAlpha() == 1, "out of range: RANGE", sp2.los.word.__text)
+        ok(RD.HeardError("Not enough mana") == nil and sp2.los.word.__text == "RANGE", "any other error: nothing new")
+        ok(RD.HeardError(secretString()) == nil, "a secret error text is never read")
+        d.flash = false
+        ok(RD.HeardError(LOSMSG) == nil, "the grid's LOS flash switched off: off here too")
+        d.flash = true
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        ok(RD.over == nil and RD.HeardError(LOSMSG) == nil, "the mouse gone: nothing")
+        RD.spokes[4].heal.__scripts.OnEnter(RD.spokes[4].heal)
+        ok(RD.HeardError(LOSMSG) == nil, "an empty spot: nothing")
+        RD.spokes[4].heal.__scripts.OnLeave(RD.spokes[4].heal)
+        sp2.los:SetAlpha(0)
+        d.flash = keepFlash
+    end
+
     -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
     local function shade(sp)
         RD.PaintHeal(sp)
@@ -11975,7 +12012,7 @@ do
     ok(okRoster and RD.pending, "a roster change mid-fight: queued, no error")
     local Cost = dofile("../_bisdev/dev/cost.lua")
     local look = Cost.Count(function() RD.Look() end)
-    print(("   cost: radar, one look (5 bogeys + 5 ranges) = %d calls"):format(look))
+    print(("   cost: radar, one look (5 bogeys) = %d calls"):format(look))
     ok(look <= 40, "a look of a party stays in its budget", look)
     STATE.inCombat = false
     fire(RD.events, "PLAYER_REGEN_ENABLED")
@@ -12038,7 +12075,7 @@ do
     STATE.inCombat = true
     fire(RD.events, "PLAYER_REGEN_DISABLED")
     local look40 = Cost.Count(function() RD.Look() end)
-    print(("   cost: radar, one 40-man look (5 bogeys + 40 ranges) = %d calls"):format(look40))
+    print(("   cost: radar, one 40-man look (5 bogeys, 40 spokes) = %d calls"):format(look40))
     ok(look40 <= 220, "a 40-man look stays in its budget", look40)
     -- a raid roster change mid-fight: refused and queued
     _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, math.ceil((41 - i) / 5) end     -- the groups turned round

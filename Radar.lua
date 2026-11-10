@@ -46,6 +46,7 @@ NS.RD = RD
 
 RD.KEY = "radar"
 RD.SIZE = 300                 -- the square, before its scale
+RD.FADE_PX = 380              -- the dark disc's art at party size: solid to r 148 (past the outer ring), gone by r 190
 RD.SPOKES = 5                 -- a party's spokes; a raid has 40 fixed slots (RD.Geometry)
 RD.SYS_PX = 22                 -- a system pip (Arn, 8 Nov: five in the mana column - 26 reached a raid cure ring)
 RD.RINGS = { 40, 80, 120, 142 }
@@ -498,9 +499,18 @@ local function buildScope(f)
     s:SetPoint("CENTER", f, "CENTER", 0, 0)
     RD.scope = s
     local g = { RD.PHOS[1] * 0.45, RD.PHOS[2] * 0.45, RD.PHOS[3] * 0.45, 0.85 }
-    local bg = s:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints(s)
-    bg:SetColorTexture(0.01, 0.04, 0.02, 0.55)
+    -- A DARK DISC WITH A SOFT EDGE (Arn, 9 Nov: "we dont use the corners of the radar what about if we give it a dark
+    -- background instead of see through so things pop more like the rail. and we apply the edge fade instead on the edges
+    -- like the screen shot" - a map that fades into the world). The see-through square is gone: the rail's own plate,
+    -- solid out past the outer ring, fading to nothing (Art\scopefade.tga), the corners left clear. On the radar's OWN
+    -- lowest layer, not the scope's: the fade reaches past the square, and the rails beside it must draw over it.
+    -- Sized with the scope (RD.Arm), so a raid's bigger scope gets a bigger disc.
+    local fade = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+    fade:SetTexture(RD.ART .. "scopefade")
+    fade:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+    fade:SetSize(RD.FADE_PX, RD.FADE_PX)
+    fade:SetPoint("CENTER", s, "CENTER", 0, 0)
+    RD.fade = fade
     for _, r in ipairs(RD.RINGS) do
         for k = 1, RD.RING_SEG do
             local a0, a1 = (k - 1) * 2 * math.pi / RD.RING_SEG, k * 2 * math.pi / RD.RING_SEG
@@ -2058,6 +2068,7 @@ function RD.Arm()
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
     RD.scope:SetScale(size / RD.PARTY.size)
+    if RD.fade then RD.fade:SetSize(RD.FADE_PX * size / RD.PARTY.size, RD.FADE_PX * size / RD.PARTY.size) end
     RD.SizeGauge(size)                 -- the fuel tape runs the square's height
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)

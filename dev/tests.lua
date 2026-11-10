@@ -11654,6 +11654,49 @@ do
     local sp1, sp2 = RD.spokes[1], RD.spokes[2]
     ok(#RD.slots == 5 and sp1.unit == "player" and sp2.unit == "party1" and RD.spokes[3].unit == "party2" and RD.spokes[4].unit == nil,
        "a party: five spokes - you, party1, party2, and two empty")
+    -- THE PETS (Arn 9 Nov: "lets add pets small too to rader"): a small pip beside each owner, the client's watch on it
+    do
+        local p1, p2, p4 = sp1.pet, sp2.pet, RD.spokes[4].pet
+        ok(p1 and p2 and p1:GetAttribute("unit") == "pet" and p2:GetAttribute("unit") == "partypet1",
+           "each teammate's pet on its own small pip: yours is 'pet', party1's 'partypet1'", p2 and p2:GetAttribute("unit"))
+        ok(WATCHED[p1] and WATCHED[p2], "the client's unit watch shows them only while the pet is there (mid-fight too)")
+        ok(p4 and not WATCHED[p4] and p4:GetAttribute("unit") == nil and not p4:IsShown(),
+           "an empty spot has no pet pip: off the watch, hidden")
+        ok(p2:GetAttribute("type1") == "spell" and p2:GetAttribute("spell1") == sp2.heal:GetAttribute("spell1"),
+           "a plain left-click on a pet is the radar heal, like on its owner")
+        ok(p2.__w == RD.PET.px and p2.__w < sp2.slot.ph, "small: smaller than its owner's pip", p2.__w)
+        local pp = p2.points and p2.points[1]
+        local hx, hy = RD.Point(sp2.slot, sp2.slot.rh)
+        local d2 = pp and math.sqrt((pp[4] - hx) ^ 2 + (pp[5] - hy) ^ 2)
+        ok(d2 and d2 >= (sp2.slot.ph + RD.PET.px) / 2 and d2 < 40, "beside its owner, never on top of it", d2)
+        local mp = p1.points and p1.points[1]
+        ok(mp and math.abs(mp[4]) < 0.01 and mp[5] < 0, "your own pet just below you in the middle", mp and mp[5])
+        -- no pet pip on top of any person's, cure or bogey
+        local clash = 0
+        for _, sp in ipairs(RD.spokes) do
+            local q = sp.pet.points and sp.pet.points[1]
+            if sp.petUnit and q then
+                for _, other in ipairs(RD.spokes) do
+                    local s = other.slot
+                    for _, spot in ipairs({ { s.rh, s.ph }, { s.rc, s.pc }, { s.rb, s.pb } }) do
+                        if spot[1] then
+                            local x, y = RD.Point(s, spot[1])
+                            if math.abs(q[4] - x) < (RD.PET.px + spot[2]) / 2 - 1 and math.abs(q[5] - y) < (RD.PET.px + spot[2]) / 2 - 1 then clash = clash + 1 end
+                        end
+                    end
+                end
+            end
+        end
+        ok(clash == 0, "no pet pip sits on a person, a cure or a bogey", clash)
+        -- lit like a person: the pet's health, through the curve; nothing there = nothing drawn
+        STATE.units.partypet1 = true
+        ok(pcall(fire, RD.events, "UNIT_HEALTH", "partypet1") and p2.face:GetAlpha() == 1 and RD.PaintPet(sp2),
+           "the pet's health changed: its pip is painted by the client's curve")
+        STATE.units.partypet1 = false
+        ok(pcall(fire, RD.events, "UNIT_PET", "party1") and p2.face:GetAlpha() == 0, "the pet sent away: nothing at its spot")
+        STATE.units.partypet1 = nil
+        ok(#sp2.petTex == 5, "its sign: a paw - a pad and four toes, our own shape")
+    end
     ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "spell"
        and sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)",
        "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("spell1"))
@@ -12226,6 +12269,18 @@ do
     ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
     ok(RD.ship and RD.ship.key == "capital" and RD.gauge.ship.__text == "CAPITAL", "a full 40: the capital ship",
        RD.ship and RD.ship.key)
+    -- PETS IN A RAID: your own group's only, nearer the middle on their owner's bearing
+    do
+    local ownPets, otherPets = 0, 0
+    for i = 1, 40 do
+        local sp = RD.spokes[i]
+        if sp.petUnit then if sp.slot.own then ownPets = ownPets + 1 else otherPets = otherPets + 1 end end
+    end
+    local o11 = RD.spokes[11]
+    ok(ownPets == 5 and otherPets == 0 and o11.pet:GetAttribute("unit") == "raidpet11" and not WATCHED[RD.spokes[1].pet],
+       "a raid: pets for your own group only (raidpet11), none for the other 35", ownPets .. " / " .. otherPets)
+    ok(RD.spokes[12].pet.__w == RD.PET.raidPx, "and smaller in a raid")
+    end
     ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
        and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
     local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP - RD.GAUGE.left - RD.GAUGE.right

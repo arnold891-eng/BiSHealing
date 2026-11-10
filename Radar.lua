@@ -1050,13 +1050,14 @@ local function buildGauge(f)
         fs:SetText(text)
         return fs
     end
-    g.role = word("HEALER")
+    -- each line at its own fixed spot, so an empty role (the game said none) leaves the ship and FUEL where they are
+    g.role = word("")
     g.role:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -5)
     g.role:SetTextColor(1, 1, 1)
     g.ship = word(RD.SHIPS[1].name)
-    g.ship:SetPoint("TOPLEFT", g.role, "BOTTOMLEFT", 0, -2)
+    g.ship:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -17)
     g.fuelWord = word("FUEL")
-    g.fuelWord:SetPoint("TOPLEFT", g.ship, "BOTTOMLEFT", 0, -2)
+    g.fuelWord:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -29)
     RD.SizeGauge(RD.SIZE)
     return g
 end
@@ -1509,13 +1510,27 @@ function RD.Role(unit)
     return "damage"
 end
 
---- YOUR ROLE ON THE PLACARD (Arn, 9 Nov: "lets add our role here Healer, DPS, Tank"): the group's role for you, else
---- RD.Role's own fallbacks (the tank mark, a healing class). A font string - fine in a fight; asked in RD.Arm (a role
---- set fires PLAYER_ROLES_ASSIGNED, which re-arms). Answers the word.
-RD.ROLE_PLACARD = { tank = "TANK", heal = "HEALER", damage = "DPS" }
+--- YOUR ROLE ON THE PLACARD (Arn, 9 Nov: "lets add our role here Healer, DPS, Tank" ... "we take the role from what the
+--- games tell us, the frames already tell us"): ONLY the game's own answer, the one its party and raid frames show - the
+--- group role set for you (UnitGroupRolesAssigned), else a raid's main tank assignment (GetPartyAssignment). No guess
+--- from the class, no tank mark of ours: the game says nothing, the line stays empty. A font string - fine in a fight;
+--- asked in RD.Arm (a role set fires PLAYER_ROLES_ASSIGNED, which re-arms). Answers the word ("" for none).
+RD.ROLE_PLACARD = { TANK = "TANK", HEALER = "HEALER", DAMAGER = "DPS" }
+function RD.GameRole()
+    if UnitGroupRolesAssigned then
+        local okR, r = pcall(UnitGroupRolesAssigned, "player")
+        r = okR and plain(r) or nil
+        if type(r) == "string" and RD.ROLE_PLACARD[r] then return RD.ROLE_PLACARD[r] end
+    end
+    if GetPartyAssignment then
+        local ok, mt = pcall(GetPartyAssignment, "MAINTANK", "player")
+        if ok and plain(mt) == true then return "TANK" end
+    end
+    return ""
+end
 function RD.PaintRole()
     local g = RD.gauge
-    local w = RD.ROLE_PLACARD[RD.Role("player")] or "HEALER"
+    local w = RD.GameRole()
     if g and g.role then g.role:SetText(w) end
     return w
 end

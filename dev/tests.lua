@@ -11625,16 +11625,25 @@ do
         local gr = RD.gauge.role
         local rp = gr.points and gr.points[1]
         local sp = RD.gauge.ship.points and RD.gauge.ship.points[1]
-        ok(gr.__parent == RD.gaugeRail and rp and rp[2] == RD.gaugeRail and sp and sp[2] == gr,
-           "the role sits at the top of the placard, the ship under it, FUEL under that")
-        ok(gr.__text == "HEALER", "a shaman with no group role: HEALER", gr.__text)
-        local keepRole = _G.UnitGroupRolesAssigned
+        local fp = RD.gauge.fuelWord.points and RD.gauge.fuelWord.points[1]
+        ok(gr.__parent == RD.gaugeRail and rp and rp[2] == RD.gaugeRail and sp and sp[2] == RD.gaugeRail and fp
+           and rp[5] > sp[5] and sp[5] > fp[5], "the role at the top of the placard, the ship under it, FUEL under that - each at its own spot")
+        local keepRole, keepPA = _G.UnitGroupRolesAssigned, _G.GetPartyAssignment
+        -- ONLY WHAT THE GAME SAYS (Arn 9 Nov: "we take the role from what the games tell us, the frames already tell us")
+        _G.UnitGroupRolesAssigned = function() return "NONE" end
+        _G.GetPartyAssignment = function() return false end
+        fire(RD.events, "PLAYER_ROLES_ASSIGNED")
+        ok(gr.__text == "", "no role from the game: the line is empty - a shaman is never guessed a HEALER", gr.__text)
         for want, role in pairs({ TANK = "TANK", DPS = "DAMAGER", HEALER = "HEALER" }) do
             _G.UnitGroupRolesAssigned = function(u) if u == "player" then return role end return "NONE" end
             fire(RD.events, "PLAYER_ROLES_ASSIGNED")
             ok(gr.__text == want, "the group says " .. role .. ": the placard says " .. want, gr.__text)
         end
-        _G.UnitGroupRolesAssigned = keepRole
+        _G.UnitGroupRolesAssigned = function() return "NONE" end
+        _G.GetPartyAssignment = function(what, u) return what == "MAINTANK" and u == "player" end
+        fire(RD.events, "PLAYER_ROLES_ASSIGNED")
+        ok(gr.__text == "TANK", "the raid's main tank assignment (the game's own): TANK", gr.__text)
+        _G.UnitGroupRolesAssigned, _G.GetPartyAssignment = keepRole, keepPA
         fire(RD.events, "PLAYER_ROLES_ASSIGNED")
         -- three lines fit the rail: 9 pt each, 2 px apart, from 5 px down
         ok(5 + 3 * 10 + 2 * 2 <= RD.GAUGE_RAIL_H, "role, ship and FUEL fit inside the rail")

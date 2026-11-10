@@ -403,6 +403,13 @@ RD.PARTY = { size = 300, rim = 146, rh = 58, rc = 92, rb = 124, ph = 26, pc = 14
 -- you - a party's four on the diagonals, a raid's on their sectors (your own slot there moves to the centre).
 RD.SELF = { b = 0, rh = 0, rc = 30, rb = 124, ph = 28, pc = 14, pb = 22 }
 RD.GLYPH = 1.5                -- no box round a pip any more: its role glyph is drawn this much bigger to read alone
+-- THE PETS (9 Nov 2026, Arn: "lets add pets small too to rader"): a small paw pip beside its owner, lit like a person (the
+-- pet's health through the same curve), a left-click the radar heal. The CLIENT shows and hides it as the pet comes and
+-- goes (RegisterUnitWatch), so a pet called mid-fight appears. A party: each pet `turn` clockwise of its owner on the
+-- owner's ring; your own just below you (`selfB`, `selfR`). A raid: your own group's pets only, `inward` nearer the centre
+-- on their owner's bearing (35 more would crowd the scope and cost a second grid). `px` / `raidPx` their sizes.
+RD.PET = { px = 14, raidPx = 10, turn = math.rad(26), selfB = math.pi, selfR = 30, inward = 20 }
+RD.PET_UNIT = { player = "pet" }                       -- the owner's token -> the pet's (party/raid by pattern, RD.PetOf)
 RD.RAID = { size = 440, rim = 212, span = math.rad(72), gap = math.rad(6),
             own = { rh = 100, rc = 126, rb = 150, ph = 22, pc = 12, pb = 18 },
             other = { rh = 172, rc = 196, ph = 16, pc = 10 } }
@@ -669,6 +676,16 @@ local function buildSpoke(f, i)
     end
     sp.los = los
     sp.cures = {}
+    -- THE PET: a small secure pip of its own, the client's unit watch showing it only while the pet is there
+    local p = CreateFrame("Button", "BiSHealingRadarPet" .. i, f, "SecureUnitButtonTemplate")
+    if p.RegisterForClicks then p:RegisterForClicks("AnyDown") end
+    p.beat = CreateFrame("Frame", nil, p)
+    p.beat:SetAllPoints(p)
+    p.pulse = RD.Pulse(p.beat, RD.PULSE_SOFT)
+    p.face = CreateFrame("Frame", nil, p.beat)
+    p.face:SetAllPoints(p)
+    p:Hide()
+    sp.pet = p
     -- CROSSHAIRS ON YOUR TARGET (Arn, 8 Nov: "need a target pip indicated by crosshairs like on our regular frames"): the
     -- grid's own reticle (FG.Crosshair), magenta like the cockpit's target, round the heal pip when that person is your
     -- target and round the bogey when THEIR target is yours. Plain frames on the radar (not on the secure pips), so only
@@ -1567,6 +1584,98 @@ local function armHeal(sp, unit)
     sp.amber = (amount and type(mx) == "number" and mx > 0) and (1 - amount / mx) or RD.AMBER
 end
 
+--- The pet's token for an owner's: player -> pet, party3 -> partypet3, raid12 -> raidpet12; nil for anything else.
+function RD.PetOf(unit)
+    if type(unit) ~= "string" then return nil end
+    if RD.PET_UNIT[unit] then return RD.PET_UNIT[unit] end
+    local kind, n = unit:match("^(%a+)(%d+)$")
+    if kind == "party" or kind == "raid" then return kind .. "pet" .. n end
+    return nil
+end
+
+--- Where a slot's pet sits, and how big: a party's beside its owner (turned clockwise), yours below you, a raid's own
+--- group nearer the middle on its owner's bearing. nil = no pet here (a raid's other groups).
+function RD.PetSpot(s)
+    if not s then return nil end
+    local P = RD.PET
+    if s.self then
+        return math.sin(P.selfB) * P.selfR, math.cos(P.selfB) * P.selfR, RD.raid and P.raidPx or P.px
+    end
+    if RD.raid then
+        if not s.own then return nil end
+        local r = s.rh - P.inward
+        return math.sin(s.b) * r, math.cos(s.b) * r, P.raidPx
+    end
+    local b = s.b + P.turn
+    return math.sin(b) * s.rh, math.cos(b) * s.rh, P.px
+end
+
+--- A paw, our own shape: a pad and four toes, plain textures born invisible (the curve's colour lands on textures).
+local function paw(face, px)
+    local out = {}
+    local function dot(w, h, x, y)
+        local t = face:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.ART .. "disc")
+        t:SetVertexColor(1, 1, 1, 0)
+        t:SetSize(w, h)
+        t:SetPoint("CENTER", face, "CENTER", x, y)
+        out[#out + 1] = t
+    end
+    local u = px / 14
+    dot(7 * u, 6 * u, 0, -2.5 * u)                                   -- the pad
+    dot(3 * u, 3 * u, -4.5 * u, 1.5 * u) dot(3 * u, 3.5 * u, -1.6 * u, 4 * u)
+    dot(3 * u, 3.5 * u, 1.6 * u, 4 * u) dot(3 * u, 3 * u, 4.5 * u, 1.5 * u)
+    return out
+end
+
+--- Put a spoke's pet where its slot says, on its owner's pet token, the client watching it. Out of a fight only.
+--- No owner, or no place for a pet (a raid's other groups): off the watch and hidden.
+local function armPet(sp, unit, s)
+    local p = sp.pet
+    if not p then return nil end
+    local x, y, px = RD.PetSpot(s)
+    local pu = unit and x and RD.PetOf(unit) or nil
+    if not pu then
+        if UnregisterUnitWatch then pcall(UnregisterUnitWatch, p) end
+        p:SetAttribute("unit", nil)
+        p:SetAttribute("type1", nil)
+        p:Hide()
+        sp.petUnit, sp.petTex = nil, nil
+        return nil
+    end
+    p:SetSize(px, px)
+    p:ClearAllPoints()
+    p:SetPoint("CENTER", RD.frame, "CENTER", x, y)
+    p:SetAttribute("unit", pu)
+    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, p) end      -- your binds on every other click
+    local h = RD.heal
+    p:SetAttribute("type1", h and "spell" or nil)
+    p:SetAttribute("spell1", h and h.cast or nil)
+    p.unit = pu
+    if sp.petPx ~= px then
+        for _, t in ipairs(sp.petTex or {}) do t:Hide() end
+        sp.petTex, sp.petPx = paw(p.face, px), px
+    end
+    sp.petUnit = pu
+    if RegisterUnitWatch then pcall(RegisterUnitWatch, p) end         -- the client shows it while the pet is there
+    return pu
+end
+
+--- A pet's pip, coloured by the client from the pet's health through the radar's curve (hidden when healthy).
+function RD.PaintPet(sp)
+    local p = sp and sp.pet
+    if not (p and sp.petUnit and sp.petTex) then return false end
+    local okE, there = pcall(UnitExists, sp.petUnit)
+    if okE and plain(there) == false then p.face:SetAlpha(0) return false end
+    p.face:SetAlpha(1)
+    local curve = RD.Curve(RD.AMBER)
+    local ok, col = false, nil
+    if curve and UnitHealthPercent then ok, col = pcall(UnitHealthPercent, sp.petUnit, true, curve) end  -- an `and` keeps one return
+    local drew = ok and paint(sp.petTex, col)
+    if not drew then p.face:SetAlpha(0) end                      -- no colour back: nothing, never a stale sign
+    return drew
+end
+
 local function armBogey(sp, unit)
     local k = sp.bogey
     local tok = unit == "player" and "target" or (unit .. "target")
@@ -2278,6 +2387,7 @@ function RD.Arm()
             sp.kick, sp.paintTex = nil, nil
         end
         armCures(sp, unit)
+        armPet(sp, unit, s)
         if s.rb then sp.bogey:Show() else sp.bogey:Hide() end
     end
     -- spokes beyond this layout (a raid became a party): off, out of the way
@@ -2287,6 +2397,7 @@ function RD.Arm()
         sp.heal:SetAttribute("unit", nil) sp.heal:SetAttribute("type1", nil) sp.heal:EnableMouse(false) sp.heal:Hide()
         sp.bogey:SetAttribute("unit", nil) sp.bogey:EnableMouse(false) sp.bogey:Hide()
         armCures(sp, nil)
+        armPet(sp, nil, nil)
         for _, fr in ipairs(sp.dims) do fr:Hide() end
         sp.los:SetAlpha(0)
     end
@@ -2701,7 +2812,7 @@ end
 
 function RD.Paint()
     if not RD.frame then return end
-    for _, sp in ipairs(RD.spokes or {}) do RD.PaintHeal(sp) end
+    for _, sp in ipairs(RD.spokes or {}) do RD.PaintHeal(sp) RD.PaintPet(sp) end
     RD.PaintShield()
     RD.PaintQuiet()
     RD.PaintFuel()
@@ -2834,7 +2945,7 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
                      "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
-                     "PLAYER_LEVEL_UP" }) do
+                     "PLAYER_LEVEL_UP", "UNIT_PET" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 -- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
@@ -2869,8 +2980,14 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
         RD.Arm()                           -- in a fight it only marks RD.pending
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
         if NS.Secret and NS.Secret(a1) then return end
-        for _, sp in ipairs(RD.spokes) do if sp.unit == a1 then RD.PaintHeal(sp) end end
+        for _, sp in ipairs(RD.spokes) do
+            if sp.unit == a1 then RD.PaintHeal(sp) elseif sp.petUnit == a1 then RD.PaintPet(sp) end
+        end
         if a1 ~= nil and a1 == RD.fuelUnit then RD.PaintBoss() end
+    elseif event == "UNIT_PET" then
+        -- an owner called or sent away a pet: the client's watch shows or hides the pip; we repaint its colour
+        if NS.Secret and NS.Secret(a1) then return end
+        for _, sp in ipairs(RD.spokes) do if sp.unit == a1 then RD.PaintPet(sp) end end
     elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_MAXPOWER" then
         if a1 == "player" then
             -- a bigger or smaller pool between pulls (gear, a buff): the tools re-learn where they light

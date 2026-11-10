@@ -11829,6 +11829,101 @@ do
     STATE.units.party1target = nil
     ok(sp2.bogey:GetAttribute("type2") == "target" and sp2.bogey:GetAttribute("unit") == "party1target",
        "a right-click on it targets their target")
+
+    -- THE RIGHT RAIL: CHAFF (Arn 9 Nov: "an interrupt needs to target the specific unit, if it's on cool down, our
+    -- grounding totem lights up on the right rail it needs no target it just needs to know the flare missed - deploy
+    -- chaff, last resort catch all") and THE PILOT'S KNOBS ("we can turn off from the rail without having to go into
+    -- the setting")
+    do
+        local keep = { b48 = BOOK[48], b49 = BOOK[49], name = C_Spell.GetSpellName, cd = C_Spell.GetSpellCooldown }
+        local c = RD.chaff
+        ok(c and c.rail == RD.defRail and RD.defRail and not RD.defRail:IsShown() and not c.macro,
+           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail hidden, nothing armed")
+        ok(c.knob and not c.knob:IsShown(), "and no knob on a tool that is not there")
+        BOOK[48] = { name = "Grounding Totem", rank = "" }
+        BOOK[49] = { name = "Earth Shock", rank = "Rank 1" }
+        NS.FM.BookChanged()
+        NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
+        STATE.inCombat = true
+        ok(RD.ArmChaff() == false and not c.macro, "trained mid-fight: nothing secure is written (it waits)")
+        STATE.inCombat = false
+        RD.ArmTools()
+        ok(c.macro == "/cast Grounding Totem" and c:GetAttribute("*macrotext1") == "/cast Grounding Totem"
+           and c.tip and c.tip[1] == "CHAFF", "Grounding Totem trained: the chaff casts it, no target", tostring(c.macro))
+        ok(RD.defRail:IsShown() and c.knob:IsShown(), "the right rail shows, the knob on its corner")
+        STATE.inCombat = true
+        C_Spell.GetSpellName = function(id) return ({ [8042] = "Earth Shock", [8050] = "Flame Shock",
+                                                      [8177] = "Grounding Totem", [331] = "Healing Wave" })[id] end
+        local function chaffLit()
+            local v = c.pieces[1].__vertex
+            return c.face:GetAlpha() == 1 and v and v[4] == 1 or false
+        end
+        RD.readyAt.kick, RD.readyAt.chaff = nil, nil
+        STATE.units.party1target, STATE.hostile.party1target, STATE.casting.party1target = true, true, true
+        RD.Look()
+        ok(sp2.bogey.face:GetAlpha() == 1 and not chaffLit(), "an enemy casts, your flare is ready: the bogey lights, the chaff waits")
+        ok(RD.OnCast("player", 8042) == "kick" and RD.readyAt.kick == CLOCK + RD.COOLS.kick, "you flare it: our own clock spends the flare 6 s")
+        RD.Look()
+        ok(chaffLit(), "the flare spent, still casting: the chaff lights - deploy it")
+        STATE.casting.party1target = nil
+        RD.Look()
+        ok(not chaffLit(), "the cast is over: dark")
+        STATE.casting.party1target, STATE.hostile.party1target = true, nil
+        RD.Look()
+        ok(not chaffLit(), "a FRIENDLY target casting: nothing to ground")
+        STATE.hostile.party1target = true
+        ok(RD.OnCast("player", 8177) == "chaff" and RD.readyAt.chaff == CLOCK + RD.COOLS.chaff and not chaffLit(),
+           "you drop Grounding Totem: dark at once, spent 15 s by our clock")
+        RD.Look()
+        ok(not chaffLit(), "still casting, flare and chaff both spent: nothing to click")
+        TICK(16)
+        RD.Look()
+        ok(not chaffLit(), "16 s on: both ready again - the flare is the answer, not the chaff")
+        ok(RD.OnCast("player", 8050) == "kick", "a Flame Shock spends Earth Shock's cooldown too (the shocks share one)")
+        RD.Look()
+        ok(chaffLit(), "so the chaff lights")
+        ok(RD.OnCast("player", 331) == false, "a heal is neither")
+        -- THE KNOB: a plain button, so it flips in a fight
+        local okClick = pcall(c.knob:GetScript("OnClick"), c.knob)
+        ok(okClick and RD.KnobOff("chaff"), "a click on the chaff's knob mid-fight: switched off, nothing secure touched")
+        local kv = c.knob.dot.__vertex
+        ok(kv and kv[1] == 1 and kv[2] < 0.3 and kv[4] == 1, "the knob shows red: off")
+        RD.Look()
+        ok(not chaffLit(), "switched off: it never lights, even with a cast on its way")
+        c.knob:GetScript("OnClick")(c.knob)
+        RD.Look()
+        ok(not RD.KnobOff("chaff") and chaffLit(), "clicked again: on, and lit")
+        kv = c.knob.dot.__vertex
+        ok(kv and kv[4] < 0.5, "a faint dot when on")
+        -- every self-lighting tool has one (the stabilizer and the rations: always wanted, no knob)
+        ok(RD.tide.knob and RD.potion.knob and RD.reserve.knob and RD.fuel.knob and not RD.shield.knob and not RD.rations.knob,
+           "knobs on Mana Tide, the potion, the reserve tank, the drink and the chaff")
+        RD.Command("knob reserve off")
+        ok(RD.KnobOff("reserve"), "/bish alpha radar knob reserve off: the same switch")
+        RD.Command("knob reserve on")
+        ok(not RD.KnobOff("reserve"), "and back on")
+        -- out of a fight the chaff never lights
+        local keepFight = RD.inFight
+        RD.inFight, STATE.inCombat = nil, false
+        RD.Look()
+        ok(not chaffLit(), "out of a fight: dark")
+        RD.inFight, STATE.inCombat = keepFight, true
+        -- lean: the chaff's questions only while it could light
+        local Cost = dofile("../_bisdev/dev/cost.lua")
+        local lookC = Cost.Count(function() RD.Look() end)
+        print(("   cost: radar, one look with the chaff armed = %d calls"):format(lookC))
+        ok(lookC <= 45, "a look with the chaff armed stays in its budget", lookC)
+        STATE.casting.party1target, STATE.hostile.party1target, STATE.units.party1target = nil, nil, nil
+        RD.readyAt.kick, RD.readyAt.chaff, RD.cdLen = nil, nil, {}
+        BOOK[48], BOOK[49], C_Spell.GetSpellName, C_Spell.GetSpellCooldown = keep.b48, keep.b49, keep.name, keep.cd
+        NS.FM.BookChanged()
+        NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
+        STATE.inCombat = false
+        RD.ArmTools()
+        ok(not RD.defRail:IsShown(), "Grounding forgotten: the right rail goes away")
+        STATE.inCombat = true
+        RD.Look()
+    end
     -- THE INTERRUPT'S SWEEP (Arn 8 Nov: "cooldown sweep on interrupt icon"): the client's duration object, untouched
     local keepDur2 = _G.C_Spell.GetSpellCooldownDuration
     local durObj2, asked2 = { kick = true }, nil

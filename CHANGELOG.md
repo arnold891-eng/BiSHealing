@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.1.3
+
+- **Behind the scenes only.** More work on a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.
+
 ## 1.1.2
 
 - **The grid is lighter on your game.** It used to ask "is this person in range?" for every cell four times a second, even when nobody moved. Now it waits for the game to say someone crossed the line and checks only them; a once-a-second sweep still catches everything else. In a 25-player raid that is about a quarter fewer calls to the game every second. The dimming looks exactly the same. `/bish range` says which way it is working.

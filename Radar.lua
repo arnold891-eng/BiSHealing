@@ -23,7 +23,7 @@
                casts the cure. No words.
     BOGEY      their target (yours on your own spoke): a red triangle only while it casts (FG.Casting, `type()` only);
                a click is your interrupt, on an enemy only (the client's own harm switch, as the PvP cells).
-  THE FUEL GAUGE on the left edge (buildGauge): your mana racing the boss's health on one tape, the red you are behind
+  THE FUEL GAUGE across the top, sideways (buildGauge; 9 Nov): your mana racing the boss's health on one tape, the red you are behind
   by, a magenta caret on the boss, a hot pulsing BINGO band when the boss is 30% ahead, a cyan chevron while you are
   generating (out of the five second rule). THE MANA COLUMN beside it, icons only, top to bottom: the STABILIZER (your
   keep-up self buff - Water Shield - red while it is NOT on you: the client's own icon arriving covers the red), MANA
@@ -54,16 +54,46 @@ RD.RING_SEG = 40
 RD.GREEN, RD.AMBER, RD.RED = 0.90, 0.80, 0.35    -- below: green / amber (when the heal size is unknown) / red
 RD.FUEL_LOW = 0.30
 -- THE FUEL GAUGE (8 Nov 2026, Arn: "a quasi mana/heal efficiency gauge ... my mana to track the boss health bar ... the
--- delta indicates we are keeping pace or bingo fuel"). A tape on the left edge: x from the edge, width, room kept at the
--- top and the foot (the regen chevron, then the missile tape); `flag` = how far the BINGO window reaches past the tape.
-RD.GAUGE = { x = 1, w = 7, top = 8, foot = 34, flag = 5 }
+-- delta indicates we are keeping pace or bingo fuel"). SIDEWAYS ALONG THE TOP since 9 Nov (Arn: "mana gauge ... put it on
+-- top side ways that way only one rail per side"): `w` = the tape's thickness, `left` / `right` = the room kept at its
+-- ends (the ship's placard, then the ramjet), `base` = the tape's bottom above the rail's bottom (the scale hangs under
+-- it), `flag` = how far the BINGO window reaches past the tape.
+RD.GAUGE = { w = 7, left = 56, right = 64, base = 19, flag = 5 }
 -- THE RAILS, OUTSIDE THE SQUARE (Arn, 8 Nov: "pop out the rail to the left of the radar square and the gauge too in its own
--- rail"): two solid strips in RD.PLATE's dark on the radar's left, outermost the fuel GAUGE's rail, then the TOOL rail
--- (stabilizer, Mana Tide, potion, drink, rations), then the square. Children of the radar, so they move and hide with it;
--- solid, so the stabilizer's cover (the same dark) melts into its rail.
+-- rail"; 9 Nov: the gauge on top, one rail a side): solid strips in RD.PLATE's dark - the fuel GAUGE's rail across the top
+-- (over the tool rail and the square), the TOOL rail on the left (stabilizer, Mana Tide, potion, drink, rations), the
+-- DEFENCE rail on the right. Children of the radar, so they move and hide with it; solid, so the stabilizer's cover (the
+-- same dark) melts into its rail.
 RD.RAIL_GAP = 3                                    -- between the rails, and between the tool rail and the square
 RD.TOOL_RAIL_W = 22 + 8                            -- a system pip and a margin
-RD.GAUGE_RAIL_W = 54                               -- the HUD scale's numbers and readout, the tape, its caret/flag
+RD.GAUGE_RAIL_H = 44                               -- the readout box, the tape, the scale's ticks and numbers under it
+-- THE SHIPS (9 Nov 2026, Arn: "lean to the ryan gosling in the spirit of star wars imperial purple and white accents like
+-- a fighter and the more the group gets we change the color to finally ending in star destroyer theam"). The radar's
+-- chrome takes the look of a bigger ship as the group grows: night-drive neon on a small fighter, cooling through a
+-- gunship and a cruiser to a capital ship's grey hull with white lines. OUR OWN looks and names - the feeling is
+-- borrowed, never a film's ship shapes, emblem, names or lettering. Only the chrome changes: the hull (RD.PLATE - the
+-- disc, the rails, the stabilizer's cover), the scope's lines, its corner brackets, the centre mark, the fuel tape and its
+-- scale. WARNINGS KEEP THEIR COLOURS in every ship (the health pips, the boss's red, BINGO, LOS / RANGE, amber, cyan), so
+-- a warning reads the same everywhere. Picked by the group's size in RD.Arm - out of a fight only, never mid-fight.
+--   upTo     the biggest group this ship flies with
+--   plate    the hull: the disc, the rails, the covers          line     the scope's rings, cross and ticks; the scale
+--   bracket  the corner brackets (`be` long, `bw` thick)        accent   the centre mark, the readout, the ship's name
+--   fuel     your mana on the tape                              track    the tape's empty groove
+RD.SHIPS = {
+    { key = "fighter", name = "FIGHTER", upTo = 5,
+      plate = { 0.035, 0.015, 0.060 }, line = { 0.82, 0.38, 1.00 }, bracket = { 0.97, 0.93, 1.00 }, be = 18, bw = 2,
+      accent = { 1.00, 0.45, 0.92 }, fuel = { 0.88, 0.56, 1.00, 0.95 }, track = { 0.10, 0.04, 0.16, 0.9 } },
+    { key = "gunship", name = "GUNSHIP", upTo = 10,
+      plate = { 0.035, 0.025, 0.070 }, line = { 0.64, 0.52, 1.00 }, bracket = { 1.00, 1.00, 1.00 }, be = 22, bw = 2,
+      accent = { 0.82, 0.64, 1.00 }, fuel = { 0.80, 0.72, 1.00, 0.95 }, track = { 0.08, 0.06, 0.17, 0.9 } },
+    { key = "cruiser", name = "CRUISER", upTo = 20,
+      plate = { 0.045, 0.045, 0.060 }, line = { 0.60, 0.64, 0.75 }, bracket = { 1.00, 1.00, 1.00 }, be = 28, bw = 2,
+      accent = { 0.70, 0.44, 1.00 }, fuel = { 0.88, 0.90, 0.97, 0.95 }, track = { 0.10, 0.10, 0.14, 0.9 } },
+    { key = "capital", name = "CAPITAL", upTo = 40,
+      plate = { 0.060, 0.062, 0.072 }, line = { 0.84, 0.86, 0.91 }, bracket = { 1.00, 1.00, 1.00 }, be = 34, bw = 3,
+      accent = { 0.64, 0.40, 0.96 }, fuel = { 0.96, 0.96, 0.99, 0.95 }, track = { 0.13, 0.13, 0.16, 0.9 } },
+}
+RD.SCOPE_DIM = 0.55                                -- the rings, cross and ticks: the ship's line at this strength
 -- THE HUD TAPE (Arn, 8 Nov, a fighter HUD's speed tape: "the picture is an idea of how the guage should look not just a
 -- line"): a spine with a tick every 10%, longer ticks and numbers at 0/25/50/75/100, and a BOXED READOUT riding at the top
 -- of your fuel with your mana % in it - the client writes the number (SetFormattedText, UnitPowerPercent ScaleTo100; a
@@ -511,31 +541,38 @@ local function buildScope(f)
     fade:SetSize(RD.FADE_PX, RD.FADE_PX)
     fade:SetPoint("CENTER", s, "CENTER", 0, 0)
     RD.fade = fade
+    -- every line kept, so a ship can repaint them (RD.ApplyShip): the rings, cross and ticks; the brackets; the centre
+    RD.scopeLines, RD.brackets = {}, {}
+    local function keep(l) RD.scopeLines[#RD.scopeLines + 1] = l return l end
     for _, r in ipairs(RD.RINGS) do
         for k = 1, RD.RING_SEG do
             local a0, a1 = (k - 1) * 2 * math.pi / RD.RING_SEG, k * 2 * math.pi / RD.RING_SEG
-            line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1)
+            keep(line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1))
         end
     end
     local h = RD.SIZE / 2 - 6
-    line(s, "BORDER", -h, 0, h, 0, g, 1)
-    line(s, "BORDER", 0, -h, 0, h, g, 1)
+    keep(line(s, "BORDER", -h, 0, h, 0, g, 1))
+    keep(line(s, "BORDER", 0, -h, 0, h, g, 1))
     for k = 0, 35 do
         local a = k * math.pi / 18
         local r2 = (k % 3 == 0) and 134 or 138
-        line(s, "BORDER", math.sin(a) * 142, math.cos(a) * 142, math.sin(a) * r2, math.cos(a) * r2, g, 1)
+        keep(line(s, "BORDER", math.sin(a) * 142, math.cos(a) * 142, math.sin(a) * r2, math.cos(a) * r2, g, 1))
     end
-    -- the square's corner brackets
+    -- the square's corner brackets: two arms a corner, `sx`/`sy` kept so a ship can lengthen them (RD.ShapeBrackets)
     local b, e = RD.SIZE / 2 - 4, 22
     local bc = { RD.PHOS[1] * 0.6, RD.PHOS[2] * 0.6, RD.PHOS[3] * 0.6, 1 }
     for _, sx in ipairs({ -1, 1 }) do
         for _, sy in ipairs({ -1, 1 }) do
-            line(s, "BORDER", sx * b, sy * b, sx * (b - e), sy * b, bc, 2)
-            line(s, "BORDER", sx * b, sy * b, sx * b, sy * (b - e), bc, 2)
+            local a1 = line(s, "BORDER", sx * b, sy * b, sx * (b - e), sy * b, bc, 2)
+            local a2 = line(s, "BORDER", sx * b, sy * b, sx * b, sy * (b - e), bc, 2)
+            a1.sx, a1.sy, a1.across = sx, sy, true
+            a2.sx, a2.sy, a2.across = sx, sy, false
+            RD.brackets[#RD.brackets + 1] = a1
+            RD.brackets[#RD.brackets + 1] = a2
         end
     end
     -- you, in the middle
-    line(s, "ARTWORK", 0, 8, 6, -6, RD.PHOS, 2) line(s, "ARTWORK", 0, 8, -6, -6, RD.PHOS, 2)
+    RD.meLines = { line(s, "ARTWORK", 0, 8, 6, -6, RD.PHOS, 2), line(s, "ARTWORK", 0, 8, -6, -6, RD.PHOS, 2) }
     -- the dim places of every slot live on their own layer, unscaled, and go with the scope (RD.PaintQuiet)
     local dims = CreateFrame("Frame", nil, f)
     dims:SetAllPoints(f)
@@ -883,12 +920,15 @@ end
               bar in a pulsing hot magenta and a hot flag under the caret. Boss more than 30% ahead of you: the hot
               band shows from mana + 30% up to the boss, the flag with it. Not that far behind: the window is above the
               boss's fill, and nothing shows. Exact to the pixel: two fill edges and a fixed offset, no number read.
-  The boss layer's alpha says whether there is a boss at all (a secret "hostile?" goes to SetAlphaFromBoolean). ]]
+  The boss layer's alpha says whether there is a boss at all (a secret "hostile?" goes to SetAlphaFromBoolean).
+  SIDEWAYS SINCE 9 NOV (Arn: "put it on top side ways that way only one rail per side"): the tape runs left to right
+  along the top rail, so "above" in the words here is "to the right of" on the screen - the caret on the boss fill's
+  RIGHT end, the ruler lifted 30% to the right, the BINGO window's floor its LEFT edge. ]]
 local function fuelBar(parent, col, lvl)
     local s = CreateFrame("StatusBar", nil, parent)
     s:SetStatusBarTexture(RD.WHITE)
     s:SetStatusBarColor(col[1], col[2], col[3], col[4] or 1)
-    if s.SetOrientation then s:SetOrientation("VERTICAL") end          -- fills from the bottom
+    if s.SetOrientation then s:SetOrientation("HORIZONTAL") end        -- fills from the left
     s:SetMinMaxValues(0, 1)
     s:SetValue(0)
     s:SetFrameLevel(lvl)
@@ -924,8 +964,8 @@ local function buildGauge(f)
     g.caretFrame:SetAllPoints(g)
     g.caretFrame:SetFrameLevel(L + 4)
     g.caret = tex(g.caretFrame, "OVERLAY", RD.CARET)
-    g.caret:SetSize(G.w + 3, 3)
-    g.caret:SetPoint("LEFT", g.boss:GetStatusBarTexture(), "TOPLEFT", 0, 0)
+    g.caret:SetSize(3, G.w + 3)
+    g.caret:SetPoint("BOTTOM", g.boss:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     -- BINGO: the lifted ruler (clipped to the tape, its colour see-through - it is only an edge)
     g.rulerClip = CreateFrame("Frame", nil, g)
     g.rulerClip:SetAllPoints(g)
@@ -934,21 +974,21 @@ local function buildGauge(f)
     g.lift = CreateFrame("Frame", nil, g.rulerClip)
     g.ruler = fuelBar(g.lift, { 0, 0, 0, 0 }, L + 1)
     g.ruler:SetAllPoints(g.lift)
-    -- the window: floor on the ruler's fill top, roof above the tape (mana + 30% can reach 130%), wide enough for the flag
+    -- the window: floor on the ruler's fill end, roof past the tape's end (mana + 30% can reach 130%), tall enough for
+    -- the flag
     g.hotClip = CreateFrame("Frame", nil, g.bossLayer)
     g.hotClip:SetClipsChildren(true)
     g.hotClip:SetFrameLevel(L + 5)
-    g.hotClip:SetPoint("BOTTOMLEFT", g.ruler:GetStatusBarTexture(), "TOPLEFT", 0, 0)
+    g.hotClip:SetPoint("BOTTOMLEFT", g.ruler:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     g.hot = fuelBar(g.hotClip, RD.HOT, L + 5)
     g.hot:SetAllPoints(g)
     g.flagFrame = CreateFrame("Frame", nil, g.hotClip)
     g.flagFrame:SetAllPoints(g)
     g.flagFrame:SetFrameLevel(L + 6)
-    -- the BINGO flag: a hot bar just under the magenta caret, as wide - shown only inside the window (the column of
-    -- buttons starts right of it, so it never covers one)
+    -- the BINGO flag: a hot bar just behind the magenta caret, as tall - shown only inside the window
     g.flag = tex(g.flagFrame, "OVERLAY", RD.HOT)
-    g.flag:SetSize(G.w + 3, 3)
-    g.flag:SetPoint("TOPLEFT", g.boss:GetStatusBarTexture(), "TOPLEFT", 0, -3)
+    g.flag:SetSize(3, G.w + 3)
+    g.flag:SetPoint("BOTTOMRIGHT", g.boss:GetStatusBarTexture(), "BOTTOMRIGHT", -3, 0)
     -- BINGO pulses hard, always playing: it is seen only while the window holds some of the boss's fill
     g.pulse = RD.PulseAlpha(g.hotClip, RD.FADE_HARD)
     -- REGEN, "generating fuel": a cyan inflow chevron at the foot (RD.PaintRegen)
@@ -959,12 +999,12 @@ local function buildGauge(f)
     g.chevLines = { line(g.chev, "OVERLAY", -5, -1, 0, 4, C, 2), line(g.chev, "OVERLAY", 0, 4, 5, -1, C, 2),
                     line(g.chev, "OVERLAY", -5, -5, 0, 0, C, 2), line(g.chev, "OVERLAY", 0, 0, 5, -5, C, 2) }
     -- the REGEN READOUT at the gauge's foot (Arn, 8 Nov: "bottom of the gauge we should put our mana regen % - 100% out
-    -- of combat, in combat reads our talents like the bis healing header"): Regen.lua's own words. CENTRED in the empty
-    -- foot of the gauge's rail (Arn: "more centered in the empty space"), the chevron on its right.
+    -- of combat, in combat reads our talents like the bis healing header"): Regen.lua's own words. CENTRED in the room
+    -- kept at the tape's right end (Arn: "more centered in the empty space"), the chevron on its right.
     g.regen = f:CreateFontString(nil, "OVERLAY")
     g.regen:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 10, "")
     g.regen:SetTextColor(C[1], C[2], C[3])
-    g.regen:SetPoint("CENTER", RD.gaugeRail or f, "BOTTOM", 0, math.floor(G.foot / 2) + 2)   -- the pair centred
+    g.regen:SetPoint("CENTER", RD.gaugeRail or f, "RIGHT", -math.floor(G.right / 2) - 4, 4)   -- the pair centred
     g.regen:SetText("100%")
     g.chev:SetPoint("LEFT", g.regen, "RIGHT", 3, 0)
     -- THE FIVE SECOND RULE, COUNTED DOWN (Arn, 8 Nov: "somewhere on there the 5 second casting rule for 100% mana regen
@@ -1000,16 +1040,34 @@ local function buildGauge(f)
     end
     tipOn(g)
     if RD.gaugeRail then tipOn(RD.gaugeRail) end
+    -- THE PLACARD at the tape's left end, a pilot's seat plate: your ROLE (Arn, 9 Nov: "lets add our role here Healer,
+    -- DPS, Tank" - RD.PaintRole), the ship you are flying (RD.ApplyShip), then the word FUEL (Arn: "lets not do rpm" - a
+    -- bar across the top reads as an engine gauge without it). The rail's only words; the scope has none.
+    local P = RD.gaugeRail or f
+    local function word(text)
+        local fs = P:CreateFontString(nil, "OVERLAY")
+        fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "")
+        fs:SetText(text)
+        return fs
+    end
+    -- each line at its own fixed spot, so an empty role (the game said none) leaves the ship and FUEL where they are
+    g.role = word("")
+    g.role:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -5)
+    g.role:SetTextColor(1, 1, 1)
+    g.ship = word(RD.SHIPS[1].name)
+    g.ship:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -17)
+    g.fuelWord = word("FUEL")
+    g.fuelWord:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -29)
     RD.SizeGauge(RD.SIZE)
     return g
 end
 
---- The tape's size for a square `size` across: its height, the ticks, the 30% lift and the window's roof.
---- The two rails, outside the square on its left, the radar's full height. Their own frames under the radar's level so
---- the tape and the tools draw over them; the radar's clamp grows to keep them on the screen.
+--- The rails, outside the square: the tool rail on its left and the defence rail on its right, the radar's full height;
+--- the gauge's rail across the top of both the tool rail and the square. Their own frames under the radar's level so the
+--- tape and the tools draw over them; the radar's clamp grows to keep them on the screen.
 local function rail(f, w)
     local r = CreateFrame("Frame", nil, f)
-    r:SetWidth(w)
+    if w then r:SetWidth(w) end
     r:SetFrameLevel(math.max(0, f:GetFrameLevel()))
     r.bg = r:CreateTexture(nil, "BACKGROUND")
     r.bg:SetAllPoints(r)
@@ -1023,9 +1081,12 @@ function RD.BuildRails(f)
     local t = rail(f, RD.TOOL_RAIL_W)
     t:SetPoint("TOPRIGHT", f, "TOPLEFT", -gap, 0)
     t:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT", -gap, 0)
-    local g = rail(f, RD.GAUGE_RAIL_W)
-    g:SetPoint("TOPRIGHT", t, "TOPLEFT", -gap, 0)
-    g:SetPoint("BOTTOMRIGHT", t, "BOTTOMLEFT", -gap, 0)
+    -- THE GAUGE'S RAIL ON TOP (Arn, 9 Nov: "put it on top side ways that way only one rail per side"): from the tool
+    -- rail's left edge to the square's right edge; its width follows the square (RD.SizeGauge)
+    local g = rail(f)
+    g:SetHeight(RD.GAUGE_RAIL_H)
+    g:SetPoint("BOTTOMLEFT", t, "TOPLEFT", 0, gap)
+    g:SetWidth(RD.SIZE + RD.TOOL_RAIL_W + gap)
     -- THE DEFENCE RAIL on the right (CHAFF): shown only when it holds something (RD.ArmTools, out of a fight)
     local d = rail(f, RD.TOOL_RAIL_W)
     d:SetPoint("TOPLEFT", f, "TOPRIGHT", gap, 0)
@@ -1036,58 +1097,60 @@ function RD.BuildRails(f)
     return t, g
 end
 
---- The radar's clamp: the left rails always, the right one while it shows.
+--- The radar's clamp: the tool rail and the gauge's rail always, the right one while it shows.
 function RD.ClampRails()
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
-    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + RD.GAUGE_RAIL_W + 2 * gap), right, 0, 0)
+    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, 0)
 end
 
---- The HUD scale left of the tape: the spine, the ticks, the numbers, and the readout box on your fuel's top.
+--- The HUD scale UNDER the tape: the spine, the ticks hanging from it, the numbers under them, and the readout box
+--- riding your fuel's end above the tape, pointing down into it.
 function RD.BuildHUD(g, L)
     local H = RD.HUD
     local hud = CreateFrame("Frame", nil, g)
-    hud:SetPoint("TOPRIGHT", g, "TOPLEFT", -1, 0)
-    hud:SetPoint("BOTTOMRIGHT", g, "BOTTOMLEFT", -1, 0)
-    hud:SetWidth(RD.GAUGE_RAIL_W - RD.GAUGE.w - RD.GAUGE.flag - 6)
+    hud:SetPoint("TOPLEFT", g, "BOTTOMLEFT", 0, -1)
+    hud:SetPoint("TOPRIGHT", g, "BOTTOMRIGHT", 0, -1)
+    hud:SetHeight(RD.GAUGE.base - 2)
     hud:SetFrameLevel(L + 3)
     g.hud = hud
     hud.spine = tex(hud, "ARTWORK", RD.PHOS)
+    hud.spine:SetPoint("TOPLEFT", hud, "TOPLEFT", 0, 0)
     hud.spine:SetPoint("TOPRIGHT", hud, "TOPRIGHT", 0, 0)
-    hud.spine:SetPoint("BOTTOMRIGHT", hud, "BOTTOMRIGHT", 0, 0)
-    hud.spine:SetWidth(1)
+    hud.spine:SetHeight(1)
     hud.ticks, hud.labels = {}, {}
     for k = 0, 10 do
-        local major = (k % 5 == 0) or k == 0
         local t = tex(hud, "ARTWORK", RD.PHOS)
-        t:SetSize((k % 5 == 0 or k == 10) and H.major or H.minor, 1)
+        t:SetSize(1, (k % 5 == 0 or k == 10) and H.major or H.minor)
         hud.ticks[k] = t
     end
     for q = 0, 4 do
         local fs = hud:CreateFontString(nil, "OVERLAY")
         fs:SetFont(STANDARD_TEXT_FONT, H.label, "")
         fs:SetTextColor(RD.PHOS[1], RD.PHOS[2], RD.PHOS[3])
-        fs:SetJustifyH("RIGHT")
+        fs:SetJustifyH("CENTER")
         fs:SetText(tostring(q * 25))
         hud.labels[q] = fs
     end
-    -- the readout: a box riding the mana fill's top, the number inside, a pointer into the tape
+    -- the readout: a box riding the mana fill's end above the tape, the number inside, a pointer down into the tape
     local box = CreateFrame("Frame", nil, g)
     box:SetSize(H.boxW, H.boxH)
-    box:SetPoint("RIGHT", g.mana:GetStatusBarTexture(), "TOPLEFT", -3, 0)
+    box:SetPoint("BOTTOM", g.mana:GetStatusBarTexture(), "TOPRIGHT", 0, 3)
     box:SetFrameLevel(L + 6)
     box.fill = tex(box, "BACKGROUND", { RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1 })
     box.fill:SetAllPoints(box)
+    box.edges = {}
     for _, e in ipairs({ { "TOPLEFT", "TOPRIGHT", true }, { "BOTTOMLEFT", "BOTTOMRIGHT", true },
                          { "TOPLEFT", "BOTTOMLEFT", false }, { "TOPRIGHT", "BOTTOMRIGHT", false } }) do
         local t = tex(box, "BORDER", RD.PHOS)
         t:SetPoint(e[1]) t:SetPoint(e[2])
         if e[3] then t:SetHeight(1) else t:SetWidth(1) end
+        box.edges[#box.edges + 1] = t
     end
-    box.tip1 = line(box, "OVERLAY", H.boxW / 2, 3, H.boxW / 2 + 3, 0, RD.PHOS, 1)
-    box.tip2 = line(box, "OVERLAY", H.boxW / 2, -3, H.boxW / 2 + 3, 0, RD.PHOS, 1)
+    box.tip1 = line(box, "OVERLAY", -3, -H.boxH / 2, 0, -H.boxH / 2 - 3, RD.PHOS, 1)
+    box.tip2 = line(box, "OVERLAY", 3, -H.boxH / 2, 0, -H.boxH / 2 - 3, RD.PHOS, 1)
     box.num = box:CreateFontString(nil, "OVERLAY")
     box.num:SetFont(STANDARD_TEXT_FONT, 10, "")
     box.num:SetTextColor(RD.PHOS[1], RD.PHOS[2], RD.PHOS[3])
@@ -1096,40 +1159,125 @@ function RD.BuildHUD(g, L)
     return hud
 end
 
---- The HUD scale's places for a tape `h` tall: a tick every 10%, numbers every 25%.
-function RD.SizeHUD(h)
+--- The HUD scale's places for a tape `w` long: a tick every 10%, numbers every 25%.
+function RD.SizeHUD(w)
     local g = RD.gauge
     local hud = g and g.hud
     if not hud then return end
     for k, t in pairs(hud.ticks) do
         t:ClearAllPoints()
-        t:SetPoint("RIGHT", hud, "BOTTOMRIGHT", 0, k / 10 * h)
+        t:SetPoint("TOP", hud, "TOPLEFT", k / 10 * w, 0)
     end
     for q, fs in pairs(hud.labels) do
         fs:ClearAllPoints()
-        fs:SetPoint("RIGHT", hud, "BOTTOMRIGHT", -(RD.HUD.major + 2), q / 4 * h)
+        fs:SetPoint("TOP", hud, "TOPLEFT", q / 4 * w, -(RD.HUD.major + 1))
     end
 end
 
+--- The tape's size for a square `size` across: the rail's width (the tool rail + the square), the tape's length between
+--- the placard and the ramjet, the ticks, the 30% lift and the window's roof. Answers the tape's length.
 function RD.SizeGauge(size)
     local g, G = RD.gauge, RD.GAUGE
     if not g then return nil end
-    local h = size - G.top - G.foot
+    local railW = size + RD.TOOL_RAIL_W + RD.RAIL_GAP
+    if RD.gaugeRail then RD.gaugeRail:SetWidth(railW) end
+    local w = railW - G.left - G.right
     g:ClearAllPoints()
-    g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", RD.gaugeRail and (RD.GAUGE_RAIL_W - G.w - G.flag - 3) or G.x, G.foot)
-    g:SetSize(G.w, h)
-    RD.SizeHUD(h)
+    g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", G.left, G.base)
+    g:SetSize(w, G.w)
+    RD.SizeHUD(w)
     for q, l in ipairs(g.ticks) do
-        local y = (q / 4 - 0.5) * h
-        l:SetStartPoint("CENTER", g.tickFrame, -G.w / 2 - 2, y)
-        l:SetEndPoint("CENTER", g.tickFrame, G.w / 2 + 2, y)
+        local x = (q / 4 - 0.5) * w
+        l:SetStartPoint("CENTER", g.tickFrame, x, -G.w / 2 - 2)
+        l:SetEndPoint("CENTER", g.tickFrame, x, G.w / 2 + 2)
     end
     g.lift:ClearAllPoints()
-    g.lift:SetPoint("BOTTOMLEFT", g, "BOTTOMLEFT", 0, RD.BINGO * h)
-    g.lift:SetSize(G.w, h)
-    g.hotClip:SetPoint("TOPRIGHT", g, "TOPRIGHT", G.flag, RD.BINGO * h + 2)
-    g.h = h
-    return h
+    g.lift:SetPoint("BOTTOMLEFT", g, "BOTTOMLEFT", RD.BINGO * w, 0)
+    g.lift:SetSize(w, G.w)
+    g.hotClip:SetPoint("TOPRIGHT", g, "TOPRIGHT", RD.BINGO * w + 2, G.flag)
+    g.len = w
+    return w
+end
+
+-- ------------------------------------------------------------------ the ships
+
+--- The ship for a group of `n` (you count): the first whose `upTo` holds it; the biggest past 40.
+function RD.ShipFor(n)
+    n = tonumber(n) or 1
+    for _, s in ipairs(RD.SHIPS) do
+        if n <= s.upTo then return s end
+    end
+    return RD.SHIPS[#RD.SHIPS]
+end
+
+--- The corner brackets for a ship: `be` long, `bw` thick, from the square's corners.
+function RD.ShapeBrackets(ship)
+    local b = RD.SIZE / 2 - 4
+    local e = ship.be or 22
+    local c = ship.bracket
+    for _, l in ipairs(RD.brackets or {}) do
+        local sx, sy = l.sx, l.sy
+        l:SetStartPoint("CENTER", RD.scope, sx * b, sy * b)
+        if l.across then l:SetEndPoint("CENTER", RD.scope, sx * (b - e), sy * b)
+        else l:SetEndPoint("CENTER", RD.scope, sx * b, sy * (b - e)) end
+        l:SetThickness(ship.bw or 2)
+        l:SetVertexColor(c[1], c[2], c[3], 1)
+    end
+end
+
+--- FLY THIS SHIP: repaint the radar's chrome in its colours. Out of a fight (RD.Arm); colours only, nothing secure.
+--- RD.PLATE is the hull and is changed IN PLACE, so everything made later from it (a stabilizer cover the client builds
+--- at the next aura) comes out in the same dark. Answers the ship.
+function RD.ApplyShip(ship)
+    ship = ship or RD.SHIPS[1]
+    RD.ship = ship
+    local P = ship.plate
+    RD.PLATE[1], RD.PLATE[2], RD.PLATE[3] = P[1], P[2], P[3]
+    local function plate(t) if t then t:SetVertexColor(P[1], P[2], P[3], 1) end end
+    plate(RD.fade)
+    for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail }) do plate(r and r.bg) end
+    local sh = RD.shield
+    if sh then
+        plate(sh.plate)
+        for _, t in ipairs(sh.cover or {}) do plate(t) end
+    end
+    plate(RD.washHole)
+    -- the scope: rings, cross and ticks at the ship's line, dimmed; the brackets; you in the middle in its accent
+    local L, k = ship.line, RD.SCOPE_DIM
+    for _, l in ipairs(RD.scopeLines or {}) do l:SetVertexColor(L[1] * k, L[2] * k, L[3] * k, 0.85) end
+    RD.ShapeBrackets(ship)
+    local A = ship.accent
+    for _, l in ipairs(RD.meLines or {}) do l:SetVertexColor(A[1], A[2], A[3], 1) end
+    -- the fuel tape: your mana and the ruler in the ship's fuel colour, the groove, the scale, the readout, the placard
+    local g = RD.gauge
+    if g then
+        local F = ship.fuel
+        g.mana:SetStatusBarColor(F[1], F[2], F[3], F[4] or 1)
+        g.track:SetColorTexture(ship.track[1], ship.track[2], ship.track[3], ship.track[4] or 1)
+        for _, l in ipairs(g.ticks) do l:SetVertexColor(L[1], L[2], L[3], 1) end
+        local hud = g.hud
+        if hud then
+            hud.spine:SetVertexColor(L[1], L[2], L[3], 1)
+            for _, t in pairs(hud.ticks) do t:SetVertexColor(L[1], L[2], L[3], 1) end
+            for _, fs in pairs(hud.labels) do fs:SetTextColor(L[1], L[2], L[3]) end
+        end
+        local box = g.readout
+        if box then
+            plate(box.fill)
+            for _, t in ipairs(box.edges or {}) do t:SetVertexColor(A[1], A[2], A[3], 1) end
+            box.tip1:SetVertexColor(A[1], A[2], A[3], 1)
+            box.tip2:SetVertexColor(A[1], A[2], A[3], 1)
+            box.num:SetTextColor(1, 1, 1)
+        end
+        if g.ship then
+            g.ship:SetText(ship.name)
+            g.ship:SetTextColor(A[1], A[2], A[3])
+        end
+        if g.fuelWord then g.fuelWord:SetTextColor(L[1], L[2], L[3]) end
+    end
+    RD.PaintRole()
+    RD.PaintKnobs()                                  -- the knobs' "on" dot is the ship's line too
+    return ship
 end
 
 --- A regen tool's face: a ring and its sign, PLAIN TEXTURES ONLY (the client's curve colour lands on a texture, never
@@ -1215,13 +1363,20 @@ function RD.Knob(b)
     return k
 end
 
---- Every knob: shown on an armed tool only; red when off, a faint dot when on. Plain frames: any time, fight or not.
+--- Every knob: shown on an armed tool only; red when off (a warning, every ship), a faint dot in the ship's line when on
+--- (Arn's 9 Nov screenshot: the old phosphor green sat wrong on the purple fighter). Plain frames: any time, fight or not.
+function RD.KnobOnColour()
+    local L = RD.ship and RD.ship.line
+    if not L then return RD.KNOB_ON end
+    return { L[1], L[2], L[3], RD.KNOB_ON[4] }
+end
 function RD.PaintKnobs()
+    local on = RD.KnobOnColour()
     for _, b in ipairs(RD.knobbed or {}) do
         local k = b.knob
         if k then
             if b.macro then
-                local c = RD.KnobOff(b.kind) and RD.KNOB_OFF or RD.KNOB_ON
+                local c = RD.KnobOff(b.kind) and RD.KNOB_OFF or on
                 k.dot:SetVertexColor(c[1], c[2], c[3], c[4])
                 k:Show()
             else
@@ -1289,6 +1444,7 @@ function RD.Build()
     RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
     for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
     buildGauge(f)
+    RD.ApplyShip(RD.SHIPS[1])                        -- a fighter until the roster says otherwise (RD.Arm)
     -- (the rail drawn inside the scope is gone: the rails stand outside the square now - RD.BuildRails)
     -- rations: a fork
     RD.rations.fork = { line(RD.rations.face, "OVERLAY", -4, 7, -4, -7, RD.COL.cyan, 2), line(RD.rations.face, "OVERLAY", 4, 7, 4, -7, RD.COL.cyan, 2),
@@ -1352,6 +1508,31 @@ function RD.Role(unit)
     c = ok and plain(c) or nil
     if c and RD.HEALER_CLASS[c] then return "heal" end
     return "damage"
+end
+
+--- YOUR ROLE ON THE PLACARD (Arn, 9 Nov: "lets add our role here Healer, DPS, Tank" ... "we take the role from what the
+--- games tell us, the frames already tell us"): ONLY the game's own answer, the one its party and raid frames show - the
+--- group role set for you (UnitGroupRolesAssigned), else a raid's main tank assignment (GetPartyAssignment). No guess
+--- from the class, no tank mark of ours: the game says nothing, the line stays empty. A font string - fine in a fight;
+--- asked in RD.Arm (a role set fires PLAYER_ROLES_ASSIGNED, which re-arms). Answers the word ("" for none).
+RD.ROLE_PLACARD = { TANK = "TANK", HEALER = "HEALER", DAMAGER = "DPS" }
+function RD.GameRole()
+    if UnitGroupRolesAssigned then
+        local okR, r = pcall(UnitGroupRolesAssigned, "player")
+        r = okR and plain(r) or nil
+        if type(r) == "string" and RD.ROLE_PLACARD[r] then return RD.ROLE_PLACARD[r] end
+    end
+    if GetPartyAssignment then
+        local ok, mt = pcall(GetPartyAssignment, "MAINTANK", "player")
+        if ok and plain(mt) == true then return "TANK" end
+    end
+    return ""
+end
+function RD.PaintRole()
+    local g = RD.gauge
+    local w = RD.GameRole()
+    if g and g.role then g.role:SetText(w) end
+    return w
 end
 
 -- ------------------------------------------------------------------ arming (out of a fight only)
@@ -2069,7 +2250,11 @@ function RD.Arm()
     RD.frame:SetSize(size, size)
     RD.scope:SetScale(size / RD.PARTY.size)
     if RD.fade then RD.fade:SetSize(RD.FADE_PX * size / RD.PARTY.size, RD.FADE_PX * size / RD.PARTY.size) end
-    RD.SizeGauge(size)                 -- the fuel tape runs the square's height
+    RD.SizeGauge(size)                 -- the fuel tape runs the rail over the tool rail and the square
+    -- THE SHIP for this many (Arn, 9 Nov: "the more the group gets we change the color"): out of a fight only, here
+    local n = 0
+    for i = 1, #slots do if units[i] then n = n + 1 end end
+    RD.ApplyShip(RD.ShipFor(math.max(1, n)))
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)
         local unit = units[i]
@@ -2442,9 +2627,9 @@ function RD.FuelTip()
     local who = RD.fuelUnit == "boss1" and "the boss" or (RD.fuelUnit == "target" and "your target, when it is hostile")
                 or "nothing - no boss, no hostile target"
     return {
-        "Green: your mana.  Red above it: the boss's health you are behind by.  Magenta mark: the boss.",
+        "The bright bar: your mana, filling left to right.  Red past it: the boss's health you are behind by.  Magenta mark: the boss.",
         ("Hot pulsing band: BINGO - the boss more than %d%% ahead of your mana.  Drink, potion, Mana Tide (the column)."):format(RD.BINGO * 100),
-        "RAMJET, at the foot: the % is your mana regen now (100% out of a fight).  The five dashes: seconds left of the five second rule - lay off the throttle (hold your casts) till they are gone and the ramjet kicks in, 100%.  The cyan chevron: the ramjet running (dim: only your while-casting share).",
+        "RAMJET, at the right end: the % is your mana regen now (100% out of a fight).  The five dashes: seconds left of the five second rule - lay off the throttle (hold your casts) till they are gone and the ramjet kicks in, 100%.  The cyan chevron: the ramjet running (dim: only your while-casting share).",
         "Racing: " .. who .. ".  " .. ((FR and FR.Text) and FR.Text() or ""),
     }
 end

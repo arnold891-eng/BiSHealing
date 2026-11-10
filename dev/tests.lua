@@ -363,8 +363,11 @@ local function newFrame(kind, name, parent)
         function l:IsShown() return self.__shown end
         return l
     end
-    function f:CreateTexture()
-        return autoMethods({
+    -- A FRAME LISTS ITS TEXTURES (GetRegions), as the client does (9 Nov: "is the see-through square gone?" had no answer)
+    function f:GetRegions() return unpack(self.__regions or {}) end
+    function f:CreateTexture(_, layer, _, sublevel)
+        self.__regions = self.__regions or {}
+        local made = autoMethods({
             -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
             -- colour is that cell's ring" had no answer at all - the same shape of lie as the
             -- font string that accepted a colour with no green in it (26 Sep).
@@ -413,7 +416,11 @@ local function newFrame(kind, name, parent)
             end,
             ClearAllPoints = function(t) t.points = {} t.__allpoints = nil end,
             __parent = self,
+            -- its draw layer and sublevel, as the client takes them (9 Nov: "the rails draw over the radar's disc")
+            __layer = layer, __sublevel = sublevel,
         })
+        self.__regions[#self.__regions + 1] = made
+        return made
     end
     function f:CreateFontString(_, _, template)
         -- RECORDED. "How many labels are in this bar" is a question a suite can only ask if the
@@ -11599,6 +11606,25 @@ do
     end
     ok(names == 0, "no names, no words on the scope (digits only: the HUD tape's numbers, the regen %)", names)
 
+    -- THE DARK DISC (Arn, 9 Nov: "a dark background instead of see through so things pop more like the rail ... the edge
+    -- fade instead on the edges like the screen shot")
+    do
+        local fd = RD.fade
+        ok(fd and tostring(fd.__texture):find("Art\\scopefade", 1, true), "the scope sits on a dark disc with a soft edge (our art)")
+        local v = fd and fd.__vertex
+        ok(v and v[1] == RD.PLATE[1] and v[2] == RD.PLATE[2] and v[3] == RD.PLATE[3] and v[4] == 1,
+           "the rail's own plate, solid - not see-through")
+        ok(fd and fd.__parent == f and fd.__layer == "BACKGROUND" and fd.__sublevel == -8,
+           "on the radar's own lowest layer, so the rails beside it draw over its fading edge")
+        ok(fd and fd.__w == RD.FADE_PX and fd.__w > RD.SIZE, "bigger than the square: the fade runs past its edge, the corners clear")
+        local seeThrough = false
+        for _, r in ipairs({ RD.scope:GetRegions() }) do
+            local c = rawget(r, "__colorTexture") or rawget(r, "__color")
+            if c and c[4] and c[4] < 1 then seeThrough = true end
+        end
+        ok(not seeThrough, "the old see-through square is gone")
+    end
+
     -- THE CLICK'S WORD (Arn, 9 Nov: "LOS for line of sight, range for out of range, red letter under the teammate ... only
     -- when i click them ... like the bis grid in normal view")
     do
@@ -12054,6 +12080,8 @@ do
     ok(RD.spokes[16].slot.b > own.b and RD.spokes[16].slot.b < RD.spokes[1].slot.b,
        "group 4 comes right after yours, clockwise; group 1 last")
     ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
+    ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
+       and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
     local rh = RD.RAID.size - RD.GAUGE.top - RD.GAUGE.foot
     ok(RD.gauge:GetHeight() == rh and RD.gauge.lift.points[#RD.gauge.lift.points][5] == RD.BINGO * rh,
        "and the fuel tape with it: its height, and the BINGO lift still 30% of it", RD.gauge:GetHeight())

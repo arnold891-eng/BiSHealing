@@ -247,6 +247,14 @@ local function newFrame(kind, name, parent)
         self.__alpha, self.__alphaFromSecret = b and whenTrue or whenFalse, false
     end
     function f:SetFrameStrata(v) self.__strata = v end
+    -- THE CLAMP'S INSETS, RECORDED (9 Nov 2026, the radar's top rail): the auto no-op swallowed them, so "the rails stay
+    -- on the screen" passed with nothing set. The client takes four numbers: left, right, top, bottom.
+    function f:SetClampRectInsets(l, r, t, b)
+        for _, v in ipairs({ l, r, t, b }) do
+            if type(v) ~= "number" then error("SetClampRectInsets wants four numbers", 2) end
+        end
+        self.__clamp = { l, r, t, b }
+    end
     -- AN ANIMATION GROUP, RECORDED (12 Oct 2026, the shield's pulse). The auto no-op answered nil
     -- to CreateAnimationGroup, so "does it pulse" was a question with no answer; the client hands
     -- back a group that makes animations, loops and plays - and runs them itself, not in Lua.
@@ -11597,14 +11605,54 @@ do
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
        and sp2.cures[1].container and sp2.cures[1].container.unit == "party1", "two cure pips on the spoke: the client's markers, your cures")
     local names = 0
+    local placard = { [RD.gauge.ship] = true, [RD.gauge.fuelWord] = true }
     for _, fs in ipairs(LABELS) do
         local p = fs.__parent
         -- the HUD tape's numbers are allowed (Arn's HUD picture), and the regen readout's "100%" / "?": digits, a % sign,
-        -- a question mark - never a word or a name
+        -- a question mark - never a word or a name. The one exception is the top rail's placard (the ship, FUEL).
         local t = fs.__text
-        while p do if p == f then if t and t ~= "" and not t:match("^%d+%%?$") and t ~= "?" and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
+        if not placard[fs] then
+            while p do if p == f then if t and t ~= "" and not t:match("^%d+%%?$") and t ~= "?" and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
+        end
     end
     ok(names == 0, "no names, no words on the scope (digits only: the HUD tape's numbers, the regen %)", names)
+    -- THE PLACARD (Arn 9 Nov: "lets not do rpm"): the ship and FUEL, on the top rail - never on the scope
+    ok(RD.gauge.ship.__parent == RD.gaugeRail and RD.gauge.fuelWord.__parent == RD.gaugeRail
+       and RD.gauge.ship.__text == "FIGHTER" and RD.gauge.fuelWord.__text == "FUEL",
+       "the top rail's placard: FIGHTER over FUEL (a party flies the fighter)", RD.gauge.ship.__text)
+
+    -- THE SHIPS (Arn 9 Nov: "imperial purple and white accents like a fighter and the more the group gets we change the
+    -- color to finally ending in star destroyer"): the chrome follows the group's size; warnings never change
+    do
+        local want = { [1] = "fighter", [5] = "fighter", [6] = "gunship", [10] = "gunship", [11] = "cruiser",
+                       [20] = "cruiser", [21] = "capital", [40] = "capital", [41] = "capital" }
+        local right = true
+        for n, key in pairs(want) do if RD.ShipFor(n).key ~= key then right = false end end
+        ok(right, "the ship by group size: 1-5 fighter, 6-10 gunship, 11-20 cruiser, 21-40 capital")
+        local red, amber, boss = { unpack(RD.COL.red) }, { unpack(RD.COL.amber) }, { unpack(RD.BOSS_COL) }
+        local plateTable = RD.PLATE
+        local cap = RD.SHIPS[4]
+        RD.ApplyShip(cap)
+        local function same(c, w) return c and math.abs(c[1] - w[1]) < 1e-9 and math.abs(c[2] - w[2]) < 1e-9 and math.abs(c[3] - w[3]) < 1e-9 end
+        ok(RD.PLATE == plateTable and same(RD.PLATE, cap.plate), "the hull IS RD.PLATE, changed in place (covers made later match)")
+        ok(same(RD.fade.__vertex, cap.plate) and same(RD.toolRail.bg.__vertex, cap.plate) and same(RD.gaugeRail.bg.__vertex, cap.plate)
+           and same(RD.defRail.bg.__vertex, cap.plate) and same(RD.gauge.readout.fill.__vertex, cap.plate),
+           "the disc, all three rails and the readout box: the capital ship's grey hull")
+        local k = RD.SCOPE_DIM
+        local ring = RD.scopeLines[1].color
+        ok(#RD.scopeLines > 100 and math.abs(ring[1] - cap.line[1] * k) < 1e-9 and math.abs(ring[3] - cap.line[3] * k) < 1e-9,
+           "the scope's rings, cross and ticks in its white-grey line", #RD.scopeLines)
+        local br = RD.brackets[1]
+        ok(#RD.brackets == 8 and br.thick == cap.bw and same(br.color, cap.bracket)
+           and math.abs(math.abs(br.from[1] - br.to[1]) - cap.be) < 1e-9, "the corner brackets: white, longer and heavier", br.thick)
+        ok(same(RD.meLines[1].color, cap.accent), "you in the middle in the ship's purple accent")
+        ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
+        ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
+           "warnings keep their colours in every ship: red, amber, the boss's red")
+        RD.ApplyShip(RD.SHIPS[1])
+        ok(same(RD.PLATE, RD.SHIPS[1].plate) and RD.gauge.ship.__text == "FIGHTER" and RD.brackets[1].thick == RD.SHIPS[1].bw,
+           "and back to the fighter: its hull, its name, its brackets")
+    end
 
     -- THE DARK DISC (Arn, 9 Nov: "a dark background instead of see through so things pop more like the rail ... the edge
     -- fade instead on the edges like the screen shot")
@@ -12080,11 +12128,14 @@ do
     ok(RD.spokes[16].slot.b > own.b and RD.spokes[16].slot.b < RD.spokes[1].slot.b,
        "group 4 comes right after yours, clockwise; group 1 last")
     ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
+    ok(RD.ship and RD.ship.key == "capital" and RD.gauge.ship.__text == "CAPITAL", "a full 40: the capital ship",
+       RD.ship and RD.ship.key)
     ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
        and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
-    local rh = RD.RAID.size - RD.GAUGE.top - RD.GAUGE.foot
-    ok(RD.gauge:GetHeight() == rh and RD.gauge.lift.points[#RD.gauge.lift.points][5] == RD.BINGO * rh,
-       "and the fuel tape with it: its height, and the BINGO lift still 30% of it", RD.gauge:GetHeight())
+    local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP - RD.GAUGE.left - RD.GAUGE.right
+    ok(RD.gauge:GetWidth() == rw and RD.gauge.lift.points[#RD.gauge.lift.points][4] == RD.BINGO * rw
+       and RD.gaugeRail:GetWidth() == RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP,
+       "and the fuel tape with it: the top rail as wide as the raid's square, the BINGO lift still 30% of it", RD.gauge:GetWidth())
     -- every pip in its own place: no two slots on top of each other
     local clash = 0
     for i = 1, 40 do
@@ -12109,6 +12160,7 @@ do
     _G.GetRaidRosterInfo = function(i) return "n" .. i, 0, math.ceil((41 - i) / 5) end     -- the groups turned round
     local okR = pcall(fire, RD.events, "GROUP_ROSTER_UPDATE")
     ok(okR and RD.pending and RD.spokes[1].heal:GetAttribute("unit") == "raid1", "a raid roster change mid-fight: nothing moves, it waits")
+    ok(RD.ship.key == "capital", "and the ship never changes mid-fight")
     STATE.inCombat = false
     fire(RD.events, "PLAYER_REGEN_ENABLED")
     ok(not RD.pending and RD.spokes[1].heal:GetAttribute("unit") == "raid36", "after the fight: the new roster in its places",
@@ -12120,6 +12172,7 @@ do
     fire(RD.events, "GROUP_ROSTER_UPDATE")
     ok(not RD.raid and #RD.slots == 5 and not RD.spokes[20].heal:IsShown() and RD.spokes[20].heal:GetAttribute("unit") == nil,
        "a party again: five spokes, the rest off")
+    ok(RD.ship.key == "fighter" and RD.gauge.ship.__text == "FIGHTER", "and the fighter again")
 
     -- THE FUEL GAUGE (Arn 8 Nov: "my mana to track the boss health bar, if its at 50% I should be at 50% mana ... the delta
     -- indicates we are keeping pace or bingo fuel"). The GPU compares; Lua never does.
@@ -12135,36 +12188,55 @@ do
         ok(rail and rail:IsMouseEnabled() and rail:GetScript("OnEnter") and rail:GetScript("OnLeave") and rail:GetScript("OnDragStart"),
            "the gauge's whole rail shows the FUEL card (not just the 7px tape), and still drags the radar")
         ok(g and g.boss and g.mana and g.ruler and g.hot, "the fuel tape: the boss, your mana, the BINGO ruler and its hot copy")
+        -- SIDEWAYS ON TOP (Arn 9 Nov: "put it on top side ways that way only one rail per side")
+        local railW = RD.SIZE + RD.TOOL_RAIL_W + RD.RAIL_GAP
+        local rp0 = pt(rail, "BOTTOMLEFT")
+        ok(rp0 and rp0[2] == RD.toolRail and rp0[3] == "TOPLEFT" and rp0[5] == RD.RAIL_GAP and rail:GetWidth() == railW
+           and rail:GetHeight() == RD.GAUGE_RAIL_H, "the gauge's rail sits on top: over the tool rail and the square, as wide as both",
+           rail:GetWidth())
         local p = pt(g, "BOTTOMLEFT")
-        ok(p and p[2] == RD.gaugeRail and p[5] == RD.GAUGE.foot and g:GetHeight() == RD.SIZE - RD.GAUGE.top - RD.GAUGE.foot,
-           "on its own rail outside the square, the square's height less its top and foot", g:GetHeight())
-        local allVertical = true
-        for _, s in ipairs({ g.boss, g.mana, g.ruler, g.hot }) do if s:GetOrientation() ~= "VERTICAL" then allVertical = false end end
-        ok(allVertical, "every bar fills from the bottom")
+        local W = railW - RD.GAUGE.left - RD.GAUGE.right
+        ok(p and p[2] == RD.gaugeRail and p[4] == RD.GAUGE.left and p[5] == RD.GAUGE.base and g:GetWidth() == W
+           and g:GetHeight() == RD.GAUGE.w, "the tape runs along it, between the placard and the ramjet", g:GetWidth())
+        local G, H = RD.GAUGE, RD.HUD
+        ok(G.base + G.w + 3 + H.boxH <= RD.GAUGE_RAIL_H - 1 and G.base - 1 - H.major - 1 - H.label >= 1,
+           "the readout box above and the numbers under the tape both fit inside the rail")
+        local allSide = true
+        for _, s in ipairs({ g.boss, g.mana, g.ruler, g.hot }) do if s:GetOrientation() ~= "HORIZONTAL" then allSide = false end end
+        ok(allSide, "every bar fills from the left")
+        local tr0 = RD.toolRail
+        local gaugeRails = 0
+        for _, r in ipairs({ RD.toolRail, RD.defRail }) do if r == rail then gaugeRails = gaugeRails + 1 end end
+        ok(gaugeRails == 0 and pt(tr0, "TOPRIGHT") and pt(RD.defRail, "TOPLEFT"), "one rail a side: tools on the left, defence on the right")
+        local cl = RD.frame.__clamp
+        ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP and cl[4] == 0,
+           "the clamp keeps the left rail and the top rail on the screen", cl and table.concat(cl, " "))
         -- the layering: boss under mana, ticks over both, the caret over all three, the BINGO window over that
         local L = function(x) return x:GetFrameLevel() end
         ok(L(g.boss) < L(g.mana) and L(g.mana) < L(g.tickFrame) and L(g.tickFrame) < L(g.caretFrame) and L(g.caretFrame) < L(g.hotClip),
            "boss < mana < ticks < caret < BINGO", L(g.boss) .. " " .. L(g.mana) .. " " .. L(g.tickFrame) .. " " .. L(g.caretFrame) .. " " .. L(g.hotClip))
         local cp = g.caret.points and g.caret.points[1]
-        ok(cp and cp[2] == g.boss:GetStatusBarTexture() and cp[3] == "TOPLEFT" and rawget(g.caret, "__parent") == g.caretFrame,
-           "the magenta caret sits on the boss bar's FILL top, on its own layer over your mana")
-        ok(#g.ticks == 3 and g.ticks[2].from[2] == 0 and math.abs(g.ticks[1].from[2] + g:GetHeight() / 4) < 0.01
-           and g.ticks[1].color[2] == RD.PHOS[2], "ticks at 25 / 50 / 75, phosphor", g.ticks[1].from[2])
-        -- BINGO: the ruler lifted 30% and clipped to the tape; the window's floor on the ruler's fill top
+        ok(cp and cp[2] == g.boss:GetStatusBarTexture() and cp[3] == "BOTTOMRIGHT" and rawget(g.caret, "__parent") == g.caretFrame
+           and g.caret.__w == 3 and g.caret.__h > g:GetHeight(),
+           "the magenta caret stands on the boss bar's FILL end, on its own layer over your mana")
+        local Wt = g:GetWidth()
+        ok(#g.ticks == 3 and g.ticks[2].from[1] == 0 and math.abs(g.ticks[1].from[1] + Wt / 4) < 0.01
+           and g.ticks[1].from[1] == g.ticks[1].to[1], "ticks at 25 / 50 / 75, across the tape", g.ticks[1].from[1])
+        -- BINGO: the ruler lifted 30% to the right and clipped to the tape; the window's floor on the ruler's fill end
         local lp = pt(g.lift, "BOTTOMLEFT")
-        ok(lp and lp[2] == g and lp[5] == RD.BINGO * g:GetHeight() and g.lift:GetHeight() == g:GetHeight()
+        ok(lp and lp[2] == g and lp[4] == RD.BINGO * Wt and lp[5] == 0 and g.lift:GetWidth() == Wt
            and g.lift:GetParent() == g.rulerClip and g.rulerClip:DoesClipChildren() and g.rulerClip.__allpoints == g,
-           "the BINGO ruler: your mana in a frame lifted 30% of the tape, clipped to the tape", lp and lp[5])
+           "the BINGO ruler: your mana in a frame moved 30% of the tape along, clipped to the tape", lp and lp[4])
         local hp = pt(g.hotClip, "BOTTOMLEFT")
         local rp = pt(g.hotClip, "TOPRIGHT")
-        ok(hp and hp[2] == g.ruler:GetStatusBarTexture() and hp[3] == "TOPLEFT" and g.hotClip:DoesClipChildren()
-           and rp and rp[2] == g and rp[5] > RD.BINGO * g:GetHeight(),
-           "the hot window's floor IS the ruler's fill top (mana + 30%), its roof above the tape")
+        ok(hp and hp[2] == g.ruler:GetStatusBarTexture() and hp[3] == "BOTTOMRIGHT" and g.hotClip:DoesClipChildren()
+           and rp and rp[2] == g and rp[4] > RD.BINGO * Wt and rp[5] >= RD.GAUGE.flag,
+           "the hot window's floor IS the ruler's fill end (mana + 30%), its roof past the tape's end")
         ok(g.hot.__allpoints == g and g.hot:GetParent() == g.hotClip and rawget(g.flag, "__parent") == g.flagFrame
            and g.flagFrame:GetParent() == g.hotClip, "the hot boss copy and its flag live inside that window - seen only above mana + 30%")
         -- the arithmetic the GPU does, from the recorded anchors: hot shows where boss > floor
-        local h = g:GetHeight()
-        local function hotBand(boss, mana) return boss * h - (lp[5] + mana * h) end
+        local h = g:GetWidth()
+        local function hotBand(boss, mana) return boss * h - (lp[4] + mana * h) end
         ok(hotBand(0.70, 0.20) > 0 and hotBand(0.50, 0.50) < 0 and hotBand(0.70, 0.45) < 0,
            "Arn's numbers: boss 70% / you 20% = BINGO; 50 / 50 and 70 / 45 = keeping pace")
         local gp = g.pulse
@@ -12254,7 +12326,12 @@ do
         for q2 = 0, 4 do labs[#labs + 1] = hud and hud.labels[q2] and hud.labels[q2].__text end
         ok(hud and #hud.ticks == 10 and table.concat(labs, ",") == "0,25,50,75,100", "the scale: a tick every 10%, numbers at 0/25/50/75/100")
         local bp = box and box.points and box.points[1]
-        ok(bp and bp[1] == "RIGHT" and bp[2] == g.mana:GetStatusBarTexture(), "the readout box rides the top of your fuel")
+        ok(bp and bp[1] == "BOTTOM" and bp[2] == g.mana:GetStatusBarTexture() and bp[3] == "TOPRIGHT" and bp[5] > 0,
+           "the readout box rides the end of your fuel, above the tape")
+        local tk5 = hud.ticks[5] and hud.ticks[5].points and hud.ticks[5].points[1]
+        local lb2 = hud.labels[2] and hud.labels[2].points and hud.labels[2].points[1]
+        ok(tk5 and tk5[1] == "TOP" and math.abs(tk5[4] - g:GetWidth() / 2) < 0.01 and lb2 and lb2[5] < 0
+           and math.abs(lb2[4] - g:GetWidth() / 2) < 0.01, "the scale hangs under the tape: 50 sits under its middle")
         RD.PaintMana()
         local fmt = box.num.__formatted
         ok(fmt and fmt[1] == "%d", "and the client writes your mana % into it", fmt and tostring(fmt[2]))

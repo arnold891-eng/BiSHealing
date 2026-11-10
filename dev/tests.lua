@@ -12476,9 +12476,21 @@ do
            and auraBtn.countText and auraBtn.countText.__parent == RD.washClip,
            "the orange last-charge wash pulses gently, on its own clip inside the client's button")
         local one = RD.washFmt.points and RD.washFmt.points[2]
-        ok(one and one.threshold == 1 and one.format:find("Interface\\AddOns\\BiSHealing\\Art\\gyro:22:22:", 1, true)
-           and one.format:find(":255:120:0|t", 1, true) and not one.format:find("WHITE8X8", 1, true),
-           "the last charge is the stabilizer SYMBOL in orange (our gyro art, the pip's size) - never a square", one and one.format)
+        -- 9 Nov (Arn's screenshot: the symbol "squished" to a flat bar): a texture escape is sized by its text line, so the
+        -- escape must be a shape that survives any size - a SQUARE, oversized and clipped - and the symbol a stencil over it
+        ok(one and one.threshold == 1 and one.format:find("|TInterface\\Buttons\\WHITE8X8:66:66:", 1, true)
+           and one.format:find(":255:120:0|t", 1, true) and not one.format:find("Art\\gyro", 1, true),
+           "the last charge writes an orange SQUARE three pips big (any size it lands at still fills the pip)", one and one.format)
+        local hole = RD.washHole
+        local holeFrame = hole and rawget(hole, "__parent")
+        ok(hole and tostring(hole.__texture or hole.texture or ""):find("Art\\gyrohole", 1, true)
+           and holeFrame and holeFrame:GetParent() == auraBtn
+           and (holeFrame.__level or 0) > (RD.washClip.__level or 0),
+           "over it, inside the client's button: the stencil, the symbol cut out of the plate", hole and tostring(hole.__texture))
+        local hv = hole and (hole.__vertex or hole.vertex)
+        ok(hv and hv[1] == RD.PLATE[1] and hv[2] == RD.PLATE[2] and hv[3] == RD.PLATE[3],
+           "the stencil is the plate's own dark: with no orange under it, nothing shows")
+        ok(not RD.washPulse or rawget(holeFrame, "__animGroups") == nil, "only the orange beats - the stencil holds still")
         local f0, f2 = RD.washFmt.points[1], RD.washFmt.points[3]
         ok(f0.format == "" and f2.format == "", "no charge, or more than one: nothing written")
         ok(auraBtn.__animGroups == nil and (RD.shield.cover and RD.shield.cover[1] and rawget(RD.shield.cover[1], "__parent")) ~= RD.washClip,

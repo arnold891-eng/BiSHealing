@@ -1504,17 +1504,22 @@ function RD.ShieldTarget()
 end
 
 --- THE LAST CHARGE, AS A COLOUR THE CLIENT CHOOSES (the reminder's road, FS.Wash): the client writes the charge count into
---- a font string through a formatter we hand it; 1 is written as the STABILIZER SYMBOL in orange (Art\gyro.tga, the
---- red one's shape - Arn, 8 Nov: "an amber square instead of an amber icon like the red one"), anything else as
---- nothing. Never read by us. Our own art: white with alpha, tinted by the escape's r:g:b.
+--- a font string through a formatter we hand it; 1 is written as an orange SQUARE, anything else as nothing. Never read.
+--- THE SYMBOL IS A STENCIL (9 Nov 2026, Arn's screenshot: "look at the stabaliuzer graphics squished"). The gyro used to
+--- be the escape itself (Art\gyro.tga), and came out a flat bar a quarter of its height: a texture escape is sized by
+--- the text line it sits in, not by the pixels it asks for (the reminder learned that on 12 Oct - FS.Wash). A square
+--- does not mind being any size, so the client paints a square RD.WASH_OVER times the pip, cut to the pip by a clip, and
+--- over it lies Art\gyrohole.tga in the plate's dark with the symbol CUT OUT: the orange shows through the symbol only.
+--- With no orange under it the stencil is plate on plate - nothing to see.
 RD.ART = "Interface\\AddOns\\" .. (ADDON or "BiSHealing") .. "\\Art\\"
+RD.WASH_OVER = 3
 function RD.WashText(px, rgb)
-    return ("|T%sgyro:%d:%d:0:0:64:64:0:64:0:64:%d:%d:%d|t"):format(RD.ART, px, px, rgb[1], rgb[2], rgb[3])
+    return ("|TInterface\\Buttons\\WHITE8X8:%d:%d:0:0:8:8:0:8:0:8:%d:%d:%d|t"):format(px, px, rgb[1], rgb[2], rgb[3])
 end
 function RD.ShieldWash(button)
     local make = C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
     if not (make and button and button.SetApplicationCount) then return false end
-    local px = RD.SYS_PX
+    local px = RD.SYS_PX * RD.WASH_OVER
     if not RD.washFmt then
         local ok, f = pcall(make)
         if not ok or not f or not f.SetBreakpoints then return false end
@@ -1531,8 +1536,20 @@ function RD.ShieldWash(button)
     RD.washPulse = RD.PulseAlpha(clip, RD.FADE_SOFT)
     RD.washClip = clip
     local fs = clip:CreateFontString(nil, "OVERLAY")
-    if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", px, "") end
+    if fs.SetFont then fs:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", RD.SYS_PX, "") end
     fs:SetPoint("CENTER", clip, "CENTER", 0, 0)
+    -- the stencil, over the orange (and still: only the orange under it beats)
+    local hole = CreateFrame("Frame", nil, button)
+    hole:SetAllPoints(button)
+    if hole.SetFrameLevel and clip.GetFrameLevel then
+        local lvl = clip:GetFrameLevel()
+        if type(lvl) == "number" then hole:SetFrameLevel(lvl + 2) end
+    end
+    local t = hole:CreateTexture(nil, "ARTWORK")
+    t:SetAllPoints(hole)
+    t:SetTexture(RD.ART .. "gyrohole")
+    t:SetVertexColor(RD.PLATE[1], RD.PLATE[2], RD.PLATE[3], 1)
+    RD.washHole = t
     return pcall(button.SetApplicationCount, button, fs, { formatter = RD.washFmt })
 end
 

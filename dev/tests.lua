@@ -11649,6 +11649,17 @@ do
         ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
         ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
            "warnings keep their colours in every ship: red, amber, the boss's red")
+        -- the knobs (Arn's 9 Nov screenshot: green dots on the purple fighter): "on" in the ship's line, "off" still red
+        local keepMacro, keepOff = RD.tide.macro, RD.KnobOff("tide")
+        RD.tide.macro = keepMacro or "/cast Mana Tide Totem"
+        RD.SetKnob("tide", false)
+        RD.ApplyShip(cap)
+        local dv = RD.tide.knob.dot.__vertex
+        ok(same(dv, cap.line) and dv[4] == RD.KNOB_ON[4], "a knob that is on: a faint dot in the ship's own line", dv and dv[1])
+        RD.SetKnob("tide", true)
+        ok(same(RD.tide.knob.dot.__vertex, RD.KNOB_OFF), "a knob switched off: red in every ship")
+        RD.SetKnob("tide", keepOff)
+        RD.tide.macro = keepMacro
         RD.ApplyShip(RD.SHIPS[1])
         ok(same(RD.PLATE, RD.SHIPS[1].plate) and RD.gauge.ship.__text == "FIGHTER" and RD.brackets[1].thick == RD.SHIPS[1].bw,
            "and back to the fighter: its hull, its name, its brackets")

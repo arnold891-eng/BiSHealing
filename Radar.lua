@@ -1268,6 +1268,7 @@ function RD.ApplyShip(ship)
         end
         if g.fuelWord then g.fuelWord:SetTextColor(L[1], L[2], L[3]) end
     end
+    RD.PaintKnobs()                                  -- the knobs' "on" dot is the ship's line too
     return ship
 end
 
@@ -1354,13 +1355,20 @@ function RD.Knob(b)
     return k
 end
 
---- Every knob: shown on an armed tool only; red when off, a faint dot when on. Plain frames: any time, fight or not.
+--- Every knob: shown on an armed tool only; red when off (a warning, every ship), a faint dot in the ship's line when on
+--- (Arn's 9 Nov screenshot: the old phosphor green sat wrong on the purple fighter). Plain frames: any time, fight or not.
+function RD.KnobOnColour()
+    local L = RD.ship and RD.ship.line
+    if not L then return RD.KNOB_ON end
+    return { L[1], L[2], L[3], RD.KNOB_ON[4] }
+end
 function RD.PaintKnobs()
+    local on = RD.KnobOnColour()
     for _, b in ipairs(RD.knobbed or {}) do
         local k = b.knob
         if k then
             if b.macro then
-                local c = RD.KnobOff(b.kind) and RD.KNOB_OFF or RD.KNOB_ON
+                local c = RD.KnobOff(b.kind) and RD.KNOB_OFF or on
                 k.dot:SetVertexColor(c[1], c[2], c[3], c[4])
                 k:Show()
             else

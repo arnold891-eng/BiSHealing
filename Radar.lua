@@ -578,8 +578,9 @@ local function buildScope(f)
             RD.brackets[#RD.brackets + 1] = a2
         end
     end
-    -- you, in the middle
-    RD.meLines = { line(s, "ARTWORK", 0, 8, 6, -6, RD.PHOS, 2), line(s, "ARTWORK", 0, 8, -6, -6, RD.PHOS, 2) }
+    -- you, in the middle: your role icon alone. The chevron that drew over it is gone (Arn, 10 Nov, on a DPS: "get rid
+    -- of the chevron, and keep the role icon" - as a healer the healing icon hid it)
+    RD.meLines = {}
     -- the dim places of every slot live on their own layer, unscaled, and go with the scope (RD.PaintQuiet)
     local dims = CreateFrame("Frame", nil, f)
     dims:SetAllPoints(f)

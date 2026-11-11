@@ -11867,9 +11867,8 @@ do
            and math.abs(math.abs(br.from[1] - br.to[1]) - cap.be) < 1e-9, "the corner brackets: white, longer and heavier", br.thick)
         local me = RD.meLines[1]
         ok(#RD.meLines >= 2 and RD.meRole == RD.Role("player") and me and me.__kind ~= "Line"
-           and me.__vertex and math.abs(me.__vertex[1] - cap.accent[1]) < 1e-9 and me.__vertex[4] == RD.ME_ALPHA,
-           "you in the middle: your role's sign always there (no chevron), in the ship's accent, dimmed (Arn, 10 Nov)",
-           #RD.meLines)
+           and me.__vertex and math.abs(me.__vertex[1] - cap.accent[1]) < 1e-9 and me.__vertex[4] == 0 and RD.ME_ALPHA == 0,
+           "you in the middle: no standing sign (Arn, 10 Nov: only your heal pip, lit when you need it)", #RD.meLines)
         ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
         ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
            "warnings keep their colours in every ship: red, amber, the boss's red")
@@ -12459,6 +12458,27 @@ do
         ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP
            and cl[4] == -(NS.BB.RAIL_H + RD.RAIL_GAP),
            "the clamp keeps the left rail, the top rail and the black box's bottom rail on the screen", cl and table.concat(cl, " "))
+        -- ONE HULL, SOFT EDGES (Arn, 10 Nov: "complete the rails so there are no gaps and alpha the edges"), and THE SQUARE
+        -- CLOSED ("once its closed like a square rail recenter all the stuff"): the top and bottom rails over the right rail
+        do
+            local h = RD.hull
+            ok(h and #RD.edges == RD.EDGE_N and RD.edges[1].a > RD.edges[RD.EDGE_N].a and RD.edges[RD.EDGE_N].a > 0,
+               "one plate behind every rail and the square, and rings fading outward", RD.edges and #RD.edges)
+            local keepShown = RD.defRail:IsShown()
+            RD.defRail:Show() RD.ClampRails()
+            local wide = RD.gaugeRail:GetWidth()
+            RD.defRail:Hide() RD.ClampRails()
+            local narrow = RD.gaugeRail:GetWidth()
+            ok(math.abs(wide - narrow - (RD.RAIL_GAP + RD.TOOL_RAIL_W)) < 1e-9, "the right rail shown: the top rail runs over it",
+               wide .. " / " .. narrow)
+            RD.defRail:Show() RD.ClampRails()
+            local bp = RD.bbRail.points and RD.bbRail.points[2]
+            ok(bp and bp[1] == "TOPRIGHT" and bp[4] == RD.RightW(), "and the black box's rail too", bp and tostring(bp[4]))
+            local hp = h.points and h.points[2]
+            ok(hp and hp[1] == "BOTTOMRIGHT" and hp[2] == RD.bbRail, "the hull reaches the bottom rail's far corner")
+            if keepShown then RD.defRail:Show() else RD.defRail:Hide() end
+            RD.ClampRails()
+        end
         -- the layering: boss under mana, ticks over both, the caret over all three, the BINGO window over that
         local L = function(x) return x:GetFrameLevel() end
         ok(L(g.boss) < L(g.mana) and L(g.mana) < L(g.tickFrame) and L(g.tickFrame) < L(g.caretFrame) and L(g.caretFrame) < L(g.hotClip),

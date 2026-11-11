@@ -592,7 +592,10 @@ end
 --- 90%, so at full health the middle was empty. Your role's sign now stays on the scope in the ship's accent, dimmed
 --- (RD.ME_ALPHA); your heal pip lights over it, and it goes dark with the scope in a fight (RD.PaintQuiet). Rebuilt only
 --- when your role changes.
-RD.ME_ALPHA = 0.6
+--- HIDDEN AGAIN the same night (Arn: "you can hide my center icon and only light up when it needs to light up for a
+--- heal, now i just want to click it because its on there"): alpha 0 - the middle is your heal pip alone, lit only when
+--- you need one. The sign stays built, so one number brings it back.
+RD.ME_ALPHA = 0
 function RD.PaintMe()
     local s = RD.scope
     if not s then return end
@@ -1131,12 +1134,101 @@ function RD.BuildRails(f)
     RD.toolRail, RD.gaugeRail, RD.defRail = t, g, d
     -- THE BLACK BOX'S RAIL along the bottom (BlackBox.lua, 10 Nov: "Build the bottom raid with the squawk box thing")
     if NS.BB and NS.BB.Build then RD.bbRail = NS.BB.Build(f, t, rail) end
+    RD.BuildHull(f)
     RD.ClampRails()
     return t, g
 end
 
+--[[ ONE HULL, SOFT EDGES (10 Nov 2026, Arn: "complete the rails so there are no gaps and alpha the edges"). Behind every
+  rail and the square, on the radar's own lowest layer: ONE solid plate from the gauge rail's top-left corner to the
+  bottom rail's bottom-right (the right rail's column too while it shows, RD.FitHull), so the gaps between the rails
+  and the corners over and under the right rail are filled. Around it RD.EDGE_N thin rings of the same plate, each
+  fainter (RD.EdgeAlpha), RD.EDGE_PX apart: the instrument fades into the world instead of ending on a hard line.
+  The ship's plate colour repaints all of it (RD.PaintHull, from RD.ApplyShip). ]]
+RD.EDGE_N, RD.EDGE_PX = 6, 2
+function RD.EdgeAlpha(k) return 0.9 * (1 - k / (RD.EDGE_N + 1)) ^ 1.6 end
+function RD.BuildHull(f)
+    if RD.hull then return RD.hull end
+    local function plateTex()
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        t:SetTexture(RD.WHITE)
+        return t
+    end
+    RD.hull = plateTex()
+    RD.edges = {}
+    for k = 1, RD.EDGE_N do
+        local ring = { a = RD.EdgeAlpha(k), k = k }
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side] = plateTex() end
+        RD.edges[k] = ring
+    end
+    RD.FitHull()
+    RD.PaintHull()
+    return RD.hull
+end
+
+--- Where the hull reaches: the top-left of the gauge rail, the bottom-right of the bottom rail (or of the tool rail
+--- without one), out over the right rail's column while it shows. The rings follow it.
+--- How much wider the top and bottom rails run while the right rail shows (its column and the gap before it).
+function RD.RightW()
+    return (RD.defRail and RD.defRail:IsShown()) and (RD.RAIL_GAP + RD.TOOL_RAIL_W) or 0
+end
+
+--- THE SQUARE CLOSED (Arn, 10 Nov: "recenter all the stuff since we got extra space"): the gauge rail and the black
+--- box's rail run over the right rail's column while it shows, and what they hold re-centres in the new width (the
+--- tape between its placard and its ramjet, the black box's keypad at the right end). Out of it, back to the square.
+function RD.FitWide()
+    local f = RD.frame
+    if not f then return end
+    local w = f.GetWidth and f:GetWidth()
+    if RD.gauge and type(w) == "number" and w > 0 then RD.SizeGauge(w) end
+    local b = RD.bbRail
+    if b and RD.toolRail then
+        local gap = RD.RAIL_GAP
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", RD.toolRail, "BOTTOMLEFT", 0, -gap)
+        b:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", RD.RightW(), -gap)
+    end
+end
+
+function RD.FitHull()
+    local h, f = RD.hull, RD.frame
+    if not (h and f) then return end
+    local top = RD.gaugeRail or f
+    -- the bottom rail spans the whole width already (RD.FitWide); without one, the square's corner or the right rail's
+    local corner = RD.bbRail or ((RD.defRail and RD.defRail:IsShown()) and RD.defRail) or f
+    h:ClearAllPoints()
+    h:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
+    h:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
+    local p = RD.EDGE_PX
+    for k, ring in ipairs(RD.edges or {}) do
+        local o, i = k * p, (k - 1) * p                 -- the ring's outer and inner distance from the hull
+        ring.top:ClearAllPoints()
+        ring.top:SetPoint("TOPLEFT", h, "TOPLEFT", -o, o)
+        ring.top:SetPoint("BOTTOMRIGHT", h, "TOPRIGHT", o, i)
+        ring.bottom:ClearAllPoints()
+        ring.bottom:SetPoint("TOPLEFT", h, "BOTTOMLEFT", -o, -i)
+        ring.bottom:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", o, -o)
+        ring.left:ClearAllPoints()
+        ring.left:SetPoint("TOPLEFT", h, "TOPLEFT", -o, i)
+        ring.left:SetPoint("BOTTOMRIGHT", h, "BOTTOMLEFT", -i, -i)
+        ring.right:ClearAllPoints()
+        ring.right:SetPoint("TOPLEFT", h, "TOPRIGHT", i, i)
+        ring.right:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", o, -i)
+    end
+end
+
+function RD.PaintHull()
+    local P = RD.PLATE
+    if RD.hull then RD.hull:SetVertexColor(P[1], P[2], P[3], 1) end
+    for _, ring in ipairs(RD.edges or {}) do
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side]:SetVertexColor(P[1], P[2], P[3], ring.a) end
+    end
+end
+
 --- The radar's clamp: the tool rail, the gauge's rail and the black box's always, the right one while it shows.
 function RD.ClampRails()
+    RD.FitWide()                                     -- the top and bottom rails run over the right rail while it shows
+    RD.FitHull()                                     -- and the hull follows them
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
     local gap = RD.RAIL_GAP
@@ -1218,7 +1310,9 @@ end
 function RD.SizeGauge(size)
     local g, G = RD.gauge, RD.GAUGE
     if not g then return nil end
-    local railW = size + RD.TOOL_RAIL_W + RD.RAIL_GAP
+    -- the whole width once the panel closes into a square (Arn, 10 Nov: "once its closed like a square rail recenter all
+    -- the stuff since we got extra space"): over the right rail's column too while it shows
+    local railW = size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW()
     if RD.gaugeRail then RD.gaugeRail:SetWidth(railW) end
     local w = railW - G.left - G.right
     g:ClearAllPoints()
@@ -1275,6 +1369,7 @@ function RD.ApplyShip(ship)
     local function plate(t) if t then t:SetVertexColor(P[1], P[2], P[3], 1) end end
     plate(RD.fade)
     for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail, RD.bbRail }) do plate(r and r.bg) end
+    RD.PaintHull()                                   -- the hull and its soft edge, in the same plate
     local sh = RD.shield
     if sh then
         plate(sh.plate)

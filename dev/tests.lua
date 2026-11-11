@@ -11887,6 +11887,112 @@ do
         ok(RD.spokes[3].bogey:IsShown() and RD.slots[3].rb, "the top five carry the interrupts")
         _G.BiSBrains, _G.GetUnitName = keepBrains, keepGUN
         RD.Arm()
+        -- THE FLEET'S ORDERS (Arn, 11 Nov: "they take out your communicatiion ship ... you will still have your tanks close
+        -- to screen you ... melee dps classes near by too ... the other layers are small agile ships"): without the brains,
+        -- you, tanks, melee, healers, ranged; with them, the log's order by GUID
+        do
+            local keepC, keepR, keepT = STATE.classes, STATE.roles, d.radar.tier
+            local keepU = {}
+            for k = 1, 4 do keepU[k] = STATE.units["party" .. k] end
+            STATE.classes = { party1 = "MAGE", party2 = "PRIEST", party3 = "ROGUE", party4 = "WARRIOR" }
+            STATE.roles = { party4 = "TANK" }
+            for k = 1, 4 do STATE.units["party" .. k] = true end
+            _G.BiSBrains = nil
+            local units = { "player", "party1", "party2", "party3", "party4" }
+            local o = RD.ConsoleOrder(units, 5)
+            ok(table.concat(o, ",") == "1,5,4,2,3", "no brains: you, the tank, the melee, the mage, the healer furthest out",
+               table.concat(o, ","))
+            _G.BiSBrains = { order = { "Player-0-party1", "Player-0-party3" },
+                             names = { ["Player-0-party1"] = "Mage-One-PvP-US", ["Player-0-party3"] = "Rogue-Two-PvP-US" } }
+            o = RD.ConsoleOrder(units, 5)
+            ok(table.concat(o, ",") == "1,2,4,5,3", "the brains online: their order by GUID first, the rest by logic after",
+               table.concat(o, ","))
+            ok(RD.BrainsName("Holy-Haven-PvP-US") == "Holy Haven", "the log's name read as Forever's Name Surname")
+            local said = {}
+            RD.BrainsSay(function(fmt, ...) said[#said + 1] = string.format(fmt, ...) end)
+            ok(said[1] and said[1]:find("online", 1, true) and said[1]:find("Mage One", 1, true), "/bish alpha radar brains: online, who", said[1])
+            _G.BiSBrains = nil
+            said = {}
+            RD.BrainsSay(function(fmt, ...) said[#said + 1] = string.format(fmt, ...) end)
+            ok(said[1] and said[1]:find("offline", 1, true) and said[1]:find("tanks, melee, ranged", 1, true), "and offline: by logic", said[1])
+            -- TANKS NORTH (Arn, 11 Nov, a standing rule: "keep tank north of us, can be spread but in the top half")
+            _G.BiSBrains = nil
+            STATE.roles = { party2 = "TANK" }            -- party2 is slot 3: the party radar puts slot 3 south-east
+            local keepView = d.radar.view
+            d.radar.view, d.radar.tier = nil, nil
+            RD.Arm()
+            local s3 = RD.slots[3]
+            ok(s3 and math.cos(s3.b) > 0 and s3.rh > 0, "the party radar: the tank moved into the top half", s3 and math.deg(s3.b))
+            ok(RD.spokes[3].heal:GetAttribute("unit") == "party2", "and their pip is still theirs")
+            for _, tier in ipairs({ 2, 3, 4 }) do
+                d.radar.tier = tier
+                RD.Arm()
+                local st = RD.slots[3]
+                ok(st and math.cos(st.b) > 0 and st.rh > 0, RD.CON_TIERS[tier].name .. ": the tank north of you", st and math.deg(st.b))
+            end
+            STATE.roles = { party1 = "TANK", party2 = "TANK", party3 = "TANK" }
+            d.radar.tier = 4
+            RD.Arm()
+            local allNorth = true
+            for k = 2, 4 do if not (math.cos(RD.slots[k].b) > 0) then allNorth = false end end
+            ok(allNorth, "three tanks on the capital: all in the top half, spread")
+            -- THE MAIN TANK DIRECTLY ON TOP (Arn, 11 Nov: "Main tank taking the most damage always directly on top of us")
+            local mt = RD.mainTank
+            ok(mt and RD.slots[mt].b == 0 and RD.slots[mt].rh > 0, "the main tank due north", mt)
+            local meS
+            for _, sl in pairs(RD.slots) do if sl.self then meS = sl end end
+            ok(meS and meS.b == RD.SELF_ASIDE.b and meS.rb == RD.SELF_ASIDE.rb, "your target's bogey steps to your left, off the main tank's")
+            local clashN = 0
+            for k, sl in pairs(RD.slots) do if k ~= mt and not sl.self and math.abs(sl.b) < 0.01 then clashN = clashN + 1 end end
+            ok(clashN == 0, "nobody else due north (the rings leave it free)", clashN)
+            -- with the brains: the tank that takes the most is the one on top
+            _G.BiSBrains = { order = { "Player-0-party3", "Player-0-party1" } }
+            RD.Arm()
+            ok(RD.mainTank == 4 and RD.slots[4].b == 0, "the brains say party3 takes the most: party3 on top", RD.mainTank)
+            _G.BiSBrains = nil
+            d.radar.tier = nil
+            STATE.roles = { party2 = "TANK" }
+            RD.Arm()
+            ok(RD.mainTank == 3 and RD.slots[3].b == 0, "the party radar too: the tank straight above you")
+            -- NOBODY NAMED THE TANK (Arn, 11 Nov: "the tank is not north of me" - a group made by hand has no roles)
+            STATE.roles = {}
+            RD.Arm()
+            ok(RD.tankGuessed == 5 and RD.mainTank == 5 and RD.slots[5].b == 0,
+               "no roles from the game: the warrior is guessed and goes straight above you", RD.mainTank)
+            STATE.classes = { party1 = "PALADIN", party2 = "PRIEST", party3 = "DRUID", party4 = "WARRIOR" }
+            RD.Arm()
+            ok(RD.mainTank == 5, "a paladin, a druid and a warrior: the warrior first", RD.mainTank)
+            _G.BiSBrains = { order = { "Player-0-party1", "Player-0-party4" } }
+            RD.Arm()
+            ok(RD.mainTank == 2 and RD.slots[2].b == 0, "the brains say the paladin takes the most: the paladin on top", RD.mainTank)
+            _G.BiSBrains = nil
+            STATE.classes = { party1 = "MAGE", party2 = "PRIEST", party3 = "ROGUE", party4 = "HUNTER" }
+            RD.Arm()
+            ok(RD.mainTank == nil and RD.tankGuessed == nil, "nobody who can tank: nobody guessed", RD.mainTank)
+            -- the faint dots say it too (Arn, 11 Nov: "the faint dots should reflect that")
+            local tp = RD.tankSeat and RD.tankSeat.points and RD.tankSeat.points[1]
+            ok(RD.tankSeat and RD.tankSeat:IsShown() and tp and tp[4] == 0 and tp[5] == RD.PARTY.rh,
+               "no tank: a faint dot of its own straight above you, where the tank will sit", tp and tp[5])
+            -- BiS> now's tank names one: it wins over the guess, realm or not
+            local keepTank, keepGUN2 = d.tank, _G.GetUnitName
+            _G.GetUnitName = function(u) return "Name " .. tostring(u) end
+            d.tank = "Name party2-Realm"
+            RD.Arm()
+            ok(RD.mainTank == 3 and RD.tankGuessed == nil and RD.slots[3].b == 0,
+               "BiS> now's tank (kept with its realm): due north, no guess", RD.mainTank)
+            local onTop = 0
+            for _, t in ipairs(RD.seats) do
+                local p = t:IsShown() and t.points and t.points[1]
+                if p and p[4] == 0 and p[5] == RD.PARTY.rh then onTop = onTop + 1 end
+            end
+            ok(not RD.tankSeat:IsShown() and onTop == 1, "a tank there: their own dot on top, the spare one away", onTop)
+            d.tank, _G.GetUnitName = keepTank, keepGUN2
+            d.radar.view = keepView
+            STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT
+            for k = 1, 4 do STATE.units["party" .. k] = keepU[k] end
+            _G.BiSBrains = keepBrains
+            RD.Arm()
+        end
         ok(RD.classBtn.dots[4].__alpha == 1, "on the capital all four of the class button's dots are lit")
         ok(RD.NextClass() == "FIGHTER" and RD.ConsoleTier().n == 5, "and round again to the fighter (a party fits it)")
         ok(RD.ToggleView() == "radar" and not RD.Console(), "the view button again: the radar")
@@ -13430,9 +13536,23 @@ do
 
     -- STOP: the code again
     press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and not logOn and reloads == 2, "the code again: STOP, the log off, a reload")
+    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and logOn and reloads == 2,
+       "the code again: STOP and a reload - the combat log LEFT ON (Arn, 11 Nov: never turned off by us)")
     ok(b.stopWhy == "code" and b.stoppedAt == WALL and not CAM.Armed(), "the stop written down, the camera disarmed")
 
+    -- NEVER OFF, in any file (Arn, 11 Nov: "our addon should never turn off combat log it can only turn it on")
+    do
+        local offs = 0
+        for _, file in ipairs({ "BlackBox.lua", "TestCam.lua", "Radar.lua", "Core.lua" }) do
+            local fh = io.open(file, "r")
+            if fh then
+                local src = fh:read("*a") fh:close()
+                for _ in src:gmatch("LoggingCombat%s*,%s*false") do offs = offs + 1 end
+                for _ in src:gmatch("LoggingCombat%s*%(%s*false") do offs = offs + 1 end
+            end
+        end
+        ok(offs == 0, "no file ever turns the combat log off", offs)
+    end
     -- courtesy: someone else's log stays on
     logOn = true
     press("4", "7", "2", "1") BB.Press("EXEC")

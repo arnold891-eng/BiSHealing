@@ -1232,11 +1232,11 @@ RD.CON_TIERS = {
   The scope only grows 7-8% a class (300 / 320 / 345 / 370 - the old one-size raid radar was 440). Pets: the core's. ]]
 RD.FLEET = {
     [10] = { size = 320, core = { rh = 56, rc = 86, rb = 140, ph = 24, pc = 13, pb = 20 },
-             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 0 } } },
+             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 36 } } },     -- due north left free for the main tank
     [20] = { size = 345, core = { rh = 56, rc = 84, rb = 158, ph = 24, pc = 13, pb = 20 },
-             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 0 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
+             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 360 / 14 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
     [40] = { size = 370, core = { rh = 56, rc = 82, rb = 172, ph = 22, pc = 12, pb = 18 },
-             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 0 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
+             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 360 / 22 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
 }
 
 --- Every place of a fleet, in rank order: you, the core four, then each ring from the top clockwise.
@@ -1347,6 +1347,29 @@ function RD.PaintSeats(slots)
         end
     end
     for j = n + 1, #RD.seats do RD.seats[j]:Hide() end
+    -- THE TANK'S SEAT (Arn, 11 Nov: "the faint dots should reflect that" - the tank always straight above you): with no
+    -- tank in the group, a faint dot of its own due north on the inner ring, where one will sit. A main tank there has
+    -- its own dot, so this one steps aside.
+    local inner
+    for _, s in ipairs(slots or {}) do
+        if not s.self and (s.rh or 0) > 0 and (not inner or s.rh < inner.rh) then inner = s end
+    end
+    local ts = RD.tankSeat
+    if not ts then
+        ts = sf:CreateTexture(nil, "BORDER")
+        ts:SetTexture(RD.ART .. "disc")
+        RD.tankSeat = ts
+    end
+    if inner and not RD.mainTank and not RD.Console() then
+        local px = math.max(4, math.floor((inner.ph or 20) * 0.3 + 0.5))
+        ts:SetSize(px, px)
+        ts:ClearAllPoints()
+        ts:SetPoint("CENTER", f, "CENTER", 0, inner.rh)
+        ts:SetVertexColor(L[1], L[2], L[3], RD.SEAT_ALPHA)
+        ts:Show()
+    else
+        ts:Hide()
+    end
     sf:SetAlpha((RD.inFight or combat()) and 0 or 1)
 end
 
@@ -1364,17 +1387,69 @@ function RD.ConsoleTier(units)
     return RD.CON_TIERS[k], k
 end
 
---- THE BRAINS' RANK: name -> place (1 = watch first), from the companion's `BiSBrains` (private, Arn's PC). nil without.
+--[[ THE FLEET'S ORDERS (11 Nov 2026). Arn: "think of youself of a rear admiral of the imperial navy you communications are
+  up and you know where to place your navy, now they take out your communicatiion ship and you have to figure out how to
+  order you ships, you will still have your tanks close to screen you, and you most capable figters around while keeping
+  you medical frigates close, the other layers are small agile ships that can handle their own ... once you communication
+  figate come online you can use the data to order them around".
+  WITH THE COMMUNICATIONS FRIGATE (the companion's brains, `BiSBrains`, private on Arn's PC: _bisdev/companion/
+  brains.py): its order - who takes the damage, the spikes, the close calls - matched by the player's GUID (what the log
+  names them by), else by "Name Surname". WITHOUT IT, or for anyone it does not know: by logic (RD.LogicBand) -
+      tank     close, screening you                    1
+      melee    the interceptors, with the tanks         2   (Arn: "melee dps classes near by too because they are
+               clumped up for aoe heals, they are the inteceptors of the tanks" - warriors, rogues, paladins)
+      ranged   the agile ships that handle their own    3   (everyone else: they stand back)
+      heal     the medical frigates, furthest out       4   (Arn: "melee closer healers further away, in a battle
+               medical figates stay far away enough to not take font damage, and come in only when needed or the data
+               supports it" - the brains bring a healer in when the log says they are taking it)
+  You are always the middle. Empty places last (the edge). ]]
+RD.MELEE = { WARRIOR = true, ROGUE = true, PALADIN = true }
+RD.BAND_ORDER = { tank = 1, melee = 2, ranged = 3, heal = 4 }
+
+--- "Holy-Haven-PvP-US" (the log's) -> "Holy Haven" (GetUnitName's on Forever): the forename and surname.
+function RD.BrainsName(s)
+    if type(s) ~= "string" then return nil end
+    local a, b = s:match("^([^%-]+)%-([^%-]+)")
+    if a then return a .. " " .. b end
+    return s
+end
+
+--- THE BRAINS' RANK: key -> place (1 = watch first), keyed by GUID and by "Name Surname". nil without the brains.
 function RD.BrainsRank()
     local b = _G.BiSBrains
     if type(b) ~= "table" or type(b.order) ~= "table" then return nil end
-    local out = {}
-    for k, name in ipairs(b.order) do if type(name) == "string" and not out[name] then out[name] = k end end
+    local out, names = {}, type(b.names) == "table" and b.names or {}
+    for k, key in ipairs(b.order) do
+        if type(key) == "string" then
+            if not out[key] then out[key] = k end
+            local nm = RD.BrainsName(names[key] or (not key:find("^Player%-") and key) or nil)
+            if nm and not out[nm] then out[nm] = k end
+        end
+    end
     return next(out) and out or nil
 end
 
---- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order (or
---- the tanks, the healers, everyone else), the empty slots last (the edge). Out of a fight (names and roles are plain).
+--- The band a unit flies in without the brains: tank, heal, melee or ranged.
+function RD.LogicBand(u)
+    local role = RD.Role(u)
+    if role == "tank" or role == "heal" then return role end
+    local ok, _, class = pcall(UnitClass, u)
+    class = ok and plain(class) or nil
+    return (class and RD.MELEE[class]) and "melee" or "ranged"
+end
+
+--- This unit's place in the brains, by GUID first, then by name; nil when the brains do not know them.
+local function brainsOf(brains, u)
+    local okG, guid = pcall(UnitGUID, u)
+    guid = okG and plain(guid) or nil
+    if type(guid) == "string" and brains[guid] then return brains[guid] end
+    local okN, name = pcall(GetUnitName, u, false)
+    name = okN and plain(name) or nil
+    return type(name) == "string" and brains[name] or nil
+end
+
+--- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order, then
+--- anyone it does not know by logic (tank, heal, melee, ranged), the empty slots last (the edge). Out of a fight.
 function RD.ConsoleOrder(units, n)
     local present, empty, rank = {}, {}, {}
     local brains = RD.BrainsRank()
@@ -1389,18 +1464,127 @@ function RD.ConsoleOrder(units, n)
         elseif UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end   -- a raid names you "raidN"
         if okMe and plain(me) == true then
             rank[i] = 0
-        elseif brains then
-            local okN, name = pcall(GetUnitName, u, false)
-            name = okN and plain(name) or nil
-            rank[i] = (type(name) == "string" and brains[name]) or (1000 + i)
         else
-            local role = RD.Role(u)
-            rank[i] = (role == "tank" and 100 or role == "heal" and 200 or 300) + i
+            local b = brains and brainsOf(brains, u)
+            local logic = (RD.BAND_ORDER[RD.LogicBand(u)] or 4) * 100 + i
+            rank[i] = b and b or (1000 + logic)
         end
     end
     table.sort(present, function(a, b) return rank[a] < rank[b] end)
     for _, i in ipairs(empty) do present[#present + 1] = i end
     return present
+end
+
+--[[ TANKS NORTH (11 Nov 2026, Arn - a standing rule: "only things I want to be consistent is keep tank north of us, can be
+  spread but in the top half of the quadrant"). On the radar, every class: a tank whose place is not in the top half
+  (north of you: cos(bearing) > 0) trades places with the nearest top-half place that holds no tank - an empty one, or
+  the closest to the middle. The rank still decides everyone else; only the tanks are pinned north. ]]
+local function north(s) return s and not s.self and (s.rh or 0) > 0 and math.cos(s.b or 0) > 0.01 end
+
+--[[ NOBODY NAMED THE TANK (11 Nov 2026, Arn: "the tank is not north of me"). On Forever a group made by hand has no
+  roles: the game names no tank, so the rule above had nobody to move. When neither the game, BiS> now's tank nor a main
+  tank assignment names one, ONE is guessed from the classes that can tank: the one the brains say takes the most, else
+  a warrior, then a paladin, then a druid (the first in the group). You are never the guess. Answers the slot or nil. ]]
+RD.TANK_GUESS = { WARRIOR = 1, PALADIN = 2, DRUID = 3 }
+function RD.GuessTank(slots, units)
+    local brains = RD.BrainsRank()
+    local best, bestKey
+    for i in pairs(slots) do
+        local u = units[i]
+        if u and u ~= "player" then
+            local okMe, me = false, nil
+            if UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end
+            local ok, _, class = pcall(UnitClass, u)
+            class = ok and plain(class) or nil
+            local c = class and RD.TANK_GUESS[class]
+            if c and not (okMe and plain(me) == true) then
+                local b = brains and brainsOf(brains, u) or 999
+                local key = b * 100 + c * 10                -- the brains first, then the class
+                if not bestKey or key < bestKey or (key == bestKey and i < best) then best, bestKey = i, key end
+            end
+        end
+    end
+    return best
+end
+
+function RD.TanksNorth(slots, units)
+    if type(slots) ~= "table" or type(units) ~= "table" then return 0 end
+    local isTank = {}
+    for i in pairs(slots) do
+        local u = units[i]
+        if u and u ~= "player" then
+            local okMe, me = false, nil
+            if UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end
+            if not (okMe and plain(me) == true) and RD.LogicBand(u) == "tank" then isTank[i] = true end
+        end
+    end
+    RD.tankGuessed = nil
+    if not next(isTank) then
+        local g = RD.GuessTank(slots, units)
+        if g then isTank[g], RD.tankGuessed = true, g end
+    end
+    local moved = 0
+    for i, s in pairs(slots) do
+        if isTank[i] and not north(s) then
+            local best
+            for j, t in pairs(slots) do
+                if not isTank[j] and north(t) then
+                    -- the nearest to the middle; then an empty place over someone's; then the lowest rank
+                    local key = { t.rh, units[j] and 1 or 0, t.rank or j }
+                    if not best or key[1] < best[2][1] or (key[1] == best[2][1] and (key[2] < best[2][2]
+                       or (key[2] == best[2][2] and key[3] < best[2][3]))) then
+                        best = { j, key }
+                    end
+                end
+            end
+            if best then
+                local j = best[1]
+                slots[i], slots[j] = slots[j], slots[i]
+                moved = moved + 1
+            end
+        end
+    end
+    -- THE MAIN TANK DIRECTLY ON TOP (Arn, 11 Nov: "Main tank taking the most damage always directly on top of us"): the
+    -- first tank in the fleet's order - the brains' (who takes the most) when online, else the game's main tank / BiS> now's
+    -- tank / the first tank - sits due north on its own ring. Your own target's bogey (which sat due north at the rim)
+    -- steps to your left with your cure, so the two never sit on each other.
+    local order = RD.ConsoleOrder(units, #slots)
+    local mt
+    for _, i in ipairs(order) do if isTank[i] then mt = i break end end
+    RD.mainTank = mt
+    if mt and slots[mt] then
+        local s = {}
+        for k, v in pairs(slots[mt]) do s[k] = v end
+        s.b = 0
+        slots[mt] = s
+        for i, t in pairs(slots) do
+            if t.self then
+                local me = {}
+                for k, v in pairs(t) do me[k] = v end
+                me.b, me.rc, me.rb = RD.SELF_ASIDE.b, RD.SELF_ASIDE.rc, RD.SELF_ASIDE.rb
+                slots[i] = me
+            end
+        end
+    end
+    return moved
+end
+RD.SELF_ASIDE = { b = -math.pi / 2, rc = 26, rb = 50 }    -- your cure and your target's bogey, to your left
+
+--- `/bish alpha radar brains`: what the fleet is ordered by now.
+function RD.BrainsSay(P)
+    local b = _G.BiSBrains
+    if type(b) == "table" and type(b.order) == "table" and #b.order > 0 then
+        local names = {}
+        for k = 1, math.min(8, #b.order) do
+            local key = b.order[k]
+            names[#names + 1] = RD.BrainsName((type(b.names) == "table" and b.names[key]) or key) or "?"
+        end
+        local age = (time and type(b.at) == "number") and math.floor((time() - b.at) / 60) or nil
+        P("radar brains: |cff5dff9bonline|r - %d fight%s read%s.  Most watched: %s", tonumber(b.fights) or 0,
+          b.fights == 1 and "" or "s", age and (", " .. age .. " min ago") or "", table.concat(names, ", "))
+    else
+        P("radar brains: |cffffb340offline|r - ordering by logic: you, tanks, melee, ranged, then the healers out of the front line")
+    end
 end
 
 --- Every slot of a class: the fighter's own (RD.ConsoleSlot), else small ones. `top` = the slots that carry an interrupt
@@ -2291,10 +2475,11 @@ function RD.Role(unit)
         r = okR and plain(r) or nil
         if type(r) == "string" and RD.ROLE_WORD[r] then return RD.ROLE_WORD[r] end
     end
-    local tank = NS.FN and NS.FN.Tank and NS.FN.Tank()
+    -- BiS> now's tank (right-click its button with them targeted): matched as BiS> now matches it - the realm left off
+    -- either side (it keeps "Name Surname-Realm" for /target; the plain name has none)
     local okN, name = pcall(GetUnitName, unit, false)
     name = okN and plain(name) or nil
-    if type(tank) == "string" and name == tank then return "tank" end
+    if type(name) == "string" and NS.FN and NS.FN.IsTank and NS.FN.IsTank(name) then return "tank" end
     if GetPartyAssignment then
         local ok, mt = pcall(GetPartyAssignment, "MAINTANK", unit)
         if ok and plain(mt) == true then return "tank" end
@@ -3280,6 +3465,7 @@ function RD.Arm()
         RD.conOrder = order
         slots, size, rim = RD.FleetGeometry(T, order)
     end
+    if not RD.Console() then RD.TanksNorth(slots, units) end   -- the tanks in the top half, always
     RD.slots, RD.rim = slots, rim
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
@@ -3876,6 +4062,8 @@ function RD.Command(rest)
         db().pos = nil
         RD.Place()
         P("radar: back in its place")
+    elseif word == "brains" then
+        RD.BrainsSay(P)
     elseif word == "knob" then
         -- `knob <tide|potion|reserve|drink|chaff> on|off` - the same switch as the knob on the rail
         local kind, state = arg:lower():match("^(%a+)%s*(%a*)$")

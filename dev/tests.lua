@@ -11915,6 +11915,28 @@ do
             said = {}
             RD.BrainsSay(function(fmt, ...) said[#said + 1] = string.format(fmt, ...) end)
             ok(said[1] and said[1]:find("offline", 1, true) and said[1]:find("tanks, melee, ranged", 1, true), "and offline: by logic", said[1])
+            -- TANKS NORTH (Arn, 11 Nov, a standing rule: "keep tank north of us, can be spread but in the top half")
+            _G.BiSBrains = nil
+            STATE.roles = { party2 = "TANK" }            -- party2 is slot 3: the party radar puts slot 3 south-east
+            local keepView = d.radar.view
+            d.radar.view, d.radar.tier = nil, nil
+            RD.Arm()
+            local s3 = RD.slots[3]
+            ok(s3 and math.cos(s3.b) > 0 and s3.rh > 0, "the party radar: the tank moved into the top half", s3 and math.deg(s3.b))
+            ok(RD.spokes[3].heal:GetAttribute("unit") == "party2", "and their pip is still theirs")
+            for _, tier in ipairs({ 2, 3, 4 }) do
+                d.radar.tier = tier
+                RD.Arm()
+                local st = RD.slots[3]
+                ok(st and math.cos(st.b) > 0 and st.rh > 0, RD.CON_TIERS[tier].name .. ": the tank north of you", st and math.deg(st.b))
+            end
+            STATE.roles = { party1 = "TANK", party2 = "TANK", party3 = "TANK" }
+            d.radar.tier = 4
+            RD.Arm()
+            local allNorth = true
+            for k = 2, 4 do if not (math.cos(RD.slots[k].b) > 0) then allNorth = false end end
+            ok(allNorth, "three tanks on the capital: all in the top half, spread")
+            d.radar.view = keepView
             STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT
             for k = 1, 4 do STATE.units["party" .. k] = keepU[k] end
             _G.BiSBrains = keepBrains

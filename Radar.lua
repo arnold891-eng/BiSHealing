@@ -1452,6 +1452,46 @@ function RD.ConsoleOrder(units, n)
     return present
 end
 
+--[[ TANKS NORTH (11 Nov 2026, Arn - a standing rule: "only things I want to be consistent is keep tank north of us, can be
+  spread but in the top half of the quadrant"). On the radar, every class: a tank whose place is not in the top half
+  (north of you: cos(bearing) > 0) trades places with the nearest top-half place that holds no tank - an empty one, or
+  the closest to the middle. The rank still decides everyone else; only the tanks are pinned north. ]]
+local function north(s) return s and not s.self and (s.rh or 0) > 0 and math.cos(s.b or 0) > 0.01 end
+function RD.TanksNorth(slots, units)
+    if type(slots) ~= "table" or type(units) ~= "table" then return 0 end
+    local isTank = {}
+    for i in pairs(slots) do
+        local u = units[i]
+        if u and u ~= "player" then
+            local okMe, me = false, nil
+            if UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end
+            if not (okMe and plain(me) == true) and RD.LogicBand(u) == "tank" then isTank[i] = true end
+        end
+    end
+    local moved = 0
+    for i, s in pairs(slots) do
+        if isTank[i] and not north(s) then
+            local best
+            for j, t in pairs(slots) do
+                if not isTank[j] and north(t) then
+                    -- the nearest to the middle; then an empty place over someone's; then the lowest rank
+                    local key = { t.rh, units[j] and 1 or 0, t.rank or j }
+                    if not best or key[1] < best[2][1] or (key[1] == best[2][1] and (key[2] < best[2][2]
+                       or (key[2] == best[2][2] and key[3] < best[2][3]))) then
+                        best = { j, key }
+                    end
+                end
+            end
+            if best then
+                local j = best[1]
+                slots[i], slots[j] = slots[j], slots[i]
+                moved = moved + 1
+            end
+        end
+    end
+    return moved
+end
+
 --- `/bish alpha radar brains`: what the fleet is ordered by now.
 function RD.BrainsSay(P)
     local b = _G.BiSBrains
@@ -3346,6 +3386,7 @@ function RD.Arm()
         RD.conOrder = order
         slots, size, rim = RD.FleetGeometry(T, order)
     end
+    if not RD.Console() then RD.TanksNorth(slots, units) end   -- the tanks in the top half, always
     RD.slots, RD.rim = slots, rim
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)

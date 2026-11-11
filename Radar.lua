@@ -1457,6 +1457,33 @@ end
   (north of you: cos(bearing) > 0) trades places with the nearest top-half place that holds no tank - an empty one, or
   the closest to the middle. The rank still decides everyone else; only the tanks are pinned north. ]]
 local function north(s) return s and not s.self and (s.rh or 0) > 0 and math.cos(s.b or 0) > 0.01 end
+
+--[[ NOBODY NAMED THE TANK (11 Nov 2026, Arn: "the tank is not north of me"). On Forever a group made by hand has no
+  roles: the game names no tank, so the rule above had nobody to move. When neither the game, BiS> now's tank nor a main
+  tank assignment names one, ONE is guessed from the classes that can tank: the one the brains say takes the most, else
+  a warrior, then a paladin, then a druid (the first in the group). You are never the guess. Answers the slot or nil. ]]
+RD.TANK_GUESS = { WARRIOR = 1, PALADIN = 2, DRUID = 3 }
+function RD.GuessTank(slots, units)
+    local brains = RD.BrainsRank()
+    local best, bestKey
+    for i in pairs(slots) do
+        local u = units[i]
+        if u and u ~= "player" then
+            local okMe, me = false, nil
+            if UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end
+            local ok, _, class = pcall(UnitClass, u)
+            class = ok and plain(class) or nil
+            local c = class and RD.TANK_GUESS[class]
+            if c and not (okMe and plain(me) == true) then
+                local b = brains and brainsOf(brains, u) or 999
+                local key = b * 100 + c * 10                -- the brains first, then the class
+                if not bestKey or key < bestKey or (key == bestKey and i < best) then best, bestKey = i, key end
+            end
+        end
+    end
+    return best
+end
+
 function RD.TanksNorth(slots, units)
     if type(slots) ~= "table" or type(units) ~= "table" then return 0 end
     local isTank = {}
@@ -1467,6 +1494,11 @@ function RD.TanksNorth(slots, units)
             if UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end
             if not (okMe and plain(me) == true) and RD.LogicBand(u) == "tank" then isTank[i] = true end
         end
+    end
+    RD.tankGuessed = nil
+    if not next(isTank) then
+        local g = RD.GuessTank(slots, units)
+        if g then isTank[g], RD.tankGuessed = true, g end
     end
     local moved = 0
     for i, s in pairs(slots) do
@@ -2420,10 +2452,11 @@ function RD.Role(unit)
         r = okR and plain(r) or nil
         if type(r) == "string" and RD.ROLE_WORD[r] then return RD.ROLE_WORD[r] end
     end
-    local tank = NS.FN and NS.FN.Tank and NS.FN.Tank()
+    -- BiS> now's tank (right-click its button with them targeted): matched as BiS> now matches it - the realm left off
+    -- either side (it keeps "Name Surname-Realm" for /target; the plain name has none)
     local okN, name = pcall(GetUnitName, unit, false)
     name = okN and plain(name) or nil
-    if type(tank) == "string" and name == tank then return "tank" end
+    if type(name) == "string" and NS.FN and NS.FN.IsTank and NS.FN.IsTank(name) then return "tank" end
     if GetPartyAssignment then
         local ok, mt = pcall(GetPartyAssignment, "MAINTANK", unit)
         if ok and plain(mt) == true then return "tank" end

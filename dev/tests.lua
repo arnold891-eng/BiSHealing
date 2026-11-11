@@ -11954,6 +11954,29 @@ do
             STATE.roles = { party2 = "TANK" }
             RD.Arm()
             ok(RD.mainTank == 3 and RD.slots[3].b == 0, "the party radar too: the tank straight above you")
+            -- NOBODY NAMED THE TANK (Arn, 11 Nov: "the tank is not north of me" - a group made by hand has no roles)
+            STATE.roles = {}
+            RD.Arm()
+            ok(RD.tankGuessed == 5 and RD.mainTank == 5 and RD.slots[5].b == 0,
+               "no roles from the game: the warrior is guessed and goes straight above you", RD.mainTank)
+            STATE.classes = { party1 = "PALADIN", party2 = "PRIEST", party3 = "DRUID", party4 = "WARRIOR" }
+            RD.Arm()
+            ok(RD.mainTank == 5, "a paladin, a druid and a warrior: the warrior first", RD.mainTank)
+            _G.BiSBrains = { order = { "Player-0-party1", "Player-0-party4" } }
+            RD.Arm()
+            ok(RD.mainTank == 2 and RD.slots[2].b == 0, "the brains say the paladin takes the most: the paladin on top", RD.mainTank)
+            _G.BiSBrains = nil
+            STATE.classes = { party1 = "MAGE", party2 = "PRIEST", party3 = "ROGUE", party4 = "HUNTER" }
+            RD.Arm()
+            ok(RD.mainTank == nil and RD.tankGuessed == nil, "nobody who can tank: nobody guessed", RD.mainTank)
+            -- BiS> now's tank names one: it wins over the guess, realm or not
+            local keepTank, keepGUN2 = d.tank, _G.GetUnitName
+            _G.GetUnitName = function(u) return "Name " .. tostring(u) end
+            d.tank = "Name party2-Realm"
+            RD.Arm()
+            ok(RD.mainTank == 3 and RD.tankGuessed == nil and RD.slots[3].b == 0,
+               "BiS> now's tank (kept with its realm): due north, no guess", RD.mainTank)
+            d.tank, _G.GetUnitName = keepTank, keepGUN2
             d.radar.view = keepView
             STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT
             for k = 1, 4 do STATE.units["party" .. k] = keepU[k] end

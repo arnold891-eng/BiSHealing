@@ -37,6 +37,8 @@ Buffs.lua
 Heals.lua
 Radar.lua
 TestCam.lua
+# the radar's bottom rail; its code lives only in a private key addon (BiSBlackBox), never here
+BlackBox.lua
 # last before the UI-only files: BiSHealingAPI, for other addons (playbook 5a)
 API.lua
 

@@ -1210,6 +1210,12 @@ function FM.ApplyTo(cell)
                     -- a heal with a res in front of it: one macro, the client picks at the click
                     kind, cast = "macro", nil
                     text = FM.ResLine(spell) .. "/cast [@mouseover] " .. spell
+                elseif spell and cell.__guard then
+                    -- THE GUARD (the radar's pips, 10 Nov 2026 - Arn: a dead man's red sword "healed me"): the
+                    -- client hands a plain spell on someone it cannot land on to its self-cast, so here a bound spell
+                    -- is a macro that casts only on the living and friendly, and otherwise casts nothing
+                    kind, cast = "macro", nil
+                    text = "/cast [@mouseover,help,nodead] " .. spell
                 elseif spell then kind = "spell"
                 elseif slot.attr <= 2 then kind = "target"
                 else kind, text = "macro", "/target [@mouseover]" end
@@ -1362,6 +1368,8 @@ function FM.Apply()
     for _, cell in ipairs((NS.FG and NS.FG.pvpCells) or {}) do
         if FM.ApplyTo(cell) then cells = cells + 1 end
     end
+    -- the radar's pips and pets (Radar.lua): your binds are their clicks too
+    if NS.RD and NS.RD.ApplyBinds then cells = cells + (NS.RD.ApplyBinds() or 0) end
     FM.ApplyWheel()
     return true, cells
 end

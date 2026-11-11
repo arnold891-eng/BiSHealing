@@ -128,7 +128,13 @@ local function newFrame(kind, name, parent)
     -- WHERE IT IS ANCHORED, recorded and readable. The client answers GetPoint; this used to
     -- answer nothing at all, which made "put the window back where it was" untestable - and a
     -- window that opens in the wrong place is the kind of thing only a person ever notices.
-    function f:SetPoint(...) self.points[#self.points + 1] = { ... } end
+    -- ONE ANCHOR PER POINT, as in the client (10 Nov 2026): setting TOPRIGHT again moves the TOPRIGHT, it does not add
+    -- a second one - the mock appended, so a test reading the first TOPRIGHT read a stale one (the radar's hot window)
+    function f:SetPoint(...)
+        local p = { ... }
+        for i, q in ipairs(self.points) do if q[1] == p[1] then self.points[i] = p return end end
+        self.points[#self.points + 1] = p
+    end
     -- a frame laid over another remembers which (8 Oct 2026): the cell's ink layer covers the bar,
     -- and the fit check has to follow it there to measure the words on it
     function f:SetAllPoints(rel) self.__allpoints = rel or true end
@@ -371,6 +377,9 @@ local function newFrame(kind, name, parent)
         function l:SetEndPoint(_, _, x, y) self.to = { x, y } end
         function l:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
         function l:SetThickness(w) self.thick = w end
+        -- and its alpha, as the client's does (10 Nov 2026: the radar's view button shows one sign or the other)
+        function l:SetAlpha(a) self.__alpha = a end
+        function l:GetAlpha() return self.__alpha end
         function l:Show() self.__shown = true end
         function l:Hide() self.__shown = false end
         function l:IsShown() return self.__shown end
@@ -9537,7 +9546,7 @@ do
     ok(u == "party4", "a res already coming to the mage: the hunter before the warrior (Arn's order)", u)
     STATE.ghost.party4 = true
     u = FN.ResTarget()
-    ok(u == "party1", "the hunter released: no corpse, so the warrior", u)
+    ok(u == "party4", "the hunter released: still res'd, in the same order (Arn, 10 Nov: healers release too)", u)
     STATE.classes.party1 = "ROGUE"
     STATE.ghost.party4 = nil
     ok(FN.ResTarget() == "party4", "hunter before rogue")
@@ -11662,8 +11671,9 @@ do
         ok(WATCHED[p1] and WATCHED[p2], "the client's unit watch shows them only while the pet is there (mid-fight too)")
         ok(p4 and not WATCHED[p4] and p4:GetAttribute("unit") == nil and not p4:IsShown(),
            "an empty spot has no pet pip: off the watch, hidden")
-        ok(p2:GetAttribute("type1") == "spell" and p2:GetAttribute("spell1") == sp2.heal:GetAttribute("spell1"),
-           "a plain left-click on a pet is the radar heal, like on its owner")
+        ok(p2:GetAttribute("type1") == nil and p2.__guard == true and p2:GetAttribute("*type1") == sp2.heal:GetAttribute("*type1")
+           and p2:GetAttribute("*macrotext1") == sp2.heal:GetAttribute("*macrotext1"),
+           "a pet's clicks are your binds, like on its owner (guarded)", p2:GetAttribute("*macrotext1"))
         ok(p2.__w == RD.PET.px and p2.__w < sp2.slot.ph, "small: smaller than its owner's pip", p2.__w)
         local pp = p2.points and p2.points[1]
         local hx, hy = RD.Point(sp2.slot, sp2.slot.rh)
@@ -11697,9 +11707,242 @@ do
         STATE.units.partypet1 = nil
         ok(#sp2.petTex == 5, "its sign: a paw - a pad and four toes, our own shape")
     end
-    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "spell"
-       and sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)",
-       "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("spell1"))
+    -- YOUR BINDS ARE THE CLICKS (Arn, 10 Nov: "did we set a heal to left click? if we did get rid of it and lets whatever
+    -- binds set as the heal"): no plain type1 of the radar's own; the bind window's left button is the left click
+    do
+    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == nil and sp2.heal:GetAttribute("macrotext1") == nil
+       and sp2.heal:GetAttribute("spell1") == nil, "no left-click heal of the radar's own any more")
+    -- NEVER A HEAL ON YOU BY ACCIDENT (Arn, 10 Nov: a dead man's red sword healed him): a bound spell on a pip is guarded -
+    -- help,nodead - so a dead or hostile target casts nothing instead of the client's self-cast; a dead man's pip is dark
+    local keepL = d.binds
+    d.binds = { ["left"] = "Healing Wave(Rank 1)" }
+    NS.FM.Apply()
+    ok(sp2.heal:GetAttribute("*type1") == "macro" and sp2.heal:GetAttribute("type1") == nil
+       and sp2.heal:GetAttribute("*macrotext1") == "/cast [@mouseover,help,nodead] Healing Wave(Rank 1)" and sp2.heal:GetAttribute("*spell1") == nil,
+       "the left bind is the left click, guarded: only on the living and friendly", sp2.heal:GetAttribute("*macrotext1"))
+    d.binds = keepL
+    NS.FM.Apply()
+    end
+    ok(NS.FG.frames[1] and NS.FG.frames[1].__guard == nil, "the grid's cells keep their plain spells (only the radar is guarded)")
+    do
+        local keepB = d.binds
+        d.binds = { ["shift-left"] = "Lesser Healing Wave(Rank 2)" }
+        NS.FM.Apply()
+        ok(sp2.heal:GetAttribute("shift-macrotext1") == "/cast [@mouseover,help,nodead] Lesser Healing Wave(Rank 2)"
+           and sp2.heal:GetAttribute("*type1") == "target", "a bind changed: the pips take it at once (FM.Apply), an empty left button targets",
+           sp2.heal:GetAttribute("shift-macrotext1"))
+        d.binds = keepB
+        NS.FM.Apply()
+    end
+    do
+        local realDead = _G.UnitIsDeadOrGhost
+        _G.UnitIsDeadOrGhost = function(u) return u == "party1" end
+        ok(RD.PaintHeal(sp2) == false and sp2.heal.face:GetAlpha() == 0, "party1 dead: the pip goes dark")
+        _G.UnitIsDeadOrGhost = function() return secret() end
+        RD.PaintHeal(sp2)
+        ok(sp2.heal.face.__alphaFromSecret == true,
+           "in a fight the answer is a secret: it goes to the client, never into an if")
+        _G.UnitIsDeadOrGhost = realDead
+        RD.PaintHeal(sp2)
+    end
+    -- THE RES on the right rail (Arn, 10 Nov: "Out of combat right rail let's put the resurrection module where it chooses
+    -- the best person to res always lights up when someone is dead if they are out of range it'll say so or los it'll say
+    -- so"): BiS> now's pick, a click on the dead only, RANGE asked of the client, LOS from a failed cast; dark in a fight
+    do
+        local b = RD.res
+        local keep = { spell = NS.FM.ResSpell, target = NS.FN.ResTarget, range = C_Spell.IsSpellInRange, name = _G.GetUnitName }
+        local who, inRange = nil, true
+        NS.FM.ResSpell = function() return "Ancestral Spirit" end
+        NS.FN.ResTarget = function() return who end
+        C_Spell.IsSpellInRange = function() return inRange end
+        _G.GetUnitName = function(u) return u == "party1" and "Legaian Stormhoof" or keep.name(u) end
+        ok(b and b.rail == RD.defRail and b.word, "the res sits on the right rail, a word under it")
+        ok(RD.ArmRes() == nil and b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil,
+           "nobody dead: dark, no click armed")
+        RD.ArmChaff()
+        ok(RD.defRail:IsShown(), "the right rail shows while you know a res")
+        who = "party1"
+        ok(RD.ArmRes() == "party1" and b.face:GetAlpha() == 1, "someone dead: it lights")
+        ok(b:GetAttribute("*type1") == "macro" and b:GetAttribute("*macrotext1") == "/cast [@party1,help] Ancestral Spirit",
+           "the click: the res on that friend, released or not", b:GetAttribute("*macrotext1"))
+        ok(b.tip and b.tip[1] == "RES: Legaian Stormhoof", "the name under the mouse only (no words on the scope)", b.tip and b.tip[1])
+        ok(b.word.__res == "", "in range: no word")
+        inRange = false
+        ok(RD.PaintResWord() == "RANGE", "too far: RANGE, from the client")
+        local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+        if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+        if okC then
+            local n = Cost.Count(function() for _ = 1, 10 do RD.PaintResWord() end end)
+            print(("   cost: res word, 10 ticks with someone dead = %d calls"):format(n))
+            ok(n <= 30, "a tick with someone dead: a range question and the clock, nothing more", n)
+        end
+        local losMsg
+        for k, v in pairs(RD.ClickWords()) do if v == "LOS" then losMsg = k break end end
+        RD.overRes = true
+        ok(RD.HeardError(losMsg) == "LOS" and b.word.__res == "LOS", "a res that fails on line of sight: LOS")
+        TICK(RD.RES_LOS + 0.5)
+        ok(RD.PaintResWord() == "RANGE", "and after a while back to what the client says")
+        RD.overRes = nil
+        inRange = true
+        fire(RD.events, "PLAYER_REGEN_DISABLED")
+        ok(b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil and b.word.__res == "",
+           "a fight: dark, no click left armed")
+        fire(RD.events, "PLAYER_REGEN_ENABLED")
+        ok(RD.resDirty == true, "the fight's end: asked again at the next tick")
+        RD.ArmRes()
+        ok(b.face:GetAlpha() == 1, "and lit again for whoever died in it")
+        who = nil
+        RD.ArmRes()
+        ok(b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil, "they stood up: dark again")
+        NS.FM.ResSpell, NS.FN.ResTarget, C_Spell.IsSpellInRange, _G.GetUnitName = keep.spell, keep.target, keep.range, keep.name
+        RD.ArmRes()
+        RD.ArmChaff()
+    end
+    -- THE ENGINEER'S CONSOLE (Arn, 10 Nov: "we just show empty squares top row party. next row dispels, next row interrupts,
+    -- next row pets, next row everything else ... all they do is the smart light up"): the same secure buttons on a grid
+    do
+        local d = NS.DB()
+        local f, b = RD.frame, RD.viewBtn
+        local keepView = d.radar.view
+        local W0 = f:GetWidth()
+        ok(b and b:GetParent() == f and not RD.Console(), "a view button, the radar to start with")
+        local bp = b.points[1]
+        ok(bp and bp[2] == RD.defRail and bp[1] == "BOTTOM", "on the radar it sits at the right rail's foot")
+        ok(b.ring[1].__alpha == 0 and b.grid[1].__alpha == 1, "its sign: four small squares (the console is where it goes)")
+        STATE.inCombat = true
+        ok(RD.ToggleView() == nil and not RD.Console(), "in a fight: refused (secure buttons)")
+        STATE.inCombat = false
+        ok(RD.ToggleView() == "console" and RD.Console() and d.radar.view == "console" and RD.ConsoleTier().name == "FIGHTER",
+           "a click: the engineer's view, the fighter (a party)")
+        local G = RD.conGrid
+        ok(G and f:GetWidth() == G.W and f:GetHeight() == G.H and G.W < W0, "the square shrinks to the console's grid", G and G.W)
+        local function c(fr) local p = fr.points[1] return p and p[2] == f and p[3] == "TOPLEFT" and p[4], p and -p[5] end
+        local x1, y1 = c(RD.spokes[1].heal)
+        local x2, y2 = c(RD.spokes[2].heal)
+        ok(x1 == G.cols[3] and y1 == G.rows[1] and x2 == G.cols[2] and y2 == G.rows[1],
+           "row 1: the party's heal pips, you in the middle, the party outward (Arn, 11 Nov: \"build from the center out\")")
+        local cb = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
+        local cx, cy = c(cb)
+        ok(cb and cy == G.rows[2] and math.abs(cx - G.cols[2]) < RD.CON.colW / 2, "row 2: their cures under them")
+        local bx, by = c(RD.spokes[2].bogey)
+        ok(bx == G.cols[2] and by == G.rows[3], "row 3: the kick on their target")
+        local px, py = c(RD.spokes[2].pet)
+        ok(px == G.cols[2] and py == G.rows[4], "row 4: their pet")
+        local tx1, ty1 = c(RD.shield)
+        local tx8, ty8 = c(RD.res)
+        ok(ty1 == G.rows[5] and ty8 == G.rows[5] and tx1 < tx8, "row 5: the tools of both rails, the stabilizer to the res")
+        ok(RD.spokes[2].heal:GetAttribute("unit") == "party1", "the same buttons: party1's pip still heals party1")
+        local e4 = RD.spokes[4]
+        ok(e4.unit == nil and e4.heal:GetAttribute("unit") == RD.EMPTY_UNIT and e4.heal:IsMouseEnabled() ~= false
+           and e4.heal:GetAttribute("type1") == nil and f:GetAttribute("unit") == RD.EMPTY_UNIT,
+           "an empty square and the background name nobody: the wheel over them heals no one (Arn, 10 Nov)")
+        ok(not RD.scope:IsShown() and not RD.toolRail:IsShown() and not RD.gaugeRail:IsShown() and not RD.defRail:IsShown()
+           and not RD.gauge:IsShown() and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails, the tape and the black box step aside")
+        ok(RD.conSquares.heal1 and RD.conSquares.heal1:IsShown() and RD.conSquares.tool8:IsShown(), "an empty square where each one lives")
+        ok(not RD.gauge.regen:IsShown() and not RD.gauge.chev:IsShown() and not RD.gauge.fsr:IsShown(),
+           "the tape's pieces on the radar frame step aside too (the 100% Arn saw floating over the console)")
+        local hp = RD.hull.points
+        ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
+        bp = b.points[1]
+        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.ring[1].__alpha == 1, "the view button in the console's corner, its sign the ring (back to the radar)")
+        local cbp = RD.classBtn.points[1]
+        ok(cbp and cbp[2] == b, "the class button beside it")
+        -- THE SHIPS (Arn, 11 Nov: "upgrading ships to the next class ... let me click them even if i am not in that size
+        -- party or raid, only go bigger 5-10%"): each class a hull only a little wider, rows folded, from the centre out
+        local widths = { f:GetWidth() }
+        for _, want in ipairs({ "GUNSHIP", "CRUISER", "CAPITAL" }) do
+            ok(RD.NextClass() == want and RD.ship == RD.SHIPS[RD.ConsoleTier().ship], "the class button: the " .. want .. ", in its colours")
+            widths[#widths + 1] = f:GetWidth()
+            local grow = widths[#widths] / widths[#widths - 1]
+            ok(grow > 1.0 and grow <= 1.10, want .. ": only a little wider than the last (5-10%)", grow)
+            local T = RD.ConsoleTier()
+            ok(#RD.slots == T.n and RD.spokes[T.n] and RD.spokes[T.n].heal:IsShown(), want .. ": a place for all " .. T.n)
+            ok(RD.spokes[2].heal:GetAttribute("unit") == "party1" and RD.spokes[T.n].heal:GetAttribute("unit") == RD.EMPTY_UNIT,
+               want .. ": your party where it was, the empty places empty (a preview)")
+            local hx = RD.spokes[1].heal.points[1][4]
+            ok(math.abs(hx - f:GetWidth() / 2) < T.colW, want .. ": you in the middle of your row", hx)
+            local cb2 = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
+            ok(cb2 and cb2.__w == T.chip, want .. ": the dispels are chips in the corners", cb2 and cb2.__w)
+            ok(RD.spokes[6].bogey and not RD.spokes[6].bogey:IsShown(), want .. ": interrupts for your own group only")
+        end
+        -- THE FLEET (Arn, 11 Nov: "top 5 with me in the center ... outer edges people that arent really taking any damage"
+        -- ... "we are the star destroyer, our best ships are around us"): rank, not group; the core big, the screen small
+        local G4 = RD.conGrid
+        ok(G4.placed[1] == G4.cells[1], "the capital: you in the very middle place")
+        local c1 = G4.cells[1]
+        local far = G4.cells[#G4.cells]
+        ok(c1.d < far.d and RD.spokes[1].heal.__w > RD.spokes[40].heal.__w, "the core full size, the outer screen smaller",
+           RD.spokes[40].heal.__w)
+        local keepBrains, keepGUN = _G.BiSBrains, _G.GetUnitName
+        _G.GetUnitName = function(u) return "Name-" .. tostring(u) end   -- whole names, as Forever gives them
+        _G.BiSBrains = { order = { "Name-party2", "Name-party1" } }
+        RD.Arm()
+        G4 = RD.conGrid
+        ok(RD.conOrder[1] == 1 and RD.conOrder[2] == 3 and RD.conOrder[3] == 2 and G4.placed[3] == G4.cells[2],
+           "the brains' order: party2 first after you, next to you, any group", table.concat(RD.conOrder, ",", 1, 4))
+        ok(RD.spokes[3].bogey:IsShown() and RD.slots[3].rb, "the top five carry the interrupts")
+        _G.BiSBrains, _G.GetUnitName = keepBrains, keepGUN
+        RD.Arm()
+        ok(RD.classBtn.dots[4].__alpha == 1, "on the capital all four of the class button's dots are lit")
+        ok(RD.NextClass() == "FIGHTER" and RD.ConsoleTier().n == 5, "and round again to the fighter (a party fits it)")
+        ok(RD.ToggleView() == "radar" and not RD.Console(), "the view button again: the radar")
+        local hx = RD.shield.points[1]
+        ok(hx and hx[2] == RD.toolRail and RD.toolRail:IsShown() and RD.scope:IsShown() and not RD.conLayer:IsShown(),
+           "the tools back on their rails, the scope back, the squares away")
+        ok(f:GetWidth() == W0, "and the square its own size", f:GetWidth())
+        ok(RD.gauge.regen:IsShown(), "the regen readout back with the tape")
+        -- THE RADAR'S SHIPS (Arn, 11 Nov: "reimage the radar screen, for 10 20 40"): previewed from a party with the class
+        -- button - rings by rank round you, the scope only 7-8% bigger a class
+        do
+            local sizes = { W0 }
+            for _, want in ipairs({ "GUNSHIP", "CRUISER", "CAPITAL" }) do
+                ok(RD.NextClass() == want and not RD.Console(), "the class button on the radar: the " .. want)
+                local T = RD.ConsoleTier()
+                sizes[#sizes + 1] = f:GetWidth()
+                local grow = sizes[#sizes] / sizes[#sizes - 1]
+                ok(#RD.slots == T.n and f:GetWidth() == RD.FLEET[T.n].size and grow > 1.05 and grow <= 1.10,
+                   want .. ": " .. T.n .. " places, the scope a little bigger", grow)
+                local me1 = RD.slots[1]
+                ok(me1.band == "you" and RD.spokes[2].slot.band == "core" and RD.spokes[2].heal:GetAttribute("unit") == "party1",
+                   want .. ": you in the middle, your party the core round you")
+                ok(RD.slots[T.n].band ~= "core" and not RD.slots[T.n].rb and RD.spokes[T.n].heal:GetAttribute("unit") == RD.EMPTY_UNIT,
+                   want .. ": the empty places on the outer rings, no interrupts there")
+                -- THE FLEET MADE VISIBLE (Arn, 11 Nov: "yes do both")
+                local shown = 0
+                for _, l in ipairs(RD.fleetLines) do if l:IsShown() then shown = shown + 1 end end
+                ok(shown == (1 + #RD.FLEET[T.n].rings) * RD.RING_SEG and not RD.innerRings[1]:IsShown()
+                   and RD.fleetRadii[1] == RD.FLEET[T.n].core.rh, want .. ": its own rings where its ships sit, the party's away", shown)
+                local seats = 0
+                for _, t in ipairs(RD.seats) do if t:IsShown() then seats = seats + 1 end end
+                ok(seats == T.n and RD.seatFrame:GetAlpha() == 1, want .. ": a faint dot at every place, out of a fight", seats)
+            end
+            ok(RD.NextClass() == "FIGHTER" and f:GetWidth() == W0 and #RD.slots == 5, "round again: the party radar as it was")
+            ok(RD.innerRings[1]:IsShown() and not RD.ringFrame:IsShown(), "the party's own rings back")
+            STATE.inCombat = true
+            fire(RD.events, "PLAYER_REGEN_DISABLED")
+            ok(RD.seatFrame:GetAlpha() == 0, "a fight: the seats go")
+            STATE.inCombat = false
+            fire(RD.events, "PLAYER_REGEN_ENABLED")
+            ok(RD.seatFrame:GetAlpha() == 1, "and come back after it")
+        end
+        d.radar.view = keepView
+        RD.Arm()
+        -- ENEMIES ONLY (Arn, 10 Nov: "when im healing myself and targeting myself it shows the interuppt?")
+        local sp1 = RD.spokes[1]
+        local keepCast, keepAtk, keepKick, keepT = NS.FG.Casting, _G.UnitCanAttack, sp1.kick, STATE.units[sp1.tok]
+        sp1.kick = sp1.kick or "Earth Shock"
+        STATE.units[sp1.tok] = true
+        NS.FG.Casting = function(u) return u == sp1.tok end
+        _G.UnitCanAttack = function() return false end
+        RD.Look()
+        ok(sp1.bogey.face:GetAlpha() == 0, "you casting on yourself (your target): no interrupt lit")
+        _G.UnitCanAttack = function() return true end
+        RD.Look()
+        ok(sp1.bogey.face:GetAlpha() == 1, "an enemy target casting: lit")
+        NS.FG.Casting, _G.UnitCanAttack, sp1.kick = keepCast, keepAtk, keepKick
+        STATE.units[sp1.tok] = keepT
+        RD.Look()
+    end
     ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
        and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
@@ -11711,7 +11954,10 @@ do
         -- the HUD tape's numbers are allowed (Arn's HUD picture), and the regen readout's "100%" / "?": digits, a % sign,
         -- a question mark - never a word or a name. The one exception is the top rail's placard (the ship, FUEL).
         local t = fs.__text
-        if not placard[fs] then
+        -- and the black box's bottom rail (BlackBox.lua): its keys and its screen are words, outside the square
+        local q, onBox = fs.__parent, false
+        while q do if q == NS.BB.rail then onBox = true break end q = q.__parent end
+        if not placard[fs] and not onBox then
             while p do if p == f then if t and t ~= "" and not t:match("^%d+%%?$") and t ~= "?" and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
         end
     end
@@ -11773,7 +12019,10 @@ do
         local br = RD.brackets[1]
         ok(#RD.brackets == 8 and br.thick == cap.bw and same(br.color, cap.bracket)
            and math.abs(math.abs(br.from[1] - br.to[1]) - cap.be) < 1e-9, "the corner brackets: white, longer and heavier", br.thick)
-        ok(#RD.meLines == 0, "no chevron in the middle: the role icon alone (Arn, 10 Nov)")
+        local me = RD.meLines[1]
+        ok(#RD.meLines >= 2 and RD.meRole == RD.Role("player") and me and me.__kind ~= "Line"
+           and me.__vertex and math.abs(me.__vertex[1] - cap.accent[1]) < 1e-9 and me.__vertex[4] == 0 and RD.ME_ALPHA == 0,
+           "you in the middle: no standing sign (Arn, 10 Nov: only your heal pip, lit when you need it)", #RD.meLines)
         ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
         ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
            "warnings keep their colours in every ship: red, amber, the boss's red")
@@ -12051,7 +12300,11 @@ do
        "a 'cast' on a target that does not exist lights nothing (nobody there is never casting)")
     STATE.units.party1target = true
     RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 0, "their target casts but it is a friend: nothing to kick (enemies only, 10 Nov)")
+    STATE.hostile.party1target = true
+    RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 1 and lineAlpha(sp2) == 1, "their target casts: the bogey shows - flare it")
+    STATE.hostile.party1target = nil
     STATE.casting.party1target = nil
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "and goes when the cast does")
@@ -12087,8 +12340,8 @@ do
     do
         local keep = { b48 = BOOK[48], b49 = BOOK[49], name = C_Spell.GetSpellName, cd = C_Spell.GetSpellCooldown }
         local c = RD.chaff
-        ok(c and c.rail == RD.defRail and RD.defRail and not RD.defRail:IsShown() and not c.macro,
-           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail hidden, nothing armed")
+        ok(c and c.rail == RD.defRail and RD.defRail and RD.defRail:IsShown() and not c.macro,
+           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail still shown (always), nothing armed")
         ok(c.knob and not c.knob:IsShown(), "and no knob on a tool that is not there")
         BOOK[48] = { name = "Grounding Totem", rank = "" }
         BOOK[49] = { name = "Earth Shock", rank = "Rank 1" }
@@ -12170,7 +12423,7 @@ do
         NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
         STATE.inCombat = false
         RD.ArmTools()
-        ok(not RD.defRail:IsShown(), "Grounding forgotten: the right rail goes away")
+        ok(RD.defRail:IsShown() and not RD.chaff.macro, "Grounding forgotten: the chaff disarmed, the rail stays (always shown)")
         STATE.inCombat = true
         RD.Look()
     end
@@ -12242,10 +12495,10 @@ do
 
     -- the hidden setting: another heal, typed with its capitals
     SlashCmdList.BISHEALING("alpha radar heal Lesser Healing Wave")
-    ok(sp2.heal:GetAttribute("spell1") == "Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
-       "/bish alpha radar heal Lesser Healing Wave: that heal, its top rank minus 2 (it has one)", sp2.heal:GetAttribute("spell1"))
+    ok(RD.heal and RD.heal.cast == "Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
+       "/bish alpha radar heal Lesser Healing Wave: that heal (where amber starts), its top rank minus 2", RD.heal and RD.heal.cast)
     SlashCmdList.BISHEALING("alpha radar heal default")
-    ok(sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)", "and back to the default")
+    ok(RD.heal and RD.heal.cast == "Healing Wave(Rank 1)", "and back to the default")
 
     -- RAID SECTORS: 40 fixed slots, your own group on top and nearer the middle; a full 40
     _G.IsInRaid = function() return true end
@@ -12259,14 +12512,22 @@ do
     local mx2, my2 = RD.Point(me, me.rh)
     ok(me.self and math.abs(mx2) < 0.01 and math.abs(my2) < 0.01 and RD.spokes[12].heal:GetAttribute("unit") == "raid12",
        "in a raid too, you are the centre")
-    local own = RD.spokes[11].slot
-    ok(RD.spokes[11].unit == "raid11" and own.own and math.abs(own.b) < math.rad(32) and own.rh < RD.RAID.other.rh,
-       "your own group's sector is the top one, nearer the centre", own.b)
-    ok(RD.spokes[1].slot.rh == RD.RAID.other.rh and not RD.spokes[1].slot.rb and RD.spokes[1].heal:GetAttribute("unit") == "raid1",
-       "group 1 sits on the outer ring, no bogey (bogeys: your own group only)")
-    ok(RD.spokes[16].slot.b > own.b and RD.spokes[16].slot.b < RD.spokes[1].slot.b,
-       "group 4 comes right after yours, clockwise; group 1 last")
-    ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
+    -- THE FLEET (Arn, 11 Nov: "reimage the radar screen, for 10 20 40" - you the star destroyer, the best ships round you,
+    -- the screen ships on the edge): rings by rank, not sectors by group
+    do
+    local band = { you = 0, core = 0, escort = 0, screen = 0 }
+    for i = 1, 40 do local b = RD.slots[i].band band[b] = band[b] + 1 end
+    ok(band.you == 1 and band.core == 4 and band.escort == 11 and band.screen == 24,
+       "a full 40: you, the core four, eleven escorts, the screen of twenty-four", band.core .. "/" .. band.escort .. "/" .. band.screen)
+    local core, screen
+    for i = 1, 40 do
+        if RD.slots[i].band == "core" then core = RD.slots[i] elseif RD.slots[i].band == "screen" then screen = RD.slots[i] end
+    end
+    ok(core.rb and core.own and core.rh < screen.rh and core.ph > screen.ph and not screen.rb,
+       "the core on the inner ring, full size, with interrupts; the screen outermost, smallest, none")
+    ok(f.__w == RD.FLEET[40].size or (f.GetWidth and f:GetWidth() == RD.FLEET[40].size),
+       "the scope grows only a little: 370 for the capital (the old raid radar was 440)")
+    end
     ok(RD.ship and RD.ship.key == "capital" and RD.gauge.ship.__text == "CAPITAL", "a full 40: the capital ship",
        RD.ship and RD.ship.key)
     -- PETS IN A RAID: your own group's only, nearer the middle on their owner's bearing
@@ -12276,16 +12537,14 @@ do
         local sp = RD.spokes[i]
         if sp.petUnit then if sp.slot.own then ownPets = ownPets + 1 else otherPets = otherPets + 1 end end
     end
-    local o11 = RD.spokes[11]
-    ok(ownPets == 5 and otherPets == 0 and o11.pet:GetAttribute("unit") == "raidpet11" and not WATCHED[RD.spokes[1].pet],
-       "a raid: pets for your own group only (raidpet11), none for the other 35", ownPets .. " / " .. otherPets)
+    ok(ownPets == 5 and otherPets == 0, "a raid: pets for you and the core only, none for the other 35", ownPets .. " / " .. otherPets)
     ok(RD.spokes[12].pet.__w == RD.PET.raidPx, "and smaller in a raid")
     end
-    ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
+    ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.FLEET[40].size / RD.PARTY.size) < 0.01
        and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
-    local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP - RD.GAUGE.left - RD.GAUGE.right
+    local rw = RD.FLEET[40].size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW() - RD.GAUGE.left - RD.GAUGE.right
     ok(RD.gauge:GetWidth() == rw and RD.gauge.lift.points[#RD.gauge.lift.points][4] == RD.BINGO * rw
-       and RD.gaugeRail:GetWidth() == RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP,
+       and RD.gaugeRail:GetWidth() == RD.FLEET[40].size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW(),
        "and the fuel tape with it: the top rail as wide as the raid's square, the BINGO lift still 30% of it", RD.gauge:GetWidth())
     -- every pip in its own place: no two slots on top of each other
     local clash = 0
@@ -12340,7 +12599,7 @@ do
            "the gauge's whole rail shows the FUEL card (not just the 7px tape), and still drags the radar")
         ok(g and g.boss and g.mana and g.ruler and g.hot, "the fuel tape: the boss, your mana, the BINGO ruler and its hot copy")
         -- SIDEWAYS ON TOP (Arn 9 Nov: "put it on top side ways that way only one rail per side")
-        local railW = RD.SIZE + RD.TOOL_RAIL_W + RD.RAIL_GAP
+        local railW = RD.SIZE + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW()   -- over the right rail too (always shown)
         local rp0 = pt(rail, "BOTTOMLEFT")
         ok(rp0 and rp0[2] == RD.toolRail and rp0[3] == "TOPLEFT" and rp0[5] == RD.RAIL_GAP and rail:GetWidth() == railW
            and rail:GetHeight() == RD.GAUGE_RAIL_H, "the gauge's rail sits on top: over the tool rail and the square, as wide as both",
@@ -12360,8 +12619,30 @@ do
         for _, r in ipairs({ RD.toolRail, RD.defRail }) do if r == rail then gaugeRails = gaugeRails + 1 end end
         ok(gaugeRails == 0 and pt(tr0, "TOPRIGHT") and pt(RD.defRail, "TOPLEFT"), "one rail a side: tools on the left, defence on the right")
         local cl = RD.frame.__clamp
-        ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP and cl[4] == 0,
-           "the clamp keeps the left rail and the top rail on the screen", cl and table.concat(cl, " "))
+        ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP
+           and cl[4] == -(NS.BB.RAIL_H + RD.RAIL_GAP),
+           "the clamp keeps the left rail, the top rail and the black box's bottom rail on the screen", cl and table.concat(cl, " "))
+        -- ONE HULL, SOFT EDGES (Arn, 10 Nov: "complete the rails so there are no gaps and alpha the edges"), and THE SQUARE
+        -- CLOSED ("once its closed like a square rail recenter all the stuff"): the top and bottom rails over the right rail
+        do
+            local h = RD.hull
+            ok(h and #RD.edges == RD.EDGE_N and RD.edges[1].a > RD.edges[RD.EDGE_N].a and RD.edges[RD.EDGE_N].a > 0,
+               "one plate behind every rail and the square, and rings fading outward", RD.edges and #RD.edges)
+            local keepShown = RD.defRail:IsShown()
+            RD.defRail:Show() RD.ClampRails()
+            local wide = RD.gaugeRail:GetWidth()
+            RD.defRail:Hide() RD.ClampRails()
+            local narrow = RD.gaugeRail:GetWidth()
+            ok(math.abs(wide - narrow - (RD.RAIL_GAP + RD.TOOL_RAIL_W)) < 1e-9, "the right rail shown: the top rail runs over it",
+               wide .. " / " .. narrow)
+            RD.defRail:Show() RD.ClampRails()
+            local bp = RD.bbRail.points and RD.bbRail.points[2]
+            ok(bp and bp[1] == "TOPRIGHT" and bp[4] == RD.RightW(), "and the black box's rail too", bp and tostring(bp[4]))
+            local hp = h.points and h.points[2]
+            ok(hp and hp[1] == "BOTTOMRIGHT" and hp[2] == RD.bbRail, "the hull reaches the bottom rail's far corner")
+            if keepShown then RD.defRail:Show() else RD.defRail:Hide() end
+            RD.ClampRails()
+        end
         -- the layering: boss under mana, ticks over both, the caret over all three, the BINGO window over that
         local L = function(x) return x:GetFrameLevel() end
         ok(L(g.boss) < L(g.mana) and L(g.mana) < L(g.tickFrame) and L(g.tickFrame) < L(g.caretFrame) and L(g.caretFrame) < L(g.hotClip),
@@ -12906,6 +13187,13 @@ do
     ok(not CAM.Armed() and said("alpha is off") and CAM.DB().run == nil, "alpha off: start refuses, no run counted")
 
     d.alpha = true
+    -- THE KEY GATE (10 Nov, the black box's): without the private key addon there is no camera at all
+    local keepKey = _G.BiSBlackBoxKey
+    _G.BiSBlackBoxKey = nil
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(not CAM.Armed() and said("black box key") and CAM.DB().run == nil, "no key addon: start refuses, no run counted")
+    _G.BiSBlackBoxKey = { Check = function() return false end }
     fire(CAM.events, "PLAYER_REGEN_DISABLED")
     ok(shots == 0 and onUpdate() == nil, "the alpha on is not enough: not started, no shot at the pull and no clock")
     fire(CAM.events, "PLAYER_REGEN_ENABLED")
@@ -13024,9 +13312,150 @@ do
     ok(not CAM.Armed(), "/bish alpha cam off (the switch): off with the feature")
 
     _G.DEFAULT_CHAT_FRAME, _G.Screenshot, _G.time, _G.date = keep.chat, keep.shot, keep.time, keep.date
+    _G.BiSBlackBoxKey = keepKey
     d.alpha, d.alphaOff, d.cam = keep.alpha, keep.alphaOff, keep.cam
     RD.readyAt.tide, RD.coolStart.tide, RD.waterUntil = keep.tide, keep.tideStart, keep.water
     CAM.inFight, CAM.last, CAM.pending = nil, nil, nil
+end
+
+-- THE BLACK BOX (10 Nov 2026, Arn: "Build the bottom raid with the squawk box thing"): the radar's bottom rail - a lamp,
+-- a status, a scratchpad and a keypad for everyone; only the private key addon makes a code right
+do
+    local BB, CAM, RD, d = NS.BB, NS.CAM, NS.RD, NS.DB()
+    local keep = { key = _G.BiSBlackBoxKey, log = _G.LoggingCombat, reload = _G.ReloadUI, time = _G.time,
+                   icl = _G.InCombatLockdown, bb = d.bb, cam = d.cam, alpha = d.alpha, chat = _G.DEFAULT_CHAT_FRAME,
+                   rand = math.random }
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local logOn, logSets, reloads = false, 0, 0
+    _G.LoggingCombat = function(v) if v ~= nil then logOn = v and true or false logSets = logSets + 1 end return logOn end
+    _G.ReloadUI = function() reloads = reloads + 1 end
+    local WALL = 1800100000
+    _G.time = function() return WALL end
+    local fighting = false
+    _G.InCombatLockdown = function() return fighting end
+    d.bb, d.cam, d.alpha = nil, nil, nil
+    _G.BiSBlackBoxKey = nil
+    local function press(...) local r for _, k in ipairs({ ... }) do r = BB.Press(k) end return r end
+    local function plain(fs) return (tostring(fs.__bbt or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+
+    ok(BB and BB.Build, "the black box is built into the radar")
+    RD.Build()
+    local r = BB.rail
+    ok(r and RD.bbRail == r, "the radar has a bottom rail (RD.bbRail)")
+    local k1 = r and r.keys and r.keys["1"]
+    ok(k1 and r.keys.A and r.keys["0"] and r.keys.CLR and r.keys.EXEC and not r.keys["8"] and not r.keys["9"],
+       "the keypad: squawk digits 0-7, an A, CLR and EXEC (no 8 or 9)")
+    ok(plain(r.status) == "REC OFF" and r.lampState == "off", "at rest: REC OFF, the lamp red", plain(r.status))
+    ok(r.__scripts.OnUpdate == nil, "no key, nothing typed: no OnUpdate at all")
+    heard = {}
+    NS.DO.help()
+    local told = false
+    for _, t in ipairs(heard) do if tostring(t):lower():find("black box", 1, true) then told = true end end
+    ok(not told, "/bish help never mentions it (the Diablo gem: nobody is told)")
+
+    -- typing
+    k1.__scripts.OnClick(k1)
+    press("2", "3")
+    ok(BB.pad == "123" and plain(r.screen) == "[123_]", "keys type into the scratchpad", plain(r.screen))
+    press("4", "5", "6", "7")
+    ok(BB.pad == "123456", "six at most", BB.pad)
+    press("CLR")
+    ok(BB.pad == "12345", "CLR takes the last one back")
+
+    -- NO KEY: every code is refused, nothing else happens
+    math.random = function(a, b) return a end          -- roll 1: a rare one
+    ok(BB.Press("EXEC") == "denied" and reloads == 0 and logSets == 0 and not BB.Recording(), "no key: refused, never a reload or the log")
+    local rare = plain(r.screen)
+    ok(rare == BB.DENY_RARE[1], "a rare refusal on the screen", rare)
+    ok(r.__scripts.OnUpdate ~= nil, "a reply clears itself: the tick runs while it shows")
+    math.random = function(a, b) return b end          -- roll RARE: a common one
+    press("7", "7", "0", "0")
+    ok(BB.Press("EXEC") == "denied" and plain(r.screen) == BB.DENY[#BB.DENY], "and a common one", plain(r.screen))
+    TICK(BB.SAY + 0.5) BB.OnUpdate(r, 1.1)
+    ok(plain(r.screen) == "[_]" and r.__scripts.OnUpdate == nil, "the reply goes after a few seconds, and so does the tick", plain(r.screen))
+    press("1", "2")
+    ok(BB.Press("EXEC") == "short" and reloads == 0, "too short: told so, nothing else")
+
+    -- THE KEY: only its code is right
+    _G.BiSBlackBoxKey = { Check = function(c) return c == "4721" end }
+    press("1", "1", "1", "1")
+    ok(BB.Press("EXEC") == "denied" and reloads == 0, "the key installed, a wrong code: refused")
+    fighting = true
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "combat" and reloads == 0 and not BB.Recording(), "the right code in a fight: not now")
+    fighting = false
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "start", "the right code out of a fight: START")
+    local b = BB.DB()
+    ok(BB.Recording() and b.run == 1 and b.at == WALL and b.untilAt == WALL + BB.MINUTES * 60, "recording: the run written to the save")
+    ok(logOn and b.logOurs == true and reloads == 1, "the combat log on (ours), then the game reloads (the save reaches the disk)")
+    ok(CAM.Armed(), "the test camera arms with it - no alpha needed")
+
+    -- after the reload: the log comes back if it fell off
+    logOn = false
+    heard = {}
+    fire(BB.events, "PLAYER_LOGIN")
+    ok(logOn and BB.Recording(), "back from the reload: the log on again")
+    WALL = WALL + 65
+    BB.Paint()
+    ok(plain(r.status) == "REC 01:05" and r.lampState == "rec", "REC and the run's clock, the lamp red", plain(r.status))
+    ok(r.__scripts.OnUpdate ~= nil, "recording: the one-a-second tick runs")
+
+    -- a fight, then the wait, then safe
+    fire(BB.events, "PLAYER_REGEN_DISABLED")
+    ok(BB.State() == "rec" and r.lampState == "rec", "in a fight: red")
+    fire(BB.events, "PLAYER_REGEN_ENABLED")
+    ok(BB.State() == "wait" and r.lampState == "wait" and plain(r.status) == "WAIT " .. BB.WAIT .. "s", "the fight ends: yellow, WAIT", plain(r.status))
+    TICK(BB.WAIT - 4) BB.OnUpdate(r, 1.1)
+    ok(plain(r.status) == "WAIT 4s", "counting down", plain(r.status))
+    TICK(5) BB.OnUpdate(r, 1.1)
+    ok(BB.State() == "safe" and r.lampState == "safe" and plain(r.status) == "SAFE TO RELOAD", "then green: SAFE TO RELOAD", plain(r.status))
+    fire(BB.events, "PLAYER_REGEN_DISABLED")
+    ok(r.lampState == "rec", "the next pull: red again")
+    fire(BB.events, "PLAYER_REGEN_ENABLED")
+
+    -- the cost of a recording's frames: a tick a second, words set only when they change
+    local okCost, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+    if not okCost then okCost, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+    if okCost then
+        local n = Cost.Count(function() for _ = 1, 100 do BB.OnUpdate(r, 0.01) end end)
+        print(("   cost: black box, 100 recording frames = %d calls"):format(n))
+        ok(n <= 12, "a second of recording frames: at most one paint", n)
+    end
+
+    -- STOP: the code again
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and not logOn and reloads == 2, "the code again: STOP, the log off, a reload")
+    ok(b.stopWhy == "code" and b.stoppedAt == WALL and not CAM.Armed(), "the stop written down, the camera disarmed")
+
+    -- courtesy: someone else's log stays on
+    logOn = true
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    ok(BB.Recording() and not b.logOurs, "the log already on: not ours")
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    ok(logOn, "so our stop leaves it on")
+
+    -- it stops by itself; and the key gone stops it at the next login
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    WALL = b.untilAt + 1
+    BB.Paint()
+    ok(not BB.Recording() and b.stopWhy == "time" and r.lampState == "off", "after its time: stopped by itself, red, REC OFF")
+    WALL = WALL + 10
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    _G.BiSBlackBoxKey = nil
+    fire(BB.events, "PLAYER_LOGIN")
+    ok(not BB.Recording() and b.stopWhy == "key gone", "the key addon gone: the next login stops it")
+    _G.BiSBlackBoxKey = { Check = function() error("boom") end }
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "denied", "a key that breaks: refused, never a reload")
+
+    math.random = keep.rand
+    _G.BiSBlackBoxKey, _G.LoggingCombat, _G.ReloadUI, _G.time = keep.key, keep.log, keep.reload, keep.time
+    _G.InCombatLockdown, _G.DEFAULT_CHAT_FRAME = keep.icl, keep.chat
+    d.bb, d.cam, d.alpha = keep.bb, keep.cam, keep.alpha
+    BB.pad, BB.sayUntil, BB.waitUntil, BB.inFight = "", nil, nil, nil
+    BB.Paint() BB.Wake()
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

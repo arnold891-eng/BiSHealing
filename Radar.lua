@@ -551,10 +551,12 @@ local function buildScope(f)
     -- every line kept, so a ship can repaint them (RD.ApplyShip): the rings, cross and ticks; the brackets; the centre
     RD.scopeLines, RD.brackets = {}, {}
     local function keep(l) RD.scopeLines[#RD.scopeLines + 1] = l return l end
-    for _, r in ipairs(RD.RINGS) do
+    RD.innerRings = {}                               -- the party's inner rings (not the rim): a fleet draws its own instead
+    for ri, r in ipairs(RD.RINGS) do
         for k = 1, RD.RING_SEG do
             local a0, a1 = (k - 1) * 2 * math.pi / RD.RING_SEG, k * 2 * math.pi / RD.RING_SEG
-            keep(line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1))
+            local l = keep(line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1))
+            if ri < #RD.RINGS then RD.innerRings[#RD.innerRings + 1] = l end
         end
     end
     local h = RD.SIZE / 2 - 6
@@ -579,13 +581,34 @@ local function buildScope(f)
         end
     end
     -- you, in the middle: your role icon alone. The chevron that drew over it is gone (Arn, 10 Nov, on a DPS: "get rid
-    -- of the chevron, and keep the role icon" - as a healer the healing icon hid it)
-    RD.meLines = {}
+    -- of the chevron, and keep the role icon" - as a healer the healing icon hid it). The icon itself: RD.PaintMe
+    RD.meLines, RD.meRole = {}, nil
     -- the dim places of every slot live on their own layer, unscaled, and go with the scope (RD.PaintQuiet)
     local dims = CreateFrame("Frame", nil, f)
     dims:SetAllPoints(f)
     RD.dims = dims
     return s
+end
+
+--- YOU, IN THE MIDDLE, ALWAYS (Arn, 10 Nov, after the chevron went: "my icon is gone"). Your heal pip lights only below
+--- 90%, so at full health the middle was empty. Your role's sign now stays on the scope in the ship's accent, dimmed
+--- (RD.ME_ALPHA); your heal pip lights over it, and it goes dark with the scope in a fight (RD.PaintQuiet). Rebuilt only
+--- when your role changes.
+--- HIDDEN AGAIN the same night (Arn: "you can hide my center icon and only light up when it needs to light up for a
+--- heal, now i just want to click it because its on there"): alpha 0 - the middle is your heal pip alone, lit only when
+--- you need one. The sign stays built, so one number brings it back.
+RD.ME_ALPHA = 0
+function RD.PaintMe()
+    local s = RD.scope
+    if not s then return end
+    local role = RD.Role("player")
+    if RD.meRole ~= role then
+        for _, t in ipairs(RD.meLines or {}) do t:Hide() end
+        RD.meLines = glyph(s, role, RD.SELF.ph * RD.GLYPH)
+        RD.meRole = role
+    end
+    local A = (RD.ship and RD.ship.accent) or RD.PHOS
+    for _, t in ipairs(RD.meLines) do t:SetVertexColor(A[1], A[2], A[3], RD.ME_ALPHA) end
 end
 
 --- One spoke's pieces: the heal pip (secure), its cure pips (client markers + secure boxes), its bogey, its alert
@@ -899,6 +922,7 @@ local function buildSystem(f, name, point, x, y, rel)
     local b = CreateFrame("Button", "BiSHealingRadar" .. name, f, "SecureActionButtonTemplate")
     b:SetSize(RD.SYS_PX, RD.SYS_PX)
     b:SetPoint(point, rel or f, point, x, y)
+    b.home = { point, rel or f, point, x, y }       -- where the radar keeps it (the console moves it: RD.RadarLayout)
     b.rail = rel
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
     b.beat = CreateFrame("Frame", nil, b)
@@ -1109,19 +1133,745 @@ function RD.BuildRails(f)
     local d = rail(f, RD.TOOL_RAIL_W)
     d:SetPoint("TOPLEFT", f, "TOPRIGHT", gap, 0)
     d:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", gap, 0)
-    d:Hide()
+    d:Show()                         -- always (Arn, 10 Nov: "always show the full square rail")
     RD.toolRail, RD.gaugeRail, RD.defRail = t, g, d
+    -- THE BLACK BOX'S RAIL along the bottom (BlackBox.lua, 10 Nov: "Build the bottom raid with the squawk box thing")
+    if NS.BB and NS.BB.Build then RD.bbRail = NS.BB.Build(f, t, rail) end
+    RD.BuildHull(f)
     RD.ClampRails()
     return t, g
 end
 
---- The radar's clamp: the tool rail and the gauge's rail always, the right one while it shows.
+--[[ ONE HULL, SOFT EDGES (10 Nov 2026, Arn: "complete the rails so there are no gaps and alpha the edges"). Behind every
+  rail and the square, on the radar's own lowest layer: ONE solid plate from the gauge rail's top-left corner to the
+  bottom rail's bottom-right (the right rail's column too while it shows, RD.FitHull), so the gaps between the rails
+  and the corners over and under the right rail are filled. Around it RD.EDGE_N thin rings of the same plate, each
+  fainter (RD.EdgeAlpha), RD.EDGE_PX apart: the instrument fades into the world instead of ending on a hard line.
+  The ship's plate colour repaints all of it (RD.PaintHull, from RD.ApplyShip). ]]
+RD.EDGE_N, RD.EDGE_PX = 6, 2
+function RD.EdgeAlpha(k) return 0.9 * (1 - k / (RD.EDGE_N + 1)) ^ 1.6 end
+function RD.BuildHull(f)
+    if RD.hull then return RD.hull end
+    local function plateTex()
+        local t = f:CreateTexture(nil, "BACKGROUND", nil, -8)
+        t:SetTexture(RD.WHITE)
+        return t
+    end
+    RD.hull = plateTex()
+    RD.edges = {}
+    for k = 1, RD.EDGE_N do
+        local ring = { a = RD.EdgeAlpha(k), k = k }
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side] = plateTex() end
+        RD.edges[k] = ring
+    end
+    RD.FitHull()
+    RD.PaintHull()
+    return RD.hull
+end
+
+--[[ THE ENGINEER'S CONSOLE (10 Nov 2026). Arn's cousin found the radar too big; Arn: "lets say we are an engineer on the
+  death star, we open the radar console and it shows us the behind the scene. we just show empty squares top row party.
+  next row dispels, next row interrupts, next row pets, next row everything else water water shield exp food all left
+  and right rails bare bones empty squares all they do is the smart light up. 10 20 40 we dont just make bigger we just
+  reimaging to acoomodate a bigger raid".
+  THE SAME BUTTONS, PLACED ON A GRID. Nothing new lights anything: every pip, cure box, bogey, pet and tool is the very
+  secure button the radar uses, with its own curve or boolean; the console only moves them (RD.ConsoleLayout, out of a
+  fight, inside RD.Arm) and draws an empty square where each one lives (RD.conSquares, dim, always there - the
+  behind-the-scenes look). The scope, the dark disc, the rails, the fuel tape and the black box step aside.
+      row 1   party: the heal pips, you first
+      row 2   dispels: each person's cure boxes, under them
+      row 3   interrupts: the kick on each person's target (their bogey)
+      row 4   pets
+      row 5   everything else: stabilizer, Mana Tide, potion, Mana Spring, drink, rations, chaff, res
+  THE VIEW BUTTON (Arn: "button ... on right rail"): at the right rail's foot on the radar, at the console's top-right
+  corner in the console; one click switches, out of a fight (`radar.view` on the account). A party only for now: in a
+  raid the radar stays (the 10 / 20 / 40 console is its own design, to come). ]]
+-- a unit that is never a friend: an empty place and the radar's background name it, so the mouseover is nobody there
+-- (an arena enemy, which does not exist outside an arena - and inside one the wheel's [nohelp] stops it all the same)
+RD.EMPTY_UNIT = "arena5"
+-- FROM THE CENTRE OUT (Arn, 11 Nov): place in a group of five -> its column, the first (you, in a party) in the middle
+RD.CENTER_OUT = { 3, 2, 4, 1, 5 }
+RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2 }
+
+--[[ THE CONSOLE'S SHIPS (11 Nov 2026, Arn: "start to reimagine the next step up in groups we are upgrading ships to the next
+  class ending a spirit of star destroyer. let me click them even if i am not in that size party or raid, only go bigger
+  5-10%" ... "build from the center out" ... "dont ahve to keep them in the same groups the companion is going to tell us
+  who the best targets to keep in the center top 5 with me in the center, they can be in any group as long as they are
+  the best target according to the brains, outer edges people that arent really taking any damage").
+  Not a bigger copy: each class packs twice the crew into a hull only a little bigger, laid out IN RINGS - an odd grid,
+  every place sorted by its distance from the middle (RD.ConsoleCells), the n nearest kept, so the hull fills from the
+  centre out. WHO GOES WHERE IS A RANK, NOT A GROUP (RD.ConsoleOrder): you in the very middle, the top five round you,
+  the quiet ones on the edge. The rank comes from THE BRAINS - the companion's reading of the combat log, written as
+  `BiSBrains = { order = { "Name Surname", ... } }` into the private key addon on Arn's PC and read at a reload; until
+  then you, the tanks, the healers, then everyone else. Interrupts and pets: the top five's, in a row each under the
+  crew. Dispels: chips in each person's top corners. The tools row is the same in every ship; colours from RD.SHIPS.
+      FIGHTER   5   one row: you in the middle, then dispels / interrupts / pets / tools rows (the first console)
+      GUNSHIP  10   5 x 3 grid, the 10 nearest the middle
+      CRUISER  20   7 x 3 grid, the 20 nearest
+      CAPITAL  40   9 x 5 grid, the 40 nearest - the star destroyer
+  The view button steps radar -> fighter -> gunship -> cruiser -> capital -> radar, in any group (a preview: the empty
+  places are empty squares, on the edge); a group too big for a class skips it. ]]
+RD.CON_TIERS = {
+    { n = 5,  ship = 1, name = "FIGHTER" },
+    { n = 10, ship = 2, name = "GUNSHIP", cols = 5, rows = 3, sq = 24, ph = 16, colW = 41, rowGap = 4, chip = 9, kick = 22, pet = 18 },
+    { n = 20, ship = 3, name = "CRUISER", cols = 7, rows = 3, sq = 22, ph = 14, colW = 32, rowGap = 3, chip = 8, kick = 20, pet = 14 },
+    { n = 40, ship = 4, name = "CAPITAL", cols = 9, rows = 5, sq = 18, ph = 12, colW = 27, rowGap = 3, chip = 7, kick = 18, pet = 14 },
+}
+
+--[[ THE RADAR'S SHIPS (11 Nov 2026, Arn: "i want you to reimage the radar screen, for 10 20 40 we already have the 5 version
+  very nice" - the console above is the engineer's view of the same classes). The fighter keeps the party radar. A bigger
+  class is a FLEET round you, by rank (RD.ConsoleOrder - you, then the brains' order), drawn in rings:
+      you      the star destroyer, in the middle (your cure above you, your target's bogey straight up at the rim)
+      core     the next four on the inner ring, on the diagonals, full size, with cures and interrupts (bogeys at the
+               rim, on the diagonals - the outer rings leave the diagonals clear for them)
+      escorts  the middle ring, smaller, a cure beside each, no bogey
+      screen   the outer ring, the smallest ("the ones that will have to be sacrificed to protect the carriers")
+  The scope only grows 7-8% a class (300 / 320 / 345 / 370 - the old one-size raid radar was 440). Pets: the core's. ]]
+RD.FLEET = {
+    [10] = { size = 320, core = { rh = 56, rc = 86, rb = 140, ph = 24, pc = 13, pb = 20 },
+             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 0 } } },
+    [20] = { size = 345, core = { rh = 56, rc = 84, rb = 158, ph = 24, pc = 13, pb = 20 },
+             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 0 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
+    [40] = { size = 370, core = { rh = 56, rc = 82, rb = 172, ph = 22, pc = 12, pb = 18 },
+             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 0 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
+}
+
+--- Every place of a fleet, in rank order: you, the core four, then each ring from the top clockwise.
+function RD.FleetPlaces(T)
+    local F = RD.FLEET[T.n]
+    if not F then return nil end
+    local C, S = F.core, RD.SELF
+    local P = { { b = 0, rh = 0, rc = S.rc, rb = C.rb, ph = C.ph + 4, pc = C.pc, pb = C.pb, own = true, self = true, band = "you" } }
+    for j = 1, 4 do
+        P[#P + 1] = { b = math.pi / 4 + (j - 1) * math.pi / 2, rh = C.rh, rc = C.rc, rb = C.rb, ph = C.ph, pc = C.pc,
+                      pb = C.pb, own = true, band = "core" }
+    end
+    for r, R in ipairs(F.rings) do
+        for j = 1, R.n do
+            P[#P + 1] = { b = math.rad(R.off) + (j - 1) * 2 * math.pi / R.n, rh = R.rh, rc = R.rh + R.ph / 2 + R.pc / 2 + 3,
+                          ph = R.ph, pc = R.pc, own = false, band = (r == #F.rings and #F.rings > 1) and "screen" or "escort" }
+        end
+    end
+    return P
+end
+
+--- The fleet's slots for these units: slot i (unit i) gets the place of its rank. Answers slots, the scope's size, rim.
+function RD.FleetGeometry(T, order)
+    local P = RD.FleetPlaces(T)
+    local F = RD.FLEET[T.n]
+    local slots = {}
+    for k, i in ipairs(order) do
+        local p = P[k]
+        if p then
+            local s = {}
+            for key, v in pairs(p) do s[key] = v end
+            s.group, s.pos, s.rank = math.ceil(i / 5), (i - 1) % 5 + 1, k
+            slots[i] = s
+        end
+    end
+    return slots, F.size, F.size / 2 - 4
+end
+
+--[[ THE FLEET MADE VISIBLE (11 Nov 2026, Arn: "yes do both", to: faint seats out of a fight, and rings where the ships sit).
+  RINGS: a class bigger than the fighter hides the party's inner rings and draws its own - the core's ring and each of
+  its rings, at the radius its ships sit on (RD.DrawRings), in the ship's line like the rest of the scope; the rim, cross
+  and ticks stay. They stay in a fight, like the scope. SEATS: every place a faint dot out of a fight (RD.PaintSeats),
+  so the fleet's shape shows on a quiet radar; gone in a fight (RD.PaintQuiet), gone in the engineer's view. ]]
+RD.SEAT_ALPHA = 0.45
+function RD.DrawRings(T)
+    local f = RD.frame
+    if not f then return end
+    local F = T and RD.FLEET[T.n]
+    local fleet = F and not RD.Console()
+    for _, l in ipairs(RD.innerRings or {}) do if fleet then l:Hide() else l:Show() end end
+    RD.ringFrame = RD.ringFrame or CreateFrame("Frame", nil, f)
+    local rf = RD.ringFrame
+    rf:SetAllPoints(f)
+    rf:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    RD.fleetLines = RD.fleetLines or {}
+    for _, l in ipairs(RD.fleetLines) do l:Hide() end
+    if not fleet then rf:Hide() return end
+    rf:Show()
+    local radii = { F.core.rh }
+    for _, R in ipairs(F.rings) do radii[#radii + 1] = R.rh end
+    local L, k = (RD.ship and RD.ship.line) or RD.PHOS, RD.SCOPE_DIM
+    local col = { L[1] * k, L[2] * k, L[3] * k, 0.85 }
+    local n = 0
+    for _, r in ipairs(radii) do
+        for j = 1, RD.RING_SEG do
+            n = n + 1
+            local a0, a1 = (j - 1) * 2 * math.pi / RD.RING_SEG, j * 2 * math.pi / RD.RING_SEG
+            local l = RD.fleetLines[n]
+            if not l then
+                l = line(rf, "BORDER", 0, 0, 0, 0, col, 1)
+                RD.fleetLines[n] = l
+            end
+            l:SetStartPoint("CENTER", rf, math.sin(a0) * r, math.cos(a0) * r)
+            l:SetEndPoint("CENTER", rf, math.sin(a1) * r, math.cos(a1) * r)
+            l:SetVertexColor(col[1], col[2], col[3], col[4])
+            l:Show()
+        end
+    end
+    RD.fleetRadii = radii
+end
+
+--- A faint dot at every place, out of a fight: the fleet's shape on a quiet radar.
+function RD.PaintSeats(slots)
+    local f = RD.frame
+    if not f then return end
+    RD.seatFrame = RD.seatFrame or CreateFrame("Frame", nil, f)
+    local sf = RD.seatFrame
+    sf:SetAllPoints(f)
+    sf:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    RD.seats = RD.seats or {}
+    local L = (RD.ship and RD.ship.line) or RD.PHOS
+    local n = 0
+    if not RD.Console() then
+        for _, s in ipairs(slots or {}) do
+            n = n + 1
+            local t = RD.seats[n]
+            if not t then
+                t = sf:CreateTexture(nil, "BORDER")
+                t:SetTexture(RD.ART .. "disc")
+                RD.seats[n] = t
+            end
+            local px = math.max(4, math.floor((s.ph or 20) * 0.3 + 0.5))
+            t:SetSize(px, px)
+            t:ClearAllPoints()
+            t:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
+            t:SetVertexColor(L[1], L[2], L[3], RD.SEAT_ALPHA)
+            t:Show()
+        end
+    end
+    for j = n + 1, #RD.seats do RD.seats[j]:Hide() end
+    sf:SetAlpha((RD.inFight or combat()) and 0 or 1)
+end
+
+--- The console is in use (any group: a class that holds everyone is picked, RD.ConsoleTier).
+function RD.Console() return db().view == "console" end
+
+--- The console's class: the one chosen, or the smallest that holds everyone in `units` (a raid's slot is its group and
+--- place, so the highest slot says how many must fit). Answers the class and its number.
+function RD.ConsoleTier(units)
+    local hi = 0
+    for i in pairs(units or RD.units or {}) do if type(i) == "number" and i > hi then hi = i end end
+    local need = #RD.CON_TIERS
+    for k, t in ipairs(RD.CON_TIERS) do if hi <= t.n then need = k break end end
+    local k = math.min(#RD.CON_TIERS, math.max(tonumber(db().tier) or 1, need))
+    return RD.CON_TIERS[k], k
+end
+
+--- THE BRAINS' RANK: name -> place (1 = watch first), from the companion's `BiSBrains` (private, Arn's PC). nil without.
+function RD.BrainsRank()
+    local b = _G.BiSBrains
+    if type(b) ~= "table" or type(b.order) ~= "table" then return nil end
+    local out = {}
+    for k, name in ipairs(b.order) do if type(name) == "string" and not out[name] then out[name] = k end end
+    return next(out) and out or nil
+end
+
+--- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order (or
+--- the tanks, the healers, everyone else), the empty slots last (the edge). Out of a fight (names and roles are plain).
+function RD.ConsoleOrder(units, n)
+    local present, empty, rank = {}, {}, {}
+    local brains = RD.BrainsRank()
+    for i = 1, n do
+        local u = units and units[i]
+        if u then present[#present + 1] = i else empty[#empty + 1] = i end
+    end
+    for _, i in ipairs(present) do
+        local u = units[i]
+        local okMe, me = false, nil
+        if u == "player" then okMe, me = true, true
+        elseif UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end   -- a raid names you "raidN"
+        if okMe and plain(me) == true then
+            rank[i] = 0
+        elseif brains then
+            local okN, name = pcall(GetUnitName, u, false)
+            name = okN and plain(name) or nil
+            rank[i] = (type(name) == "string" and brains[name]) or (1000 + i)
+        else
+            local role = RD.Role(u)
+            rank[i] = (role == "tank" and 100 or role == "heal" and 200 or 300) + i
+        end
+    end
+    table.sort(present, function(a, b) return rank[a] < rank[b] end)
+    for _, i in ipairs(empty) do present[#present + 1] = i end
+    return present
+end
+
+--- Every slot of a class: the fighter's own (RD.ConsoleSlot), else small ones. `top` = the slots that carry an interrupt
+--- and a pet (the top five of the rank).
+function RD.ConsoleSlots(T, top, rankOf)
+    local out = {}
+    top, rankOf = top or {}, rankOf or {}
+    for i = 1, T.n do
+        if T.n == 5 then
+            out[i] = RD.ConsoleSlot(i)
+        else
+            local mine = top[i] == true
+            local z = RD.ShipScale(rankOf[i] or i, T.n)
+            out[i] = { b = 0, rh = 0, rc = 0, rb = mine and 0 or nil, ph = math.floor(T.ph * z + 0.5), pc = math.max(2, T.chip - 4),
+                       pb = T.kick * 0.8, own = mine, group = math.ceil(i / 5), pos = (i - 1) % 5 + 1, console = true,
+                       scale = z }
+        end
+    end
+    return out
+end
+
+--- THE FLEET'S SHAPE (Arn, 11 Nov: "we are the star destroyer, our best ships are around us ... like how herds keep the
+--- vulnerable in the middle, out in the outer edges are the screen ships smaller ships that dont take much damage"):
+--- the size of the k-th in rank - the core five full size, the escorts a little smaller, the outer screen the smallest.
+RD.SHIP_SIZES = { core = 1, escort = 0.85, screen = 0.72 }
+function RD.ShipScale(k, n)
+    if k <= 5 then return RD.SHIP_SIZES.core end
+    if k <= math.ceil(n * 2 / 3) then return RD.SHIP_SIZES.escort end
+    return RD.SHIP_SIZES.screen
+end
+
+--- The slot a spoke gets in the fighter: drawn small (its glyph fits its square), placed by RD.ConsoleLayout.
+function RD.ConsoleSlot(i)
+    local C = RD.CON
+    return { b = 0, rh = 0, rc = 0, rb = 0, ph = C.ph, pc = C.cure, pb = C.pb, own = true, group = 1, pos = i,
+             self = (i == 1) or nil, console = true }
+end
+
+--- The fighter's grid: column centres, row centres, the size. Every place is (x, -y) from the radar frame's top-left.
+function RD.ConsoleGrid()
+    local C = RD.CON
+    local W = C.pad * 2 + C.colW * RD.SPOKES
+    local y1 = C.pad + C.sq / 2
+    local y2 = y1 + C.sq / 2 + C.gap + (C.cure + 4) / 2
+    local y3 = y2 + (C.cure + 4) / 2 + C.gap + C.sq / 2
+    local y4 = y3 + C.sq / 2 + C.gap + C.sq / 2
+    local y5 = y4 + C.sq / 2 + C.gap + RD.SYS_PX / 2
+    local H = y5 + RD.SYS_PX / 2 + C.pad
+    local cols = {}
+    for i = 1, RD.SPOKES do cols[i] = C.pad + C.colW * (i - 0.5) end
+    return { W = W, H = H, cols = cols, rows = { y1, y2, y3, y4, y5 } }
+end
+
+--- A bigger class's places: an odd grid, sorted nearest the middle first (in pixels), the n nearest kept. Answers the
+--- places {x, y}, the crew block's size.
+function RD.ConsoleCells(T, x0)
+    local C = RD.CON
+    local pitch = T.sq + T.rowGap
+    local midC, midR = (T.cols + 1) / 2, (T.rows + 1) / 2
+    local cells = {}
+    for r = 1, T.rows do
+        for c = 1, T.cols do
+            local dx, dy = (c - midC) * T.colW, (r - midR) * pitch
+            cells[#cells + 1] = { x = x0 + T.colW * (c - 0.5), y = C.pad + T.sq / 2 + (r - 1) * pitch, d = dx * dx + dy * dy,
+                                  r = r, c = c }
+        end
+    end
+    table.sort(cells, function(a, b)
+        if a.d ~= b.d then return a.d < b.d end
+        if a.r ~= b.r then return a.r < b.r end
+        return a.c < b.c
+    end)
+    local out = {}
+    for k = 1, T.n do out[k] = cells[k] end
+    return out, T.cols * T.colW, T.rows * T.sq + (T.rows - 1) * T.rowGap
+end
+
+-- an empty square: four thin edges in the dim phosphor, on the console's own layer
+local function square(key, px)
+    RD.conSquares = RD.conSquares or {}
+    local q = RD.conSquares[key]
+    if not q then
+        q = CreateFrame("Frame", nil, RD.conLayer)
+        q.edges = edge(q, RD.DIM, 1)
+        RD.conSquares[key] = q
+    end
+    q:SetSize(px, px)
+    q:Show()
+    return q
+end
+
+local function at(fr, x, y)
+    fr:ClearAllPoints()
+    fr:SetPoint("CENTER", RD.frame, "TOPLEFT", x, -y)
+end
+
+-- the tools row: every tool from both rails, centred across `W`, at `y`
+local CON_TOOLS = function() return { RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res } end
+local function toolsRow(W, y)
+    local tools = CON_TOOLS()
+    local n, gap = #tools, RD.CON.toolGap
+    local w = n * RD.SYS_PX + (n - 1) * gap
+    local x0 = (W - w) / 2 + RD.SYS_PX / 2
+    for k, b in ipairs(tools) do
+        local x = x0 + (k - 1) * (RD.SYS_PX + gap)
+        at(square("tool" .. k, RD.SYS_PX), x, y)
+        at(b, x, y)
+    end
+end
+
+-- a spoke's crosshairs and dims, in the console: on its pip, the dims away
+local function settle(sp)
+    for _, fr in ipairs(sp.dims or {}) do fr:Hide() end
+    for _, cr in ipairs({ sp.cross, sp.totCross, sp.bogeyCross }) do
+        if cr then cr:ClearAllPoints() cr:SetPoint("CENTER", sp.heal, "CENTER") end
+    end
+end
+
+--- A bigger class (gunship, cruiser, capital): the crew in rings by rank, each person's dispels as chips in their top
+--- corners; the top five's interrupts and pets in a row each under them, the middle first; the tools row.
+function RD.ConsoleLayoutWide(T, order)
+    local f, C = RD.frame, RD.CON
+    local blockW = T.cols * T.colW
+    local W = math.max(C.pad * 2 + blockW, C.pad * 2 + 8 * RD.SYS_PX + 7 * C.toolGap)
+    local cells, _, blockH = RD.ConsoleCells(T, (W - blockW) / 2)
+    local yk = C.pad + blockH + C.gap + T.kick / 2
+    local yp = yk + T.kick / 2 + C.gap + T.pet / 2
+    local yt = yp + T.pet / 2 + C.gap + RD.SYS_PX / 2
+    local H = yt + RD.SYS_PX / 2 + C.pad
+    f:SetSize(W, H)
+    local kw = T.kick + 10
+    local function topX(j) return W / 2 + (RD.CENTER_OUT[j] - 3) * kw end
+    for j = 1, 5 do
+        at(square("kick" .. j, T.kick), topX(j), yk)
+        at(square("pet" .. j, T.pet), topX(j), yp)
+    end
+    local placed = {}
+    for k, i in ipairs(order) do
+        local cell = cells[k]
+        if not cell then break end
+        local sq = math.floor(T.sq * RD.ShipScale(k, T.n) + 0.5)   -- the core full size, the screen smallest
+        at(square("heal" .. k, sq), cell.x, cell.y)
+        local sp = RD.spokes[i]
+        if sp then
+            placed[i] = cell
+            cell.sq = sq
+            sp.heal:SetSize(sq, sq)
+            at(sp.heal, cell.x, cell.y)
+            settle(sp)
+            -- the dispels: chips in the person's top corners, over the heal square (they take their own click)
+            local lvl = sp.heal:GetFrameLevel()
+            for n, c in ipairs(sp.cures or {}) do
+                local side = (n % 2 == 1) and -1 or 1
+                c.box:SetSize(T.chip, T.chip)
+                at(c.box, cell.x + side * (sq / 2 - T.chip / 2), cell.y - (sq / 2 - T.chip / 2))
+                c.box:SetFrameLevel(lvl + 3)
+                if c.holder then c.holder:SetFrameLevel(lvl + 4) end
+                if c.container then c.container:ClearAllPoints() c.container:SetPoint("CENTER", c.box, "CENTER") end
+            end
+            if k <= 5 then
+                if sp.bogey then sp.bogey:SetSize(T.kick, T.kick) at(sp.bogey, topX(k), yk) end
+                if sp.pet then sp.pet:SetSize(T.pet, T.pet) at(sp.pet, topX(k), yp) end
+            end
+        end
+    end
+    toolsRow(W, yt)
+    return { W = W, H = H, tier = T, cells = cells, placed = placed, rows = { kick = yk, pet = yp, tools = yt } }
+end
+
+--- Put everything on the grid. Out of a fight only (RD.Arm calls it). Answers the grid.
+function RD.ConsoleLayout()
+    local f = RD.frame
+    if not f or combat() then return nil end
+    local C, G = RD.CON, RD.ConsoleGrid()
+    if not RD.conLayer then
+        RD.conLayer = CreateFrame("Frame", nil, f)
+        RD.conLayer:SetAllPoints(f)
+        RD.conLayer:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    end
+    RD.conLayer:Show()
+    for _, q in pairs(RD.conSquares or {}) do q:Hide() end
+    local T = RD.ConsoleTier()
+    local order = RD.conOrder or {}
+    if T.n > 5 then
+        RD.conGrid = RD.ConsoleLayoutWide(T, order)
+        return RD.conGrid
+    end
+    f:SetSize(G.W, G.H)
+    -- THE FIGHTER: one row, the first in rank (you) in the middle, the rest outward (Arn: "from the center out")
+    for k = 1, RD.SPOKES do
+        local i = order[k] or k
+        local x = G.cols[RD.CENTER_OUT[k]]
+        local sp = RD.spokes[i]
+        at(square("heal" .. k, C.sq), x, G.rows[1])
+        at(square("kick" .. k, C.sq), x, G.rows[3])
+        at(square("pet" .. k, C.sq), x, G.rows[4])
+        if sp then
+            sp.heal:SetSize(C.sq, C.sq)
+            at(sp.heal, x, G.rows[1])
+            if sp.bogey then sp.bogey:SetSize(C.sq, C.sq) at(sp.bogey, x, G.rows[3]) end
+            settle(sp)
+            -- the cures side by side under the person
+            local n = #(sp.cures or {})
+            for j, c in ipairs(sp.cures or {}) do
+                local off = (j - (n + 1) / 2) * (C.cure + 6)
+                at(square("cure" .. k .. "-" .. j, C.cure + 4), x + off, G.rows[2])
+                if not c.cure then RD.conSquares["cure" .. k .. "-" .. j]:Hide() end
+                at(c.box, x + off, G.rows[2])
+                if c.container then c.container:ClearAllPoints() c.container:SetPoint("CENTER", c.box, "CENTER") end
+            end
+            if sp.pet then sp.pet:SetSize(C.pet, C.pet) at(sp.pet, x, G.rows[4]) end
+        end
+    end
+    -- row 5: every tool from both rails, centred
+    toolsRow(G.W, G.rows[5])
+    G.tier = T
+    RD.conGrid = G
+    return G
+end
+
+--- The radar's own places back: the tools to their rails (where RD.Build put them), the console's squares away.
+function RD.RadarLayout()
+    if combat() then return false end
+    for _, b in ipairs({ RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res }) do
+        local h = b and b.home
+        if h then b:ClearAllPoints() b:SetPoint(h[1], h[2], h[3], h[4], h[5]) end
+    end
+    if RD.conLayer then RD.conLayer:Hide() end
+    return true
+end
+
+--- What steps aside in the console (the scope, the disc, the rails, the tape, the black box) comes back on the radar.
+function RD.ApplyView()
+    local con = RD.Console()
+    local function vis(fr, on) if fr then if on then fr:Show() else fr:Hide() end end end
+    vis(RD.scope, not con)
+    vis(RD.fade, not con)
+    vis(RD.dims, not con)
+    vis(RD.toolRail, not con)
+    vis(RD.gaugeRail, not con)
+    vis(RD.defRail, not con)
+    vis(RD.bbRail, not con)
+    vis(RD.gauge, not con)
+    -- the tape's pieces that hang on the radar frame itself: the regen readout, its chevron, the ramjet
+    local g = RD.gauge
+    if g then vis(g.regen, not con) vis(g.chev, not con) vis(g.fsr, not con) end
+    RD.PlaceViewButton()
+    RD.ClampRails()
+end
+
+--- The two buttons: the CLASS (5 / 10 / 20 / 40) over the VIEW (radar / engineer) at the right rail's foot on the radar;
+--- side by side in the console's top-right corner.
+function RD.PlaceViewButton()
+    local b, c, f = RD.viewBtn, RD.classBtn, RD.frame
+    if not (b and f) then return end
+    b:ClearAllPoints()
+    if c then c:ClearAllPoints() end
+    if RD.Console() then
+        b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
+        b:SetSize(12, 12)
+        if c then c:SetPoint("TOPRIGHT", b, "TOPLEFT", -3, 0) c:SetSize(12, 12) end
+    else
+        b:SetPoint("BOTTOM", RD.defRail or f, "BOTTOM", 0, 8)
+        b:SetSize(RD.SYS_PX, RD.SYS_PX)
+        if c then c:SetPoint("BOTTOM", b, "TOP", 0, 4) c:SetSize(RD.SYS_PX, RD.SYS_PX) end
+    end
+    RD.PaintViewButton()
+end
+
+function RD.PaintViewButton()
+    local b = RD.viewBtn
+    if not b then return end
+    local con = RD.Console()
+    -- no words on the radar: a drawn sign of where the click goes - four small squares (the engineer's console), a ring
+    -- (the radar)
+    for _, t in ipairs(b.grid) do t:SetAlpha(con and 0 or 1) end
+    for _, l in ipairs(b.ring) do l:SetAlpha(con and 1 or 0) end
+    b.tip = con and { "ENGINEER VIEW", "Click: back to the radar.  Out of a fight." }
+            or { "RADAR", "Click: the engineer's view - the same buttons on a plain grid (for anyone who would rather not "
+                 .. "have the radar).  Out of a fight." }
+    local c = RD.classBtn
+    if c then
+        local T, k = RD.ConsoleTier()
+        for j, t in ipairs(c.dots) do t:SetAlpha(j <= k and 1 or 0.18) end
+        local nk = k % #RD.CON_TIERS + 1
+        local nT = RD.CON_TIERS[nk]
+        c.tip = { T.name .. " (" .. T.n .. ")", "Click: " .. nT.name .. " (" .. nT.n .. ") - the next class of ship, in any "
+                  .. "group (a preview; a class too small for your group is skipped).  Out of a fight." }
+    end
+end
+
+--- One click on the view button: radar <-> the engineer's view, the class kept. Refused in a fight (the radar holds
+--- secure buttons). Answers "radar" or "console".
+function RD.ToggleView()
+    if combat() or RD.inFight then return nil end
+    local d = db()
+    d.view = (d.view ~= "console") and "console" or nil
+    RD.Arm()
+    return d.view and "console" or "radar"
+end
+
+--- One click on the class button: the next class - fighter, gunship, cruiser, capital, round again (Arn: "let me click
+--- them even if i am not in that size party or raid"); a class too small for the group is skipped. Answers its name.
+function RD.NextClass()
+    if combat() or RD.inFight then return nil end
+    local _, k = RD.ConsoleTier()
+    db().tier = k % #RD.CON_TIERS + 1
+    RD.Arm()
+    return RD.ConsoleTier().name
+end
+
+-- a small square button with the hover pop, a drawn sign and a tooltip
+local function smallButton(f, onClick)
+    local b = CreateFrame("Button", nil, f)
+    b:SetFrameLevel(f:GetFrameLevel() + 14)
+    local c = RD.PHOS
+    b.edges = edge(b, { c[1] * 0.6, c[2] * 0.6, c[3] * 0.6, 1 }, 1)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(b)
+    b.hl:SetTexture(RD.WHITE)
+    b.hl:SetVertexColor(c[1], c[2], c[3], 0.22)
+    b:SetScript("OnClick", onClick)
+    b:SetScript("OnEnter", function(self)
+        local tip = self.tip
+        if not (tip and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(tip[1])
+        GameTooltip:AddLine(tip[2], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    return b
+end
+
+--- The class button: four dots in a row, as many lit as the class (1 fighter .. 4 capital).
+function RD.BuildClassButton(f)
+    if RD.classBtn or not f then return RD.classBtn end
+    local b = smallButton(f, function() RD.NextClass() end)
+    local c = RD.PHOS
+    b.dots = {}
+    for j = 1, 4 do
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(c[1], c[2], c[3], 1)
+        t:SetSize(2, 2)
+        t:SetPoint("CENTER", b, "CENTER", (j - 2.5) * 3, 0)
+        b.dots[j] = t
+    end
+    RD.classBtn = b
+    return b
+end
+
+function RD.BuildViewButton(f)
+    if RD.viewBtn or not f then return RD.viewBtn end
+    local b = CreateFrame("Button", nil, f)
+    b:SetFrameLevel(f:GetFrameLevel() + 14)
+    local c = RD.PHOS
+    b.edges = edge(b, { c[1] * 0.6, c[2] * 0.6, c[3] * 0.6, 1 }, 1)
+    b.grid = {}
+    for _, o in ipairs({ { -3, 3 }, { 3, 3 }, { -3, -3 }, { 3, -3 } }) do
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(c[1], c[2], c[3], 1)
+        t:SetSize(4, 4)
+        t:SetPoint("CENTER", b, "CENTER", o[1], o[2])
+        b.grid[#b.grid + 1] = t
+    end
+    b.ring = {}
+    for k = 1, 12 do
+        local a0, a1 = (k - 1) * math.pi / 6, k * math.pi / 6
+        b.ring[k] = line(b, "OVERLAY", math.sin(a0) * 4, math.cos(a0) * 4, math.sin(a1) * 4, math.cos(a1) * 4, c, 1)
+    end
+    -- it pops on hover (every clickable thing does)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(b)
+    b.hl:SetTexture(RD.WHITE)
+    b.hl:SetVertexColor(c[1], c[2], c[3], 0.22)
+    b:SetScript("OnClick", function() RD.ToggleView() end)
+    b:SetScript("OnEnter", function(self)
+        local tip = self.tip
+        if not (tip and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(tip[1])
+        GameTooltip:AddLine(tip[2], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    RD.viewBtn = b
+    RD.PlaceViewButton()
+    return b
+end
+
+--- Where the hull reaches: the top-left of the gauge rail, the bottom-right of the bottom rail (or of the tool rail
+--- without one), out over the right rail's column while it shows. The rings follow it.
+--- How much wider the top and bottom rails run while the right rail shows (its column and the gap before it).
+function RD.RightW()
+    return (RD.defRail and RD.defRail:IsShown()) and (RD.RAIL_GAP + RD.TOOL_RAIL_W) or 0
+end
+
+--- THE SQUARE CLOSED (Arn, 10 Nov: "recenter all the stuff since we got extra space"): the gauge rail and the black
+--- box's rail run over the right rail's column while it shows, and what they hold re-centres in the new width (the
+--- tape between its placard and its ramjet, the black box's keypad at the right end). Out of it, back to the square.
+function RD.FitWide()
+    local f = RD.frame
+    if not f then return end
+    local w = f.GetWidth and f:GetWidth()
+    if RD.gauge and type(w) == "number" and w > 0 then RD.SizeGauge(w) end
+    local b = RD.bbRail
+    if b and RD.toolRail then
+        local gap = RD.RAIL_GAP
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", RD.toolRail, "BOTTOMLEFT", 0, -gap)
+        b:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT", RD.RightW(), -gap)
+    end
+end
+
+function RD.FitHull()
+    local h, f = RD.hull, RD.frame
+    if not (h and f) then return end
+    if RD.Console and RD.Console() then             -- the console: the hull is its own small square
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        h:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        RD.FitEdges(h)
+        return
+    end
+    local top = RD.gaugeRail or f
+    -- the bottom rail spans the whole width already (RD.FitWide); without one, the square's corner or the right rail's
+    local corner = RD.bbRail or ((RD.defRail and RD.defRail:IsShown()) and RD.defRail) or f
+    h:ClearAllPoints()
+    h:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
+    h:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
+    RD.FitEdges(h)
+end
+
+--- The soft rings round the hull, wherever it is.
+function RD.FitEdges(h)
+    local p = RD.EDGE_PX
+    for k, ring in ipairs(RD.edges or {}) do
+        local o, i = k * p, (k - 1) * p                 -- the ring's outer and inner distance from the hull
+        ring.top:ClearAllPoints()
+        ring.top:SetPoint("TOPLEFT", h, "TOPLEFT", -o, o)
+        ring.top:SetPoint("BOTTOMRIGHT", h, "TOPRIGHT", o, i)
+        ring.bottom:ClearAllPoints()
+        ring.bottom:SetPoint("TOPLEFT", h, "BOTTOMLEFT", -o, -i)
+        ring.bottom:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", o, -o)
+        ring.left:ClearAllPoints()
+        ring.left:SetPoint("TOPLEFT", h, "TOPLEFT", -o, i)
+        ring.left:SetPoint("BOTTOMRIGHT", h, "BOTTOMLEFT", -i, -i)
+        ring.right:ClearAllPoints()
+        ring.right:SetPoint("TOPLEFT", h, "TOPRIGHT", i, i)
+        ring.right:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", o, -i)
+    end
+end
+
+function RD.PaintHull()
+    local P = RD.PLATE
+    if RD.hull then RD.hull:SetVertexColor(P[1], P[2], P[3], 1) end
+    for _, ring in ipairs(RD.edges or {}) do
+        for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side]:SetVertexColor(P[1], P[2], P[3], ring.a) end
+    end
+end
+
+--- The radar's clamp: the tool rail, the gauge's rail and the black box's always, the right one while it shows.
 function RD.ClampRails()
+    RD.FitWide()                                     -- the top and bottom rails run over the right rail while it shows
+    RD.FitHull()                                     -- and the hull follows them
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
+    if RD.Console and RD.Console() then pcall(f.SetClampRectInsets, f, 0, 0, 0, 0) return end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
-    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, 0)
+    local bottom = (RD.bbRail and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
+    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, bottom)
 end
 
 --- The HUD scale UNDER the tape: the spine, the ticks hanging from it, the numbers under them, and the readout box
@@ -1197,7 +1947,9 @@ end
 function RD.SizeGauge(size)
     local g, G = RD.gauge, RD.GAUGE
     if not g then return nil end
-    local railW = size + RD.TOOL_RAIL_W + RD.RAIL_GAP
+    -- the whole width once the panel closes into a square (Arn, 10 Nov: "once its closed like a square rail recenter all
+    -- the stuff since we got extra space"): over the right rail's column too while it shows
+    local railW = size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW()
     if RD.gaugeRail then RD.gaugeRail:SetWidth(railW) end
     local w = railW - G.left - G.right
     g:ClearAllPoints()
@@ -1253,7 +2005,8 @@ function RD.ApplyShip(ship)
     RD.PLATE[1], RD.PLATE[2], RD.PLATE[3] = P[1], P[2], P[3]
     local function plate(t) if t then t:SetVertexColor(P[1], P[2], P[3], 1) end end
     plate(RD.fade)
-    for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail }) do plate(r and r.bg) end
+    for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail, RD.bbRail }) do plate(r and r.bg) end
+    RD.PaintHull()                                   -- the hull and its soft edge, in the same plate
     local sh = RD.shield
     if sh then
         plate(sh.plate)
@@ -1265,7 +2018,7 @@ function RD.ApplyShip(ship)
     for _, l in ipairs(RD.scopeLines or {}) do l:SetVertexColor(L[1] * k, L[2] * k, L[3] * k, 0.85) end
     RD.ShapeBrackets(ship)
     local A = ship.accent
-    for _, l in ipairs(RD.meLines or {}) do l:SetVertexColor(A[1], A[2], A[3], 1) end
+    RD.PaintMe()
     -- the fuel tape: your mana and the ruler in the ship's fuel colour, the groove, the scale, the readout, the placard
     local g = RD.gauge
     if g then
@@ -1413,6 +2166,8 @@ function RD.Build()
     f:SetMovable(true)
     f:SetClampedToScreen(true)
     f:EnableMouse(true)
+    -- the radar's own background is nobody too (RD.EMPTY_UNIT): the wheel over a gap heals no one
+    f:SetAttribute("unit", RD.EMPTY_UNIT)
     f:RegisterForDrag("LeftButton")
     -- dragged by the scope, out of a fight only; the drag ENDS before a fight takes the mouse (BiS Tools' lesson, 8 Nov)
     f:SetScript("OnDragStart", function(self)
@@ -1458,6 +2213,12 @@ function RD.Build()
     RD.chaff.pulse = RD.Pulse(RD.chaff.beat, RD.PULSE_MID)
     RD.chaff.cd = RD.Sweep(RD.chaff.face)
     RD.DEFENCE = { RD.chaff }
+    -- THE RES under the chaff, out of a fight only (RD.ArmRes)
+    RD.res = buildSystem(f, "Res", "TOPLEFT", X, -8 - step, RD.defRail)
+    RD.BuildRes(RD.res)
+    -- THE VIEW BUTTON: radar <-> the engineer's console (RD.ToggleView)
+    RD.BuildClassButton(f)
+    RD.BuildViewButton(f)
     -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
     RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
     for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
@@ -1558,11 +2319,7 @@ end
 local function armHeal(sp, unit)
     local b = sp.heal
     b:SetAttribute("unit", unit)
-    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, b) end      -- your binds on every other click
-    local h = RD.heal
-    -- a plain left-click is the radar heal (the attribute without a modifier wins over "*type1")
-    b:SetAttribute("type1", h and "spell" or nil)
-    b:SetAttribute("spell1", h and h.cast or nil)
+    RD.BindsOn(b)                                                     -- your binds are every click, the left one too
     b.unit = unit
     -- the face: the role glyph, rebuilt only when the role changed
     local role = RD.Role(unit)
@@ -1631,6 +2388,49 @@ end
 
 --- Put a spoke's pet where its slot says, on its owner's pet token, the client watching it. Out of a fight only.
 --- No owner, or no place for a pet (a raid's other groups): off the watch and hidden.
+--[[ YOUR BINDS ARE THE CLICKS (10 Nov 2026, Arn: "did we set a heal to left click? if we did get rid of it and lets
+  whatever binds set as the heal"). The radar's own left-click heal is gone: a pip or a pet carries exactly what the
+  bind window says, the left button too (an empty left button targets, like on the grid). RD.heal stays only for where
+  amber starts (RD.HealAmount).
+  NEVER A HEAL ON YOU BY ACCIDENT (same night: "when someone dies it leaves a red sword ... anytime i clicked it it
+  healed me"): a plain "spell" click on someone a heal cannot land on (dead, a ghost) is handed by the client to its
+  self-cast - you. So a pip is GUARDED (`b.__guard`, Mouse.lua's FM.ApplyTo): each bound spell is the macro
+  `/cast [@mouseover,help,nodead] <spell>`, and on the dead or hostile it casts nothing. The client checks it at the
+  click, mid-fight too. Out of a fight a dead pip still resurrects (FM.ResNow), and hostile binds still work on enemies. ]]
+function RD.BindsOn(b)
+    b.__guard = true
+    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, b) end
+    -- no click of the radar's own: a plain "type1" would win over your bind's "*type1"
+    b:SetAttribute("type1", nil)
+    b:SetAttribute("macrotext1", nil)
+    b:SetAttribute("spell1", nil)
+end
+
+--- Your binds changed (FM.Apply): every pip and pet in use takes them. Out of a fight only (secure writes).
+function RD.ApplyBinds()
+    if combat() then return 0 end
+    local n = 0
+    for _, sp in ipairs(RD.spokes or {}) do
+        if sp.unit and sp.heal then RD.BindsOn(sp.heal) n = n + 1 end
+        if sp.petUnit and sp.pet then RD.BindsOn(sp.pet) n = n + 1 end
+    end
+    return n
+end
+
+--- A DEAD PERSON'S PIP GOES DARK (same night): 0% health read red, but there is nothing a heal can do. In a fight the
+--- answer may be a secret: it goes to the client (SetAlphaFromBoolean), never into an `if`. True when we KNOW they are.
+function RD.DeadDark(face, unit)
+    if not (UnitIsDeadOrGhost and face and unit) then return false end
+    local ok, dead = pcall(UnitIsDeadOrGhost, unit)
+    if not ok then return false end
+    if NS.Secret and NS.Secret(dead) then
+        if face.SetAlphaFromBoolean then pcall(face.SetAlphaFromBoolean, face, dead, 0, 1) end
+        return false
+    end
+    if dead == true then face:SetAlpha(0) return true end
+    return false
+end
+
 local function armPet(sp, unit, s)
     local p = sp.pet
     if not p then return nil end
@@ -1648,10 +2448,7 @@ local function armPet(sp, unit, s)
     p:ClearAllPoints()
     p:SetPoint("CENTER", RD.frame, "CENTER", x, y)
     p:SetAttribute("unit", pu)
-    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, p) end      -- your binds on every other click
-    local h = RD.heal
-    p:SetAttribute("type1", h and "spell" or nil)
-    p:SetAttribute("spell1", h and h.cast or nil)
+    RD.BindsOn(p)                                                     -- your binds, like on its owner
     p.unit = pu
     if sp.petPx ~= px then
         for _, t in ipairs(sp.petTex or {}) do t:Hide() end
@@ -1669,6 +2466,7 @@ function RD.PaintPet(sp)
     local okE, there = pcall(UnitExists, sp.petUnit)
     if okE and plain(there) == false then p.face:SetAlpha(0) return false end
     p.face:SetAlpha(1)
+    if RD.DeadDark(p.face, sp.petUnit) then return false end
     local curve = RD.Curve(RD.AMBER)
     local ok, col = false, nil
     if curve and UnitHealthPercent then ok, col = pcall(UnitHealthPercent, sp.petUnit, true, curve) end  -- an `and` keeps one return
@@ -2143,10 +2941,113 @@ function RD.ArmChaff()
     b.tip = spell and { "CHAFF", spell .. " - the catch-all: lights when an enemy on the radar casts and your interrupt "
                         .. "(the flare on its bogey) is cooling.  No target needed." } or nil
     if RD.defRail then
-        if spell then RD.defRail:Show() else RD.defRail:Hide() end
+        -- ALWAYS SHOWN (Arn, 10 Nov: "lets always show the full square rail even if there is nothing there"): the
+        -- panel is a closed square whether the chaff or the res is in it or not
+        RD.defRail:Show()
         RD.ClampRails()
     end
     return spell
+end
+
+--[[ THE RES (10 Nov 2026, Arn: "Out of combat right rail let's put the resurrection module where it chooses the best
+  person to res always lights up when someone is dead if they are out of range it'll say so or los it'll say so").
+  On the defence rail under the chaff. OUT OF A FIGHT ONLY - a res is - and dark in one.
+    who     BiS> now's own pick (FN.ResTarget): healers first, then Arn's class order, released or not (Arn: "people
+            that have released should not be skipped"); never someone offline, someone a res is already coming to,
+            or a corpse another BiS healer claimed (RezComm)
+    click   `/cast [@<unit>,help] <res>`: that friend only - a res is never anything on you (you are alive), and no
+            [dead] in it, so a ghost who released is res'd too
+    lit     whenever someone can be brought back; the name is in the tooltip (no words on the scope)
+    RANGE   asked of the client for that one person while it is lit (one question a tick, out of a fight)
+    LOS     only the cast can tell: a res that fails on line of sight with the mouse on the pip says so, for a while
+  Asked again only when something changed (RD.resDirty: health, the roster, a res coming, a fight's end) and every
+  RD.RES_EVERY ticks while someone lies there (a claim from another healer runs out on a clock). Nobody dead, no work. ]]
+RD.RES_EVERY = 4                                   -- ticks (2 s) between re-picks while someone is dead
+RD.RES_LOS = 4                                     -- seconds the LOS word stays after a failed res
+function RD.BuildRes(b)
+    b.kind = "res"
+    b.face:SetAlpha(0)
+    b:EnableMouse(false)
+    local G = RD.COL.green
+    for _, l in ipairs(b.ring or {}) do l:SetVertexColor(G[1], G[2], G[3], 1) end
+    b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT)
+    -- the word under it: RANGE or LOS, in the grid's flash red
+    local w = b:CreateFontString(nil, "OVERLAY")
+    w:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "THICKOUTLINE")
+    w:SetPoint("TOP", b, "BOTTOM", 0, -1)
+    local R = (NS.FG and NS.FG.FLASH_RED) or RD.COL.red
+    w:SetTextColor(R[1], R[2], R[3], 1)
+    w:SetText("")
+    b.word = w
+    b:HookScript("OnEnter", function() RD.overRes = true end)
+    b:HookScript("OnLeave", function() RD.overRes = nil end)
+    RD.resDirty = true
+end
+
+--- Aim the res at the best corpse, or put it out. Out of a fight only (secure writes). Answers the unit, or nil.
+function RD.ArmRes()
+    local b = RD.res
+    if not b or combat() or RD.inFight then return nil end
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell() or nil
+    local unit = res and NS.FN and NS.FN.ResTarget and NS.FN.ResTarget() or nil
+    if res ~= b.spell then
+        b.spell = res
+        local tex = nil
+        if res and C_Spell and C_Spell.GetSpellTexture then
+            local ok, t = pcall(C_Spell.GetSpellTexture, res)
+            tex = ok and t or nil
+        end
+        if b.icon then pcall(b.icon.SetTexture, b.icon, tex) end
+    end
+    local macro = unit and ("/cast [@" .. unit .. ",help] " .. res) or nil
+    if macro ~= b.macro then
+        b:SetAttribute("*type1", macro and "macro" or nil)
+        b:SetAttribute("*macrotext1", macro)
+        b.macro = macro
+    end
+    if unit ~= b.unit then b.losUntil = nil end
+    b.unit = unit
+    b:EnableMouse(unit and true or false)
+    b.face:SetAlpha(unit and 1 or 0)
+    local okN, name = pcall(GetUnitName, unit or "none", false)
+    name = (unit and okN and plain(name)) or nil
+    b.tip = unit and { "RES" .. (type(name) == "string" and (": " .. name) or ""),
+                       res .. " - who to bring back first: healers, then by class.  Out of a fight only." } or nil
+    RD.PaintResWord()
+    return unit
+end
+
+--- The word under the res: LOS for a while after a failed res, else RANGE when the client says they are too far.
+function RD.PaintResWord()
+    local b = RD.res
+    if not (b and b.word) then return nil end
+    local word = ""
+    local now = (GetTime and GetTime()) or 0
+    if b.unit then
+        if b.losUntil and now < b.losUntil then
+            word = "LOS"
+        elseif b.spell and C_Spell and C_Spell.IsSpellInRange then
+            local ok, inRange = pcall(C_Spell.IsSpellInRange, b.spell, b.unit)
+            if ok and plain(inRange) == false then word = "RANGE" end
+        end
+    end
+    if b.word.__res ~= word then b.word:SetText(word) b.word.__res = word end
+    return word ~= "" and word or nil
+end
+
+--- A fight: the res goes dark and stops answering clicks (before the lockdown starts: PLAYER_REGEN_DISABLED).
+function RD.ResOff()
+    local b = RD.res
+    if not b then return end
+    b.face:SetAlpha(0)
+    if b.word then b.word:SetText("") b.word.__res = "" end
+    if not combat() then
+        b:SetAttribute("*type1", nil)
+        b:SetAttribute("*macrotext1", nil)
+        b:EnableMouse(false)
+        b.macro, b.unit = nil, nil
+    end
+    RD.resDirty = true                               -- asked again when the fight ends
 end
 
 --- What is still cooling, from the client while it will say (out of a fight): seeds our own clock, so a Mana Tide used
@@ -2355,6 +3256,14 @@ function RD.Arm()
             end
         end
     end
+    -- THE RADAR'S SHIPS (11 Nov): a class bigger than the fighter is its own drawing - rings by rank round you
+    -- (RD.FleetGeometry); the class is chosen (the class button) or the smallest that holds everyone
+    local T = RD.ConsoleTier(units)
+    if not RD.Console() and T.n > 5 then
+        local order = RD.ConsoleOrder(units, T.n)
+        RD.conOrder = order
+        slots, size, rim = RD.FleetGeometry(T, order)
+    end
     RD.slots, RD.rim = slots, rim
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
@@ -2364,7 +3273,21 @@ function RD.Arm()
     -- THE SHIP for this many (Arn, 9 Nov: "the more the group gets we change the color"): out of a fight only, here
     local n = 0
     for i = 1, #slots do if units[i] then n = n + 1 end end
-    RD.ApplyShip(RD.ShipFor(math.max(1, n)))
+    RD.ApplyShip(RD.SHIPS[T.ship] or RD.ShipFor(math.max(1, n)))   -- the class's colours (a preview shows its own)
+    local con = RD.Console()                         -- the engineer's console: small slots, placed on its grid after
+    if con then
+        -- its class (fighter .. capital): chosen, or the smallest that holds everyone; the radar's ship colours with it
+        local T = RD.ConsoleTier(units)
+        -- who goes where: a rank (you, then the brains' order), the top five carrying interrupts and pets
+        local order = RD.ConsoleOrder(units, T.n)
+        local top, rankOf = {}, {}
+        for k = 1, math.min(5, #order) do top[order[k]] = true end
+        for k, i in ipairs(order) do rankOf[i] = k end
+        RD.conOrder = order
+        slots = RD.ConsoleSlots(T, top, rankOf)
+        RD.slots = slots
+        RD.ApplyShip(RD.SHIPS[T.ship] or RD.ShipFor(T.n))
+    end
     for i, s in ipairs(slots) do
         local sp = RD.Spoke(i)
         local unit = units[i]
@@ -2380,9 +3303,12 @@ function RD.Arm()
             armHeal(sp, unit)
             if s.rb then armBogey(sp, unit) else sp.bogey:SetAttribute("unit", nil) sp.bogey:EnableMouse(false) sp.kick = nil end
         else
-            sp.heal:SetAttribute("unit", nil)
+            -- AN EMPTY PLACE IS NOBODY (Arn, 10 Nov: the wheel over an empty console square "heal me"): it takes the
+            -- mouse and names a unit that never exists, so the game's mouseover becomes nobody and the wheel's guard
+            -- ([@mouseover,noexists]) casts nothing - before, the mouseover stayed whoever you hovered last (you)
+            sp.heal:SetAttribute("unit", RD.EMPTY_UNIT)
             sp.heal:SetAttribute("type1", nil)
-            sp.heal:EnableMouse(false)
+            sp.heal:EnableMouse(true)
             sp.bogey:SetAttribute("unit", nil)
             sp.bogey:EnableMouse(false)
             sp.kick, sp.paintTex = nil, nil
@@ -2406,6 +3332,11 @@ function RD.Arm()
     RD.ArmTools()
     armUse(RD.rations, RD.FoodWanted())
     RD.PickFuel()
+    RD.PaintMe()                                     -- your role's sign in the middle (a role change lands here)
+    if con then RD.ConsoleLayout() else RD.RadarLayout() end
+    RD.DrawRings(T)                                  -- the class's own rings (a fleet), or the party's
+    RD.PaintSeats(slots)                             -- a faint dot at every place, out of a fight
+    RD.ApplyView()                                   -- what steps aside in the console, and the view button
     RD.Paint()
     return true
 end
@@ -2422,6 +3353,7 @@ function RD.PaintHeal(sp)
     local okE, there = pcall(UnitExists, sp.unit)
     if okE and plain(there) == false then sp.heal.face:SetAlpha(0) return false end
     sp.heal.face:SetAlpha(1)
+    if RD.DeadDark(sp.heal.face, sp.unit) then return false end   -- dead: nothing to heal, nothing lit
     local curve = RD.Curve(sp.amber)
     if not (curve and UnitHealthPercent) then
         -- no curves on this client: the pip stays at its spot, plainly green, rather than lie about urgency
@@ -2460,6 +3392,8 @@ function RD.PaintQuiet()
     if RD.scope then RD.scope:SetAlpha(1) end
     -- the dim slot outlines are never drawn (Arn, 8 Nov: "the box outlines are not needed"); the scope alone says where
     if RD.dims then RD.dims:SetAlpha(0) end
+    -- the faint seats instead (Arn, 11 Nov): out of a fight only
+    if RD.seatFrame then RD.seatFrame:SetAlpha(fight and 0 or 1) end
     if RD.rations then RD.rations.face:SetAlpha((not fight and RD.rations.item) and 1 or 0) end
     RD.PaintTools(fight)
 end
@@ -2581,6 +3515,13 @@ function RD.Look()
                 if okH and (hostile == true or (NS.Secret and NS.Secret(hostile))) then anyCast = true end
             end
             local lit = casting and sp.kick and true or false
+            -- ENEMIES ONLY (Arn, 10 Nov: "when im healing myself and targeting myself it shows the interuppt?"): your own
+            -- bogey is YOUR target - you, casting your own heal, lit it. A plain "not hostile" puts it out; a secret answer
+            -- keeps it (the kick itself only ever fires on an enemy: *harmbutton1)
+            if lit and UnitCanAttack then
+                local okH, hostile = pcall(UnitCanAttack, "player", sp.tok)
+                if okH and not (NS.Secret and NS.Secret(hostile)) and hostile ~= true then lit = false end
+            end
             paintContact(sp, lit)
         else
             bogeyAlpha(sp.bogey, 0)
@@ -2614,6 +3555,12 @@ function RD.HeardError(msg)
     if d.flash == false then return nil end
     if type(msg) ~= "string" or (NS.Secret and NS.Secret(msg)) then return nil end
     local word = RD.ClickWords()[msg]
+    -- the res under the mouse (RD.ArmRes): LOS stays a while; RANGE it already says by itself
+    if word and RD.overRes and RD.res and RD.res.unit then
+        if word == "LOS" then RD.res.losUntil = ((GetTime and GetTime()) or 0) + RD.RES_LOS end
+        RD.PaintResWord()
+        return word
+    end
     local sp = RD.over
     if not (word and sp and sp.los and sp.unit) then return nil end
     sp.los.word:SetText(word)
@@ -2839,6 +3786,17 @@ local function startTicker()
         end
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
+        -- the res, out of a fight: re-picked when something changed, or every RD.RES_EVERY ticks while someone lies
+        -- there; the word (RANGE / LOS) checked every tick while it is lit. Nobody dead and nothing changed: no work.
+        if RD.res and not (RD.inFight or combat()) then
+            RD.resTicks = (RD.resTicks or 0) + 1
+            if RD.resDirty or (RD.res.unit and RD.resTicks >= RD.RES_EVERY) then
+                RD.resDirty, RD.resTicks = nil, 0
+                RD.ArmRes()
+            elseif RD.res.unit then
+                RD.PaintResWord()
+            end
+        end
         n = n + 1
         if n >= RD.FOOD_EVERY and not combat() and RD.rations then
             n = 0
@@ -2946,7 +3904,7 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
                      "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
-                     "PLAYER_LEVEL_UP", "UNIT_PET" }) do
+                     "PLAYER_LEVEL_UP", "UNIT_PET", "INCOMING_RESURRECT_CHANGED", "UNIT_CONNECTION" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 -- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
@@ -2962,12 +3920,14 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_REGEN_DISABLED" then
         -- a fight: the drag ends first (before the lockdown takes the mouse), then everything goes quiet
         if RD.frame then endDrag(RD.frame) end
+        RD.ResOff()                        -- a res is out of a fight only: dark, and no click left armed
         RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
         if RD.Active() then RD.PaintQuiet() RD.PickFuel() RD.PaintFuel() end
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
         RD.inFight = nil
+        RD.resDirty = true                 -- who died in it: the res asks at the next tick
         if RD.pending then RD.Apply() if RD.Active() then RD.Arm() end
         elseif RD.Active() then
             RD.ArmTools()                  -- the numbers are plain again: each tool re-learns where it lights
@@ -2979,8 +3939,19 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED"
        or event == "PLAYER_ROLES_ASSIGNED" or event == "PLAYER_LEVEL_UP" then   -- a role set: the pip's sign follows
         RD.Arm()                           -- in a fight it only marks RD.pending
+    elseif event == "INCOMING_RESURRECT_CHANGED" or event == "UNIT_CONNECTION" then
+        if not (RD.inFight or combat()) then RD.resDirty = true end
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
         if NS.Secret and NS.Secret(a1) then return end
+        -- a death or a res between pulls (not every regen tick): the res asks again only for the dead, or for the one it
+        -- is aimed at (they stood up)
+        if RD.res and not (RD.inFight or combat()) and a1 ~= nil then
+            if a1 == RD.res.unit then RD.resDirty = true
+            elseif UnitIsDeadOrGhost then
+                local okD, dead = pcall(UnitIsDeadOrGhost, a1)
+                if okD and plain(dead) == true then RD.resDirty = true end
+            end
+        end
         for _, sp in ipairs(RD.spokes) do
             if sp.unit == a1 then RD.PaintHeal(sp) elseif sp.petUnit == a1 then RD.PaintPet(sp) end
         end

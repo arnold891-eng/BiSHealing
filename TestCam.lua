@@ -64,8 +64,13 @@ function CAM.Stem()
     return "WoWScrnShot_" .. ((date and date("%m%d%y_%H%M%S")) or tostring(wall()))
 end
 
---- Is the camera armed right now? The alpha, this feature, and inside the time `start` gave it.
+--- Is the camera armed right now? The black box recording (BlackBox.lua) - or the alpha, this feature, and inside the
+--- time `start` gave it. Both need the black box KEY on this PC (10 Nov: the same gate as the black box - a player
+--- who reads this code can't arm it by accident; without the key addon there is no camera at all).
 function CAM.Armed()
+    local BB = NS.BB
+    if not (BB and BB.Key and BB.Key()) then return false end
+    if BB.Recording() then return true end
     if not (NS.AlphaOn and NS.AlphaOn(CAM.KEY)) then return false end
     local c = db()
     return type(c.untilAt) == "number" and wall() < c.untilAt
@@ -171,6 +176,10 @@ function CAM.Command(rest)
     if word == "start" then
         if not NS.AlphaOn(CAM.KEY) then
             Print("test camera: the alpha is off - /bish alpha on first")
+            return false
+        end
+        if not (NS.BB and NS.BB.Key and NS.BB.Key()) then
+            Print("test camera: needs the black box key on this PC (_bisdev/companion/bbkey.sh)")
             return false
         end
         local mins = tonumber(arg) or CAM.MINUTES

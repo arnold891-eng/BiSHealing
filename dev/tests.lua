@@ -11776,7 +11776,11 @@ do
         local br = RD.brackets[1]
         ok(#RD.brackets == 8 and br.thick == cap.bw and same(br.color, cap.bracket)
            and math.abs(math.abs(br.from[1] - br.to[1]) - cap.be) < 1e-9, "the corner brackets: white, longer and heavier", br.thick)
-        ok(#RD.meLines == 0, "no chevron in the middle: the role icon alone (Arn, 10 Nov)")
+        local me = RD.meLines[1]
+        ok(#RD.meLines >= 2 and RD.meRole == RD.Role("player") and me and me.__kind ~= "Line"
+           and me.__vertex and math.abs(me.__vertex[1] - cap.accent[1]) < 1e-9 and me.__vertex[4] == RD.ME_ALPHA,
+           "you in the middle: your role's sign always there (no chevron), in the ship's accent, dimmed (Arn, 10 Nov)",
+           #RD.meLines)
         ok(same(RD.gauge.mana.__color, cap.fuel) and RD.gauge.ship.__text == "CAPITAL", "your fuel in its colour, CAPITAL on the placard")
         ok(same(RD.COL.red, red) and same(RD.COL.amber, amber) and same(RD.BOSS_COL, boss) and same(RD.gauge.boss.__color, boss),
            "warnings keep their colours in every ship: red, amber, the boss's red")

@@ -579,13 +579,31 @@ local function buildScope(f)
         end
     end
     -- you, in the middle: your role icon alone. The chevron that drew over it is gone (Arn, 10 Nov, on a DPS: "get rid
-    -- of the chevron, and keep the role icon" - as a healer the healing icon hid it)
-    RD.meLines = {}
+    -- of the chevron, and keep the role icon" - as a healer the healing icon hid it). The icon itself: RD.PaintMe
+    RD.meLines, RD.meRole = {}, nil
     -- the dim places of every slot live on their own layer, unscaled, and go with the scope (RD.PaintQuiet)
     local dims = CreateFrame("Frame", nil, f)
     dims:SetAllPoints(f)
     RD.dims = dims
     return s
+end
+
+--- YOU, IN THE MIDDLE, ALWAYS (Arn, 10 Nov, after the chevron went: "my icon is gone"). Your heal pip lights only below
+--- 90%, so at full health the middle was empty. Your role's sign now stays on the scope in the ship's accent, dimmed
+--- (RD.ME_ALPHA); your heal pip lights over it, and it goes dark with the scope in a fight (RD.PaintQuiet). Rebuilt only
+--- when your role changes.
+RD.ME_ALPHA = 0.6
+function RD.PaintMe()
+    local s = RD.scope
+    if not s then return end
+    local role = RD.Role("player")
+    if RD.meRole ~= role then
+        for _, t in ipairs(RD.meLines or {}) do t:Hide() end
+        RD.meLines = glyph(s, role, RD.SELF.ph * RD.GLYPH)
+        RD.meRole = role
+    end
+    local A = (RD.ship and RD.ship.accent) or RD.PHOS
+    for _, t in ipairs(RD.meLines) do t:SetVertexColor(A[1], A[2], A[3], RD.ME_ALPHA) end
 end
 
 --- One spoke's pieces: the heal pip (secure), its cure pips (client markers + secure boxes), its bogey, its alert
@@ -1268,7 +1286,7 @@ function RD.ApplyShip(ship)
     for _, l in ipairs(RD.scopeLines or {}) do l:SetVertexColor(L[1] * k, L[2] * k, L[3] * k, 0.85) end
     RD.ShapeBrackets(ship)
     local A = ship.accent
-    for _, l in ipairs(RD.meLines or {}) do l:SetVertexColor(A[1], A[2], A[3], 1) end
+    RD.PaintMe()
     -- the fuel tape: your mana and the ruler in the ship's fuel colour, the groove, the scale, the readout, the placard
     local g = RD.gauge
     if g then
@@ -2409,6 +2427,7 @@ function RD.Arm()
     RD.ArmTools()
     armUse(RD.rations, RD.FoodWanted())
     RD.PickFuel()
+    RD.PaintMe()                                     -- your role's sign in the middle (a role change lands here)
     RD.Paint()
     return true
 end

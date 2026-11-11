@@ -1,5 +1,10 @@
 # BiS Healing
 
+## 1.2.0
+
+- **The res button picks people who released.** BiS> now's res button used to skip anyone who had released their spirit - but healers often release, and they can still be brought back. Now it picks them too, in the same order as before (healers first).
+- **Behind the scenes.** A lot more work on a feature that's still being tested and switched off for everyone. Nothing else changes on your grid, binds or options.
+
 ## 1.1.4
 
 - **Behind the scenes only.** A small fix to a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.

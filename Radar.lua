@@ -1306,6 +1306,9 @@ function RD.ApplyView()
     vis(RD.defRail, not con)
     vis(RD.bbRail, not con)
     vis(RD.gauge, not con)
+    -- the tape's pieces that hang on the radar frame itself: the regen readout, its chevron, the ramjet
+    local g = RD.gauge
+    if g then vis(g.regen, not con) vis(g.chev, not con) vis(g.fsr, not con) end
     RD.PlaceViewButton()
     RD.ClampRails()
 end
@@ -3080,6 +3083,13 @@ function RD.Look()
                 if okH and (hostile == true or (NS.Secret and NS.Secret(hostile))) then anyCast = true end
             end
             local lit = casting and sp.kick and true or false
+            -- ENEMIES ONLY (Arn, 10 Nov: "when im healing myself and targeting myself it shows the interuppt?"): your own
+            -- bogey is YOUR target - you, casting your own heal, lit it. A plain "not hostile" puts it out; a secret answer
+            -- keeps it (the kick itself only ever fires on an enemy: *harmbutton1)
+            if lit and UnitCanAttack then
+                local okH, hostile = pcall(UnitCanAttack, "player", sp.tok)
+                if okH and not (NS.Secret and NS.Secret(hostile)) and hostile ~= true then lit = false end
+            end
             paintContact(sp, lit)
         else
             bogeyAlpha(sp.bogey, 0)

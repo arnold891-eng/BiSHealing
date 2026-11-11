@@ -11833,6 +11833,8 @@ do
         ok(not RD.scope:IsShown() and not RD.toolRail:IsShown() and not RD.gaugeRail:IsShown() and not RD.defRail:IsShown()
            and not RD.gauge:IsShown() and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails, the tape and the black box step aside")
         ok(RD.conSquares.heal1 and RD.conSquares.heal1:IsShown() and RD.conSquares.tool8:IsShown(), "an empty square where each one lives")
+        ok(not RD.gauge.regen:IsShown() and not RD.gauge.chev:IsShown() and not RD.gauge.fsr:IsShown(),
+           "the tape's pieces on the radar frame step aside too (the 100% Arn saw floating over the console)")
         local hp = RD.hull.points
         ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
         bp = b.points[1]
@@ -11842,8 +11844,24 @@ do
         ok(hx and hx[2] == RD.toolRail and RD.toolRail:IsShown() and RD.scope:IsShown() and not RD.conLayer:IsShown(),
            "the tools back on their rails, the scope back, the squares away")
         ok(f:GetWidth() == W0, "and the square its own size", f:GetWidth())
+        ok(RD.gauge.regen:IsShown(), "the regen readout back with the tape")
         d.radar.view = keepView
         RD.Arm()
+        -- ENEMIES ONLY (Arn, 10 Nov: "when im healing myself and targeting myself it shows the interuppt?")
+        local sp1 = RD.spokes[1]
+        local keepCast, keepAtk, keepKick, keepT = NS.FG.Casting, _G.UnitCanAttack, sp1.kick, STATE.units[sp1.tok]
+        sp1.kick = sp1.kick or "Earth Shock"
+        STATE.units[sp1.tok] = true
+        NS.FG.Casting = function(u) return u == sp1.tok end
+        _G.UnitCanAttack = function() return false end
+        RD.Look()
+        ok(sp1.bogey.face:GetAlpha() == 0, "you casting on yourself (your target): no interrupt lit")
+        _G.UnitCanAttack = function() return true end
+        RD.Look()
+        ok(sp1.bogey.face:GetAlpha() == 1, "an enemy target casting: lit")
+        NS.FG.Casting, _G.UnitCanAttack, sp1.kick = keepCast, keepAtk, keepKick
+        STATE.units[sp1.tok] = keepT
+        RD.Look()
     end
     ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
        and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
@@ -12202,7 +12220,11 @@ do
        "a 'cast' on a target that does not exist lights nothing (nobody there is never casting)")
     STATE.units.party1target = true
     RD.Look()
+    ok(sp2.bogey.face:GetAlpha() == 0, "their target casts but it is a friend: nothing to kick (enemies only, 10 Nov)")
+    STATE.hostile.party1target = true
+    RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 1 and lineAlpha(sp2) == 1, "their target casts: the bogey shows - flare it")
+    STATE.hostile.party1target = nil
     STATE.casting.party1target = nil
     RD.Look()
     ok(sp2.bogey.face:GetAlpha() == 0, "and goes when the cast does")

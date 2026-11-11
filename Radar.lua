@@ -1347,6 +1347,29 @@ function RD.PaintSeats(slots)
         end
     end
     for j = n + 1, #RD.seats do RD.seats[j]:Hide() end
+    -- THE TANK'S SEAT (Arn, 11 Nov: "the faint dots should reflect that" - the tank always straight above you): with no
+    -- tank in the group, a faint dot of its own due north on the inner ring, where one will sit. A main tank there has
+    -- its own dot, so this one steps aside.
+    local inner
+    for _, s in ipairs(slots or {}) do
+        if not s.self and (s.rh or 0) > 0 and (not inner or s.rh < inner.rh) then inner = s end
+    end
+    local ts = RD.tankSeat
+    if not ts then
+        ts = sf:CreateTexture(nil, "BORDER")
+        ts:SetTexture(RD.ART .. "disc")
+        RD.tankSeat = ts
+    end
+    if inner and not RD.mainTank and not RD.Console() then
+        local px = math.max(4, math.floor((inner.ph or 20) * 0.3 + 0.5))
+        ts:SetSize(px, px)
+        ts:ClearAllPoints()
+        ts:SetPoint("CENTER", f, "CENTER", 0, inner.rh)
+        ts:SetVertexColor(L[1], L[2], L[3], RD.SEAT_ALPHA)
+        ts:Show()
+    else
+        ts:Hide()
+    end
     sf:SetAlpha((RD.inFight or combat()) and 0 or 1)
 end
 

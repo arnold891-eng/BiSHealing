@@ -11969,6 +11969,10 @@ do
             STATE.classes = { party1 = "MAGE", party2 = "PRIEST", party3 = "ROGUE", party4 = "HUNTER" }
             RD.Arm()
             ok(RD.mainTank == nil and RD.tankGuessed == nil, "nobody who can tank: nobody guessed", RD.mainTank)
+            -- the faint dots say it too (Arn, 11 Nov: "the faint dots should reflect that")
+            local tp = RD.tankSeat and RD.tankSeat.points and RD.tankSeat.points[1]
+            ok(RD.tankSeat and RD.tankSeat:IsShown() and tp and tp[4] == 0 and tp[5] == RD.PARTY.rh,
+               "no tank: a faint dot of its own straight above you, where the tank will sit", tp and tp[5])
             -- BiS> now's tank names one: it wins over the guess, realm or not
             local keepTank, keepGUN2 = d.tank, _G.GetUnitName
             _G.GetUnitName = function(u) return "Name " .. tostring(u) end
@@ -11976,6 +11980,12 @@ do
             RD.Arm()
             ok(RD.mainTank == 3 and RD.tankGuessed == nil and RD.slots[3].b == 0,
                "BiS> now's tank (kept with its realm): due north, no guess", RD.mainTank)
+            local onTop = 0
+            for _, t in ipairs(RD.seats) do
+                local p = t:IsShown() and t.points and t.points[1]
+                if p and p[4] == 0 and p[5] == RD.PARTY.rh then onTop = onTop + 1 end
+            end
+            ok(not RD.tankSeat:IsShown() and onTop == 1, "a tank there: their own dot on top, the spare one away", onTop)
             d.tank, _G.GetUnitName = keepTank, keepGUN2
             d.radar.view = keepView
             STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT

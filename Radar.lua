@@ -2620,16 +2620,29 @@ end
 
 --- A DEAD PERSON'S PIP GOES DARK (same night): 0% health read red, but there is nothing a heal can do. In a fight the
 --- answer may be a secret: it goes to the client (SetAlphaFromBoolean), never into an `if`. True when we KNOW they are.
-function RD.DeadDark(face, unit)
+--- `...` = more faces that go dark with it (a pip's red and amber copies sit on their own layers, 11 Nov - Arn: "left
+--- group still icons remain": the amber sword stayed after the face went dark).
+function RD.DeadDark(face, unit, ...)
     if not (UnitIsDeadOrGhost and face and unit) then return false end
     local ok, dead = pcall(UnitIsDeadOrGhost, unit)
     if not ok then return false end
+    local faces = { face, ... }
     if NS.Secret and NS.Secret(dead) then
-        if face.SetAlphaFromBoolean then pcall(face.SetAlphaFromBoolean, face, dead, 0, 1) end
+        for _, f in ipairs(faces) do
+            if f.SetAlphaFromBoolean then pcall(f.SetAlphaFromBoolean, f, dead, 0, 1) end
+        end
         return false
     end
-    if dead == true then face:SetAlpha(0) return true end
+    if dead == true then for _, f in ipairs(faces) do f:SetAlpha(0) end return true end
     return false
+end
+
+--- A pip's three faces at once: the face, its red copy, its amber copy (siblings, each with its own alpha).
+function RD.HealFaces(b, a)
+    if not b then return end
+    if b.face then b.face:SetAlpha(a) end
+    if b.redFace then b.redFace:SetAlpha(a) end
+    if b.amberFace then b.amberFace:SetAlpha(a) end
 end
 
 local function armPet(sp, unit, s)
@@ -3548,14 +3561,16 @@ end
 --- One spoke's heal pip, coloured by the client from their health.
 function RD.PaintHeal(sp)
     if not (sp and sp.unit and sp.paintTex) then
-        if sp and sp.heal then sp.heal.face:SetAlpha(0) end
+        if sp and sp.heal then RD.HealFaces(sp.heal, 0) end
         return false
     end
-    -- somebody who left (a slot whose re-layout waits for the fight's end): nothing at their spot, not a stale sign
+    -- somebody who left (a slot whose re-layout waits for the fight's end): nothing at their spot, not a stale sign -
+    -- the red and amber copies too (11 Nov, Arn: "left group still icons remain", an amber sword after they left)
     local okE, there = pcall(UnitExists, sp.unit)
-    if okE and plain(there) == false then sp.heal.face:SetAlpha(0) return false end
-    sp.heal.face:SetAlpha(1)
-    if RD.DeadDark(sp.heal.face, sp.unit) then return false end   -- dead: nothing to heal, nothing lit
+    if okE and plain(there) == false then RD.HealFaces(sp.heal, 0) return false end
+    RD.HealFaces(sp.heal, 1)
+    -- dead: nothing to heal, nothing lit - all three faces
+    if RD.DeadDark(sp.heal.face, sp.unit, sp.heal.redFace, sp.heal.amberFace) then return false end
     local curve = RD.Curve(sp.amber)
     if not (curve and UnitHealthPercent) then
         -- no curves on this client: the pip stays at its spot, plainly green, rather than lie about urgency
@@ -3564,7 +3579,7 @@ function RD.PaintHeal(sp)
     end
     local ok, col = pcall(UnitHealthPercent, sp.unit, true, curve)
     local drew = ok and paint(sp.paintTex, col)
-    if not drew then sp.heal.face:SetAlpha(0) end              -- no colour back: nothing, never a stale sign
+    if not drew then RD.HealFaces(sp.heal, 0) end              -- no colour back: nothing, never a stale sign
     local red = RD.RedCurve()
     if red then
         local okR, rc = pcall(UnitHealthPercent, sp.unit, true, red)
@@ -4142,7 +4157,9 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if not RD.Active() then return end
     if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED"
        or event == "PLAYER_ROLES_ASSIGNED" or event == "PLAYER_LEVEL_UP" then   -- a role set: the pip's sign follows
-        RD.Arm()                           -- in a fight it only marks RD.pending
+        -- in a fight it only marks RD.pending; then a repaint, so whoever LEFT goes dark now, not at the fight's end
+        -- (11 Nov, Arn: "left group still icons remain ... during combat")
+        if not RD.Arm() then RD.Paint() end
     elseif event == "INCOMING_RESURRECT_CHANGED" or event == "UNIT_CONNECTION" then
         if not (RD.inFight or combat()) then RD.resDirty = true end
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then

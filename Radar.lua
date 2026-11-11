@@ -920,6 +920,7 @@ local function buildSystem(f, name, point, x, y, rel)
     local b = CreateFrame("Button", "BiSHealingRadar" .. name, f, "SecureActionButtonTemplate")
     b:SetSize(RD.SYS_PX, RD.SYS_PX)
     b:SetPoint(point, rel or f, point, x, y)
+    b.home = { point, rel or f, point, x, y }       -- where the radar keeps it (the console moves it: RD.RadarLayout)
     b.rail = rel
     if b.RegisterForClicks then b:RegisterForClicks("AnyDown") end
     b.beat = CreateFrame("Frame", nil, b)
@@ -1130,7 +1131,7 @@ function RD.BuildRails(f)
     local d = rail(f, RD.TOOL_RAIL_W)
     d:SetPoint("TOPLEFT", f, "TOPRIGHT", gap, 0)
     d:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", gap, 0)
-    d:Hide()
+    d:Show()                         -- always (Arn, 10 Nov: "always show the full square rail")
     RD.toolRail, RD.gaugeRail, RD.defRail = t, g, d
     -- THE BLACK BOX'S RAIL along the bottom (BlackBox.lua, 10 Nov: "Build the bottom raid with the squawk box thing")
     if NS.BB and NS.BB.Build then RD.bbRail = NS.BB.Build(f, t, rail) end
@@ -1166,6 +1167,224 @@ function RD.BuildHull(f)
     return RD.hull
 end
 
+--[[ THE ENGINEER'S CONSOLE (10 Nov 2026). Arn's cousin found the radar too big; Arn: "lets say we are an engineer on the
+  death star, we open the radar console and it shows us the behind the scene. we just show empty squares top row party.
+  next row dispels, next row interrupts, next row pets, next row everything else water water shield exp food all left
+  and right rails bare bones empty squares all they do is the smart light up. 10 20 40 we dont just make bigger we just
+  reimaging to acoomodate a bigger raid".
+  THE SAME BUTTONS, PLACED ON A GRID. Nothing new lights anything: every pip, cure box, bogey, pet and tool is the very
+  secure button the radar uses, with its own curve or boolean; the console only moves them (RD.ConsoleLayout, out of a
+  fight, inside RD.Arm) and draws an empty square where each one lives (RD.conSquares, dim, always there - the
+  behind-the-scenes look). The scope, the dark disc, the rails, the fuel tape and the black box step aside.
+      row 1   party: the heal pips, you first
+      row 2   dispels: each person's cure boxes, under them
+      row 3   interrupts: the kick on each person's target (their bogey)
+      row 4   pets
+      row 5   everything else: stabilizer, Mana Tide, potion, Mana Spring, drink, rations, chaff, res
+  THE VIEW BUTTON (Arn: "button ... on right rail"): at the right rail's foot on the radar, at the console's top-right
+  corner in the console; one click switches, out of a fight (`radar.view` on the account). A party only for now: in a
+  raid the radar stays (the 10 / 20 / 40 console is its own design, to come). ]]
+RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2 }
+
+--- The console is in use: chosen, and a party (a raid keeps the radar until its own console exists).
+function RD.Console() return db().view == "console" and not RD.raid end
+
+--- The slot a spoke gets in the console: drawn small (its glyph fits its square), placed by RD.ConsoleLayout.
+function RD.ConsoleSlot(i)
+    local C = RD.CON
+    return { b = 0, rh = 0, rc = 0, rb = 0, ph = C.ph, pc = C.cure, pb = C.pb, own = true, group = 1, pos = i,
+             self = (i == 1) or nil, console = true }
+end
+
+--- The grid: column centres, row centres, the size. Every place is (x, -y) from the radar frame's top-left.
+function RD.ConsoleGrid()
+    local C = RD.CON
+    local W = C.pad * 2 + C.colW * RD.SPOKES
+    local y1 = C.pad + C.sq / 2
+    local y2 = y1 + C.sq / 2 + C.gap + (C.cure + 4) / 2
+    local y3 = y2 + (C.cure + 4) / 2 + C.gap + C.sq / 2
+    local y4 = y3 + C.sq / 2 + C.gap + C.sq / 2
+    local y5 = y4 + C.sq / 2 + C.gap + RD.SYS_PX / 2
+    local H = y5 + RD.SYS_PX / 2 + C.pad
+    local cols = {}
+    for i = 1, RD.SPOKES do cols[i] = C.pad + C.colW * (i - 0.5) end
+    return { W = W, H = H, cols = cols, rows = { y1, y2, y3, y4, y5 } }
+end
+
+-- an empty square: four thin edges in the dim phosphor, on the console's own layer
+local function square(key, px)
+    RD.conSquares = RD.conSquares or {}
+    local q = RD.conSquares[key]
+    if not q then
+        q = CreateFrame("Frame", nil, RD.conLayer)
+        q.edges = edge(q, RD.DIM, 1)
+        RD.conSquares[key] = q
+    end
+    q:SetSize(px, px)
+    q:Show()
+    return q
+end
+
+local function at(fr, x, y)
+    fr:ClearAllPoints()
+    fr:SetPoint("CENTER", RD.frame, "TOPLEFT", x, -y)
+end
+
+--- Put everything on the grid. Out of a fight only (RD.Arm calls it). Answers the grid.
+function RD.ConsoleLayout()
+    local f = RD.frame
+    if not f or combat() then return nil end
+    local C, G = RD.CON, RD.ConsoleGrid()
+    if not RD.conLayer then
+        RD.conLayer = CreateFrame("Frame", nil, f)
+        RD.conLayer:SetAllPoints(f)
+        RD.conLayer:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    end
+    RD.conLayer:Show()
+    for _, q in pairs(RD.conSquares or {}) do q:Hide() end
+    f:SetSize(G.W, G.H)
+    for i = 1, RD.SPOKES do
+        local x = G.cols[i]
+        local sp = RD.spokes[i]
+        at(square("heal" .. i, C.sq), x, G.rows[1])
+        at(square("kick" .. i, C.sq), x, G.rows[3])
+        at(square("pet" .. i, C.sq), x, G.rows[4])
+        if sp then
+            sp.heal:SetSize(C.sq, C.sq)
+            at(sp.heal, x, G.rows[1])
+            if sp.bogey then sp.bogey:SetSize(C.sq, C.sq) at(sp.bogey, x, G.rows[3]) end
+            for _, fr in ipairs(sp.dims or {}) do fr:Hide() end
+            for _, cr in ipairs({ sp.cross, sp.totCross, sp.bogeyCross }) do if cr then cr:ClearAllPoints() cr:SetPoint("CENTER", sp.heal, "CENTER") end end
+            -- the cures side by side under the person
+            local n = #(sp.cures or {})
+            local used = 0
+            for k, c in ipairs(sp.cures or {}) do
+                if c.cure then used = used + 1 end
+                local off = (k - (n + 1) / 2) * (C.cure + 6)
+                at(square("cure" .. i .. "-" .. k, C.cure + 4), x + off, G.rows[2])
+                if not c.cure then RD.conSquares["cure" .. i .. "-" .. k]:Hide() end
+                at(c.box, x + off, G.rows[2])
+                if c.container then c.container:ClearAllPoints() c.container:SetPoint("CENTER", c.box, "CENTER") end
+            end
+            if sp.pet then sp.pet:SetSize(C.pet, C.pet) at(sp.pet, x, G.rows[4]) end
+        end
+    end
+    -- row 5: every tool from both rails, centred
+    local tools = { RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res }
+    local n = #tools
+    local w = n * RD.SYS_PX + (n - 1) * C.toolGap
+    local x0 = (G.W - w) / 2 + RD.SYS_PX / 2
+    for k, b in ipairs(tools) do
+        local x = x0 + (k - 1) * (RD.SYS_PX + C.toolGap)
+        at(square("tool" .. k, RD.SYS_PX), x, G.rows[5])
+        at(b, x, G.rows[5])
+    end
+    RD.conGrid = G
+    return G
+end
+
+--- The radar's own places back: the tools to their rails (where RD.Build put them), the console's squares away.
+function RD.RadarLayout()
+    if combat() then return false end
+    for _, b in ipairs({ RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res }) do
+        local h = b and b.home
+        if h then b:ClearAllPoints() b:SetPoint(h[1], h[2], h[3], h[4], h[5]) end
+    end
+    if RD.conLayer then RD.conLayer:Hide() end
+    return true
+end
+
+--- What steps aside in the console (the scope, the disc, the rails, the tape, the black box) comes back on the radar.
+function RD.ApplyView()
+    local con = RD.Console()
+    local function vis(fr, on) if fr then if on then fr:Show() else fr:Hide() end end end
+    vis(RD.scope, not con)
+    vis(RD.fade, not con)
+    vis(RD.dims, not con)
+    vis(RD.toolRail, not con)
+    vis(RD.gaugeRail, not con)
+    vis(RD.defRail, not con)
+    vis(RD.bbRail, not con)
+    vis(RD.gauge, not con)
+    RD.PlaceViewButton()
+    RD.ClampRails()
+end
+
+--- The view button: the right rail's foot on the radar, the console's top-right corner in the console.
+function RD.PlaceViewButton()
+    local b, f = RD.viewBtn, RD.frame
+    if not (b and f) then return end
+    b:ClearAllPoints()
+    if RD.Console() then
+        b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
+        b:SetSize(12, 12)
+    else
+        b:SetPoint("BOTTOM", RD.defRail or f, "BOTTOM", 0, 8)
+        b:SetSize(RD.SYS_PX, RD.SYS_PX)
+    end
+    RD.PaintViewButton()
+end
+
+function RD.PaintViewButton()
+    local b = RD.viewBtn
+    if not b then return end
+    local con = RD.Console()
+    -- no words on the radar: a drawn sign of where the click goes - four small squares (the console), a ring (the radar)
+    for _, t in ipairs(b.grid) do t:SetAlpha(con and 0 or 1) end
+    for _, l in ipairs(b.ring) do l:SetAlpha(con and 1 or 0) end
+    b.tip = con and { "RADAR", "Back to the radar.  Out of a fight." }
+            or { "CONSOLE", "The engineer's console: the same buttons on a small grid - party, dispels, interrupts, pets, "
+                 .. "tools.  Out of a fight." .. (RD.raid and "  (A party only for now.)" or "") }
+end
+
+--- One click: the other view. Refused in a fight (the radar holds secure buttons). Answers the view now.
+function RD.ToggleView()
+    if combat() or RD.inFight then return nil end
+    db().view = (db().view ~= "console") and "console" or nil
+    RD.Arm()
+    return db().view or "radar"
+end
+
+function RD.BuildViewButton(f)
+    if RD.viewBtn or not f then return RD.viewBtn end
+    local b = CreateFrame("Button", nil, f)
+    b:SetFrameLevel(f:GetFrameLevel() + 14)
+    local c = RD.PHOS
+    b.edges = edge(b, { c[1] * 0.6, c[2] * 0.6, c[3] * 0.6, 1 }, 1)
+    b.grid = {}
+    for _, o in ipairs({ { -3, 3 }, { 3, 3 }, { -3, -3 }, { 3, -3 } }) do
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(c[1], c[2], c[3], 1)
+        t:SetSize(4, 4)
+        t:SetPoint("CENTER", b, "CENTER", o[1], o[2])
+        b.grid[#b.grid + 1] = t
+    end
+    b.ring = {}
+    for k = 1, 12 do
+        local a0, a1 = (k - 1) * math.pi / 6, k * math.pi / 6
+        b.ring[k] = line(b, "OVERLAY", math.sin(a0) * 4, math.cos(a0) * 4, math.sin(a1) * 4, math.cos(a1) * 4, c, 1)
+    end
+    -- it pops on hover (every clickable thing does)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(b)
+    b.hl:SetTexture(RD.WHITE)
+    b.hl:SetVertexColor(c[1], c[2], c[3], 0.22)
+    b:SetScript("OnClick", function() RD.ToggleView() end)
+    b:SetScript("OnEnter", function(self)
+        local tip = self.tip
+        if not (tip and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(tip[1])
+        GameTooltip:AddLine(tip[2], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    RD.viewBtn = b
+    RD.PlaceViewButton()
+    return b
+end
+
 --- Where the hull reaches: the top-left of the gauge rail, the bottom-right of the bottom rail (or of the tool rail
 --- without one), out over the right rail's column while it shows. The rings follow it.
 --- How much wider the top and bottom rails run while the right rail shows (its column and the gap before it).
@@ -1193,12 +1412,24 @@ end
 function RD.FitHull()
     local h, f = RD.hull, RD.frame
     if not (h and f) then return end
+    if RD.Console and RD.Console() then             -- the console: the hull is its own small square
+        h:ClearAllPoints()
+        h:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+        h:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        RD.FitEdges(h)
+        return
+    end
     local top = RD.gaugeRail or f
     -- the bottom rail spans the whole width already (RD.FitWide); without one, the square's corner or the right rail's
     local corner = RD.bbRail or ((RD.defRail and RD.defRail:IsShown()) and RD.defRail) or f
     h:ClearAllPoints()
     h:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
     h:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
+    RD.FitEdges(h)
+end
+
+--- The soft rings round the hull, wherever it is.
+function RD.FitEdges(h)
     local p = RD.EDGE_PX
     for k, ring in ipairs(RD.edges or {}) do
         local o, i = k * p, (k - 1) * p                 -- the ring's outer and inner distance from the hull
@@ -1231,6 +1462,7 @@ function RD.ClampRails()
     RD.FitHull()                                     -- and the hull follows them
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
+    if RD.Console and RD.Console() then pcall(f.SetClampRectInsets, f, 0, 0, 0, 0) return end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
     local bottom = (RD.bbRail and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
@@ -1577,6 +1809,8 @@ function RD.Build()
     -- THE RES under the chaff, out of a fight only (RD.ArmRes)
     RD.res = buildSystem(f, "Res", "TOPLEFT", X, -8 - step, RD.defRail)
     RD.BuildRes(RD.res)
+    -- THE VIEW BUTTON: radar <-> the engineer's console (RD.ToggleView)
+    RD.BuildViewButton(f)
     -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
     RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
     for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
@@ -2299,9 +2533,9 @@ function RD.ArmChaff()
     b.tip = spell and { "CHAFF", spell .. " - the catch-all: lights when an enemy on the radar casts and your interrupt "
                         .. "(the flare on its bogey) is cooling.  No target needed." } or nil
     if RD.defRail then
-        -- shown while it holds something: the chaff, or a res you know (RD.ArmRes)
-        local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
-        if spell or res then RD.defRail:Show() else RD.defRail:Hide() end
+        -- ALWAYS SHOWN (Arn, 10 Nov: "lets always show the full square rail even if there is nothing there"): the
+        -- panel is a closed square whether the chaff or the res is in it or not
+        RD.defRail:Show()
         RD.ClampRails()
     end
     return spell
@@ -2624,7 +2858,9 @@ function RD.Arm()
     local n = 0
     for i = 1, #slots do if units[i] then n = n + 1 end end
     RD.ApplyShip(RD.ShipFor(math.max(1, n)))
+    local con = RD.Console()                         -- the engineer's console: small slots, placed on its grid after
     for i, s in ipairs(slots) do
+        if con then s = RD.ConsoleSlot(i) end
         local sp = RD.Spoke(i)
         local unit = units[i]
         sp.unit = unit
@@ -2666,6 +2902,8 @@ function RD.Arm()
     armUse(RD.rations, RD.FoodWanted())
     RD.PickFuel()
     RD.PaintMe()                                     -- your role's sign in the middle (a role change lands here)
+    if con then RD.ConsoleLayout() else RD.RadarLayout() end
+    RD.ApplyView()                                   -- what steps aside in the console, and the view button
     RD.Paint()
     return true
 end

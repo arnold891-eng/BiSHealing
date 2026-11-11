@@ -128,7 +128,13 @@ local function newFrame(kind, name, parent)
     -- WHERE IT IS ANCHORED, recorded and readable. The client answers GetPoint; this used to
     -- answer nothing at all, which made "put the window back where it was" untestable - and a
     -- window that opens in the wrong place is the kind of thing only a person ever notices.
-    function f:SetPoint(...) self.points[#self.points + 1] = { ... } end
+    -- ONE ANCHOR PER POINT, as in the client (10 Nov 2026): setting TOPRIGHT again moves the TOPRIGHT, it does not add
+    -- a second one - the mock appended, so a test reading the first TOPRIGHT read a stale one (the radar's hot window)
+    function f:SetPoint(...)
+        local p = { ... }
+        for i, q in ipairs(self.points) do if q[1] == p[1] then self.points[i] = p return end end
+        self.points[#self.points + 1] = p
+    end
     -- a frame laid over another remembers which (8 Oct 2026): the cell's ink layer covers the bar,
     -- and the fit check has to follow it there to measure the words on it
     function f:SetAllPoints(rel) self.__allpoints = rel or true end
@@ -371,6 +377,9 @@ local function newFrame(kind, name, parent)
         function l:SetEndPoint(_, _, x, y) self.to = { x, y } end
         function l:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
         function l:SetThickness(w) self.thick = w end
+        -- and its alpha, as the client's does (10 Nov 2026: the radar's view button shows one sign or the other)
+        function l:SetAlpha(a) self.__alpha = a end
+        function l:GetAlpha() return self.__alpha end
         function l:Show() self.__shown = true end
         function l:Hide() self.__shown = false end
         function l:IsShown() return self.__shown end
@@ -11789,6 +11798,53 @@ do
         RD.ArmRes()
         RD.ArmChaff()
     end
+    -- THE ENGINEER'S CONSOLE (Arn, 10 Nov: "we just show empty squares top row party. next row dispels, next row interrupts,
+    -- next row pets, next row everything else ... all they do is the smart light up"): the same secure buttons on a grid
+    do
+        local d = NS.DB()
+        local f, b = RD.frame, RD.viewBtn
+        local keepView = d.radar.view
+        local W0 = f:GetWidth()
+        ok(b and b:GetParent() == f and not RD.Console(), "a view button, the radar to start with")
+        local bp = b.points[1]
+        ok(bp and bp[2] == RD.defRail and bp[1] == "BOTTOM", "on the radar it sits at the right rail's foot")
+        ok(b.ring[1].__alpha == 0 and b.grid[1].__alpha == 1, "its sign: four small squares (the console is where it goes)")
+        STATE.inCombat = true
+        ok(RD.ToggleView() == nil and not RD.Console(), "in a fight: refused (secure buttons)")
+        STATE.inCombat = false
+        ok(RD.ToggleView() == "console" and RD.Console() and d.radar.view == "console", "a click: the console")
+        local G = RD.conGrid
+        ok(G and f:GetWidth() == G.W and f:GetHeight() == G.H and G.W < W0, "the square shrinks to the console's grid", G and G.W)
+        local function c(fr) local p = fr.points[1] return p and p[2] == f and p[3] == "TOPLEFT" and p[4], p and -p[5] end
+        local x1, y1 = c(RD.spokes[1].heal)
+        local x2, y2 = c(RD.spokes[2].heal)
+        ok(x1 == G.cols[1] and y1 == G.rows[1] and x2 == G.cols[2] and y2 == G.rows[1], "row 1: the party's heal pips, you first")
+        local cb = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
+        local cx, cy = c(cb)
+        ok(cb and cy == G.rows[2] and math.abs(cx - G.cols[2]) < RD.CON.colW / 2, "row 2: their cures under them")
+        local bx, by = c(RD.spokes[2].bogey)
+        ok(bx == G.cols[2] and by == G.rows[3], "row 3: the kick on their target")
+        local px, py = c(RD.spokes[2].pet)
+        ok(px == G.cols[2] and py == G.rows[4], "row 4: their pet")
+        local tx1, ty1 = c(RD.shield)
+        local tx8, ty8 = c(RD.res)
+        ok(ty1 == G.rows[5] and ty8 == G.rows[5] and tx1 < tx8, "row 5: the tools of both rails, the stabilizer to the res")
+        ok(RD.spokes[2].heal:GetAttribute("unit") == "party1", "the same buttons: party1's pip still heals party1")
+        ok(not RD.scope:IsShown() and not RD.toolRail:IsShown() and not RD.gaugeRail:IsShown() and not RD.defRail:IsShown()
+           and not RD.gauge:IsShown() and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails, the tape and the black box step aside")
+        ok(RD.conSquares.heal1 and RD.conSquares.heal1:IsShown() and RD.conSquares.tool8:IsShown(), "an empty square where each one lives")
+        local hp = RD.hull.points
+        ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
+        bp = b.points[1]
+        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.ring[1].__alpha == 1, "the view button in the console's corner, a ring for the radar")
+        ok(RD.ToggleView() == "radar" and not RD.Console(), "a click again: the radar")
+        local hx = RD.shield.points[1]
+        ok(hx and hx[2] == RD.toolRail and RD.toolRail:IsShown() and RD.scope:IsShown() and not RD.conLayer:IsShown(),
+           "the tools back on their rails, the scope back, the squares away")
+        ok(f:GetWidth() == W0, "and the square its own size", f:GetWidth())
+        d.radar.view = keepView
+        RD.Arm()
+    end
     ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
        and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
@@ -12182,8 +12238,8 @@ do
     do
         local keep = { b48 = BOOK[48], b49 = BOOK[49], name = C_Spell.GetSpellName, cd = C_Spell.GetSpellCooldown }
         local c = RD.chaff
-        ok(c and c.rail == RD.defRail and RD.defRail and not RD.defRail:IsShown() and not c.macro,
-           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail hidden, nothing armed")
+        ok(c and c.rail == RD.defRail and RD.defRail and RD.defRail:IsShown() and not c.macro,
+           "no Grounding Totem trained: the chaff is in its place on the right rail, the rail still shown (always), nothing armed")
         ok(c.knob and not c.knob:IsShown(), "and no knob on a tool that is not there")
         BOOK[48] = { name = "Grounding Totem", rank = "" }
         BOOK[49] = { name = "Earth Shock", rank = "Rank 1" }
@@ -12265,7 +12321,7 @@ do
         NS.FG.kickSpell, NS.FG.backupSpell = nil, nil
         STATE.inCombat = false
         RD.ArmTools()
-        ok(not RD.defRail:IsShown(), "Grounding forgotten: the right rail goes away")
+        ok(RD.defRail:IsShown() and not RD.chaff.macro, "Grounding forgotten: the chaff disarmed, the rail stays (always shown)")
         STATE.inCombat = true
         RD.Look()
     end
@@ -12378,9 +12434,9 @@ do
     end
     ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
        and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
-    local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP - RD.GAUGE.left - RD.GAUGE.right
+    local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW() - RD.GAUGE.left - RD.GAUGE.right
     ok(RD.gauge:GetWidth() == rw and RD.gauge.lift.points[#RD.gauge.lift.points][4] == RD.BINGO * rw
-       and RD.gaugeRail:GetWidth() == RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP,
+       and RD.gaugeRail:GetWidth() == RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW(),
        "and the fuel tape with it: the top rail as wide as the raid's square, the BINGO lift still 30% of it", RD.gauge:GetWidth())
     -- every pip in its own place: no two slots on top of each other
     local clash = 0
@@ -12435,7 +12491,7 @@ do
            "the gauge's whole rail shows the FUEL card (not just the 7px tape), and still drags the radar")
         ok(g and g.boss and g.mana and g.ruler and g.hot, "the fuel tape: the boss, your mana, the BINGO ruler and its hot copy")
         -- SIDEWAYS ON TOP (Arn 9 Nov: "put it on top side ways that way only one rail per side")
-        local railW = RD.SIZE + RD.TOOL_RAIL_W + RD.RAIL_GAP
+        local railW = RD.SIZE + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW()   -- over the right rail too (always shown)
         local rp0 = pt(rail, "BOTTOMLEFT")
         ok(rp0 and rp0[2] == RD.toolRail and rp0[3] == "TOPLEFT" and rp0[5] == RD.RAIL_GAP and rail:GetWidth() == railW
            and rail:GetHeight() == RD.GAUGE_RAIL_H, "the gauge's rail sits on top: over the tool rail and the square, as wide as both",

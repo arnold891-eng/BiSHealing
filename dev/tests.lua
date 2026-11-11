@@ -11907,8 +11907,23 @@ do
                    want .. ": you in the middle, your party the core round you")
                 ok(RD.slots[T.n].band ~= "core" and not RD.slots[T.n].rb and RD.spokes[T.n].heal:GetAttribute("unit") == RD.EMPTY_UNIT,
                    want .. ": the empty places on the outer rings, no interrupts there")
+                -- THE FLEET MADE VISIBLE (Arn, 11 Nov: "yes do both")
+                local shown = 0
+                for _, l in ipairs(RD.fleetLines) do if l:IsShown() then shown = shown + 1 end end
+                ok(shown == (1 + #RD.FLEET[T.n].rings) * RD.RING_SEG and not RD.innerRings[1]:IsShown()
+                   and RD.fleetRadii[1] == RD.FLEET[T.n].core.rh, want .. ": its own rings where its ships sit, the party's away", shown)
+                local seats = 0
+                for _, t in ipairs(RD.seats) do if t:IsShown() then seats = seats + 1 end end
+                ok(seats == T.n and RD.seatFrame:GetAlpha() == 1, want .. ": a faint dot at every place, out of a fight", seats)
             end
             ok(RD.NextClass() == "FIGHTER" and f:GetWidth() == W0 and #RD.slots == 5, "round again: the party radar as it was")
+            ok(RD.innerRings[1]:IsShown() and not RD.ringFrame:IsShown(), "the party's own rings back")
+            STATE.inCombat = true
+            fire(RD.events, "PLAYER_REGEN_DISABLED")
+            ok(RD.seatFrame:GetAlpha() == 0, "a fight: the seats go")
+            STATE.inCombat = false
+            fire(RD.events, "PLAYER_REGEN_ENABLED")
+            ok(RD.seatFrame:GetAlpha() == 1, "and come back after it")
         end
         d.radar.view = keepView
         RD.Arm()

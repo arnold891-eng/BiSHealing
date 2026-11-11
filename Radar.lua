@@ -551,10 +551,12 @@ local function buildScope(f)
     -- every line kept, so a ship can repaint them (RD.ApplyShip): the rings, cross and ticks; the brackets; the centre
     RD.scopeLines, RD.brackets = {}, {}
     local function keep(l) RD.scopeLines[#RD.scopeLines + 1] = l return l end
-    for _, r in ipairs(RD.RINGS) do
+    RD.innerRings = {}                               -- the party's inner rings (not the rim): a fleet draws its own instead
+    for ri, r in ipairs(RD.RINGS) do
         for k = 1, RD.RING_SEG do
             local a0, a1 = (k - 1) * 2 * math.pi / RD.RING_SEG, k * 2 * math.pi / RD.RING_SEG
-            keep(line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1))
+            local l = keep(line(s, "BORDER", math.sin(a0) * r, math.cos(a0) * r, math.sin(a1) * r, math.cos(a1) * r, g, 1))
+            if ri < #RD.RINGS then RD.innerRings[#RD.innerRings + 1] = l end
         end
     end
     local h = RD.SIZE / 2 - 6
@@ -1268,6 +1270,81 @@ function RD.FleetGeometry(T, order)
         end
     end
     return slots, F.size, F.size / 2 - 4
+end
+
+--[[ THE FLEET MADE VISIBLE (11 Nov 2026, Arn: "yes do both", to: faint seats out of a fight, and rings where the ships sit).
+  RINGS: a class bigger than the fighter hides the party's inner rings and draws its own - the core's ring and each of
+  its rings, at the radius its ships sit on (RD.DrawRings), in the ship's line like the rest of the scope; the rim, cross
+  and ticks stay. They stay in a fight, like the scope. SEATS: every place a faint dot out of a fight (RD.PaintSeats),
+  so the fleet's shape shows on a quiet radar; gone in a fight (RD.PaintQuiet), gone in the engineer's view. ]]
+RD.SEAT_ALPHA = 0.45
+function RD.DrawRings(T)
+    local f = RD.frame
+    if not f then return end
+    local F = T and RD.FLEET[T.n]
+    local fleet = F and not RD.Console()
+    for _, l in ipairs(RD.innerRings or {}) do if fleet then l:Hide() else l:Show() end end
+    RD.ringFrame = RD.ringFrame or CreateFrame("Frame", nil, f)
+    local rf = RD.ringFrame
+    rf:SetAllPoints(f)
+    rf:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    RD.fleetLines = RD.fleetLines or {}
+    for _, l in ipairs(RD.fleetLines) do l:Hide() end
+    if not fleet then rf:Hide() return end
+    rf:Show()
+    local radii = { F.core.rh }
+    for _, R in ipairs(F.rings) do radii[#radii + 1] = R.rh end
+    local L, k = (RD.ship and RD.ship.line) or RD.PHOS, RD.SCOPE_DIM
+    local col = { L[1] * k, L[2] * k, L[3] * k, 0.85 }
+    local n = 0
+    for _, r in ipairs(radii) do
+        for j = 1, RD.RING_SEG do
+            n = n + 1
+            local a0, a1 = (j - 1) * 2 * math.pi / RD.RING_SEG, j * 2 * math.pi / RD.RING_SEG
+            local l = RD.fleetLines[n]
+            if not l then
+                l = line(rf, "BORDER", 0, 0, 0, 0, col, 1)
+                RD.fleetLines[n] = l
+            end
+            l:SetStartPoint("CENTER", rf, math.sin(a0) * r, math.cos(a0) * r)
+            l:SetEndPoint("CENTER", rf, math.sin(a1) * r, math.cos(a1) * r)
+            l:SetVertexColor(col[1], col[2], col[3], col[4])
+            l:Show()
+        end
+    end
+    RD.fleetRadii = radii
+end
+
+--- A faint dot at every place, out of a fight: the fleet's shape on a quiet radar.
+function RD.PaintSeats(slots)
+    local f = RD.frame
+    if not f then return end
+    RD.seatFrame = RD.seatFrame or CreateFrame("Frame", nil, f)
+    local sf = RD.seatFrame
+    sf:SetAllPoints(f)
+    sf:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+    RD.seats = RD.seats or {}
+    local L = (RD.ship and RD.ship.line) or RD.PHOS
+    local n = 0
+    if not RD.Console() then
+        for _, s in ipairs(slots or {}) do
+            n = n + 1
+            local t = RD.seats[n]
+            if not t then
+                t = sf:CreateTexture(nil, "BORDER")
+                t:SetTexture(RD.ART .. "disc")
+                RD.seats[n] = t
+            end
+            local px = math.max(4, math.floor((s.ph or 20) * 0.3 + 0.5))
+            t:SetSize(px, px)
+            t:ClearAllPoints()
+            t:SetPoint("CENTER", f, "CENTER", RD.Point(s, s.rh))
+            t:SetVertexColor(L[1], L[2], L[3], RD.SEAT_ALPHA)
+            t:Show()
+        end
+    end
+    for j = n + 1, #RD.seats do RD.seats[j]:Hide() end
+    sf:SetAlpha((RD.inFight or combat()) and 0 or 1)
 end
 
 --- The console is in use (any group: a class that holds everyone is picked, RD.ConsoleTier).
@@ -3257,6 +3334,8 @@ function RD.Arm()
     RD.PickFuel()
     RD.PaintMe()                                     -- your role's sign in the middle (a role change lands here)
     if con then RD.ConsoleLayout() else RD.RadarLayout() end
+    RD.DrawRings(T)                                  -- the class's own rings (a fleet), or the party's
+    RD.PaintSeats(slots)                             -- a faint dot at every place, out of a fight
     RD.ApplyView()                                   -- what steps aside in the console, and the view button
     RD.Paint()
     return true
@@ -3313,6 +3392,8 @@ function RD.PaintQuiet()
     if RD.scope then RD.scope:SetAlpha(1) end
     -- the dim slot outlines are never drawn (Arn, 8 Nov: "the box outlines are not needed"); the scope alone says where
     if RD.dims then RD.dims:SetAlpha(0) end
+    -- the faint seats instead (Arn, 11 Nov): out of a fight only
+    if RD.seatFrame then RD.seatFrame:SetAlpha(fight and 0 or 1) end
     if RD.rations then RD.rations.face:SetAlpha((not fight and RD.rations.item) and 1 or 0) end
     RD.PaintTools(fight)
 end

@@ -2215,9 +2215,11 @@ end
 --[[ THE RES (10 Nov 2026, Arn: "Out of combat right rail let's put the resurrection module where it chooses the best
   person to res always lights up when someone is dead if they are out of range it'll say so or los it'll say so").
   On the defence rail under the chaff. OUT OF A FIGHT ONLY - a res is - and dark in one.
-    who     BiS> now's own pick (FN.ResTarget): healers first, then Arn's class order; never a ghost who released,
-            someone offline, someone a res is already coming to, or a corpse another BiS healer claimed (RezComm)
-    click   `/cast [@<unit>,help,dead] <res>`: on the dead only - never anything on you
+    who     BiS> now's own pick (FN.ResTarget): healers first, then Arn's class order, released or not (Arn: "people
+            that have released should not be skipped"); never someone offline, someone a res is already coming to,
+            or a corpse another BiS healer claimed (RezComm)
+    click   `/cast [@<unit>,help] <res>`: that friend only - a res is never anything on you (you are alive), and no
+            [dead] in it, so a ghost who released is res'd too
     lit     whenever someone can be brought back; the name is in the tooltip (no words on the scope)
     RANGE   asked of the client for that one person while it is lit (one question a tick, out of a fight)
     LOS     only the cast can tell: a res that fails on line of sight with the mouse on the pip says so, for a while
@@ -2260,7 +2262,7 @@ function RD.ArmRes()
         end
         if b.icon then pcall(b.icon.SetTexture, b.icon, tex) end
     end
-    local macro = unit and ("/cast [@" .. unit .. ",help,dead] " .. res) or nil
+    local macro = unit and ("/cast [@" .. unit .. ",help] " .. res) or nil
     if macro ~= b.macro then
         b:SetAttribute("*type1", macro and "macro" or nil)
         b:SetAttribute("*macrotext1", macro)

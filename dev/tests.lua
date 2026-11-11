@@ -9537,7 +9537,7 @@ do
     ok(u == "party4", "a res already coming to the mage: the hunter before the warrior (Arn's order)", u)
     STATE.ghost.party4 = true
     u = FN.ResTarget()
-    ok(u == "party1", "the hunter released: no corpse, so the warrior", u)
+    ok(u == "party4", "the hunter released: still res'd, in the same order (Arn, 10 Nov: healers release too)", u)
     STATE.classes.party1 = "ROGUE"
     STATE.ghost.party4 = nil
     ok(FN.ResTarget() == "party4", "hunter before rogue")
@@ -11754,8 +11754,8 @@ do
         ok(RD.defRail:IsShown(), "the right rail shows while you know a res")
         who = "party1"
         ok(RD.ArmRes() == "party1" and b.face:GetAlpha() == 1, "someone dead: it lights")
-        ok(b:GetAttribute("*type1") == "macro" and b:GetAttribute("*macrotext1") == "/cast [@party1,help,dead] Ancestral Spirit",
-           "the click: the res, on the dead only - never anything on you", b:GetAttribute("*macrotext1"))
+        ok(b:GetAttribute("*type1") == "macro" and b:GetAttribute("*macrotext1") == "/cast [@party1,help] Ancestral Spirit",
+           "the click: the res on that friend, released or not", b:GetAttribute("*macrotext1"))
         ok(b.tip and b.tip[1] == "RES: Legaian Stormhoof", "the name under the mouse only (no words on the scope)", b.tip and b.tip[1])
         ok(b.word.__res == "", "in range: no word")
         inRange = false

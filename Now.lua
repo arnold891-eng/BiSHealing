@@ -109,6 +109,8 @@ local function plainTrue(f, unit)
 end
 
 --- The best corpse to res now: unit, short name. Nil in a fight, with no res, or nobody to res.
+--- RELEASED COUNTS (10 Nov 2026, Arn: "people that have released should not be skipped sometime healers release but
+--- they should still be res"): a ghost is res'd at its corpse like anyone dead - it ranks the same.
 function FN.ResTarget()
     if InCombatLockdown and InCombatLockdown() then return nil end
     local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
@@ -119,7 +121,7 @@ function FN.ResTarget()
     for _, u in ipairs(NS.FG.Roster()) do
         if u ~= "player" and not (NS.FG.IsPetUnit and NS.FG.IsPetUnit(u))
            and UnitExists and UnitExists(u)
-           and plainTrue(UnitIsDeadOrGhost, u) and not plainTrue(UnitIsGhost, u)
+           and plainTrue(UnitIsDeadOrGhost, u)
            and (not UnitIsConnected or plainTrue(UnitIsConnected, u))
            and not plainTrue(UnitHasIncomingResurrection, u)
            and not (NS.FZ and NS.FZ.ClaimOn and NS.FZ.ClaimOn(u)) then

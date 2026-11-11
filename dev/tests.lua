@@ -11812,7 +11812,8 @@ do
         STATE.inCombat = true
         ok(RD.ToggleView() == nil and not RD.Console(), "in a fight: refused (secure buttons)")
         STATE.inCombat = false
-        ok(RD.ToggleView() == "FIGHTER" and RD.Console() and d.radar.view == "console", "a click: the console, the fighter (a party)")
+        ok(RD.ToggleView() == "console" and RD.Console() and d.radar.view == "console" and RD.ConsoleTier().name == "FIGHTER",
+           "a click: the engineer's view, the fighter (a party)")
         local G = RD.conGrid
         ok(G and f:GetWidth() == G.W and f:GetHeight() == G.H and G.W < W0, "the square shrinks to the console's grid", G and G.W)
         local function c(fr) local p = fr.points[1] return p and p[2] == f and p[3] == "TOPLEFT" and p[4], p and -p[5] end
@@ -11843,12 +11844,14 @@ do
         local hp = RD.hull.points
         ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
         bp = b.points[1]
-        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.grid[1].__alpha == 1, "the view button in the console's corner (next: a bigger ship)")
+        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.ring[1].__alpha == 1, "the view button in the console's corner, its sign the ring (back to the radar)")
+        local cbp = RD.classBtn.points[1]
+        ok(cbp and cbp[2] == b, "the class button beside it")
         -- THE SHIPS (Arn, 11 Nov: "upgrading ships to the next class ... let me click them even if i am not in that size
         -- party or raid, only go bigger 5-10%"): each class a hull only a little wider, rows folded, from the centre out
         local widths = { f:GetWidth() }
         for _, want in ipairs({ "GUNSHIP", "CRUISER", "CAPITAL" }) do
-            ok(RD.ToggleView() == want and RD.ship == RD.SHIPS[RD.ConsoleTier().ship], "a click: the " .. want .. ", in its colours")
+            ok(RD.NextClass() == want and RD.ship == RD.SHIPS[RD.ConsoleTier().ship], "the class button: the " .. want .. ", in its colours")
             widths[#widths + 1] = f:GetWidth()
             local grow = widths[#widths] / widths[#widths - 1]
             ok(grow > 1.0 and grow <= 1.10, want .. ": only a little wider than the last (5-10%)", grow)
@@ -11880,13 +11883,33 @@ do
         ok(RD.spokes[3].bogey:IsShown() and RD.slots[3].rb, "the top five carry the interrupts")
         _G.BiSBrains, _G.GetUnitName = keepBrains, keepGUN
         RD.Arm()
-        ok(b.ring[1].__alpha == 1, "on the capital the button's sign is the ring: next is the radar")
-        ok(RD.ToggleView() == "radar" and not RD.Console(), "a click again: the radar")
+        ok(RD.classBtn.dots[4].__alpha == 1, "on the capital all four of the class button's dots are lit")
+        ok(RD.NextClass() == "FIGHTER" and RD.ConsoleTier().n == 5, "and round again to the fighter (a party fits it)")
+        ok(RD.ToggleView() == "radar" and not RD.Console(), "the view button again: the radar")
         local hx = RD.shield.points[1]
         ok(hx and hx[2] == RD.toolRail and RD.toolRail:IsShown() and RD.scope:IsShown() and not RD.conLayer:IsShown(),
            "the tools back on their rails, the scope back, the squares away")
         ok(f:GetWidth() == W0, "and the square its own size", f:GetWidth())
         ok(RD.gauge.regen:IsShown(), "the regen readout back with the tape")
+        -- THE RADAR'S SHIPS (Arn, 11 Nov: "reimage the radar screen, for 10 20 40"): previewed from a party with the class
+        -- button - rings by rank round you, the scope only 7-8% bigger a class
+        do
+            local sizes = { W0 }
+            for _, want in ipairs({ "GUNSHIP", "CRUISER", "CAPITAL" }) do
+                ok(RD.NextClass() == want and not RD.Console(), "the class button on the radar: the " .. want)
+                local T = RD.ConsoleTier()
+                sizes[#sizes + 1] = f:GetWidth()
+                local grow = sizes[#sizes] / sizes[#sizes - 1]
+                ok(#RD.slots == T.n and f:GetWidth() == RD.FLEET[T.n].size and grow > 1.05 and grow <= 1.10,
+                   want .. ": " .. T.n .. " places, the scope a little bigger", grow)
+                local me1 = RD.slots[1]
+                ok(me1.band == "you" and RD.spokes[2].slot.band == "core" and RD.spokes[2].heal:GetAttribute("unit") == "party1",
+                   want .. ": you in the middle, your party the core round you")
+                ok(RD.slots[T.n].band ~= "core" and not RD.slots[T.n].rb and RD.spokes[T.n].heal:GetAttribute("unit") == RD.EMPTY_UNIT,
+                   want .. ": the empty places on the outer rings, no interrupts there")
+            end
+            ok(RD.NextClass() == "FIGHTER" and f:GetWidth() == W0 and #RD.slots == 5, "round again: the party radar as it was")
+        end
         d.radar.view = keepView
         RD.Arm()
         -- ENEMIES ONLY (Arn, 10 Nov: "when im healing myself and targeting myself it shows the interuppt?")
@@ -12474,14 +12497,22 @@ do
     local mx2, my2 = RD.Point(me, me.rh)
     ok(me.self and math.abs(mx2) < 0.01 and math.abs(my2) < 0.01 and RD.spokes[12].heal:GetAttribute("unit") == "raid12",
        "in a raid too, you are the centre")
-    local own = RD.spokes[11].slot
-    ok(RD.spokes[11].unit == "raid11" and own.own and math.abs(own.b) < math.rad(32) and own.rh < RD.RAID.other.rh,
-       "your own group's sector is the top one, nearer the centre", own.b)
-    ok(RD.spokes[1].slot.rh == RD.RAID.other.rh and not RD.spokes[1].slot.rb and RD.spokes[1].heal:GetAttribute("unit") == "raid1",
-       "group 1 sits on the outer ring, no bogey (bogeys: your own group only)")
-    ok(RD.spokes[16].slot.b > own.b and RD.spokes[16].slot.b < RD.spokes[1].slot.b,
-       "group 4 comes right after yours, clockwise; group 1 last")
-    ok(f.__w == RD.RAID.size or (f.GetWidth and f:GetWidth() == RD.RAID.size), "the square grows for a raid")
+    -- THE FLEET (Arn, 11 Nov: "reimage the radar screen, for 10 20 40" - you the star destroyer, the best ships round you,
+    -- the screen ships on the edge): rings by rank, not sectors by group
+    do
+    local band = { you = 0, core = 0, escort = 0, screen = 0 }
+    for i = 1, 40 do local b = RD.slots[i].band band[b] = band[b] + 1 end
+    ok(band.you == 1 and band.core == 4 and band.escort == 11 and band.screen == 24,
+       "a full 40: you, the core four, eleven escorts, the screen of twenty-four", band.core .. "/" .. band.escort .. "/" .. band.screen)
+    local core, screen
+    for i = 1, 40 do
+        if RD.slots[i].band == "core" then core = RD.slots[i] elseif RD.slots[i].band == "screen" then screen = RD.slots[i] end
+    end
+    ok(core.rb and core.own and core.rh < screen.rh and core.ph > screen.ph and not screen.rb,
+       "the core on the inner ring, full size, with interrupts; the screen outermost, smallest, none")
+    ok(f.__w == RD.FLEET[40].size or (f.GetWidth and f:GetWidth() == RD.FLEET[40].size),
+       "the scope grows only a little: 370 for the capital (the old raid radar was 440)")
+    end
     ok(RD.ship and RD.ship.key == "capital" and RD.gauge.ship.__text == "CAPITAL", "a full 40: the capital ship",
        RD.ship and RD.ship.key)
     -- PETS IN A RAID: your own group's only, nearer the middle on their owner's bearing
@@ -12491,16 +12522,14 @@ do
         local sp = RD.spokes[i]
         if sp.petUnit then if sp.slot.own then ownPets = ownPets + 1 else otherPets = otherPets + 1 end end
     end
-    local o11 = RD.spokes[11]
-    ok(ownPets == 5 and otherPets == 0 and o11.pet:GetAttribute("unit") == "raidpet11" and not WATCHED[RD.spokes[1].pet],
-       "a raid: pets for your own group only (raidpet11), none for the other 35", ownPets .. " / " .. otherPets)
+    ok(ownPets == 5 and otherPets == 0, "a raid: pets for you and the core only, none for the other 35", ownPets .. " / " .. otherPets)
     ok(RD.spokes[12].pet.__w == RD.PET.raidPx, "and smaller in a raid")
     end
-    ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.RAID.size / RD.PARTY.size) < 0.01
+    ok(math.abs((RD.fade.__w or 0) - RD.FADE_PX * RD.FLEET[40].size / RD.PARTY.size) < 0.01
        and RD.fade.__w == RD.fade.__h, "and the dark disc grows with the scope", RD.fade.__w)
-    local rw = RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW() - RD.GAUGE.left - RD.GAUGE.right
+    local rw = RD.FLEET[40].size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW() - RD.GAUGE.left - RD.GAUGE.right
     ok(RD.gauge:GetWidth() == rw and RD.gauge.lift.points[#RD.gauge.lift.points][4] == RD.BINGO * rw
-       and RD.gaugeRail:GetWidth() == RD.RAID.size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW(),
+       and RD.gaugeRail:GetWidth() == RD.FLEET[40].size + RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.RightW(),
        "and the fuel tape with it: the top rail as wide as the raid's square, the BINGO lift still 30% of it", RD.gauge:GetWidth())
     -- every pip in its own place: no two slots on top of each other
     local clash = 0

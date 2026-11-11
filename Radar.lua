@@ -1216,6 +1216,60 @@ RD.CON_TIERS = {
     { n = 40, ship = 4, name = "CAPITAL", cols = 9, rows = 5, sq = 18, ph = 12, colW = 27, rowGap = 3, chip = 7, kick = 18, pet = 14 },
 }
 
+--[[ THE RADAR'S SHIPS (11 Nov 2026, Arn: "i want you to reimage the radar screen, for 10 20 40 we already have the 5 version
+  very nice" - the console above is the engineer's view of the same classes). The fighter keeps the party radar. A bigger
+  class is a FLEET round you, by rank (RD.ConsoleOrder - you, then the brains' order), drawn in rings:
+      you      the star destroyer, in the middle (your cure above you, your target's bogey straight up at the rim)
+      core     the next four on the inner ring, on the diagonals, full size, with cures and interrupts (bogeys at the
+               rim, on the diagonals - the outer rings leave the diagonals clear for them)
+      escorts  the middle ring, smaller, a cure beside each, no bogey
+      screen   the outer ring, the smallest ("the ones that will have to be sacrificed to protect the carriers")
+  The scope only grows 7-8% a class (300 / 320 / 345 / 370 - the old one-size raid radar was 440). Pets: the core's. ]]
+RD.FLEET = {
+    [10] = { size = 320, core = { rh = 56, rc = 86, rb = 140, ph = 24, pc = 13, pb = 20 },
+             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 0 } } },
+    [20] = { size = 345, core = { rh = 56, rc = 84, rb = 158, ph = 24, pc = 13, pb = 20 },
+             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 0 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
+    [40] = { size = 370, core = { rh = 56, rc = 82, rb = 172, ph = 22, pc = 12, pb = 18 },
+             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 0 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
+}
+
+--- Every place of a fleet, in rank order: you, the core four, then each ring from the top clockwise.
+function RD.FleetPlaces(T)
+    local F = RD.FLEET[T.n]
+    if not F then return nil end
+    local C, S = F.core, RD.SELF
+    local P = { { b = 0, rh = 0, rc = S.rc, rb = C.rb, ph = C.ph + 4, pc = C.pc, pb = C.pb, own = true, self = true, band = "you" } }
+    for j = 1, 4 do
+        P[#P + 1] = { b = math.pi / 4 + (j - 1) * math.pi / 2, rh = C.rh, rc = C.rc, rb = C.rb, ph = C.ph, pc = C.pc,
+                      pb = C.pb, own = true, band = "core" }
+    end
+    for r, R in ipairs(F.rings) do
+        for j = 1, R.n do
+            P[#P + 1] = { b = math.rad(R.off) + (j - 1) * 2 * math.pi / R.n, rh = R.rh, rc = R.rh + R.ph / 2 + R.pc / 2 + 3,
+                          ph = R.ph, pc = R.pc, own = false, band = (r == #F.rings and #F.rings > 1) and "screen" or "escort" }
+        end
+    end
+    return P
+end
+
+--- The fleet's slots for these units: slot i (unit i) gets the place of its rank. Answers slots, the scope's size, rim.
+function RD.FleetGeometry(T, order)
+    local P = RD.FleetPlaces(T)
+    local F = RD.FLEET[T.n]
+    local slots = {}
+    for k, i in ipairs(order) do
+        local p = P[k]
+        if p then
+            local s = {}
+            for key, v in pairs(p) do s[key] = v end
+            s.group, s.pos, s.rank = math.ceil(i / 5), (i - 1) % 5 + 1, k
+            slots[i] = s
+        end
+    end
+    return slots, F.size, F.size / 2 - 4
+end
+
 --- The console is in use (any group: a class that holds everyone is picked, RD.ConsoleTier).
 function RD.Console() return db().view == "console" end
 
@@ -1517,17 +1571,21 @@ function RD.ApplyView()
     RD.ClampRails()
 end
 
---- The view button: the right rail's foot on the radar, the console's top-right corner in the console.
+--- The two buttons: the CLASS (5 / 10 / 20 / 40) over the VIEW (radar / engineer) at the right rail's foot on the radar;
+--- side by side in the console's top-right corner.
 function RD.PlaceViewButton()
-    local b, f = RD.viewBtn, RD.frame
+    local b, c, f = RD.viewBtn, RD.classBtn, RD.frame
     if not (b and f) then return end
     b:ClearAllPoints()
+    if c then c:ClearAllPoints() end
     if RD.Console() then
         b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -2, -2)
         b:SetSize(12, 12)
+        if c then c:SetPoint("TOPRIGHT", b, "TOPLEFT", -3, 0) c:SetSize(12, 12) end
     else
         b:SetPoint("BOTTOM", RD.defRail or f, "BOTTOM", 0, 8)
         b:SetSize(RD.SYS_PX, RD.SYS_PX)
+        if c then c:SetPoint("BOTTOM", b, "TOP", 0, 4) c:SetSize(RD.SYS_PX, RD.SYS_PX) end
     end
     RD.PaintViewButton()
 end
@@ -1536,30 +1594,83 @@ function RD.PaintViewButton()
     local b = RD.viewBtn
     if not b then return end
     local con = RD.Console()
-    local T, k = RD.ConsoleTier()
-    local last = con and k >= #RD.CON_TIERS
-    -- no words on the radar: a drawn sign of where the click goes - four small squares (a console), a ring (the radar)
-    for _, t in ipairs(b.grid) do t:SetAlpha(last and 0 or 1) end
-    for _, l in ipairs(b.ring) do l:SetAlpha(last and 1 or 0) end
-    local now = con and (T.name .. " (" .. T.n .. ")") or "RADAR"
-    local nextT = (not con) and T or (not last and RD.CON_TIERS[k + 1]) or nil
-    b.tip = { now, "Click: " .. (nextT and (nextT.name .. " (" .. nextT.n .. ") - the engineer's console, the same buttons "
-              .. "on a grid") or "back to the radar") .. ".  Out of a fight." }
+    -- no words on the radar: a drawn sign of where the click goes - four small squares (the engineer's console), a ring
+    -- (the radar)
+    for _, t in ipairs(b.grid) do t:SetAlpha(con and 0 or 1) end
+    for _, l in ipairs(b.ring) do l:SetAlpha(con and 1 or 0) end
+    b.tip = con and { "ENGINEER VIEW", "Click: back to the radar.  Out of a fight." }
+            or { "RADAR", "Click: the engineer's view - the same buttons on a plain grid (for anyone who would rather not "
+                 .. "have the radar).  Out of a fight." }
+    local c = RD.classBtn
+    if c then
+        local T, k = RD.ConsoleTier()
+        for j, t in ipairs(c.dots) do t:SetAlpha(j <= k and 1 or 0.18) end
+        local nk = k % #RD.CON_TIERS + 1
+        local nT = RD.CON_TIERS[nk]
+        c.tip = { T.name .. " (" .. T.n .. ")", "Click: " .. nT.name .. " (" .. nT.n .. ") - the next class of ship, in any "
+                  .. "group (a preview; a class too small for your group is skipped).  Out of a fight." }
+    end
 end
 
---- One click: the next view - radar, fighter, gunship, cruiser, capital, radar (a class too small for the group is
---- skipped). Refused in a fight (the radar holds secure buttons). Answers "radar" or the class's name.
+--- One click on the view button: radar <-> the engineer's view, the class kept. Refused in a fight (the radar holds
+--- secure buttons). Answers "radar" or "console".
 function RD.ToggleView()
     if combat() or RD.inFight then return nil end
     local d = db()
-    if d.view ~= "console" then
-        d.view, d.tier = "console", nil              -- the smallest class that holds everyone
-    else
-        local _, k = RD.ConsoleTier()
-        if k >= #RD.CON_TIERS then d.view, d.tier = nil, nil else d.tier = k + 1 end
-    end
+    d.view = (d.view ~= "console") and "console" or nil
     RD.Arm()
-    return d.view and RD.ConsoleTier().name or "radar"
+    return d.view and "console" or "radar"
+end
+
+--- One click on the class button: the next class - fighter, gunship, cruiser, capital, round again (Arn: "let me click
+--- them even if i am not in that size party or raid"); a class too small for the group is skipped. Answers its name.
+function RD.NextClass()
+    if combat() or RD.inFight then return nil end
+    local _, k = RD.ConsoleTier()
+    db().tier = k % #RD.CON_TIERS + 1
+    RD.Arm()
+    return RD.ConsoleTier().name
+end
+
+-- a small square button with the hover pop, a drawn sign and a tooltip
+local function smallButton(f, onClick)
+    local b = CreateFrame("Button", nil, f)
+    b:SetFrameLevel(f:GetFrameLevel() + 14)
+    local c = RD.PHOS
+    b.edges = edge(b, { c[1] * 0.6, c[2] * 0.6, c[3] * 0.6, 1 }, 1)
+    b.hl = b:CreateTexture(nil, "HIGHLIGHT")
+    b.hl:SetAllPoints(b)
+    b.hl:SetTexture(RD.WHITE)
+    b.hl:SetVertexColor(c[1], c[2], c[3], 0.22)
+    b:SetScript("OnClick", onClick)
+    b:SetScript("OnEnter", function(self)
+        local tip = self.tip
+        if not (tip and GameTooltip) then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(tip[1])
+        GameTooltip:AddLine(tip[2], 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+    return b
+end
+
+--- The class button: four dots in a row, as many lit as the class (1 fighter .. 4 capital).
+function RD.BuildClassButton(f)
+    if RD.classBtn or not f then return RD.classBtn end
+    local b = smallButton(f, function() RD.NextClass() end)
+    local c = RD.PHOS
+    b.dots = {}
+    for j = 1, 4 do
+        local t = b:CreateTexture(nil, "OVERLAY")
+        t:SetTexture(RD.WHITE)
+        t:SetVertexColor(c[1], c[2], c[3], 1)
+        t:SetSize(2, 2)
+        t:SetPoint("CENTER", b, "CENTER", (j - 2.5) * 3, 0)
+        b.dots[j] = t
+    end
+    RD.classBtn = b
+    return b
 end
 
 function RD.BuildViewButton(f)
@@ -2029,6 +2140,7 @@ function RD.Build()
     RD.res = buildSystem(f, "Res", "TOPLEFT", X, -8 - step, RD.defRail)
     RD.BuildRes(RD.res)
     -- THE VIEW BUTTON: radar <-> the engineer's console (RD.ToggleView)
+    RD.BuildClassButton(f)
     RD.BuildViewButton(f)
     -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
     RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
@@ -3067,6 +3179,14 @@ function RD.Arm()
             end
         end
     end
+    -- THE RADAR'S SHIPS (11 Nov): a class bigger than the fighter is its own drawing - rings by rank round you
+    -- (RD.FleetGeometry); the class is chosen (the class button) or the smallest that holds everyone
+    local T = RD.ConsoleTier(units)
+    if not RD.Console() and T.n > 5 then
+        local order = RD.ConsoleOrder(units, T.n)
+        RD.conOrder = order
+        slots, size, rim = RD.FleetGeometry(T, order)
+    end
     RD.slots, RD.rim = slots, rim
     -- the square grows for a raid; the scope's drawing scales with it, so its rings sit where the slots do
     RD.frame:SetSize(size, size)
@@ -3076,7 +3196,7 @@ function RD.Arm()
     -- THE SHIP for this many (Arn, 9 Nov: "the more the group gets we change the color"): out of a fight only, here
     local n = 0
     for i = 1, #slots do if units[i] then n = n + 1 end end
-    RD.ApplyShip(RD.ShipFor(math.max(1, n)))
+    RD.ApplyShip(RD.SHIPS[T.ship] or RD.ShipFor(math.max(1, n)))   -- the class's colours (a preview shows its own)
     local con = RD.Console()                         -- the engineer's console: small slots, placed on its grid after
     if con then
         -- its class (fighter .. capital): chosen, or the smallest that holds everyone; the radar's ship colours with it

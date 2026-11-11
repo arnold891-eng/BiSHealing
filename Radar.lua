@@ -1184,6 +1184,9 @@ end
   THE VIEW BUTTON (Arn: "button ... on right rail"): at the right rail's foot on the radar, at the console's top-right
   corner in the console; one click switches, out of a fight (`radar.view` on the account). A party only for now: in a
   raid the radar stays (the 10 / 20 / 40 console is its own design, to come). ]]
+-- a unit that is never a friend: an empty place and the radar's background name it, so the mouseover is nobody there
+-- (an arena enemy, which does not exist outside an arena - and inside one the wheel's [nohelp] stops it all the same)
+RD.EMPTY_UNIT = "arena5"
 RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2 }
 
 --- The console is in use: chosen, and a party (a raid keeps the radar until its own console exists).
@@ -1764,6 +1767,8 @@ function RD.Build()
     f:SetMovable(true)
     f:SetClampedToScreen(true)
     f:EnableMouse(true)
+    -- the radar's own background is nobody too (RD.EMPTY_UNIT): the wheel over a gap heals no one
+    f:SetAttribute("unit", RD.EMPTY_UNIT)
     f:RegisterForDrag("LeftButton")
     -- dragged by the scope, out of a fight only; the drag ENDS before a fight takes the mouse (BiS Tools' lesson, 8 Nov)
     f:SetScript("OnDragStart", function(self)
@@ -2878,9 +2883,12 @@ function RD.Arm()
             armHeal(sp, unit)
             if s.rb then armBogey(sp, unit) else sp.bogey:SetAttribute("unit", nil) sp.bogey:EnableMouse(false) sp.kick = nil end
         else
-            sp.heal:SetAttribute("unit", nil)
+            -- AN EMPTY PLACE IS NOBODY (Arn, 10 Nov: the wheel over an empty console square "heal me"): it takes the
+            -- mouse and names a unit that never exists, so the game's mouseover becomes nobody and the wheel's guard
+            -- ([@mouseover,noexists]) casts nothing - before, the mouseover stayed whoever you hovered last (you)
+            sp.heal:SetAttribute("unit", RD.EMPTY_UNIT)
             sp.heal:SetAttribute("type1", nil)
-            sp.heal:EnableMouse(false)
+            sp.heal:EnableMouse(true)
             sp.bogey:SetAttribute("unit", nil)
             sp.bogey:EnableMouse(false)
             sp.kick, sp.paintTex = nil, nil

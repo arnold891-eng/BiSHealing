@@ -11711,7 +11711,10 @@ do
         -- the HUD tape's numbers are allowed (Arn's HUD picture), and the regen readout's "100%" / "?": digits, a % sign,
         -- a question mark - never a word or a name. The one exception is the top rail's placard (the ship, FUEL).
         local t = fs.__text
-        if not placard[fs] then
+        -- and the black box's bottom rail (BlackBox.lua): its keys and its screen are words, outside the square
+        local q, onBox = fs.__parent, false
+        while q do if q == NS.BB.rail then onBox = true break end q = q.__parent end
+        if not placard[fs] and not onBox then
             while p do if p == f then if t and t ~= "" and not t:match("^%d+%%?$") and t ~= "?" and t ~= "(secret)" then names = names + 1 end break end p = p.__parent end
         end
     end
@@ -12360,8 +12363,9 @@ do
         for _, r in ipairs({ RD.toolRail, RD.defRail }) do if r == rail then gaugeRails = gaugeRails + 1 end end
         ok(gaugeRails == 0 and pt(tr0, "TOPRIGHT") and pt(RD.defRail, "TOPLEFT"), "one rail a side: tools on the left, defence on the right")
         local cl = RD.frame.__clamp
-        ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP and cl[4] == 0,
-           "the clamp keeps the left rail and the top rail on the screen", cl and table.concat(cl, " "))
+        ok(cl and cl[1] == -(RD.TOOL_RAIL_W + RD.RAIL_GAP) and cl[3] == RD.GAUGE_RAIL_H + RD.RAIL_GAP
+           and cl[4] == -(NS.BB.RAIL_H + RD.RAIL_GAP),
+           "the clamp keeps the left rail, the top rail and the black box's bottom rail on the screen", cl and table.concat(cl, " "))
         -- the layering: boss under mana, ticks over both, the caret over all three, the BINGO window over that
         local L = function(x) return x:GetFrameLevel() end
         ok(L(g.boss) < L(g.mana) and L(g.mana) < L(g.tickFrame) and L(g.tickFrame) < L(g.caretFrame) and L(g.caretFrame) < L(g.hotClip),
@@ -12906,6 +12910,13 @@ do
     ok(not CAM.Armed() and said("alpha is off") and CAM.DB().run == nil, "alpha off: start refuses, no run counted")
 
     d.alpha = true
+    -- THE KEY GATE (10 Nov, the black box's): without the private key addon there is no camera at all
+    local keepKey = _G.BiSBlackBoxKey
+    _G.BiSBlackBoxKey = nil
+    heard = {}
+    SlashCmdList.BISHEALING("alpha cam start")
+    ok(not CAM.Armed() and said("black box key") and CAM.DB().run == nil, "no key addon: start refuses, no run counted")
+    _G.BiSBlackBoxKey = { Check = function() return false end }
     fire(CAM.events, "PLAYER_REGEN_DISABLED")
     ok(shots == 0 and onUpdate() == nil, "the alpha on is not enough: not started, no shot at the pull and no clock")
     fire(CAM.events, "PLAYER_REGEN_ENABLED")
@@ -13024,9 +13035,150 @@ do
     ok(not CAM.Armed(), "/bish alpha cam off (the switch): off with the feature")
 
     _G.DEFAULT_CHAT_FRAME, _G.Screenshot, _G.time, _G.date = keep.chat, keep.shot, keep.time, keep.date
+    _G.BiSBlackBoxKey = keepKey
     d.alpha, d.alphaOff, d.cam = keep.alpha, keep.alphaOff, keep.cam
     RD.readyAt.tide, RD.coolStart.tide, RD.waterUntil = keep.tide, keep.tideStart, keep.water
     CAM.inFight, CAM.last, CAM.pending = nil, nil, nil
+end
+
+-- THE BLACK BOX (10 Nov 2026, Arn: "Build the bottom raid with the squawk box thing"): the radar's bottom rail - a lamp,
+-- a status, a scratchpad and a keypad for everyone; only the private key addon makes a code right
+do
+    local BB, CAM, RD, d = NS.BB, NS.CAM, NS.RD, NS.DB()
+    local keep = { key = _G.BiSBlackBoxKey, log = _G.LoggingCombat, reload = _G.ReloadUI, time = _G.time,
+                   icl = _G.InCombatLockdown, bb = d.bb, cam = d.cam, alpha = d.alpha, chat = _G.DEFAULT_CHAT_FRAME,
+                   rand = math.random }
+    local heard = {}
+    _G.DEFAULT_CHAT_FRAME = { AddMessage = function(_, t) heard[#heard + 1] = t end }
+    local logOn, logSets, reloads = false, 0, 0
+    _G.LoggingCombat = function(v) if v ~= nil then logOn = v and true or false logSets = logSets + 1 end return logOn end
+    _G.ReloadUI = function() reloads = reloads + 1 end
+    local WALL = 1800100000
+    _G.time = function() return WALL end
+    local fighting = false
+    _G.InCombatLockdown = function() return fighting end
+    d.bb, d.cam, d.alpha = nil, nil, nil
+    _G.BiSBlackBoxKey = nil
+    local function press(...) local r for _, k in ipairs({ ... }) do r = BB.Press(k) end return r end
+    local function plain(fs) return (tostring(fs.__bbt or ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
+
+    ok(BB and BB.Build, "the black box is built into the radar")
+    RD.Build()
+    local r = BB.rail
+    ok(r and RD.bbRail == r, "the radar has a bottom rail (RD.bbRail)")
+    local k1 = r and r.keys and r.keys["1"]
+    ok(k1 and r.keys.A and r.keys["0"] and r.keys.CLR and r.keys.EXEC and not r.keys["8"] and not r.keys["9"],
+       "the keypad: squawk digits 0-7, an A, CLR and EXEC (no 8 or 9)")
+    ok(plain(r.status) == "REC OFF" and r.lampState == "off", "at rest: REC OFF, the lamp red", plain(r.status))
+    ok(r.__scripts.OnUpdate == nil, "no key, nothing typed: no OnUpdate at all")
+    heard = {}
+    NS.DO.help()
+    local told = false
+    for _, t in ipairs(heard) do if tostring(t):lower():find("black box", 1, true) then told = true end end
+    ok(not told, "/bish help never mentions it (the Diablo gem: nobody is told)")
+
+    -- typing
+    k1.__scripts.OnClick(k1)
+    press("2", "3")
+    ok(BB.pad == "123" and plain(r.screen) == "[123_]", "keys type into the scratchpad", plain(r.screen))
+    press("4", "5", "6", "7")
+    ok(BB.pad == "123456", "six at most", BB.pad)
+    press("CLR")
+    ok(BB.pad == "12345", "CLR takes the last one back")
+
+    -- NO KEY: every code is refused, nothing else happens
+    math.random = function(a, b) return a end          -- roll 1: a rare one
+    ok(BB.Press("EXEC") == "denied" and reloads == 0 and logSets == 0 and not BB.Recording(), "no key: refused, never a reload or the log")
+    local rare = plain(r.screen)
+    ok(rare == BB.DENY_RARE[1], "a rare refusal on the screen", rare)
+    ok(r.__scripts.OnUpdate ~= nil, "a reply clears itself: the tick runs while it shows")
+    math.random = function(a, b) return b end          -- roll RARE: a common one
+    press("7", "7", "0", "0")
+    ok(BB.Press("EXEC") == "denied" and plain(r.screen) == BB.DENY[#BB.DENY], "and a common one", plain(r.screen))
+    TICK(BB.SAY + 0.5) BB.OnUpdate(r, 1.1)
+    ok(plain(r.screen) == "[_]" and r.__scripts.OnUpdate == nil, "the reply goes after a few seconds, and so does the tick", plain(r.screen))
+    press("1", "2")
+    ok(BB.Press("EXEC") == "short" and reloads == 0, "too short: told so, nothing else")
+
+    -- THE KEY: only its code is right
+    _G.BiSBlackBoxKey = { Check = function(c) return c == "4721" end }
+    press("1", "1", "1", "1")
+    ok(BB.Press("EXEC") == "denied" and reloads == 0, "the key installed, a wrong code: refused")
+    fighting = true
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "combat" and reloads == 0 and not BB.Recording(), "the right code in a fight: not now")
+    fighting = false
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "start", "the right code out of a fight: START")
+    local b = BB.DB()
+    ok(BB.Recording() and b.run == 1 and b.at == WALL and b.untilAt == WALL + BB.MINUTES * 60, "recording: the run written to the save")
+    ok(logOn and b.logOurs == true and reloads == 1, "the combat log on (ours), then the game reloads (the save reaches the disk)")
+    ok(CAM.Armed(), "the test camera arms with it - no alpha needed")
+
+    -- after the reload: the log comes back if it fell off
+    logOn = false
+    heard = {}
+    fire(BB.events, "PLAYER_LOGIN")
+    ok(logOn and BB.Recording(), "back from the reload: the log on again")
+    WALL = WALL + 65
+    BB.Paint()
+    ok(plain(r.status) == "REC 01:05" and r.lampState == "rec", "REC and the run's clock, the lamp red", plain(r.status))
+    ok(r.__scripts.OnUpdate ~= nil, "recording: the one-a-second tick runs")
+
+    -- a fight, then the wait, then safe
+    fire(BB.events, "PLAYER_REGEN_DISABLED")
+    ok(BB.State() == "rec" and r.lampState == "rec", "in a fight: red")
+    fire(BB.events, "PLAYER_REGEN_ENABLED")
+    ok(BB.State() == "wait" and r.lampState == "wait" and plain(r.status) == "WAIT " .. BB.WAIT .. "s", "the fight ends: yellow, WAIT", plain(r.status))
+    TICK(BB.WAIT - 4) BB.OnUpdate(r, 1.1)
+    ok(plain(r.status) == "WAIT 4s", "counting down", plain(r.status))
+    TICK(5) BB.OnUpdate(r, 1.1)
+    ok(BB.State() == "safe" and r.lampState == "safe" and plain(r.status) == "SAFE TO RELOAD", "then green: SAFE TO RELOAD", plain(r.status))
+    fire(BB.events, "PLAYER_REGEN_DISABLED")
+    ok(r.lampState == "rec", "the next pull: red again")
+    fire(BB.events, "PLAYER_REGEN_ENABLED")
+
+    -- the cost of a recording's frames: a tick a second, words set only when they change
+    local okCost, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+    if not okCost then okCost, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+    if okCost then
+        local n = Cost.Count(function() for _ = 1, 100 do BB.OnUpdate(r, 0.01) end end)
+        print(("   cost: black box, 100 recording frames = %d calls"):format(n))
+        ok(n <= 12, "a second of recording frames: at most one paint", n)
+    end
+
+    -- STOP: the code again
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and not logOn and reloads == 2, "the code again: STOP, the log off, a reload")
+    ok(b.stopWhy == "code" and b.stoppedAt == WALL and not CAM.Armed(), "the stop written down, the camera disarmed")
+
+    -- courtesy: someone else's log stays on
+    logOn = true
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    ok(BB.Recording() and not b.logOurs, "the log already on: not ours")
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    ok(logOn, "so our stop leaves it on")
+
+    -- it stops by itself; and the key gone stops it at the next login
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    WALL = b.untilAt + 1
+    BB.Paint()
+    ok(not BB.Recording() and b.stopWhy == "time" and r.lampState == "off", "after its time: stopped by itself, red, REC OFF")
+    WALL = WALL + 10
+    press("4", "7", "2", "1") BB.Press("EXEC")
+    _G.BiSBlackBoxKey = nil
+    fire(BB.events, "PLAYER_LOGIN")
+    ok(not BB.Recording() and b.stopWhy == "key gone", "the key addon gone: the next login stops it")
+    _G.BiSBlackBoxKey = { Check = function() error("boom") end }
+    press("4", "7", "2", "1")
+    ok(BB.Press("EXEC") == "denied", "a key that breaks: refused, never a reload")
+
+    math.random = keep.rand
+    _G.BiSBlackBoxKey, _G.LoggingCombat, _G.ReloadUI, _G.time = keep.key, keep.log, keep.reload, keep.time
+    _G.InCombatLockdown, _G.DEFAULT_CHAT_FRAME = keep.icl, keep.chat
+    d.bb, d.cam, d.alpha = keep.bb, keep.cam, keep.alpha
+    BB.pad, BB.sayUntil, BB.waitUntil, BB.inFight = "", nil, nil, nil
+    BB.Paint() BB.Wake()
 end
 
 print(fail == 0 and ("== BiS Healing ok (" .. checks .. " checks)")

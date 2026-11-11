@@ -1111,17 +1111,20 @@ function RD.BuildRails(f)
     d:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT", gap, 0)
     d:Hide()
     RD.toolRail, RD.gaugeRail, RD.defRail = t, g, d
+    -- THE BLACK BOX'S RAIL along the bottom (BlackBox.lua, 10 Nov: "Build the bottom raid with the squawk box thing")
+    if NS.BB and NS.BB.Build then RD.bbRail = NS.BB.Build(f, t, rail) end
     RD.ClampRails()
     return t, g
 end
 
---- The radar's clamp: the tool rail and the gauge's rail always, the right one while it shows.
+--- The radar's clamp: the tool rail, the gauge's rail and the black box's always, the right one while it shows.
 function RD.ClampRails()
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
-    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, 0)
+    local bottom = (RD.bbRail and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
+    pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, bottom)
 end
 
 --- The HUD scale UNDER the tape: the spine, the ticks hanging from it, the numbers under them, and the readout box
@@ -1253,7 +1256,7 @@ function RD.ApplyShip(ship)
     RD.PLATE[1], RD.PLATE[2], RD.PLATE[3] = P[1], P[2], P[3]
     local function plate(t) if t then t:SetVertexColor(P[1], P[2], P[3], 1) end end
     plate(RD.fade)
-    for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail }) do plate(r and r.bg) end
+    for _, r in ipairs({ RD.toolRail, RD.gaugeRail, RD.defRail, RD.bbRail }) do plate(r and r.bg) end
     local sh = RD.shield
     if sh then
         plate(sh.plate)

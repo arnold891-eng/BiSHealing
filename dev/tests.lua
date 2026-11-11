@@ -12248,10 +12248,31 @@ do
     STATE.units.party1 = nil
     RD.PaintHeal(sp2)
     ok(sp2.heal.face:GetAlpha() == 0, "they left the party (the re-layout waits): nothing at their spot")
+    -- ARN'S AMBER SWORD (11 Nov: "left group still icons remain ... during combat"): the red and amber copies are their
+    -- own layers - they go dark with the face
+    ok(sp2.heal.amberFace:GetAlpha() == 0 and sp2.heal.redFace:GetAlpha() == 0,
+       "and their amber and red copies too - no stale sword")
     STATE.units.party1 = true
     STATE.hp.party1 = 0.6
     RD.PaintHeal(sp2)
-    ok(sp2.heal.face:GetAlpha() == 1, "back: their pip again")
+    ok(sp2.heal.face:GetAlpha() == 1 and sp2.heal.amberFace:GetAlpha() == 1, "back: their pip again")
+    -- a roster change IN a fight: the layout waits, but the pip of whoever left goes dark at once
+    STATE.inCombat = true
+    STATE.units.party1 = nil
+    fire(RD.events, "GROUP_ROSTER_UPDATE")
+    ok(RD.pending and sp2.heal.face:GetAlpha() == 0 and sp2.heal.amberFace:GetAlpha() == 0,
+       "left mid-fight: the re-layout waits, their pip goes dark now")
+    STATE.inCombat = nil
+    STATE.units.party1 = true
+    fire(RD.events, "PLAYER_REGEN_ENABLED")
+    -- dead: every face dark (the red copy would light at 0%)
+    STATE.dead.party1 = true
+    RD.PaintHeal(sp2)
+    ok(sp2.heal.face:GetAlpha() == 0 and sp2.heal.redFace:GetAlpha() == 0 and sp2.heal.amberFace:GetAlpha() == 0,
+       "dead: the face and both copies dark")
+    STATE.dead.party1 = nil
+    RD.PaintHeal(sp2)
+    ok(sp2.heal.face:GetAlpha() == 1, "alive again: lit")
 
     -- NO BOXES, AND YOU IN THE MIDDLE (Arn 8 Nov: "the box outlines are not needed if we want to heal ourselves we are in
     -- the middle and stuff build out from us")

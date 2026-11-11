@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.1.4
+
+- **Behind the scenes only.** A small fix to a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.
+
 ## 1.1.3
 
 - **Behind the scenes only.** More work on a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.

@@ -11662,8 +11662,8 @@ do
         ok(WATCHED[p1] and WATCHED[p2], "the client's unit watch shows them only while the pet is there (mid-fight too)")
         ok(p4 and not WATCHED[p4] and p4:GetAttribute("unit") == nil and not p4:IsShown(),
            "an empty spot has no pet pip: off the watch, hidden")
-        ok(p2:GetAttribute("type1") == "spell" and p2:GetAttribute("spell1") == sp2.heal:GetAttribute("spell1"),
-           "a plain left-click on a pet is the radar heal, like on its owner")
+        ok(p2:GetAttribute("type1") == "macro" and p2:GetAttribute("macrotext1") == "/cast [@partypet1,help,nodead] Healing Wave(Rank 1)",
+           "a plain left-click on a pet is the radar heal, like on its owner - never on you if it is dead", p2:GetAttribute("macrotext1"))
         ok(p2.__w == RD.PET.px and p2.__w < sp2.slot.ph, "small: smaller than its owner's pip", p2.__w)
         local pp = p2.points and p2.points[1]
         local hx, hy = RD.Point(sp2.slot, sp2.slot.rh)
@@ -11697,9 +11697,23 @@ do
         STATE.units.partypet1 = nil
         ok(#sp2.petTex == 5, "its sign: a paw - a pad and four toes, our own shape")
     end
-    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "spell"
-       and sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)",
-       "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("spell1"))
+    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "macro"
+       and sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Healing Wave(Rank 1)" and sp2.heal:GetAttribute("spell1") == nil,
+       "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("macrotext1"))
+    -- NEVER A HEAL ON YOU BY ACCIDENT (Arn, 10 Nov: a dead man's red sword healed him): the click carries help,nodead, so a
+    -- dead or hostile target casts nothing instead of the client's self-cast; and a dead man's pip is dark
+    ok(sp2.heal:GetAttribute("macrotext1"):find("[@party1,help,nodead]", 1, true), "the click: only on the living and friendly")
+    do
+        local realDead = _G.UnitIsDeadOrGhost
+        _G.UnitIsDeadOrGhost = function(u) return u == "party1" end
+        ok(RD.PaintHeal(sp2) == false and sp2.heal.face:GetAlpha() == 0, "party1 dead: the pip goes dark")
+        _G.UnitIsDeadOrGhost = function() return secret() end
+        RD.PaintHeal(sp2)
+        ok(sp2.heal.face.__alphaFromSecret == true,
+           "in a fight the answer is a secret: it goes to the client, never into an if")
+        _G.UnitIsDeadOrGhost = realDead
+        RD.PaintHeal(sp2)
+    end
     ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
        and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"
@@ -12249,10 +12263,10 @@ do
 
     -- the hidden setting: another heal, typed with its capitals
     SlashCmdList.BISHEALING("alpha radar heal Lesser Healing Wave")
-    ok(sp2.heal:GetAttribute("spell1") == "Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
-       "/bish alpha radar heal Lesser Healing Wave: that heal, its top rank minus 2 (it has one)", sp2.heal:GetAttribute("spell1"))
+    ok(sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
+       "/bish alpha radar heal Lesser Healing Wave: that heal, its top rank minus 2 (it has one)", sp2.heal:GetAttribute("macrotext1"))
     SlashCmdList.BISHEALING("alpha radar heal default")
-    ok(sp2.heal:GetAttribute("spell1") == "Healing Wave(Rank 1)", "and back to the default")
+    ok(sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Healing Wave(Rank 1)", "and back to the default")
 
     -- RAID SECTORS: 40 fixed slots, your own group on top and nearer the middle; a full 40
     _G.IsInRaid = function() return true end

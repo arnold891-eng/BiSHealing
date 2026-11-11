@@ -1581,9 +1581,8 @@ local function armHeal(sp, unit)
     b:SetAttribute("unit", unit)
     if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, b) end      -- your binds on every other click
     local h = RD.heal
-    -- a plain left-click is the radar heal (the attribute without a modifier wins over "*type1")
-    b:SetAttribute("type1", h and "spell" or nil)
-    b:SetAttribute("spell1", h and h.cast or nil)
+    -- a plain left-click is the radar heal (the attribute without a modifier wins over "*type1"), through RD.HealOn
+    RD.HealOn(b, unit, h)
     b.unit = unit
     -- the face: the role glyph, rebuilt only when the role changed
     local role = RD.Role(unit)
@@ -1652,6 +1651,36 @@ end
 
 --- Put a spoke's pet where its slot says, on its owner's pet token, the client watching it. Out of a fight only.
 --- No owner, or no place for a pet (a raid's other groups): off the watch and hidden.
+--[[ NEVER A HEAL ON YOU BY ACCIDENT (10 Nov 2026, Arn: "when someone dies it leaves a red sword and they were outside the
+  instance so anytime i clicked it it healed me"). A plain "spell" click on someone a heal cannot land on (dead, a
+  ghost) is handed by the client to its self-cast: you. So the left-click is a MACRO with the unit and its conditions
+  in it - `/cast [@party2,help,nodead] Healing Wave(Rank 1)` - and when they fail, nothing is cast at all. The client
+  checks the conditions at the click, mid-fight too; nothing of ours runs. ]]
+function RD.HealMacro(unit, cast)
+    if not (unit and cast) then return nil end
+    return "/cast [@" .. unit .. ",help,nodead] " .. cast
+end
+function RD.HealOn(b, unit, h)
+    local text = h and RD.HealMacro(unit, h.cast) or nil
+    b:SetAttribute("type1", text and "macro" or nil)
+    b:SetAttribute("macrotext1", text)
+    b:SetAttribute("spell1", nil)
+end
+
+--- A DEAD PERSON'S PIP GOES DARK (same night): 0% health read red, but there is nothing a heal can do. In a fight the
+--- answer may be a secret: it goes to the client (SetAlphaFromBoolean), never into an `if`. True when we KNOW they are.
+function RD.DeadDark(face, unit)
+    if not (UnitIsDeadOrGhost and face and unit) then return false end
+    local ok, dead = pcall(UnitIsDeadOrGhost, unit)
+    if not ok then return false end
+    if NS.Secret and NS.Secret(dead) then
+        if face.SetAlphaFromBoolean then pcall(face.SetAlphaFromBoolean, face, dead, 0, 1) end
+        return false
+    end
+    if dead == true then face:SetAlpha(0) return true end
+    return false
+end
+
 local function armPet(sp, unit, s)
     local p = sp.pet
     if not p then return nil end
@@ -1670,9 +1699,7 @@ local function armPet(sp, unit, s)
     p:SetPoint("CENTER", RD.frame, "CENTER", x, y)
     p:SetAttribute("unit", pu)
     if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, p) end      -- your binds on every other click
-    local h = RD.heal
-    p:SetAttribute("type1", h and "spell" or nil)
-    p:SetAttribute("spell1", h and h.cast or nil)
+    RD.HealOn(p, pu, RD.heal)
     p.unit = pu
     if sp.petPx ~= px then
         for _, t in ipairs(sp.petTex or {}) do t:Hide() end
@@ -1690,6 +1717,7 @@ function RD.PaintPet(sp)
     local okE, there = pcall(UnitExists, sp.petUnit)
     if okE and plain(there) == false then p.face:SetAlpha(0) return false end
     p.face:SetAlpha(1)
+    if RD.DeadDark(p.face, sp.petUnit) then return false end
     local curve = RD.Curve(RD.AMBER)
     local ok, col = false, nil
     if curve and UnitHealthPercent then ok, col = pcall(UnitHealthPercent, sp.petUnit, true, curve) end  -- an `and` keeps one return
@@ -2444,6 +2472,7 @@ function RD.PaintHeal(sp)
     local okE, there = pcall(UnitExists, sp.unit)
     if okE and plain(there) == false then sp.heal.face:SetAlpha(0) return false end
     sp.heal.face:SetAlpha(1)
+    if RD.DeadDark(sp.heal.face, sp.unit) then return false end   -- dead: nothing to heal, nothing lit
     local curve = RD.Curve(sp.amber)
     if not (curve and UnitHealthPercent) then
         -- no curves on this client: the pip stays at its spot, plainly green, rather than lie about urgency

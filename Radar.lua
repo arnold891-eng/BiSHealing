@@ -1364,17 +1364,69 @@ function RD.ConsoleTier(units)
     return RD.CON_TIERS[k], k
 end
 
---- THE BRAINS' RANK: name -> place (1 = watch first), from the companion's `BiSBrains` (private, Arn's PC). nil without.
+--[[ THE FLEET'S ORDERS (11 Nov 2026). Arn: "think of youself of a rear admiral of the imperial navy you communications are
+  up and you know where to place your navy, now they take out your communicatiion ship and you have to figure out how to
+  order you ships, you will still have your tanks close to screen you, and you most capable figters around while keeping
+  you medical frigates close, the other layers are small agile ships that can handle their own ... once you communication
+  figate come online you can use the data to order them around".
+  WITH THE COMMUNICATIONS FRIGATE (the companion's brains, `BiSBrains`, private on Arn's PC: _bisdev/companion/
+  brains.py): its order - who takes the damage, the spikes, the close calls - matched by the player's GUID (what the log
+  names them by), else by "Name Surname". WITHOUT IT, or for anyone it does not know: by logic (RD.LogicBand) -
+      tank     close, screening you                    1
+      melee    the interceptors, with the tanks         2   (Arn: "melee dps classes near by too because they are
+               clumped up for aoe heals, they are the inteceptors of the tanks" - warriors, rogues, paladins)
+      ranged   the agile ships that handle their own    3   (everyone else: they stand back)
+      heal     the medical frigates, furthest out       4   (Arn: "melee closer healers further away, in a battle
+               medical figates stay far away enough to not take font damage, and come in only when needed or the data
+               supports it" - the brains bring a healer in when the log says they are taking it)
+  You are always the middle. Empty places last (the edge). ]]
+RD.MELEE = { WARRIOR = true, ROGUE = true, PALADIN = true }
+RD.BAND_ORDER = { tank = 1, melee = 2, ranged = 3, heal = 4 }
+
+--- "Holy-Haven-PvP-US" (the log's) -> "Holy Haven" (GetUnitName's on Forever): the forename and surname.
+function RD.BrainsName(s)
+    if type(s) ~= "string" then return nil end
+    local a, b = s:match("^([^%-]+)%-([^%-]+)")
+    if a then return a .. " " .. b end
+    return s
+end
+
+--- THE BRAINS' RANK: key -> place (1 = watch first), keyed by GUID and by "Name Surname". nil without the brains.
 function RD.BrainsRank()
     local b = _G.BiSBrains
     if type(b) ~= "table" or type(b.order) ~= "table" then return nil end
-    local out = {}
-    for k, name in ipairs(b.order) do if type(name) == "string" and not out[name] then out[name] = k end end
+    local out, names = {}, type(b.names) == "table" and b.names or {}
+    for k, key in ipairs(b.order) do
+        if type(key) == "string" then
+            if not out[key] then out[key] = k end
+            local nm = RD.BrainsName(names[key] or (not key:find("^Player%-") and key) or nil)
+            if nm and not out[nm] then out[nm] = k end
+        end
+    end
     return next(out) and out or nil
 end
 
---- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order (or
---- the tanks, the healers, everyone else), the empty slots last (the edge). Out of a fight (names and roles are plain).
+--- The band a unit flies in without the brains: tank, heal, melee or ranged.
+function RD.LogicBand(u)
+    local role = RD.Role(u)
+    if role == "tank" or role == "heal" then return role end
+    local ok, _, class = pcall(UnitClass, u)
+    class = ok and plain(class) or nil
+    return (class and RD.MELEE[class]) and "melee" or "ranged"
+end
+
+--- This unit's place in the brains, by GUID first, then by name; nil when the brains do not know them.
+local function brainsOf(brains, u)
+    local okG, guid = pcall(UnitGUID, u)
+    guid = okG and plain(guid) or nil
+    if type(guid) == "string" and brains[guid] then return brains[guid] end
+    local okN, name = pcall(GetUnitName, u, false)
+    name = okN and plain(name) or nil
+    return type(name) == "string" and brains[name] or nil
+end
+
+--- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order, then
+--- anyone it does not know by logic (tank, heal, melee, ranged), the empty slots last (the edge). Out of a fight.
 function RD.ConsoleOrder(units, n)
     local present, empty, rank = {}, {}, {}
     local brains = RD.BrainsRank()
@@ -1389,18 +1441,32 @@ function RD.ConsoleOrder(units, n)
         elseif UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end   -- a raid names you "raidN"
         if okMe and plain(me) == true then
             rank[i] = 0
-        elseif brains then
-            local okN, name = pcall(GetUnitName, u, false)
-            name = okN and plain(name) or nil
-            rank[i] = (type(name) == "string" and brains[name]) or (1000 + i)
         else
-            local role = RD.Role(u)
-            rank[i] = (role == "tank" and 100 or role == "heal" and 200 or 300) + i
+            local b = brains and brainsOf(brains, u)
+            local logic = (RD.BAND_ORDER[RD.LogicBand(u)] or 4) * 100 + i
+            rank[i] = b and b or (1000 + logic)
         end
     end
     table.sort(present, function(a, b) return rank[a] < rank[b] end)
     for _, i in ipairs(empty) do present[#present + 1] = i end
     return present
+end
+
+--- `/bish alpha radar brains`: what the fleet is ordered by now.
+function RD.BrainsSay(P)
+    local b = _G.BiSBrains
+    if type(b) == "table" and type(b.order) == "table" and #b.order > 0 then
+        local names = {}
+        for k = 1, math.min(8, #b.order) do
+            local key = b.order[k]
+            names[#names + 1] = RD.BrainsName((type(b.names) == "table" and b.names[key]) or key) or "?"
+        end
+        local age = (time and type(b.at) == "number") and math.floor((time() - b.at) / 60) or nil
+        P("radar brains: |cff5dff9bonline|r - %d fight%s read%s.  Most watched: %s", tonumber(b.fights) or 0,
+          b.fights == 1 and "" or "s", age and (", " .. age .. " min ago") or "", table.concat(names, ", "))
+    else
+        P("radar brains: |cffffb340offline|r - ordering by logic: you, tanks, melee, ranged, then the healers out of the front line")
+    end
 end
 
 --- Every slot of a class: the fighter's own (RD.ConsoleSlot), else small ones. `top` = the slots that carry an interrupt
@@ -3876,6 +3942,8 @@ function RD.Command(rest)
         db().pos = nil
         RD.Place()
         P("radar: back in its place")
+    elseif word == "brains" then
+        RD.BrainsSay(P)
     elseif word == "knob" then
         -- `knob <tide|potion|reserve|drink|chaff> on|off` - the same switch as the knob on the rail
         local kind, state = arg:lower():match("^(%a+)%s*(%a*)$")

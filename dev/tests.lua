@@ -11887,6 +11887,39 @@ do
         ok(RD.spokes[3].bogey:IsShown() and RD.slots[3].rb, "the top five carry the interrupts")
         _G.BiSBrains, _G.GetUnitName = keepBrains, keepGUN
         RD.Arm()
+        -- THE FLEET'S ORDERS (Arn, 11 Nov: "they take out your communicatiion ship ... you will still have your tanks close
+        -- to screen you ... melee dps classes near by too ... the other layers are small agile ships"): without the brains,
+        -- you, tanks, melee, healers, ranged; with them, the log's order by GUID
+        do
+            local keepC, keepR, keepT = STATE.classes, STATE.roles, d.radar.tier
+            local keepU = {}
+            for k = 1, 4 do keepU[k] = STATE.units["party" .. k] end
+            STATE.classes = { party1 = "MAGE", party2 = "PRIEST", party3 = "ROGUE", party4 = "WARRIOR" }
+            STATE.roles = { party4 = "TANK" }
+            for k = 1, 4 do STATE.units["party" .. k] = true end
+            _G.BiSBrains = nil
+            local units = { "player", "party1", "party2", "party3", "party4" }
+            local o = RD.ConsoleOrder(units, 5)
+            ok(table.concat(o, ",") == "1,5,4,2,3", "no brains: you, the tank, the melee, the mage, the healer furthest out",
+               table.concat(o, ","))
+            _G.BiSBrains = { order = { "Player-0-party1", "Player-0-party3" },
+                             names = { ["Player-0-party1"] = "Mage-One-PvP-US", ["Player-0-party3"] = "Rogue-Two-PvP-US" } }
+            o = RD.ConsoleOrder(units, 5)
+            ok(table.concat(o, ",") == "1,2,4,5,3", "the brains online: their order by GUID first, the rest by logic after",
+               table.concat(o, ","))
+            ok(RD.BrainsName("Holy-Haven-PvP-US") == "Holy Haven", "the log's name read as Forever's Name Surname")
+            local said = {}
+            RD.BrainsSay(function(fmt, ...) said[#said + 1] = string.format(fmt, ...) end)
+            ok(said[1] and said[1]:find("online", 1, true) and said[1]:find("Mage One", 1, true), "/bish alpha radar brains: online, who", said[1])
+            _G.BiSBrains = nil
+            said = {}
+            RD.BrainsSay(function(fmt, ...) said[#said + 1] = string.format(fmt, ...) end)
+            ok(said[1] and said[1]:find("offline", 1, true) and said[1]:find("tanks, melee, ranged", 1, true), "and offline: by logic", said[1])
+            STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT
+            for k = 1, 4 do STATE.units["party" .. k] = keepU[k] end
+            _G.BiSBrains = keepBrains
+            RD.Arm()
+        end
         ok(RD.classBtn.dots[4].__alpha == 1, "on the capital all four of the class button's dots are lit")
         ok(RD.NextClass() == "FIGHTER" and RD.ConsoleTier().n == 5, "and round again to the fighter (a party fits it)")
         ok(RD.ToggleView() == "radar" and not RD.Console(), "the view button again: the radar")

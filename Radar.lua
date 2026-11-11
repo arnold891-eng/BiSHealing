@@ -1479,6 +1479,9 @@ function RD.Build()
     RD.chaff.pulse = RD.Pulse(RD.chaff.beat, RD.PULSE_MID)
     RD.chaff.cd = RD.Sweep(RD.chaff.face)
     RD.DEFENCE = { RD.chaff }
+    -- THE RES under the chaff, out of a fight only (RD.ArmRes)
+    RD.res = buildSystem(f, "Res", "TOPLEFT", X, -8 - step, RD.defRail)
+    RD.BuildRes(RD.res)
     -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
     RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
     for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
@@ -2201,10 +2204,111 @@ function RD.ArmChaff()
     b.tip = spell and { "CHAFF", spell .. " - the catch-all: lights when an enemy on the radar casts and your interrupt "
                         .. "(the flare on its bogey) is cooling.  No target needed." } or nil
     if RD.defRail then
-        if spell then RD.defRail:Show() else RD.defRail:Hide() end
+        -- shown while it holds something: the chaff, or a res you know (RD.ArmRes)
+        local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell()
+        if spell or res then RD.defRail:Show() else RD.defRail:Hide() end
         RD.ClampRails()
     end
     return spell
+end
+
+--[[ THE RES (10 Nov 2026, Arn: "Out of combat right rail let's put the resurrection module where it chooses the best
+  person to res always lights up when someone is dead if they are out of range it'll say so or los it'll say so").
+  On the defence rail under the chaff. OUT OF A FIGHT ONLY - a res is - and dark in one.
+    who     BiS> now's own pick (FN.ResTarget): healers first, then Arn's class order; never a ghost who released,
+            someone offline, someone a res is already coming to, or a corpse another BiS healer claimed (RezComm)
+    click   `/cast [@<unit>,help,dead] <res>`: on the dead only - never anything on you
+    lit     whenever someone can be brought back; the name is in the tooltip (no words on the scope)
+    RANGE   asked of the client for that one person while it is lit (one question a tick, out of a fight)
+    LOS     only the cast can tell: a res that fails on line of sight with the mouse on the pip says so, for a while
+  Asked again only when something changed (RD.resDirty: health, the roster, a res coming, a fight's end) and every
+  RD.RES_EVERY ticks while someone lies there (a claim from another healer runs out on a clock). Nobody dead, no work. ]]
+RD.RES_EVERY = 4                                   -- ticks (2 s) between re-picks while someone is dead
+RD.RES_LOS = 4                                     -- seconds the LOS word stays after a failed res
+function RD.BuildRes(b)
+    b.kind = "res"
+    b.face:SetAlpha(0)
+    b:EnableMouse(false)
+    local G = RD.COL.green
+    for _, l in ipairs(b.ring or {}) do l:SetVertexColor(G[1], G[2], G[3], 1) end
+    b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT)
+    -- the word under it: RANGE or LOS, in the grid's flash red
+    local w = b:CreateFontString(nil, "OVERLAY")
+    w:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 9, "THICKOUTLINE")
+    w:SetPoint("TOP", b, "BOTTOM", 0, -1)
+    local R = (NS.FG and NS.FG.FLASH_RED) or RD.COL.red
+    w:SetTextColor(R[1], R[2], R[3], 1)
+    w:SetText("")
+    b.word = w
+    b:HookScript("OnEnter", function() RD.overRes = true end)
+    b:HookScript("OnLeave", function() RD.overRes = nil end)
+    RD.resDirty = true
+end
+
+--- Aim the res at the best corpse, or put it out. Out of a fight only (secure writes). Answers the unit, or nil.
+function RD.ArmRes()
+    local b = RD.res
+    if not b or combat() or RD.inFight then return nil end
+    local res = NS.FM and NS.FM.ResSpell and NS.FM.ResSpell() or nil
+    local unit = res and NS.FN and NS.FN.ResTarget and NS.FN.ResTarget() or nil
+    if res ~= b.spell then
+        b.spell = res
+        local tex = nil
+        if res and C_Spell and C_Spell.GetSpellTexture then
+            local ok, t = pcall(C_Spell.GetSpellTexture, res)
+            tex = ok and t or nil
+        end
+        if b.icon then pcall(b.icon.SetTexture, b.icon, tex) end
+    end
+    local macro = unit and ("/cast [@" .. unit .. ",help,dead] " .. res) or nil
+    if macro ~= b.macro then
+        b:SetAttribute("*type1", macro and "macro" or nil)
+        b:SetAttribute("*macrotext1", macro)
+        b.macro = macro
+    end
+    if unit ~= b.unit then b.losUntil = nil end
+    b.unit = unit
+    b:EnableMouse(unit and true or false)
+    b.face:SetAlpha(unit and 1 or 0)
+    local okN, name = pcall(GetUnitName, unit or "none", false)
+    name = (unit and okN and plain(name)) or nil
+    b.tip = unit and { "RES" .. (type(name) == "string" and (": " .. name) or ""),
+                       res .. " - who to bring back first: healers, then by class.  Out of a fight only." } or nil
+    RD.PaintResWord()
+    return unit
+end
+
+--- The word under the res: LOS for a while after a failed res, else RANGE when the client says they are too far.
+function RD.PaintResWord()
+    local b = RD.res
+    if not (b and b.word) then return nil end
+    local word = ""
+    local now = (GetTime and GetTime()) or 0
+    if b.unit then
+        if b.losUntil and now < b.losUntil then
+            word = "LOS"
+        elseif b.spell and C_Spell and C_Spell.IsSpellInRange then
+            local ok, inRange = pcall(C_Spell.IsSpellInRange, b.spell, b.unit)
+            if ok and plain(inRange) == false then word = "RANGE" end
+        end
+    end
+    if b.word.__res ~= word then b.word:SetText(word) b.word.__res = word end
+    return word ~= "" and word or nil
+end
+
+--- A fight: the res goes dark and stops answering clicks (before the lockdown starts: PLAYER_REGEN_DISABLED).
+function RD.ResOff()
+    local b = RD.res
+    if not b then return end
+    b.face:SetAlpha(0)
+    if b.word then b.word:SetText("") b.word.__res = "" end
+    if not combat() then
+        b:SetAttribute("*type1", nil)
+        b:SetAttribute("*macrotext1", nil)
+        b:EnableMouse(false)
+        b.macro, b.unit = nil, nil
+    end
+    RD.resDirty = true                               -- asked again when the fight ends
 end
 
 --- What is still cooling, from the client while it will say (out of a fight): seeds our own clock, so a Mana Tide used
@@ -2674,6 +2778,12 @@ function RD.HeardError(msg)
     if d.flash == false then return nil end
     if type(msg) ~= "string" or (NS.Secret and NS.Secret(msg)) then return nil end
     local word = RD.ClickWords()[msg]
+    -- the res under the mouse (RD.ArmRes): LOS stays a while; RANGE it already says by itself
+    if word and RD.overRes and RD.res and RD.res.unit then
+        if word == "LOS" then RD.res.losUntil = ((GetTime and GetTime()) or 0) + RD.RES_LOS end
+        RD.PaintResWord()
+        return word
+    end
     local sp = RD.over
     if not (word and sp and sp.los and sp.unit) then return nil end
     sp.los.word:SetText(word)
@@ -2899,6 +3009,17 @@ local function startTicker()
         end
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
+        -- the res, out of a fight: re-picked when something changed, or every RD.RES_EVERY ticks while someone lies
+        -- there; the word (RANGE / LOS) checked every tick while it is lit. Nobody dead and nothing changed: no work.
+        if RD.res and not (RD.inFight or combat()) then
+            RD.resTicks = (RD.resTicks or 0) + 1
+            if RD.resDirty or (RD.res.unit and RD.resTicks >= RD.RES_EVERY) then
+                RD.resDirty, RD.resTicks = nil, 0
+                RD.ArmRes()
+            elseif RD.res.unit then
+                RD.PaintResWord()
+            end
+        end
         n = n + 1
         if n >= RD.FOOD_EVERY and not combat() and RD.rations then
             n = 0
@@ -3006,7 +3127,7 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
                      "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
-                     "PLAYER_LEVEL_UP", "UNIT_PET" }) do
+                     "PLAYER_LEVEL_UP", "UNIT_PET", "INCOMING_RESURRECT_CHANGED", "UNIT_CONNECTION" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 -- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
@@ -3022,12 +3143,14 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_REGEN_DISABLED" then
         -- a fight: the drag ends first (before the lockdown takes the mouse), then everything goes quiet
         if RD.frame then endDrag(RD.frame) end
+        RD.ResOff()                        -- a res is out of a fight only: dark, and no click left armed
         RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
         if RD.Active() then RD.PaintQuiet() RD.PickFuel() RD.PaintFuel() end
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
         RD.inFight = nil
+        RD.resDirty = true                 -- who died in it: the res asks at the next tick
         if RD.pending then RD.Apply() if RD.Active() then RD.Arm() end
         elseif RD.Active() then
             RD.ArmTools()                  -- the numbers are plain again: each tool re-learns where it lights
@@ -3039,8 +3162,19 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "GROUP_ROSTER_UPDATE" or event == "SPELLS_CHANGED" or event == "BAG_UPDATE_DELAYED"
        or event == "PLAYER_ROLES_ASSIGNED" or event == "PLAYER_LEVEL_UP" then   -- a role set: the pip's sign follows
         RD.Arm()                           -- in a fight it only marks RD.pending
+    elseif event == "INCOMING_RESURRECT_CHANGED" or event == "UNIT_CONNECTION" then
+        if not (RD.inFight or combat()) then RD.resDirty = true end
     elseif event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" then
         if NS.Secret and NS.Secret(a1) then return end
+        -- a death or a res between pulls (not every regen tick): the res asks again only for the dead, or for the one it
+        -- is aimed at (they stood up)
+        if RD.res and not (RD.inFight or combat()) and a1 ~= nil then
+            if a1 == RD.res.unit then RD.resDirty = true
+            elseif UnitIsDeadOrGhost then
+                local okD, dead = pcall(UnitIsDeadOrGhost, a1)
+                if okD and plain(dead) == true then RD.resDirty = true end
+            end
+        end
         for _, sp in ipairs(RD.spokes) do
             if sp.unit == a1 then RD.PaintHeal(sp) elseif sp.petUnit == a1 then RD.PaintPet(sp) end
         end

@@ -11736,6 +11736,59 @@ do
         _G.UnitIsDeadOrGhost = realDead
         RD.PaintHeal(sp2)
     end
+    -- THE RES on the right rail (Arn, 10 Nov: "Out of combat right rail let's put the resurrection module where it chooses
+    -- the best person to res always lights up when someone is dead if they are out of range it'll say so or los it'll say
+    -- so"): BiS> now's pick, a click on the dead only, RANGE asked of the client, LOS from a failed cast; dark in a fight
+    do
+        local b = RD.res
+        local keep = { spell = NS.FM.ResSpell, target = NS.FN.ResTarget, range = C_Spell.IsSpellInRange, name = _G.GetUnitName }
+        local who, inRange = nil, true
+        NS.FM.ResSpell = function() return "Ancestral Spirit" end
+        NS.FN.ResTarget = function() return who end
+        C_Spell.IsSpellInRange = function() return inRange end
+        _G.GetUnitName = function(u) return u == "party1" and "Legaian Stormhoof" or keep.name(u) end
+        ok(b and b.rail == RD.defRail and b.word, "the res sits on the right rail, a word under it")
+        ok(RD.ArmRes() == nil and b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil,
+           "nobody dead: dark, no click armed")
+        RD.ArmChaff()
+        ok(RD.defRail:IsShown(), "the right rail shows while you know a res")
+        who = "party1"
+        ok(RD.ArmRes() == "party1" and b.face:GetAlpha() == 1, "someone dead: it lights")
+        ok(b:GetAttribute("*type1") == "macro" and b:GetAttribute("*macrotext1") == "/cast [@party1,help,dead] Ancestral Spirit",
+           "the click: the res, on the dead only - never anything on you", b:GetAttribute("*macrotext1"))
+        ok(b.tip and b.tip[1] == "RES: Legaian Stormhoof", "the name under the mouse only (no words on the scope)", b.tip and b.tip[1])
+        ok(b.word.__res == "", "in range: no word")
+        inRange = false
+        ok(RD.PaintResWord() == "RANGE", "too far: RANGE, from the client")
+        local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+        if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+        if okC then
+            local n = Cost.Count(function() for _ = 1, 10 do RD.PaintResWord() end end)
+            print(("   cost: res word, 10 ticks with someone dead = %d calls"):format(n))
+            ok(n <= 30, "a tick with someone dead: a range question and the clock, nothing more", n)
+        end
+        local losMsg
+        for k, v in pairs(RD.ClickWords()) do if v == "LOS" then losMsg = k break end end
+        RD.overRes = true
+        ok(RD.HeardError(losMsg) == "LOS" and b.word.__res == "LOS", "a res that fails on line of sight: LOS")
+        TICK(RD.RES_LOS + 0.5)
+        ok(RD.PaintResWord() == "RANGE", "and after a while back to what the client says")
+        RD.overRes = nil
+        inRange = true
+        fire(RD.events, "PLAYER_REGEN_DISABLED")
+        ok(b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil and b.word.__res == "",
+           "a fight: dark, no click left armed")
+        fire(RD.events, "PLAYER_REGEN_ENABLED")
+        ok(RD.resDirty == true, "the fight's end: asked again at the next tick")
+        RD.ArmRes()
+        ok(b.face:GetAlpha() == 1, "and lit again for whoever died in it")
+        who = nil
+        RD.ArmRes()
+        ok(b.face:GetAlpha() == 0 and b:GetAttribute("*macrotext1") == nil, "they stood up: dark again")
+        NS.FM.ResSpell, NS.FN.ResTarget, C_Spell.IsSpellInRange, _G.GetUnitName = keep.spell, keep.target, keep.range, keep.name
+        RD.ArmRes()
+        RD.ArmChaff()
+    end
     ok(sp2.bogey:GetAttribute("unit") == "party1target" and sp2.bogey:GetAttribute("*harmbutton1") == "kick"
        and sp1.bogey:GetAttribute("unit") == "target", "the bogey is their target (yours on your own spoke), your interrupt on enemies only")
     ok(sp2.cures[1] and sp2.cures[1].box:GetAttribute("spell") == "Cure Poison" and sp2.cures[2].box:GetAttribute("spell") == "Cure Disease"

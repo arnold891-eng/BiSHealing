@@ -11812,13 +11812,14 @@ do
         STATE.inCombat = true
         ok(RD.ToggleView() == nil and not RD.Console(), "in a fight: refused (secure buttons)")
         STATE.inCombat = false
-        ok(RD.ToggleView() == "console" and RD.Console() and d.radar.view == "console", "a click: the console")
+        ok(RD.ToggleView() == "FIGHTER" and RD.Console() and d.radar.view == "console", "a click: the console, the fighter (a party)")
         local G = RD.conGrid
         ok(G and f:GetWidth() == G.W and f:GetHeight() == G.H and G.W < W0, "the square shrinks to the console's grid", G and G.W)
         local function c(fr) local p = fr.points[1] return p and p[2] == f and p[3] == "TOPLEFT" and p[4], p and -p[5] end
         local x1, y1 = c(RD.spokes[1].heal)
         local x2, y2 = c(RD.spokes[2].heal)
-        ok(x1 == G.cols[1] and y1 == G.rows[1] and x2 == G.cols[2] and y2 == G.rows[1], "row 1: the party's heal pips, you first")
+        ok(x1 == G.cols[3] and y1 == G.rows[1] and x2 == G.cols[2] and y2 == G.rows[1],
+           "row 1: the party's heal pips, you in the middle, the party outward (Arn, 11 Nov: \"build from the center out\")")
         local cb = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
         local cx, cy = c(cb)
         ok(cb and cy == G.rows[2] and math.abs(cx - G.cols[2]) < RD.CON.colW / 2, "row 2: their cures under them")
@@ -11842,7 +11843,44 @@ do
         local hp = RD.hull.points
         ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
         bp = b.points[1]
-        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.ring[1].__alpha == 1, "the view button in the console's corner, a ring for the radar")
+        ok(bp and bp[1] == "TOPRIGHT" and bp[2] == f and b.grid[1].__alpha == 1, "the view button in the console's corner (next: a bigger ship)")
+        -- THE SHIPS (Arn, 11 Nov: "upgrading ships to the next class ... let me click them even if i am not in that size
+        -- party or raid, only go bigger 5-10%"): each class a hull only a little wider, rows folded, from the centre out
+        local widths = { f:GetWidth() }
+        for _, want in ipairs({ "GUNSHIP", "CRUISER", "CAPITAL" }) do
+            ok(RD.ToggleView() == want and RD.ship == RD.SHIPS[RD.ConsoleTier().ship], "a click: the " .. want .. ", in its colours")
+            widths[#widths + 1] = f:GetWidth()
+            local grow = widths[#widths] / widths[#widths - 1]
+            ok(grow > 1.0 and grow <= 1.10, want .. ": only a little wider than the last (5-10%)", grow)
+            local T = RD.ConsoleTier()
+            ok(#RD.slots == T.n and RD.spokes[T.n] and RD.spokes[T.n].heal:IsShown(), want .. ": a place for all " .. T.n)
+            ok(RD.spokes[2].heal:GetAttribute("unit") == "party1" and RD.spokes[T.n].heal:GetAttribute("unit") == RD.EMPTY_UNIT,
+               want .. ": your party where it was, the empty places empty (a preview)")
+            local hx = RD.spokes[1].heal.points[1][4]
+            ok(math.abs(hx - f:GetWidth() / 2) < T.colW, want .. ": you in the middle of your row", hx)
+            local cb2 = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
+            ok(cb2 and cb2.__w == T.chip, want .. ": the dispels are chips in the corners", cb2 and cb2.__w)
+            ok(RD.spokes[6].bogey and not RD.spokes[6].bogey:IsShown(), want .. ": interrupts for your own group only")
+        end
+        -- THE FLEET (Arn, 11 Nov: "top 5 with me in the center ... outer edges people that arent really taking any damage"
+        -- ... "we are the star destroyer, our best ships are around us"): rank, not group; the core big, the screen small
+        local G4 = RD.conGrid
+        ok(G4.placed[1] == G4.cells[1], "the capital: you in the very middle place")
+        local c1 = G4.cells[1]
+        local far = G4.cells[#G4.cells]
+        ok(c1.d < far.d and RD.spokes[1].heal.__w > RD.spokes[40].heal.__w, "the core full size, the outer screen smaller",
+           RD.spokes[40].heal.__w)
+        local keepBrains, keepGUN = _G.BiSBrains, _G.GetUnitName
+        _G.GetUnitName = function(u) return "Name-" .. tostring(u) end   -- whole names, as Forever gives them
+        _G.BiSBrains = { order = { "Name-party2", "Name-party1" } }
+        RD.Arm()
+        G4 = RD.conGrid
+        ok(RD.conOrder[1] == 1 and RD.conOrder[2] == 3 and RD.conOrder[3] == 2 and G4.placed[3] == G4.cells[2],
+           "the brains' order: party2 first after you, next to you, any group", table.concat(RD.conOrder, ",", 1, 4))
+        ok(RD.spokes[3].bogey:IsShown() and RD.slots[3].rb, "the top five carry the interrupts")
+        _G.BiSBrains, _G.GetUnitName = keepBrains, keepGUN
+        RD.Arm()
+        ok(b.ring[1].__alpha == 1, "on the capital the button's sign is the ring: next is the radar")
         ok(RD.ToggleView() == "radar" and not RD.Console(), "a click again: the radar")
         local hx = RD.shield.points[1]
         ok(hx and hx[2] == RD.toolRail and RD.toolRail:IsShown() and RD.scope:IsShown() and not RD.conLayer:IsShown(),

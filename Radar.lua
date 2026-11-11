@@ -1187,19 +1187,125 @@ end
 -- a unit that is never a friend: an empty place and the radar's background name it, so the mouseover is nobody there
 -- (an arena enemy, which does not exist outside an arena - and inside one the wheel's [nohelp] stops it all the same)
 RD.EMPTY_UNIT = "arena5"
+-- FROM THE CENTRE OUT (Arn, 11 Nov): place in a group of five -> its column, the first (you, in a party) in the middle
+RD.CENTER_OUT = { 3, 2, 4, 1, 5 }
 RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2 }
 
---- The console is in use: chosen, and a party (a raid keeps the radar until its own console exists).
-function RD.Console() return db().view == "console" and not RD.raid end
+--[[ THE CONSOLE'S SHIPS (11 Nov 2026, Arn: "start to reimagine the next step up in groups we are upgrading ships to the next
+  class ending a spirit of star destroyer. let me click them even if i am not in that size party or raid, only go bigger
+  5-10%" ... "build from the center out" ... "dont ahve to keep them in the same groups the companion is going to tell us
+  who the best targets to keep in the center top 5 with me in the center, they can be in any group as long as they are
+  the best target according to the brains, outer edges people that arent really taking any damage").
+  Not a bigger copy: each class packs twice the crew into a hull only a little bigger, laid out IN RINGS - an odd grid,
+  every place sorted by its distance from the middle (RD.ConsoleCells), the n nearest kept, so the hull fills from the
+  centre out. WHO GOES WHERE IS A RANK, NOT A GROUP (RD.ConsoleOrder): you in the very middle, the top five round you,
+  the quiet ones on the edge. The rank comes from THE BRAINS - the companion's reading of the combat log, written as
+  `BiSBrains = { order = { "Name Surname", ... } }` into the private key addon on Arn's PC and read at a reload; until
+  then you, the tanks, the healers, then everyone else. Interrupts and pets: the top five's, in a row each under the
+  crew. Dispels: chips in each person's top corners. The tools row is the same in every ship; colours from RD.SHIPS.
+      FIGHTER   5   one row: you in the middle, then dispels / interrupts / pets / tools rows (the first console)
+      GUNSHIP  10   5 x 3 grid, the 10 nearest the middle
+      CRUISER  20   7 x 3 grid, the 20 nearest
+      CAPITAL  40   9 x 5 grid, the 40 nearest - the star destroyer
+  The view button steps radar -> fighter -> gunship -> cruiser -> capital -> radar, in any group (a preview: the empty
+  places are empty squares, on the edge); a group too big for a class skips it. ]]
+RD.CON_TIERS = {
+    { n = 5,  ship = 1, name = "FIGHTER" },
+    { n = 10, ship = 2, name = "GUNSHIP", cols = 5, rows = 3, sq = 24, ph = 16, colW = 41, rowGap = 4, chip = 9, kick = 22, pet = 18 },
+    { n = 20, ship = 3, name = "CRUISER", cols = 7, rows = 3, sq = 22, ph = 14, colW = 32, rowGap = 3, chip = 8, kick = 20, pet = 14 },
+    { n = 40, ship = 4, name = "CAPITAL", cols = 9, rows = 5, sq = 18, ph = 12, colW = 27, rowGap = 3, chip = 7, kick = 18, pet = 14 },
+}
 
---- The slot a spoke gets in the console: drawn small (its glyph fits its square), placed by RD.ConsoleLayout.
+--- The console is in use (any group: a class that holds everyone is picked, RD.ConsoleTier).
+function RD.Console() return db().view == "console" end
+
+--- The console's class: the one chosen, or the smallest that holds everyone in `units` (a raid's slot is its group and
+--- place, so the highest slot says how many must fit). Answers the class and its number.
+function RD.ConsoleTier(units)
+    local hi = 0
+    for i in pairs(units or RD.units or {}) do if type(i) == "number" and i > hi then hi = i end end
+    local need = #RD.CON_TIERS
+    for k, t in ipairs(RD.CON_TIERS) do if hi <= t.n then need = k break end end
+    local k = math.min(#RD.CON_TIERS, math.max(tonumber(db().tier) or 1, need))
+    return RD.CON_TIERS[k], k
+end
+
+--- THE BRAINS' RANK: name -> place (1 = watch first), from the companion's `BiSBrains` (private, Arn's PC). nil without.
+function RD.BrainsRank()
+    local b = _G.BiSBrains
+    if type(b) ~= "table" or type(b.order) ~= "table" then return nil end
+    local out = {}
+    for k, name in ipairs(b.order) do if type(name) == "string" and not out[name] then out[name] = k end end
+    return next(out) and out or nil
+end
+
+--- Who goes where: the slot numbers (into `units` and RD.spokes) in rank order - you first, then the brains' order (or
+--- the tanks, the healers, everyone else), the empty slots last (the edge). Out of a fight (names and roles are plain).
+function RD.ConsoleOrder(units, n)
+    local present, empty, rank = {}, {}, {}
+    local brains = RD.BrainsRank()
+    for i = 1, n do
+        local u = units and units[i]
+        if u then present[#present + 1] = i else empty[#empty + 1] = i end
+    end
+    for _, i in ipairs(present) do
+        local u = units[i]
+        local okMe, me = false, nil
+        if u == "player" then okMe, me = true, true
+        elseif UnitIsUnit then okMe, me = pcall(UnitIsUnit, u, "player") end   -- a raid names you "raidN"
+        if okMe and plain(me) == true then
+            rank[i] = 0
+        elseif brains then
+            local okN, name = pcall(GetUnitName, u, false)
+            name = okN and plain(name) or nil
+            rank[i] = (type(name) == "string" and brains[name]) or (1000 + i)
+        else
+            local role = RD.Role(u)
+            rank[i] = (role == "tank" and 100 or role == "heal" and 200 or 300) + i
+        end
+    end
+    table.sort(present, function(a, b) return rank[a] < rank[b] end)
+    for _, i in ipairs(empty) do present[#present + 1] = i end
+    return present
+end
+
+--- Every slot of a class: the fighter's own (RD.ConsoleSlot), else small ones. `top` = the slots that carry an interrupt
+--- and a pet (the top five of the rank).
+function RD.ConsoleSlots(T, top, rankOf)
+    local out = {}
+    top, rankOf = top or {}, rankOf or {}
+    for i = 1, T.n do
+        if T.n == 5 then
+            out[i] = RD.ConsoleSlot(i)
+        else
+            local mine = top[i] == true
+            local z = RD.ShipScale(rankOf[i] or i, T.n)
+            out[i] = { b = 0, rh = 0, rc = 0, rb = mine and 0 or nil, ph = math.floor(T.ph * z + 0.5), pc = math.max(2, T.chip - 4),
+                       pb = T.kick * 0.8, own = mine, group = math.ceil(i / 5), pos = (i - 1) % 5 + 1, console = true,
+                       scale = z }
+        end
+    end
+    return out
+end
+
+--- THE FLEET'S SHAPE (Arn, 11 Nov: "we are the star destroyer, our best ships are around us ... like how herds keep the
+--- vulnerable in the middle, out in the outer edges are the screen ships smaller ships that dont take much damage"):
+--- the size of the k-th in rank - the core five full size, the escorts a little smaller, the outer screen the smallest.
+RD.SHIP_SIZES = { core = 1, escort = 0.85, screen = 0.72 }
+function RD.ShipScale(k, n)
+    if k <= 5 then return RD.SHIP_SIZES.core end
+    if k <= math.ceil(n * 2 / 3) then return RD.SHIP_SIZES.escort end
+    return RD.SHIP_SIZES.screen
+end
+
+--- The slot a spoke gets in the fighter: drawn small (its glyph fits its square), placed by RD.ConsoleLayout.
 function RD.ConsoleSlot(i)
     local C = RD.CON
     return { b = 0, rh = 0, rc = 0, rb = 0, ph = C.ph, pc = C.cure, pb = C.pb, own = true, group = 1, pos = i,
              self = (i == 1) or nil, console = true }
 end
 
---- The grid: column centres, row centres, the size. Every place is (x, -y) from the radar frame's top-left.
+--- The fighter's grid: column centres, row centres, the size. Every place is (x, -y) from the radar frame's top-left.
 function RD.ConsoleGrid()
     local C = RD.CON
     local W = C.pad * 2 + C.colW * RD.SPOKES
@@ -1212,6 +1318,30 @@ function RD.ConsoleGrid()
     local cols = {}
     for i = 1, RD.SPOKES do cols[i] = C.pad + C.colW * (i - 0.5) end
     return { W = W, H = H, cols = cols, rows = { y1, y2, y3, y4, y5 } }
+end
+
+--- A bigger class's places: an odd grid, sorted nearest the middle first (in pixels), the n nearest kept. Answers the
+--- places {x, y}, the crew block's size.
+function RD.ConsoleCells(T, x0)
+    local C = RD.CON
+    local pitch = T.sq + T.rowGap
+    local midC, midR = (T.cols + 1) / 2, (T.rows + 1) / 2
+    local cells = {}
+    for r = 1, T.rows do
+        for c = 1, T.cols do
+            local dx, dy = (c - midC) * T.colW, (r - midR) * pitch
+            cells[#cells + 1] = { x = x0 + T.colW * (c - 0.5), y = C.pad + T.sq / 2 + (r - 1) * pitch, d = dx * dx + dy * dy,
+                                  r = r, c = c }
+        end
+    end
+    table.sort(cells, function(a, b)
+        if a.d ~= b.d then return a.d < b.d end
+        if a.r ~= b.r then return a.r < b.r end
+        return a.c < b.c
+    end)
+    local out = {}
+    for k = 1, T.n do out[k] = cells[k] end
+    return out, T.cols * T.colW, T.rows * T.sq + (T.rows - 1) * T.rowGap
 end
 
 -- an empty square: four thin edges in the dim phosphor, on the console's own layer
@@ -1233,6 +1363,79 @@ local function at(fr, x, y)
     fr:SetPoint("CENTER", RD.frame, "TOPLEFT", x, -y)
 end
 
+-- the tools row: every tool from both rails, centred across `W`, at `y`
+local CON_TOOLS = function() return { RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res } end
+local function toolsRow(W, y)
+    local tools = CON_TOOLS()
+    local n, gap = #tools, RD.CON.toolGap
+    local w = n * RD.SYS_PX + (n - 1) * gap
+    local x0 = (W - w) / 2 + RD.SYS_PX / 2
+    for k, b in ipairs(tools) do
+        local x = x0 + (k - 1) * (RD.SYS_PX + gap)
+        at(square("tool" .. k, RD.SYS_PX), x, y)
+        at(b, x, y)
+    end
+end
+
+-- a spoke's crosshairs and dims, in the console: on its pip, the dims away
+local function settle(sp)
+    for _, fr in ipairs(sp.dims or {}) do fr:Hide() end
+    for _, cr in ipairs({ sp.cross, sp.totCross, sp.bogeyCross }) do
+        if cr then cr:ClearAllPoints() cr:SetPoint("CENTER", sp.heal, "CENTER") end
+    end
+end
+
+--- A bigger class (gunship, cruiser, capital): the crew in rings by rank, each person's dispels as chips in their top
+--- corners; the top five's interrupts and pets in a row each under them, the middle first; the tools row.
+function RD.ConsoleLayoutWide(T, order)
+    local f, C = RD.frame, RD.CON
+    local blockW = T.cols * T.colW
+    local W = math.max(C.pad * 2 + blockW, C.pad * 2 + 8 * RD.SYS_PX + 7 * C.toolGap)
+    local cells, _, blockH = RD.ConsoleCells(T, (W - blockW) / 2)
+    local yk = C.pad + blockH + C.gap + T.kick / 2
+    local yp = yk + T.kick / 2 + C.gap + T.pet / 2
+    local yt = yp + T.pet / 2 + C.gap + RD.SYS_PX / 2
+    local H = yt + RD.SYS_PX / 2 + C.pad
+    f:SetSize(W, H)
+    local kw = T.kick + 10
+    local function topX(j) return W / 2 + (RD.CENTER_OUT[j] - 3) * kw end
+    for j = 1, 5 do
+        at(square("kick" .. j, T.kick), topX(j), yk)
+        at(square("pet" .. j, T.pet), topX(j), yp)
+    end
+    local placed = {}
+    for k, i in ipairs(order) do
+        local cell = cells[k]
+        if not cell then break end
+        local sq = math.floor(T.sq * RD.ShipScale(k, T.n) + 0.5)   -- the core full size, the screen smallest
+        at(square("heal" .. k, sq), cell.x, cell.y)
+        local sp = RD.spokes[i]
+        if sp then
+            placed[i] = cell
+            cell.sq = sq
+            sp.heal:SetSize(sq, sq)
+            at(sp.heal, cell.x, cell.y)
+            settle(sp)
+            -- the dispels: chips in the person's top corners, over the heal square (they take their own click)
+            local lvl = sp.heal:GetFrameLevel()
+            for n, c in ipairs(sp.cures or {}) do
+                local side = (n % 2 == 1) and -1 or 1
+                c.box:SetSize(T.chip, T.chip)
+                at(c.box, cell.x + side * (sq / 2 - T.chip / 2), cell.y - (sq / 2 - T.chip / 2))
+                c.box:SetFrameLevel(lvl + 3)
+                if c.holder then c.holder:SetFrameLevel(lvl + 4) end
+                if c.container then c.container:ClearAllPoints() c.container:SetPoint("CENTER", c.box, "CENTER") end
+            end
+            if k <= 5 then
+                if sp.bogey then sp.bogey:SetSize(T.kick, T.kick) at(sp.bogey, topX(k), yk) end
+                if sp.pet then sp.pet:SetSize(T.pet, T.pet) at(sp.pet, topX(k), yp) end
+            end
+        end
+    end
+    toolsRow(W, yt)
+    return { W = W, H = H, tier = T, cells = cells, placed = placed, rows = { kick = yk, pet = yp, tools = yt } }
+end
+
 --- Put everything on the grid. Out of a fight only (RD.Arm calls it). Answers the grid.
 function RD.ConsoleLayout()
     local f = RD.frame
@@ -1245,27 +1448,32 @@ function RD.ConsoleLayout()
     end
     RD.conLayer:Show()
     for _, q in pairs(RD.conSquares or {}) do q:Hide() end
+    local T = RD.ConsoleTier()
+    local order = RD.conOrder or {}
+    if T.n > 5 then
+        RD.conGrid = RD.ConsoleLayoutWide(T, order)
+        return RD.conGrid
+    end
     f:SetSize(G.W, G.H)
-    for i = 1, RD.SPOKES do
-        local x = G.cols[i]
+    -- THE FIGHTER: one row, the first in rank (you) in the middle, the rest outward (Arn: "from the center out")
+    for k = 1, RD.SPOKES do
+        local i = order[k] or k
+        local x = G.cols[RD.CENTER_OUT[k]]
         local sp = RD.spokes[i]
-        at(square("heal" .. i, C.sq), x, G.rows[1])
-        at(square("kick" .. i, C.sq), x, G.rows[3])
-        at(square("pet" .. i, C.sq), x, G.rows[4])
+        at(square("heal" .. k, C.sq), x, G.rows[1])
+        at(square("kick" .. k, C.sq), x, G.rows[3])
+        at(square("pet" .. k, C.sq), x, G.rows[4])
         if sp then
             sp.heal:SetSize(C.sq, C.sq)
             at(sp.heal, x, G.rows[1])
             if sp.bogey then sp.bogey:SetSize(C.sq, C.sq) at(sp.bogey, x, G.rows[3]) end
-            for _, fr in ipairs(sp.dims or {}) do fr:Hide() end
-            for _, cr in ipairs({ sp.cross, sp.totCross, sp.bogeyCross }) do if cr then cr:ClearAllPoints() cr:SetPoint("CENTER", sp.heal, "CENTER") end end
+            settle(sp)
             -- the cures side by side under the person
             local n = #(sp.cures or {})
-            local used = 0
-            for k, c in ipairs(sp.cures or {}) do
-                if c.cure then used = used + 1 end
-                local off = (k - (n + 1) / 2) * (C.cure + 6)
-                at(square("cure" .. i .. "-" .. k, C.cure + 4), x + off, G.rows[2])
-                if not c.cure then RD.conSquares["cure" .. i .. "-" .. k]:Hide() end
+            for j, c in ipairs(sp.cures or {}) do
+                local off = (j - (n + 1) / 2) * (C.cure + 6)
+                at(square("cure" .. k .. "-" .. j, C.cure + 4), x + off, G.rows[2])
+                if not c.cure then RD.conSquares["cure" .. k .. "-" .. j]:Hide() end
                 at(c.box, x + off, G.rows[2])
                 if c.container then c.container:ClearAllPoints() c.container:SetPoint("CENTER", c.box, "CENTER") end
             end
@@ -1273,15 +1481,8 @@ function RD.ConsoleLayout()
         end
     end
     -- row 5: every tool from both rails, centred
-    local tools = { RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res }
-    local n = #tools
-    local w = n * RD.SYS_PX + (n - 1) * C.toolGap
-    local x0 = (G.W - w) / 2 + RD.SYS_PX / 2
-    for k, b in ipairs(tools) do
-        local x = x0 + (k - 1) * (RD.SYS_PX + C.toolGap)
-        at(square("tool" .. k, RD.SYS_PX), x, G.rows[5])
-        at(b, x, G.rows[5])
-    end
+    toolsRow(G.W, G.rows[5])
+    G.tier = T
     RD.conGrid = G
     return G
 end
@@ -1335,20 +1536,30 @@ function RD.PaintViewButton()
     local b = RD.viewBtn
     if not b then return end
     local con = RD.Console()
-    -- no words on the radar: a drawn sign of where the click goes - four small squares (the console), a ring (the radar)
-    for _, t in ipairs(b.grid) do t:SetAlpha(con and 0 or 1) end
-    for _, l in ipairs(b.ring) do l:SetAlpha(con and 1 or 0) end
-    b.tip = con and { "RADAR", "Back to the radar.  Out of a fight." }
-            or { "CONSOLE", "The engineer's console: the same buttons on a small grid - party, dispels, interrupts, pets, "
-                 .. "tools.  Out of a fight." .. (RD.raid and "  (A party only for now.)" or "") }
+    local T, k = RD.ConsoleTier()
+    local last = con and k >= #RD.CON_TIERS
+    -- no words on the radar: a drawn sign of where the click goes - four small squares (a console), a ring (the radar)
+    for _, t in ipairs(b.grid) do t:SetAlpha(last and 0 or 1) end
+    for _, l in ipairs(b.ring) do l:SetAlpha(last and 1 or 0) end
+    local now = con and (T.name .. " (" .. T.n .. ")") or "RADAR"
+    local nextT = (not con) and T or (not last and RD.CON_TIERS[k + 1]) or nil
+    b.tip = { now, "Click: " .. (nextT and (nextT.name .. " (" .. nextT.n .. ") - the engineer's console, the same buttons "
+              .. "on a grid") or "back to the radar") .. ".  Out of a fight." }
 end
 
---- One click: the other view. Refused in a fight (the radar holds secure buttons). Answers the view now.
+--- One click: the next view - radar, fighter, gunship, cruiser, capital, radar (a class too small for the group is
+--- skipped). Refused in a fight (the radar holds secure buttons). Answers "radar" or the class's name.
 function RD.ToggleView()
     if combat() or RD.inFight then return nil end
-    db().view = (db().view ~= "console") and "console" or nil
+    local d = db()
+    if d.view ~= "console" then
+        d.view, d.tier = "console", nil              -- the smallest class that holds everyone
+    else
+        local _, k = RD.ConsoleTier()
+        if k >= #RD.CON_TIERS then d.view, d.tier = nil, nil else d.tier = k + 1 end
+    end
     RD.Arm()
-    return db().view or "radar"
+    return d.view and RD.ConsoleTier().name or "radar"
 end
 
 function RD.BuildViewButton(f)
@@ -2867,8 +3078,20 @@ function RD.Arm()
     for i = 1, #slots do if units[i] then n = n + 1 end end
     RD.ApplyShip(RD.ShipFor(math.max(1, n)))
     local con = RD.Console()                         -- the engineer's console: small slots, placed on its grid after
+    if con then
+        -- its class (fighter .. capital): chosen, or the smallest that holds everyone; the radar's ship colours with it
+        local T = RD.ConsoleTier(units)
+        -- who goes where: a rank (you, then the brains' order), the top five carrying interrupts and pets
+        local order = RD.ConsoleOrder(units, T.n)
+        local top, rankOf = {}, {}
+        for k = 1, math.min(5, #order) do top[order[k]] = true end
+        for k, i in ipairs(order) do rankOf[i] = k end
+        RD.conOrder = order
+        slots = RD.ConsoleSlots(T, top, rankOf)
+        RD.slots = slots
+        RD.ApplyShip(RD.SHIPS[T.ship] or RD.ShipFor(T.n))
+    end
     for i, s in ipairs(slots) do
-        if con then s = RD.ConsoleSlot(i) end
         local sp = RD.Spoke(i)
         local unit = units[i]
         sp.unit = unit

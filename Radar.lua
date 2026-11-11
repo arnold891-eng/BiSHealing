@@ -1191,7 +1191,8 @@ end
 RD.EMPTY_UNIT = "arena5"
 -- FROM THE CENTRE OUT (Arn, 11 Nov): place in a group of five -> its column, the first (you, in a party) in the middle
 RD.CENTER_OUT = { 3, 2, 4, 1, 5 }
-RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2 }
+RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, gap = 6, toolGap = 2,
+           head = 14 }                         -- a strip on top for the class and view buttons (Arn, 11 Nov: "clean it up")
 
 --[[ THE CONSOLE'S SHIPS (11 Nov 2026, Arn: "start to reimagine the next step up in groups we are upgrading ships to the next
   class ending a spirit of star destroyer. let me click them even if i am not in that size party or raid, only go bigger
@@ -1213,9 +1214,11 @@ RD.CON = { pad = 8, colW = 39, ph = 18, sq = 26, cure = 12, pb = 18, pet = 18, g
   places are empty squares, on the edge); a group too big for a class skips it. ]]
 RD.CON_TIERS = {
     { n = 5,  ship = 1, name = "FIGHTER" },
-    { n = 10, ship = 2, name = "GUNSHIP", cols = 5, rows = 3, sq = 24, ph = 16, colW = 41, rowGap = 4, chip = 9, kick = 22, pet = 18 },
-    { n = 20, ship = 3, name = "CRUISER", cols = 7, rows = 3, sq = 22, ph = 14, colW = 32, rowGap = 3, chip = 8, kick = 20, pet = 14 },
-    { n = 40, ship = 4, name = "CAPITAL", cols = 9, rows = 5, sq = 18, ph = 12, colW = 27, rowGap = 3, chip = 7, kick = 18, pet = 14 },
+    -- TIDY (Arn, 11 Nov, three screenshots: "lets clean it up at least"): a full rectangle, one square size a class,
+    -- the rank from the centre out within it; the bands told by brightness, not size
+    { n = 10, ship = 2, name = "GUNSHIP", cols = 5, rows = 2, sq = 26, ph = 17, colW = 41, rowGap = 6, chip = 9, kick = 22, pet = 18 },
+    { n = 20, ship = 3, name = "CRUISER", cols = 5, rows = 4, sq = 24, ph = 16, colW = 44, rowGap = 5, chip = 8, kick = 22, pet = 18 },
+    { n = 40, ship = 4, name = "CAPITAL", cols = 8, rows = 5, sq = 22, ph = 14, colW = 30, rowGap = 5, chip = 8, kick = 22, pet = 18 },
 }
 
 --[[ THE RADAR'S SHIPS (11 Nov 2026, Arn: "i want you to reimage the radar screen, for 10 20 40 we already have the 5 version
@@ -1410,7 +1413,7 @@ function RD.ConsoleSlots(T, top, rankOf)
             out[i] = RD.ConsoleSlot(i)
         else
             local mine = top[i] == true
-            local z = RD.ShipScale(rankOf[i] or i, T.n)
+            local z = 1                              -- one size a class (the bands are told by brightness)
             out[i] = { b = 0, rh = 0, rc = 0, rb = mine and 0 or nil, ph = math.floor(T.ph * z + 0.5), pc = math.max(2, T.chip - 4),
                        pb = T.kick * 0.8, own = mine, group = math.ceil(i / 5), pos = (i - 1) % 5 + 1, console = true,
                        scale = z }
@@ -1440,7 +1443,7 @@ end
 function RD.ConsoleGrid()
     local C = RD.CON
     local W = C.pad * 2 + C.colW * RD.SPOKES
-    local y1 = C.pad + C.sq / 2
+    local y1 = C.pad + C.head + C.sq / 2
     local y2 = y1 + C.sq / 2 + C.gap + (C.cure + 4) / 2
     local y3 = y2 + (C.cure + 4) / 2 + C.gap + C.sq / 2
     local y4 = y3 + C.sq / 2 + C.gap + C.sq / 2
@@ -1461,7 +1464,7 @@ function RD.ConsoleCells(T, x0)
     for r = 1, T.rows do
         for c = 1, T.cols do
             local dx, dy = (c - midC) * T.colW, (r - midR) * pitch
-            cells[#cells + 1] = { x = x0 + T.colW * (c - 0.5), y = C.pad + T.sq / 2 + (r - 1) * pitch, d = dx * dx + dy * dy,
+            cells[#cells + 1] = { x = x0 + T.colW * (c - 0.5), y = C.pad + C.head + T.sq / 2 + (r - 1) * pitch, d = dx * dx + dy * dy,
                                   r = r, c = c }
         end
     end
@@ -1476,7 +1479,7 @@ function RD.ConsoleCells(T, x0)
 end
 
 -- an empty square: four thin edges in the dim phosphor, on the console's own layer
-local function square(key, px)
+local function square(key, px, col)
     RD.conSquares = RD.conSquares or {}
     local q = RD.conSquares[key]
     if not q then
@@ -1484,9 +1487,22 @@ local function square(key, px)
         q.edges = edge(q, RD.DIM, 1)
         RD.conSquares[key] = q
     end
+    col = col or RD.DIM
+    if q.col ~= col then
+        for _, e in ipairs(q.edges) do e:SetVertexColor(col[1], col[2], col[3], col[4] or 1) end
+        q.col = col
+    end
     q:SetSize(px, px)
     q:Show()
     return q
+end
+
+-- THE BANDS BY BRIGHTNESS: the core five bright, the escorts the usual dim, the outer screen fainter
+RD.BAND_COL = { core = { 0.22, 1.00, 0.53, 0.75 }, escort = RD.DIM, screen = { 0.11, 0.36, 0.22, 0.5 } }
+local function bandCol(k, n)
+    if k <= 5 then return RD.BAND_COL.core end
+    if k <= math.ceil(n * 2 / 3) then return RD.BAND_COL.escort end
+    return RD.BAND_COL.screen
 end
 
 local function at(fr, x, y)
@@ -1523,12 +1539,12 @@ function RD.ConsoleLayoutWide(T, order)
     local blockW = T.cols * T.colW
     local W = math.max(C.pad * 2 + blockW, C.pad * 2 + 8 * RD.SYS_PX + 7 * C.toolGap)
     local cells, _, blockH = RD.ConsoleCells(T, (W - blockW) / 2)
-    local yk = C.pad + blockH + C.gap + T.kick / 2
+    local yk = C.pad + C.head + blockH + C.gap + T.kick / 2
     local yp = yk + T.kick / 2 + C.gap + T.pet / 2
     local yt = yp + T.pet / 2 + C.gap + RD.SYS_PX / 2
     local H = yt + RD.SYS_PX / 2 + C.pad
     f:SetSize(W, H)
-    local kw = T.kick + 10
+    local kw = T.colW                                -- under the crew's own columns
     local function topX(j) return W / 2 + (RD.CENTER_OUT[j] - 3) * kw end
     for j = 1, 5 do
         at(square("kick" .. j, T.kick), topX(j), yk)
@@ -1538,8 +1554,8 @@ function RD.ConsoleLayoutWide(T, order)
     for k, i in ipairs(order) do
         local cell = cells[k]
         if not cell then break end
-        local sq = math.floor(T.sq * RD.ShipScale(k, T.n) + 0.5)   -- the core full size, the screen smallest
-        at(square("heal" .. k, sq), cell.x, cell.y)
+        local sq = T.sq
+        at(square("heal" .. k, sq, bandCol(k, T.n)), cell.x, cell.y)
         local sp = RD.spokes[i]
         if sp then
             placed[i] = cell
@@ -1591,7 +1607,7 @@ function RD.ConsoleLayout()
         local i = order[k] or k
         local x = G.cols[RD.CENTER_OUT[k]]
         local sp = RD.spokes[i]
-        at(square("heal" .. k, C.sq), x, G.rows[1])
+        at(square("heal" .. k, C.sq, RD.BAND_COL.core), x, G.rows[1])   -- the fighter: all five are the core
         at(square("kick" .. k, C.sq), x, G.rows[3])
         at(square("pet" .. k, C.sq), x, G.rows[4])
         if sp then

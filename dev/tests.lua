@@ -11871,8 +11871,12 @@ do
         ok(G4.placed[1] == G4.cells[1], "the capital: you in the very middle place")
         local c1 = G4.cells[1]
         local far = G4.cells[#G4.cells]
-        ok(c1.d < far.d and RD.spokes[1].heal.__w > RD.spokes[40].heal.__w, "the core full size, the outer screen smaller",
-           RD.spokes[40].heal.__w)
+        -- TIDY (Arn, 11 Nov: "lets clean it up at least"): one size a class, the bands told by brightness
+        ok(c1.d < far.d and RD.spokes[1].heal.__w == RD.spokes[40].heal.__w
+           and RD.conSquares.heal1.col == RD.BAND_COL.core and RD.conSquares.heal40.col == RD.BAND_COL.screen,
+           "one square size; the core bright, the outer screen faint", RD.spokes[40].heal.__w)
+        local vb, top1 = RD.viewBtn, RD.conSquares.heal1
+        ok(G4.cells[1].y - RD.CON.sq / 2 >= RD.CON.pad + RD.CON.head - 1, "the crew starts under the buttons' strip (no overlap)")
         local keepBrains, keepGUN = _G.BiSBrains, _G.GetUnitName
         _G.GetUnitName = function(u) return "Name-" .. tostring(u) end   -- whole names, as Forever gives them
         _G.BiSBrains = { order = { "Name-party2", "Name-party1" } }

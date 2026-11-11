@@ -34,9 +34,10 @@
                      turned on is never turned off by us), the test camera armed for the run (TestCam.lua), the run
                      written to the account save, then ReloadUI(). The reload is the point: SavedVariables reach the
                      disk only at a reload, and that file is how the companion learns a recording started.
-    recording     -> STOP: the log off if we turned it on, the camera disarmed, then ReloadUI() (the companion learns
+    recording     -> STOP: the log LEFT ON (never off), the camera disarmed, then ReloadUI() (the companion learns
                      it stopped the same way).
   After a reload the log is turned back on if it fell off. A recording stops itself after BB.MINUTES.
+  THE LOG IS NEVER TURNED OFF by us (Arn, 11 Nov): a stop leaves it on - only /combatlog by hand turns it off.
 
   SOUNDS: none yet - Arn picks them in the sound explorer (11 Nov); BB.SOUND is where they go.
 
@@ -133,9 +134,11 @@ function BB.Start()
     end
 end
 
+--- NEVER OFF (11 Nov 2026, Arn, a standing rule: "our addon should never turn off combat log it can only turn it on I
+--- don't ever want to turn logs off accidentally firing a raid"): stopping a recording leaves the combat log exactly as
+--- it is. Only /combatlog by hand turns it off.
 function BB.Stop(why)
     local b = db()
-    if b.logOurs and LoggingCombat then pcall(LoggingCombat, false) end
     b.on, b.untilAt, b.logOurs = nil, nil, nil
     b.stoppedAt, b.stopWhy = wall(), why
     BB.waitUntil = nil

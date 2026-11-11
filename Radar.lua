@@ -1232,11 +1232,11 @@ RD.CON_TIERS = {
   The scope only grows 7-8% a class (300 / 320 / 345 / 370 - the old one-size raid radar was 440). Pets: the core's. ]]
 RD.FLEET = {
     [10] = { size = 320, core = { rh = 56, rc = 86, rb = 140, ph = 24, pc = 13, pb = 20 },
-             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 0 } } },
+             rings = { { n = 5, rh = 114, ph = 20, pc = 10, off = 36 } } },     -- due north left free for the main tank
     [20] = { size = 345, core = { rh = 56, rc = 84, rb = 158, ph = 24, pc = 13, pb = 20 },
-             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 0 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
+             rings = { { n = 7, rh = 106, ph = 18, pc = 9, off = 360 / 14 }, { n = 8, rh = 142, ph = 15, pc = 8, off = 22.5 } } },
     [40] = { size = 370, core = { rh = 56, rc = 82, rb = 172, ph = 22, pc = 12, pb = 18 },
-             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 0 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
+             rings = { { n = 11, rh = 104, ph = 17, pc = 9, off = 360 / 22 }, { n = 24, rh = 146, ph = 13, pc = 7, off = 7.5 } } },
 }
 
 --- Every place of a fleet, in rank order: you, the core four, then each ring from the top clockwise.
@@ -1489,8 +1489,31 @@ function RD.TanksNorth(slots, units)
             end
         end
     end
+    -- THE MAIN TANK DIRECTLY ON TOP (Arn, 11 Nov: "Main tank taking the most damage always directly on top of us"): the
+    -- first tank in the fleet's order - the brains' (who takes the most) when online, else the game's main tank / BiS> now's
+    -- tank / the first tank - sits due north on its own ring. Your own target's bogey (which sat due north at the rim)
+    -- steps to your left with your cure, so the two never sit on each other.
+    local order = RD.ConsoleOrder(units, #slots)
+    local mt
+    for _, i in ipairs(order) do if isTank[i] then mt = i break end end
+    RD.mainTank = mt
+    if mt and slots[mt] then
+        local s = {}
+        for k, v in pairs(slots[mt]) do s[k] = v end
+        s.b = 0
+        slots[mt] = s
+        for i, t in pairs(slots) do
+            if t.self then
+                local me = {}
+                for k, v in pairs(t) do me[k] = v end
+                me.b, me.rc, me.rb = RD.SELF_ASIDE.b, RD.SELF_ASIDE.rc, RD.SELF_ASIDE.rb
+                slots[i] = me
+            end
+        end
+    end
     return moved
 end
+RD.SELF_ASIDE = { b = -math.pi / 2, rc = 26, rb = 50 }    -- your cure and your target's bogey, to your left
 
 --- `/bish alpha radar brains`: what the fleet is ordered by now.
 function RD.BrainsSay(P)

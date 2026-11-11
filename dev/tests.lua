@@ -11936,6 +11936,24 @@ do
             local allNorth = true
             for k = 2, 4 do if not (math.cos(RD.slots[k].b) > 0) then allNorth = false end end
             ok(allNorth, "three tanks on the capital: all in the top half, spread")
+            -- THE MAIN TANK DIRECTLY ON TOP (Arn, 11 Nov: "Main tank taking the most damage always directly on top of us")
+            local mt = RD.mainTank
+            ok(mt and RD.slots[mt].b == 0 and RD.slots[mt].rh > 0, "the main tank due north", mt)
+            local meS
+            for _, sl in pairs(RD.slots) do if sl.self then meS = sl end end
+            ok(meS and meS.b == RD.SELF_ASIDE.b and meS.rb == RD.SELF_ASIDE.rb, "your target's bogey steps to your left, off the main tank's")
+            local clashN = 0
+            for k, sl in pairs(RD.slots) do if k ~= mt and not sl.self and math.abs(sl.b) < 0.01 then clashN = clashN + 1 end end
+            ok(clashN == 0, "nobody else due north (the rings leave it free)", clashN)
+            -- with the brains: the tank that takes the most is the one on top
+            _G.BiSBrains = { order = { "Player-0-party3", "Player-0-party1" } }
+            RD.Arm()
+            ok(RD.mainTank == 4 and RD.slots[4].b == 0, "the brains say party3 takes the most: party3 on top", RD.mainTank)
+            _G.BiSBrains = nil
+            d.radar.tier = nil
+            STATE.roles = { party2 = "TANK" }
+            RD.Arm()
+            ok(RD.mainTank == 3 and RD.slots[3].b == 0, "the party radar too: the tank straight above you")
             d.radar.view = keepView
             STATE.classes, STATE.roles, d.radar.tier = keepC, keepR, keepT
             for k = 1, 4 do STATE.units["party" .. k] = keepU[k] end
@@ -13485,9 +13503,23 @@ do
 
     -- STOP: the code again
     press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and not logOn and reloads == 2, "the code again: STOP, the log off, a reload")
+    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and logOn and reloads == 2,
+       "the code again: STOP and a reload - the combat log LEFT ON (Arn, 11 Nov: never turned off by us)")
     ok(b.stopWhy == "code" and b.stoppedAt == WALL and not CAM.Armed(), "the stop written down, the camera disarmed")
 
+    -- NEVER OFF, in any file (Arn, 11 Nov: "our addon should never turn off combat log it can only turn it on")
+    do
+        local offs = 0
+        for _, file in ipairs({ "BlackBox.lua", "TestCam.lua", "Radar.lua", "Core.lua" }) do
+            local fh = io.open(file, "r")
+            if fh then
+                local src = fh:read("*a") fh:close()
+                for _ in src:gmatch("LoggingCombat%s*,%s*false") do offs = offs + 1 end
+                for _ in src:gmatch("LoggingCombat%s*%(%s*false") do offs = offs + 1 end
+            end
+        end
+        ok(offs == 0, "no file ever turns the combat log off", offs)
+    end
     -- courtesy: someone else's log stays on
     logOn = true
     press("4", "7", "2", "1") BB.Press("EXEC")

@@ -11662,8 +11662,9 @@ do
         ok(WATCHED[p1] and WATCHED[p2], "the client's unit watch shows them only while the pet is there (mid-fight too)")
         ok(p4 and not WATCHED[p4] and p4:GetAttribute("unit") == nil and not p4:IsShown(),
            "an empty spot has no pet pip: off the watch, hidden")
-        ok(p2:GetAttribute("type1") == "macro" and p2:GetAttribute("macrotext1") == "/cast [@partypet1,help,nodead] Healing Wave(Rank 1)",
-           "a plain left-click on a pet is the radar heal, like on its owner - never on you if it is dead", p2:GetAttribute("macrotext1"))
+        ok(p2:GetAttribute("type1") == nil and p2.__guard == true and p2:GetAttribute("*type1") == sp2.heal:GetAttribute("*type1")
+           and p2:GetAttribute("*macrotext1") == sp2.heal:GetAttribute("*macrotext1"),
+           "a pet's clicks are your binds, like on its owner (guarded)", p2:GetAttribute("*macrotext1"))
         ok(p2.__w == RD.PET.px and p2.__w < sp2.slot.ph, "small: smaller than its owner's pip", p2.__w)
         local pp = p2.points and p2.points[1]
         local hx, hy = RD.Point(sp2.slot, sp2.slot.rh)
@@ -11697,12 +11698,33 @@ do
         STATE.units.partypet1 = nil
         ok(#sp2.petTex == 5, "its sign: a paw - a pad and four toes, our own shape")
     end
-    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == "macro"
-       and sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Healing Wave(Rank 1)" and sp2.heal:GetAttribute("spell1") == nil,
-       "a plain left-click on a pip is the radar heal: the top rank you have (3) minus 2", sp2.heal:GetAttribute("macrotext1"))
-    -- NEVER A HEAL ON YOU BY ACCIDENT (Arn, 10 Nov: a dead man's red sword healed him): the click carries help,nodead, so a
-    -- dead or hostile target casts nothing instead of the client's self-cast; and a dead man's pip is dark
-    ok(sp2.heal:GetAttribute("macrotext1"):find("[@party1,help,nodead]", 1, true), "the click: only on the living and friendly")
+    -- YOUR BINDS ARE THE CLICKS (Arn, 10 Nov: "did we set a heal to left click? if we did get rid of it and lets whatever
+    -- binds set as the heal"): no plain type1 of the radar's own; the bind window's left button is the left click
+    do
+    ok(sp2.heal:GetAttribute("unit") == "party1" and sp2.heal:GetAttribute("type1") == nil and sp2.heal:GetAttribute("macrotext1") == nil
+       and sp2.heal:GetAttribute("spell1") == nil, "no left-click heal of the radar's own any more")
+    -- NEVER A HEAL ON YOU BY ACCIDENT (Arn, 10 Nov: a dead man's red sword healed him): a bound spell on a pip is guarded -
+    -- help,nodead - so a dead or hostile target casts nothing instead of the client's self-cast; a dead man's pip is dark
+    local keepL = d.binds
+    d.binds = { ["left"] = "Healing Wave(Rank 1)" }
+    NS.FM.Apply()
+    ok(sp2.heal:GetAttribute("*type1") == "macro" and sp2.heal:GetAttribute("type1") == nil
+       and sp2.heal:GetAttribute("*macrotext1") == "/cast [@mouseover,help,nodead] Healing Wave(Rank 1)" and sp2.heal:GetAttribute("*spell1") == nil,
+       "the left bind is the left click, guarded: only on the living and friendly", sp2.heal:GetAttribute("*macrotext1"))
+    d.binds = keepL
+    NS.FM.Apply()
+    end
+    ok(NS.FG.frames[1] and NS.FG.frames[1].__guard == nil, "the grid's cells keep their plain spells (only the radar is guarded)")
+    do
+        local keepB = d.binds
+        d.binds = { ["shift-left"] = "Lesser Healing Wave(Rank 2)" }
+        NS.FM.Apply()
+        ok(sp2.heal:GetAttribute("shift-macrotext1") == "/cast [@mouseover,help,nodead] Lesser Healing Wave(Rank 2)"
+           and sp2.heal:GetAttribute("*type1") == "target", "a bind changed: the pips take it at once (FM.Apply), an empty left button targets",
+           sp2.heal:GetAttribute("shift-macrotext1"))
+        d.binds = keepB
+        NS.FM.Apply()
+    end
     do
         local realDead = _G.UnitIsDeadOrGhost
         _G.UnitIsDeadOrGhost = function(u) return u == "party1" end
@@ -12263,10 +12285,10 @@ do
 
     -- the hidden setting: another heal, typed with its capitals
     SlashCmdList.BISHEALING("alpha radar heal Lesser Healing Wave")
-    ok(sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
-       "/bish alpha radar heal Lesser Healing Wave: that heal, its top rank minus 2 (it has one)", sp2.heal:GetAttribute("macrotext1"))
+    ok(RD.heal and RD.heal.cast == "Lesser Healing Wave(Rank 1)" and d.radar.heal == "Lesser Healing Wave",
+       "/bish alpha radar heal Lesser Healing Wave: that heal (where amber starts), its top rank minus 2", RD.heal and RD.heal.cast)
     SlashCmdList.BISHEALING("alpha radar heal default")
-    ok(sp2.heal:GetAttribute("macrotext1") == "/cast [@party1,help,nodead] Healing Wave(Rank 1)", "and back to the default")
+    ok(RD.heal and RD.heal.cast == "Healing Wave(Rank 1)", "and back to the default")
 
     -- RAID SECTORS: 40 fixed slots, your own group on top and nearer the middle; a full 40
     _G.IsInRaid = function() return true end

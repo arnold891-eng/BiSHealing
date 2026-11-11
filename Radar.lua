@@ -1579,10 +1579,7 @@ end
 local function armHeal(sp, unit)
     local b = sp.heal
     b:SetAttribute("unit", unit)
-    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, b) end      -- your binds on every other click
-    local h = RD.heal
-    -- a plain left-click is the radar heal (the attribute without a modifier wins over "*type1"), through RD.HealOn
-    RD.HealOn(b, unit, h)
+    RD.BindsOn(b)                                                     -- your binds are every click, the left one too
     b.unit = unit
     -- the face: the role glyph, rebuilt only when the role changed
     local role = RD.Role(unit)
@@ -1651,20 +1648,33 @@ end
 
 --- Put a spoke's pet where its slot says, on its owner's pet token, the client watching it. Out of a fight only.
 --- No owner, or no place for a pet (a raid's other groups): off the watch and hidden.
---[[ NEVER A HEAL ON YOU BY ACCIDENT (10 Nov 2026, Arn: "when someone dies it leaves a red sword and they were outside the
-  instance so anytime i clicked it it healed me"). A plain "spell" click on someone a heal cannot land on (dead, a
-  ghost) is handed by the client to its self-cast: you. So the left-click is a MACRO with the unit and its conditions
-  in it - `/cast [@party2,help,nodead] Healing Wave(Rank 1)` - and when they fail, nothing is cast at all. The client
-  checks the conditions at the click, mid-fight too; nothing of ours runs. ]]
-function RD.HealMacro(unit, cast)
-    if not (unit and cast) then return nil end
-    return "/cast [@" .. unit .. ",help,nodead] " .. cast
-end
-function RD.HealOn(b, unit, h)
-    local text = h and RD.HealMacro(unit, h.cast) or nil
-    b:SetAttribute("type1", text and "macro" or nil)
-    b:SetAttribute("macrotext1", text)
+--[[ YOUR BINDS ARE THE CLICKS (10 Nov 2026, Arn: "did we set a heal to left click? if we did get rid of it and lets
+  whatever binds set as the heal"). The radar's own left-click heal is gone: a pip or a pet carries exactly what the
+  bind window says, the left button too (an empty left button targets, like on the grid). RD.heal stays only for where
+  amber starts (RD.HealAmount).
+  NEVER A HEAL ON YOU BY ACCIDENT (same night: "when someone dies it leaves a red sword ... anytime i clicked it it
+  healed me"): a plain "spell" click on someone a heal cannot land on (dead, a ghost) is handed by the client to its
+  self-cast - you. So a pip is GUARDED (`b.__guard`, Mouse.lua's FM.ApplyTo): each bound spell is the macro
+  `/cast [@mouseover,help,nodead] <spell>`, and on the dead or hostile it casts nothing. The client checks it at the
+  click, mid-fight too. Out of a fight a dead pip still resurrects (FM.ResNow), and hostile binds still work on enemies. ]]
+function RD.BindsOn(b)
+    b.__guard = true
+    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, b) end
+    -- no click of the radar's own: a plain "type1" would win over your bind's "*type1"
+    b:SetAttribute("type1", nil)
+    b:SetAttribute("macrotext1", nil)
     b:SetAttribute("spell1", nil)
+end
+
+--- Your binds changed (FM.Apply): every pip and pet in use takes them. Out of a fight only (secure writes).
+function RD.ApplyBinds()
+    if combat() then return 0 end
+    local n = 0
+    for _, sp in ipairs(RD.spokes or {}) do
+        if sp.unit and sp.heal then RD.BindsOn(sp.heal) n = n + 1 end
+        if sp.petUnit and sp.pet then RD.BindsOn(sp.pet) n = n + 1 end
+    end
+    return n
 end
 
 --- A DEAD PERSON'S PIP GOES DARK (same night): 0% health read red, but there is nothing a heal can do. In a fight the
@@ -1698,8 +1708,7 @@ local function armPet(sp, unit, s)
     p:ClearAllPoints()
     p:SetPoint("CENTER", RD.frame, "CENTER", x, y)
     p:SetAttribute("unit", pu)
-    if NS.FM and NS.FM.ApplyTo then pcall(NS.FM.ApplyTo, p) end      -- your binds on every other click
-    RD.HealOn(p, pu, RD.heal)
+    RD.BindsOn(p)                                                     -- your binds, like on its owner
     p.unit = pu
     if sp.petPx ~= px then
         for _, t in ipairs(sp.petTex or {}) do t:Hide() end

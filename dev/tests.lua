@@ -11838,6 +11838,12 @@ do
            "an empty square and the background name nobody: the wheel over them heals no one (Arn, 10 Nov)")
         ok(not RD.scope:IsShown() and not RD.toolRail:IsShown() and not RD.gaugeRail:IsShown() and not RD.defRail:IsShown()
            and not RD.gauge:IsShown() and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails, the tape and the black box step aside")
+        -- the tools re-armed on their own (max mana changed, a fight ended): the right rail stays away (Arn, 11 Nov:
+        -- "why does his engineer 2 have a right rail")
+        local wConsole = f:GetWidth()
+        RD.ArmTools()
+        ok(not RD.defRail:IsShown() and f:GetWidth() == wConsole and RD.hull.points[2][2] == f,
+           "the tools re-armed in the console: no right rail beside it, the hull still the console's square")
         ok(RD.conSquares.heal1 and RD.conSquares.heal1:IsShown() and RD.conSquares.tool8:IsShown(), "an empty square where each one lives")
         ok(not RD.gauge.regen:IsShown() and not RD.gauge.chev:IsShown() and not RD.gauge.fsr:IsShown(),
            "the tape's pieces on the radar frame step aside too (the 100% Arn saw floating over the console)")
@@ -12952,6 +12958,23 @@ do
         STATE.mana = 0.45
         RD.PaintQuiet()
         ok(lit(RD.tide) and lit(RD.potion) and lit(RD.fuel), "45%: Mana Tide's 680 is more than you have left - all three lit")
+        -- SPENT = DARK (Arn, 11 Nov, after a dungeon: "mana tide was on cooldown but it showed i can click it")
+        RD.readyAt.tide, RD.coolStart.tide = CLOCK + 200, CLOCK - 100
+        RD.PaintQuiet()
+        ok(not lit(RD.tide) and lit(RD.potion) and lit(RD.fuel), "45%, Mana Tide cooling by our clock: it stays dark, the rest lit")
+        RD.readyAt.potion, RD.coolStart.potion = CLOCK + 60, CLOCK - 60
+        RD.PaintQuiet()
+        ok(not lit(RD.potion) and lit(RD.fuel), "the potion cooling too: dark")
+        RD.readyAt.potion, RD.coolStart.potion = nil, nil
+        RD.PaintQuiet()
+        RD.readyAt.tide = CLOCK + 1                  -- a second of Mana Tide's cooldown left
+        RD.PaintQuiet()
+        RD.WatchReady()
+        ok(not lit(RD.tide) and RD.WatchReady() == false, "a second of cooldown left: still dark, the tick does nothing")
+        TICK(2)                                      -- the ticker runs on, nothing else happens (no mana change)
+        ok(RD.WatchReady() == true and lit(RD.tide) and lit(RD.potion),
+           "the cooldown runs out: the ticker's watch lights it again by itself")
+        RD.readyAt, RD.coolStart = {}, {}
         STATE.mana = 0.30
         STATE.inCombat = true
         fire(RD.events, "PLAYER_REGEN_DISABLED")

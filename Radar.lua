@@ -3156,8 +3156,10 @@ function RD.ArmChaff()
                         .. "(the flare on its bogey) is cooling.  No target needed." } or nil
     if RD.defRail then
         -- ALWAYS SHOWN (Arn, 10 Nov: "lets always show the full square rail even if there is nothing there"): the
-        -- panel is a closed square whether the chaff or the res is in it or not
-        RD.defRail:Show()
+        -- panel is a closed square whether the chaff or the res is in it or not. ON THE RADAR ONLY (11 Nov, the
+        -- cousin's engineer view had a right rail): this also runs on its own (max mana changes, a fight ends), after
+        -- RD.ApplyView hid it, so it asks the view itself
+        if RD.Console and RD.Console() then RD.defRail:Hide() else RD.defRail:Show() end
         RD.ClampRails()
     end
     return spell

@@ -110,15 +110,20 @@ function CFG.Sections()
               set = function(_, on) if DO.flash then DO.flash(on) end end },
             -- THE RADAR'S OVERHEAL WORD (Arn, 12 Nov 2026: "lets determine how we let the people know what determines
             -- overheal, and add to options ... if they want to change what determines it in radar and engineer")
-            { key = "overword", kind = "seg", label = "overheal word", values = { "off", "any", "half", "75%" },
-              help = (NS.OV and NS.OV.HELP) or "",
-              get = function() return (NS.OV and NS.OV.Mode()) or "half" end,
-              set = function(_, v) if DO.overword then DO.overword(v) end end },
-            { key = "overbutton", kind = "seg", label = "hover heal", values = { "left", "right", "wheel", "thumb1", "thumb2" },
+            -- ARROWS, NOT BUTTONS (Arn's screenshot, 12 Nov: four and five buttons ran into the label - the kit keeps
+            -- T.OPTIONS.CTL, 110 px, for a control, which three buttons fill): < half > and < left >, like the tank mark
+            { key = "overword", kind = "step", label = "overheal word", help = (NS.OV and NS.OV.HELP) or "",
+              min = 1, max = 4, step = 1,
+              get = function() return NS.OV and NS.OV.ModeIndex() or 3 end,
+              set = function(_, v) if DO.overword and NS.OV then DO.overword(NS.OV.MODES[v]) end end,
+              show = function() return (NS.OV and NS.OV.Mode()) or "half" end },
+            { key = "overbutton", kind = "step", label = "hover heal",
               help = "Which mouse button's heal the overheal word judges while your mouse is on someone (radar and "
-                  .. "engineer view). A click always judges the button you pressed.",
-              get = function() return (NS.OV and NS.OV.HoverWord()) or "left" end,
-              set = function(_, v) if DO.overbutton then DO.overbutton(v) end end },
+                  .. "engineer view): left, right, wheel, thumb1, thumb2. A click always judges the button you pressed.",
+              min = 1, max = 5, step = 1,
+              get = function() return NS.OV and NS.OV.ButtonIndex() or 1 end,
+              set = function(_, v) if DO.overbutton and NS.OV and NS.OV.BUTTONS[v] then DO.overbutton(NS.OV.BUTTONS[v][1]) end end,
+              show = function() return (NS.OV and NS.OV.HoverWord()) or "left" end },
         } },
         -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
         -- The header names it out of combat; the client makes a NOISE when it drops, which is the

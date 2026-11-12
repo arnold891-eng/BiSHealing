@@ -12506,19 +12506,22 @@ do
         NS.DO.overword("half")
         local row
         for _, r in ipairs(NS.UI.Rows()) do if r.key == "overword" then row = r end end
-        ok(row and table.concat(row.values, ",") == "off,any,half,75%" and row.get() == "half" and row.help == OV.HELP
-           and row.help:find("tooltip", 1, true) and row.help:find("heals already on their way", 1, true),
-           "the options: an 'overheal word' row, off / any / half / 75%, its help saying what decides it")
-        if row then row.set(nil, "any") end
-        ok(d.overMode == "any", "the row sets it")
+        ok(row and row.kind == "step" and row.min == 1 and row.max == 4 and row.show() == "half" and row.help == OV.HELP
+           and row.help:find("tooltip", 1, true) and row.help:find("heals on their way", 1, true),
+           "the options: an 'overheal word' row, < half > arrows over off / any / half / 75%, its help saying what decides it")
+        -- the box shows three lines of about 125 letters (Arn's screenshot, 12 Nov); the long help (560) ran off it
+        ok(#row.help <= 300, "its help fits the box (Arn's screenshot: the long one ran off the bottom): " .. #row.help)
+        local O = _G.BiSTheme and _G.BiSTheme.OPTIONS
+        ok(O and 2 * O.STEP_W + O.STEP_V + 6 <= O.CTL, "arrows fit the kit's control space (four or five buttons ran into the label)")
+        if row then row.set(nil, 2) end
+        ok(d.overMode == "any" and row.show() == "any", "the arrows set it")
         NS.DO.overword("half")
         -- WHICH BUTTON A HOVER JUDGES (Arn: "some people might want something else other than left click")
         FM.Set("", "middle", "Healing Wave(Rank 1)")
         local brow
         for _, r in ipairs(NS.UI.Rows()) do if r.key == "overbutton" then brow = r end end
-        ok(brow and table.concat(brow.values, ",") == "left,right,wheel,thumb1,thumb2" and brow.get() == "left",
-           "a 'hover heal' row: left to start")
-        brow.set(nil, "wheel")
+        ok(brow and brow.kind == "step" and brow.max == 5 and brow.show() == "left", "a 'hover heal' row: < left > to start")
+        brow.set(nil, 3)
         sp2.heal.__scripts.OnEnter(sp2.heal)
         ok(d.overButton == "middle" and o.bar:GetValue() == 20.75, "wheel: a hover judges the wheel click's heal", o.bar:GetValue())
         sp2.heal.__scripts.OnLeave(sp2.heal)

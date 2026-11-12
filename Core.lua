@@ -1963,7 +1963,7 @@ function NS.DO.overword(how)
     remember()
     local mode = OV and OV.Mode() or "half"
     Print(("overheal word: %s"):format(mode))
-    if not how and OV then Print(OV.HELP) end
+    if not how and OV then Print(OV.HELP_LONG or OV.HELP) end
     return mode
 end
 

@@ -37,11 +37,16 @@ NS.OV = OV
 -- wasted (the default), 75% = three quarters or more. `overMode` on the account; `overWord = false` (older) = off.
 OV.MODES = { "off", "any", "half", "75%" }
 OV.SHARES = { any = 1.0, half = 0.5, ["75%"] = 0.25 }
-OV.HELP = "OVER/H shows under a teammate on the radar (under their box in the engineer view) when your heal would be "
+-- the options' help box holds about three lines, so the row says it short (Arn's screenshot, 12 Nov: the long one ran
+-- off the bottom); /bish overword prints the whole of it
+OV.HELP = "OVER/H under a teammate (radar, engineer view) when your heal would be wasted: your heal (the middle of its "
+    .. "tooltip, that button's rank) against what they miss (minus heals on their way). any - any overheal. half - more "
+    .. "than half wasted. 75% - three quarters. HoTs not judged."
+OV.HELP_LONG = "OVER/H shows under a teammate on the radar (under their box in the engineer view) when your heal would be "
     .. "wasted. Your heal = the middle of its tooltip (\"heals for X to Y\") for the rank on that mouse button - on hover "
-    .. "the heal on the button you pick in 'hover heal' (hold shift, ctrl or alt for theirs), on a click the heal you started. What they miss = the "
-    .. "game's own number, minus heals already on their way. Heals over time are not judged. any - any overheal at all. "
-    .. "half - more than half the heal wasted. 75% - three quarters or more. off - never."
+    .. "the heal on the button you pick in 'hover heal' (hold shift, ctrl or alt for theirs), on a click the heal you started. "
+    .. "What they miss = the game's own number, minus heals already on their way. Heals over time are not judged. any - "
+    .. "any overheal at all. half - more than half the heal wasted. 75% - three quarters or more. off - never."
 OV.SPAN = 10000         -- the hidden bar: 1% short of full moves the word 100 px - wholly out of its window, never half
 OV.W, OV.H = 68, 14     -- the window under the pip the word shows in (OVER/H and its outline, with room)
 OV.FLASH_FOR = 1.2      -- the click's flash, the grid's own length (FG.FLASH_FOR)
@@ -78,6 +83,20 @@ function OV.Mode()
     if d.overWord == false then return "off" end
     local m = d.overMode
     return OV.SHARES[m or ""] and m or "half"
+end
+
+--- Where the setting sits in OV.MODES (the options' arrows walk it).
+function OV.ModeIndex()
+    local m = OV.Mode()
+    for i, v in ipairs(OV.MODES) do if v == m then return i end end
+    return 3
+end
+
+--- Where the hover's button sits in OV.BUTTONS.
+function OV.ButtonIndex()
+    local slot = OV.HoverSlot()
+    for i, b in ipairs(OV.BUTTONS) do if b[2] == slot then return i end end
+    return 1
 end
 
 --- The share of the heal compared with what they miss (1 = any overheal, 0.5 = more than half, 0.25 = 75%).

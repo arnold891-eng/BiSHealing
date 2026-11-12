@@ -390,6 +390,11 @@ local function newFrame(kind, name, parent)
     function f:CreateTexture(_, layer, _, sublevel)
         self.__regions = self.__regions or {}
         local made = autoMethods({
+            -- A REGION, NOT A FRAME (12 Nov 2026): a frame holding secure buttons may not be pinned to one, anywhere down
+            -- its anchor chain - "Cannot anchor protected frames to regions" (Arn's BugSack, BiS Tools' box on the radar)
+            __texture = true,
+            GetObjectType = function() return "Texture" end,
+            IsObjectType = function(_, k) return k == "Texture" or k == "Region" end,
             -- A TEXTURE REMEMBERS WHAT COLOUR IT WAS PAINTED. This was a no-op, so "what
             -- colour is that cell's ring" had no answer at all - the same shape of lie as the
             -- font string that accepted a colour with no green in it (26 Sep).
@@ -13260,6 +13265,19 @@ do
                "BiSHealingAPI.RadarEdge: the radar's whole outline, its soft edge, its frame - while it shows")
             -- 12 Nov 2026, Arn's BugSack: "Cannot anchor protected frames to regions" - the edge must be a FRAME
             ok(edge ~= RD.hull and edge.CreateTexture ~= nil, "RadarEdge hands a frame (secure boxes may be pinned to it), not the hull texture")
+            -- ...AND NO TEXTURE ANYWHERE DOWN ITS CHAIN (12 Nov, the second BugSack: the frame was SetAllPoints'd to the
+            -- hull, and the client refused the box all the same - it walks every anchor). A mock texture says so (`__texture`).
+            local function regionFree(fr, depth)
+                if type(fr) ~= "table" or depth > 30 then return true end
+                if fr.__texture then return false end
+                if type(fr.__allpoints) == "table" and not regionFree(fr.__allpoints, depth + 1) then return false end
+                for _, q in ipairs(fr.points) do
+                    if type(q[2]) == "table" and not regionFree(q[2], depth + 1) then return false end
+                end
+                return true
+            end
+            ok(regionFree(edge, 0) and edge:GetNumPoints() == 2, "the dock frame's anchors lead only to frames (the rails, the radar)")
+            ok(not regionFree(RD.hull, 0), "(and the walk does catch a texture: the hull itself fails it)")
             -- THE SIZE ROW, while the radar shows (Arn: "only the scale work on the rader and nothing else")
             local row
             for _, o in ipairs(NS.UI.Rows()) do if o.key == "scale" then row = o end end

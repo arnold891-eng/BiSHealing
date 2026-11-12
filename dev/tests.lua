@@ -3865,8 +3865,12 @@ do
     for _, sec in ipairs(NS.CFG.Sections()) do
         for _, o in ipairs(sec.options) do if o.key == "scale" then found = o end end
     end
-    ok(found and found.kind == "step" and found.min == 0.6 and found.max == 1.6,
-       "the options window has a stepper for it")
+    ok(found and found.kind == "step" and found.min == 0.5 and found.max == 2 and found.label == "size",
+       "the options window has a stepper for it (50-200%: the radar's range; the cells' setter keeps theirs)")
+    local keepS = d.scale
+    found.set(d, 2)
+    ok(d.scale == FG.SCALE_MAX, "the cells never go past their own limit, whatever the stepper asks", d.scale)
+    d.scale = keepS
     ok(found and found.show(d) == "90%", "and shows it as a percentage", found and found.show(d))
 
     FG.SetScale(1)
@@ -10847,9 +10851,19 @@ do
     -- ONE SWITCH BACK
     local row
     for _, o in ipairs(NS.UI.Rows()) do if o.key == "look" then row = o end end
-    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "classic,cockpit,dashboard" and row.help
-       and row.help:find("dashboard", 1, true),
-       "the options window has a look row: classic, cockpit, dashboard (Arn, 11 Nov 2026)")
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "classic,cockpit,radar" and row.help
+       and row.help:find("radar - ", 1, true),
+       "the options window has a look row: classic, cockpit, radar (Arn, 11 Nov 2026: \"can you not make it cut off\")")
+    local keepL = NS.DB().look
+    for _, v in ipairs(row.values) do
+        ok(#v <= 7, "the button word fits the kit's segment: " .. v)
+    end
+    row.set(nil, "radar")
+    ok(NS.DB().look == "radar" and row.get() == "radar", "the radar button sets the radar look, and shows it picked")
+    ok(NS.DO.look("dashboard") == "radar" and NS.DO.look("dash") == "radar", "its one-evening name still answers")
+    NS.DB().look = "dashboard"
+    ok(FG.Look() == "radar" and NS.DB().look == "radar", "a save holding \"dashboard\" reads as radar, and is written so")
+    NS.DO.look(keepL)
     row.set(d, "classic")
     ok(d.look == "classic" and f.__look == "classic", "classic picked: every cell back at once")
     ok(not f.band.__shown and not f.bezel.top.__shown and not f.lamp.__shown and not f.readoutBox.__shown,
@@ -11760,8 +11774,8 @@ do
     ok(RD and not RD.Active() and NS.ALPHA.radar, "the classic look: no radar")
     SlashCmdList.BISHEALING("alpha on")
     local f = _G.BiSHealingRadar
-    ok(RD.Active() and f and f:IsShown() and d.look == "dashboard" and d.dash1 == true,
-       "the old alpha radar switch, the first time: moved to the dashboard look once - the radar comes up")
+    ok(RD.Active() and f and f:IsShown() and d.look == "radar" and d.dash1 == true,
+       "the old alpha radar switch, the first time: moved to the radar look once - the radar comes up")
     -- THE WHEEL STAYS ARMED WITH THE GRID HIDDEN (Arn 8 Nov, radar on: "when i tried to do my heals on the ellesmere
     -- frames my binds used to work on that"): the wheel is a mouseover BINDING over any addon's frames; a layout with the
     -- grid hidden used to return before arming it, so a reload left it dead
@@ -13236,12 +13250,25 @@ do
             d.alpha, d.look = false, "classic"
             RD.Apply()
             ok(not RD.On() and not RD.Active() and not FG.Hidden(d), "the alpha off, classic: no radar, the grid shows")
-            ok(NS.DO.look("dashboard") == "dashboard" and RD.On() and RD.Active() and RD.frame:IsShown() and FG.Hidden(d),
-               "/bish look dashboard: the radar takes the grid's place - no alpha switch needed")
+            ok(NS.DO.look("radar") == "radar" and RD.On() and RD.Active() and RD.frame:IsShown() and FG.Hidden(d),
+               "/bish look radar: the radar takes the grid's place - no alpha switch needed")
+            -- THE SIZE ROW, while the radar shows (Arn: "only the scale work on the rader and nothing else")
+            local row
+            for _, o in ipairs(NS.UI.Rows()) do if o.key == "scale" then row = o end end
+            local keepGrid, keepRadar = d.scale, NS.DB().radar.scale
+            row.set(d, 1.5)
+            ok(math.abs(RD.Scale() - 1.5) < 1e-9 and math.abs(RD.frame:GetScale() - 1.5) < 1e-9 and d.scale == keepGrid
+               and row.show(d) == "150%", "the size row sizes the radar - the cells' size untouched", row.show(d))
+            STATE.inCombat = true
+            row.set(d, 1)
+            ok(math.abs(RD.Scale() - 1.5) < 1e-9, "in a fight: not touched (the radar is a secure frame)")
+            STATE.inCombat = false
+            NS.DB().radar.scale = keepRadar
+            RD.frame:SetScale(RD.Scale())
             ok(RD.bbRail and RD.bbRail:IsShown() and RD.BBRail() == RD.bbRail and RD.hull.points[2][2] == RD.bbRail,
                "the black box rail along the bottom for everyone, the hull round it")
             ok(NS.DO.look() == "classic" and not RD.Active() and not FG.Hidden(d), "no word walks on: dashboard -> classic, the grid back")
-            ok(NS.DO.look() == "cockpit" and NS.DO.look() == "dashboard" and RD.Active(), "classic -> cockpit -> dashboard")
+            ok(NS.DO.look() == "cockpit" and NS.DO.look() == "radar" and RD.Active(), "classic -> cockpit -> radar")
             STATE.inCombat = true
             ok(NS.DO.look("classic") == "classic" and RD.Active() and RD.pending, "in a fight: the radar stays till the fight's end (pending)")
             STATE.inCombat = false
@@ -13660,7 +13687,7 @@ do
     -- off: the grid comes back exactly as it was - by the look now (Arn, 11 Nov: "when i toggel between class cockpit and
     -- dash it does nothing"), the alpha switch no longer holds the radar up
     SlashCmdList.BISHEALING("alpha off")
-    ok(RD.Active(), "/bish alpha off: the radar stays - it is the dashboard look now, not the alpha")
+    ok(RD.Active(), "/bish alpha off: the radar stays - it is the radar look now, not the alpha")
     NS.DO.look("classic")
     ok(not RD.Active() and not f:IsShown() and NS.FG.Hidden() == (shownBefore == false), "look: classic - the radar goes, the grid is as it was")
 

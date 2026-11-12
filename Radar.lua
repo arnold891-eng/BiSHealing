@@ -188,7 +188,8 @@ end
 
 --- Is the radar on now (the alpha, and this feature)?
 -- THE DASHBOARD LOOK (11 Nov 2026, Arn: "we are ready to take this alpha and add it to the look of bis healing, cockpit
--- classic and dashboard"): the radar is a public look now - `look = "dashboard"` (NS.DO.look, the options' look row).
+-- classic and dashboard"; named "radar" the same night - "dashboard" is what the BiS> pages are called): the radar is a
+-- public look now - `look = "radar"` (NS.DO.look, the options' look row).
 -- THE LOOK ALONE DECIDES (11 Nov 2026, Arn: "in the options when i toggel between class cockpit and dash it does
 -- nothing" - the old alpha switch kept the radar up whatever the look, and the grid behind it hidden). Whoever had the
 -- alpha radar on is moved to the dashboard ONCE (RD.DashStamp), so nobody loses the radar they had; from then on the
@@ -197,15 +198,15 @@ end
 -- camera is its own alpha feature.
 function RD.On()
     local FG = NS.FG
-    return (FG and FG.Look and FG.Look() == "dashboard") or false
+    return (FG and FG.Look and FG.Look() == "radar") or false
 end
---- Once: the alpha radar on = the dashboard look (written down, `dash1` on the account). Answers true when it moved one.
+--- Once: the alpha radar on = the radar look (written down, `dash1` on the account). Answers true when it moved one.
 function RD.DashStamp()
     local d = NS.DB()
     if d.dash1 or not (NS.AlphaOn and NS.AlphaOn(RD.KEY)) then return false end
     d.dash1 = true
-    if d.look == "dashboard" then return false end
-    d.look = "dashboard"
+    if d.look == "radar" or d.look == "dashboard" then return false end
+    d.look = "radar"
     return true
 end
 --- The black box rail, while it is part of the instrument (the extras, out of the engineer's view).
@@ -1194,6 +1195,31 @@ function RD.ScaleAt(f, s, left, top)
     f:ClearAllPoints()
     f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / k, top / k)
     return true
+end
+
+--- THE OPTIONS' SIZE ROW, while the radar look shows (11 Nov 2026, Arn: "people might try to reize from here" ... "we
+--- can make it so only the scale work on the rader and nothing else"): the radar's own scale, the same one the corner
+--- grip sets, the top-left corner held. Out of a fight only (a secure frame). Answers the scale it has.
+function RD.Scale() return math.max(RD.SCALE_MIN, math.min(RD.SCALE_MAX, tonumber(db().scale) or 1)) end
+function RD.SetScale(v)
+    local f = RD.frame
+    local s = math.floor(math.max(RD.SCALE_MIN, math.min(RD.SCALE_MAX, tonumber(v) or 1)) * 100 + 0.5) / 100
+    if combat() then return RD.Scale() end
+    db().scale = s
+    if f then
+        local k, l, t = f:GetEffectiveScale(), f.GetLeft and f:GetLeft(), f.GetTop and f:GetTop()
+        if type(k) == "number" and type(l) == "number" and type(t) == "number" then
+            RD.ScaleAt(f, s, l * k, t * k)
+            local ok, p, _, rp, x, y = pcall(f.GetPoint, f)
+            p, rp, x, y = plain(p), plain(rp), plain(x), plain(y)
+            if ok and type(p) == "string" and type(x) == "number" and type(y) == "number" then
+                db().pos = { p, type(rp) == "string" and rp or p, x, y }
+            end
+        else
+            f:SetScale(s)
+        end
+    end
+    return s
 end
 
 --- The grip's drag over: the scale and the corner saved.
@@ -4679,5 +4705,5 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
 end)
 
 NS.AlphaFeature{ key = RD.KEY, name = "the radar's words",
-                 desc = "the dashboard's hidden words (heal, center, knob) - the radar itself is the dashboard look now",
+                 desc = "the radar's hidden words (heal, center, knob) - the radar itself is a look now (look: radar)",
                  apply = function() RD.Apply() end, cmd = function(rest) return RD.Command(rest) end }

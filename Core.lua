@@ -1617,12 +1617,13 @@ local PVP_SAID = {
 }
 
 --- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit"): "cockpit", "classic" or, since
---- 11 Nov 2026, "dashboard" - the radar in the grid's place (Arn: "take this alpha and add it to the look of bis
+--- 11 Nov 2026, "radar" - the radar in the grid's place (Arn: "take this alpha and add it to the look of bis
 --- healing"). No argument walks the three. The cells are dressed again at once (paint only, safe in a fight); the
 --- dashboard comes and goes through RD.Apply, which waits for the fight's end when it must.
-NS.LOOK_ORDER = { "classic", "cockpit", "dashboard" }
+NS.LOOK_ORDER = { "classic", "cockpit", "radar" }
 function NS.DO.look(how)
     local d = DB()
+    if how == "dash" or how == "dashboard" then how = "radar" end   -- its name for one evening (11 Nov 2026)
     if not (NS.FG and NS.FG.LOOKS and NS.FG.LOOKS[how or ""]) then
         local cur = NS.FG and NS.FG.Look and NS.FG.Look() or "classic"
         how = NS.LOOK_ORDER[1]
@@ -1633,7 +1634,7 @@ function NS.DO.look(how)
     -- the radar only when this turns it on or off (a re-apply re-lays the grid out)
     local RD = NS.RD
     if RD and RD.Apply and RD.On and RD.Active and RD.On() ~= RD.Active() then RD.Apply() end
-    Print("look: " .. how .. ((how == "dashboard" and InCombatLockdown and InCombatLockdown()) and "  (after this fight)" or ""))
+    Print("look: " .. how .. ((how == "radar" and InCombatLockdown and InCombatLockdown()) and "  (after this fight)" or ""))
     return how
 end
 

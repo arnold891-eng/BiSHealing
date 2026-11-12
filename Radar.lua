@@ -2457,6 +2457,7 @@ function RD.Build()
         for _, l in ipairs(b.ring or {}) do l:SetVertexColor(G[1], G[2], G[3], 1) end
         b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT)
         b.cd = RD.Sweep(b.face)
+        if name ~= "call" then b.life = RD.WaitSweep(b) end   -- the totems' time left, seen lit or dark (RD.ShowLife)
         RD[name] = b
     end
     RD.TOTEMS = { RD.call, RD.tcall, RD.recall }
@@ -3237,6 +3238,17 @@ RD.totemsFought = false                             -- the totems standing now s
 RD.totemsBrought = false                            -- brought along out of a fight since the last one (BRING out till the next)
 RD.TOTEM_LOW = 30                                   -- seconds left: at or under = RECALL, over = BRING (out of a fight)
 RD.TOTEM_SHORT = 60                                 -- a totem lasting less (a fire totem) does not decide when they run out
+--[[ IN A FIGHT (11 Nov 2026, Arn: "do the totem timers in combat"; the road ForeverAuras 1.3.9 walks, learnt not copied):
+  the slots go secret, but PLAYER_TOTEM_UPDATE still names the SLOT. One within RD.TOTEM_CAST_WINDOW of a totem cast of
+  yours (before or after it) = that slot went down; any other = that slot's totem died or ran out. Every slot known
+  empty = none stand (RD.totemsUntil 0: BRING goes dark mid-fight). THE TIMER: `GetTotemDuration(slot)` hands the
+  client's own duration object for the deciding slot (RD.lifeSlot - the earliest-ending long-lived one, picked out of
+  a fight; earth until then) - handed untouched to a cooling disc on BRING and RECALL (SetCooldownFromDurationObject),
+  so the time left is the game's, fight or not. Lua never reads it. ]]
+RD.TOTEM_CAST_WINDOW = 0.5
+RD.EARTH_SLOT = 2
+RD.slotUp, RD.slotSeen = {}, {}                     -- slot -> down (true) / empty (false) / unknown (nil); slot -> when an update named it
+RD.lastTotemCast = 0
 
 local function knows(spell) local FM = NS.FM return FM and FM.Ranks and #FM.Ranks(spell) > 0 or false end
 
@@ -3251,19 +3263,34 @@ function RD.TotemCast(name, now)
             RD.totemsUntil = now + RD.TOTEM_LIFE
             RD.totemsFought = (RD.inFight or combat()) and true or false
             RD.totemsBrought = false
+            RD.lastTotemCast = now
+            for slot = 1, 4 do RD.slotUp[slot] = true end    -- up to four: out of a fight the read says which
+            RD.ShowLife()
             return "call"
         end
     end
     if name == RD.TCALL then
         RD.readyAt.tcall, RD.coolStart.tcall = now + RD.COOLS.tcall, now
+        RD.lastTotemCast = now                           -- a relocation re-names its slots: not a death
         if not (RD.inFight or combat()) then RD.totemsBrought = true end
         return "tcall"
     end
-    if name == RD.RECALL then RD.totemsUntil, RD.totemsFought = 0, false return "recall" end
+    if name == RD.RECALL then
+        RD.totemsUntil, RD.totemsFought, RD.lastTotemCast = 0, false, 0
+        for slot = 1, 4 do RD.slotUp[slot] = false end
+        RD.ShowLife()
+        return "recall"
+    end
     if name:find("Totem$") then
         local life = (name == RD.TIDE) and RD.WATER.tide or RD.TOTEM_LIFE
         RD.totemsUntil = math.max(RD.totemsUntil, now + life)
         if RD.inFight or combat() then RD.totemsFought = true end
+        RD.lastTotemCast = now
+        -- the update may have come just before the cast: the slot it named is this totem's
+        for slot, at in pairs(RD.slotSeen) do
+            if now - at <= RD.TOTEM_CAST_WINDOW then RD.slotUp[slot] = true end
+        end
+        RD.ShowLife()
     end
     return nil
 end
@@ -3273,9 +3300,10 @@ function RD.ReadTotems()
     local FB = NS.FB
     if combat() or RD.inFight or not (FB and FB.TotemSlot) then return nil end
     if NS.Blind and NS.Blind() then return nil end
-    local any, known, ends = false, true, nil
+    local any, known, ends, endSlot = false, true, nil, nil
     for slot = 1, 4 do
         local have = FB.TotemSlot(slot)
+        RD.slotUp[slot] = have
         if have == nil then known = false
         elseif have then
             any = true
@@ -3287,8 +3315,9 @@ function RD.ReadTotems()
             else
                 start, dur = nil, nil
             end
-            if type(start) == "number" and type(dur) == "number" and dur >= RD.TOTEM_SHORT then
-                ends = math.min(ends or math.huge, start + dur)
+            if type(start) == "number" and type(dur) == "number" and dur >= RD.TOTEM_SHORT
+               and start + dur < (ends or math.huge) then
+                ends, endSlot = start + dur, slot
             end
         end
     end
@@ -3296,7 +3325,67 @@ function RD.ReadTotems()
     if any and ends then RD.totemsUntil = ends
     elseif any and not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE
     elseif known and not any then RD.totemsUntil, RD.totemsFought = 0, false end
+    RD.lifeSlot = endSlot or RD.lifeSlot
+    RD.ShowLife()
     return any
+end
+
+--- PLAYER_TOTEM_UPDATE in a fight (the slots secret, the slot number plain): down if a totem cast of yours is within
+--- the window, else that totem is gone. Every slot known empty = none stand. Answers whether anything changed.
+function RD.TotemSlotChanged(slot, now)
+    slot = plain(slot)
+    if type(slot) ~= "number" or slot < 1 or slot > 4 then return false end
+    now = now or (GetTime and GetTime()) or 0
+    RD.slotSeen[slot] = now
+    local down = (now - RD.lastTotemCast) <= RD.TOTEM_CAST_WINDOW
+    RD.slotUp[slot] = down
+    if down then
+        if not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE end
+    else
+        local any = false
+        for s = 1, 4 do if RD.slotUp[s] ~= false then any = true end end
+        if not any then RD.totemsUntil = 0 end
+        if slot == RD.lifeSlot then RD.lifeSlot = nil end
+    end
+    RD.ShowLife()
+    return true
+end
+
+--- THE TIME LEFT, the game's own: the deciding slot's duration object (GetTotemDuration) on BRING's and RECALL's cooling
+--- disc, handed untouched; out of a fight the plain start/length do the same. Nothing standing: cleared.
+function RD.ShowLife()
+    local discs = {}
+    for _, b in ipairs({ RD.tcall, RD.recall }) do if b and b.life and b.macro then discs[#discs + 1] = b.life end end
+    if #discs == 0 then return false end
+    local slot = RD.lifeSlot
+    if not slot then
+        for _, s in ipairs({ RD.EARTH_SLOT, 1, 3, 4 }) do if RD.slotUp[s] then slot = s break end end
+    end
+    local obj, start, dur = nil, nil, nil
+    if slot and RD.TotemsUp() and RD.slotUp[slot] ~= false then
+        if GetTotemDuration then
+            local ok, o = pcall(GetTotemDuration, slot)
+            if ok then obj = o end
+        end
+        if not obj and not (combat() or RD.inFight) then
+            local ok, _, _, st, d = pcall(GetTotemInfo, slot)
+            if ok then
+                start = plain(st)
+                dur = plain(d)
+            end
+        end
+    end
+    local shown = false
+    for _, cd in ipairs(discs) do
+        if obj and cd.SetCooldownFromDurationObject and pcall(cd.SetCooldownFromDurationObject, cd, obj) then
+            shown = true
+        elseif type(start) == "number" and type(dur) == "number" and dur > 0 and pcall(cd.SetCooldown, cd, start, dur) then
+            shown = true
+        elseif cd.Clear then
+            pcall(cd.Clear, cd)
+        end
+    end
+    return shown
 end
 
 --- Arm the three (their clicks, out of a fight). Unknown spells: the button hides.
@@ -4354,6 +4443,10 @@ end
 if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player") end
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
+    if event == "PLAYER_TOTEM_UPDATE" and (RD.inFight or combat()) then
+        if RD.TotemSlotChanged(a1) and RD.Active() then RD.PaintTotems() end   -- a fight: the slot number only
+        return
+    end
     if event == "PLAYER_TOTEM_UPDATE" then
         if RD.ReadTotems() ~= nil and RD.Active() then RD.PaintTotems() end   -- out of a fight only (plain slots)
         return

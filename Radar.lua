@@ -1708,6 +1708,23 @@ local function toolsRow(W, y)
     end
 end
 
+-- THE TOTEMS' LINE under the tools (11 Nov): only the ones you know (RD.ArmTotems), centred; answers the height it took
+local function totemRow(W, y)
+    local list = {}
+    for _, b in ipairs(RD.TOTEMS or {}) do if b.macro then list[#list + 1] = b end end
+    for k = 1, 3 do if RD.conSquares and RD.conSquares["totem" .. k] then RD.conSquares["totem" .. k]:Hide() end end
+    if #list == 0 then return 0 end
+    local gap = RD.CON.toolGap
+    local y6 = y + RD.SYS_PX + RD.CON.gap
+    local x0 = (W - (#list * RD.SYS_PX + (#list - 1) * gap)) / 2 + RD.SYS_PX / 2
+    for k, b in ipairs(list) do
+        local x = x0 + (k - 1) * (RD.SYS_PX + gap)
+        at(square("totem" .. k, RD.SYS_PX), x, y6)
+        at(b, x, y6)
+    end
+    return RD.SYS_PX + RD.CON.gap
+end
+
 -- a spoke's crosshairs and dims, in the console: on its pip, the dims away
 local function settle(sp)
     for _, fr in ipairs(sp.dims or {}) do fr:Hide() end
@@ -1764,6 +1781,8 @@ function RD.ConsoleLayoutWide(T, order)
         end
     end
     toolsRow(W, yt)
+    H = H + totemRow(W, yt)
+    f:SetSize(W, H)
     return { W = W, H = H, tier = T, cells = cells, placed = placed, rows = { kick = yk, pet = yp, tools = yt } }
 end
 
@@ -1813,6 +1832,11 @@ function RD.ConsoleLayout()
     end
     -- row 5: every tool from both rails, centred
     toolsRow(G.W, G.rows[5])
+    local extra = totemRow(G.W, G.rows[5])
+    if extra > 0 then
+        G.H = G.H + extra
+        f:SetSize(G.W, G.H)
+    end
     G.tier = T
     RD.conGrid = G
     return G
@@ -1821,7 +1845,8 @@ end
 --- The radar's own places back: the tools to their rails (where RD.Build put them), the console's squares away.
 function RD.RadarLayout()
     if combat() then return false end
-    for _, b in ipairs({ RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res }) do
+    for _, b in ipairs({ RD.shield, RD.tide, RD.potion, RD.reserve, RD.fuel, RD.rations, RD.chaff, RD.res,
+                         RD.call, RD.tcall, RD.recall }) do
         local h = b and b.home
         if h then b:ClearAllPoints() b:SetPoint(h[1], h[2], h[3], h[4], h[5]) end
     end
@@ -2421,11 +2446,25 @@ function RD.Build()
     -- THE RES under the chaff, out of a fight only (RD.ArmRes)
     RD.res = buildSystem(f, "Res", "TOPLEFT", X, -8 - step, RD.defRail)
     RD.BuildRes(RD.res)
+    -- THE TOTEMS under the res (RD.ArmTotems): CALL, BRING, RECALL - shown only for someone who knows them
+    for k, name in ipairs({ "call", "tcall", "recall" }) do
+        local b = buildSystem(f, "Totem" .. k, "TOPLEFT", X, -8 - (k + 1) * step, RD.defRail)
+        b.kind = name
+        b.face:SetAlpha(0)
+        b:EnableMouse(false)
+        b:Hide()
+        local G = RD.COL.cyan
+        for _, l in ipairs(b.ring or {}) do l:SetVertexColor(G[1], G[2], G[3], 1) end
+        b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT)
+        b.cd = RD.Sweep(b.face)
+        RD[name] = b
+    end
+    RD.TOTEMS = { RD.call, RD.tcall, RD.recall }
     -- THE VIEW BUTTON: radar <-> the engineer's console (RD.ToggleView)
     RD.BuildClassButton(f)
     RD.BuildViewButton(f)
     -- a knob on each tool that lights by itself (the stabilizer and the rations stay: always wanted)
-    RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff }
+    RD.knobbed = { RD.tide, RD.potion, RD.reserve, RD.fuel, RD.chaff, RD.call, RD.tcall, RD.recall }
     for _, b in ipairs(RD.knobbed) do RD.Knob(b) end
     buildGauge(f)
     RD.ApplyShip(RD.SHIPS[1])                        -- a fighter until the roster says otherwise (RD.Arm)
@@ -3130,6 +3169,7 @@ function RD.ArmTools()
         RD.potion.spellId = okS and plain(sid) or nil
     end
     RD.ArmChaff()
+    RD.ArmTotems()
     RD.SeedCooldowns()
     RD.PaintKnobs()
     return true
@@ -3168,6 +3208,142 @@ function RD.ArmChaff()
         RD.ClampRails()
     end
     return spell
+end
+
+--[[ THE TOTEMS (11 Nov 2026, Arn, with the four spells' tooltips: "need these in the radar engineering utility bar, some
+  how its always cast them all then you bring them too you and recall to get mana back"). Three buttons under the res on
+  the right rail (the engineer's view: their own line under the tools), one per step of that loop:
+    CALL     left = Call of the Elements, right = Call of the Ancestors (whichever you know on both when only one):
+             lit in a fight while none of your totems stand
+    BRING    Totemic Call (relocates them to you, 30 s): lit while they stand, you have run RD.TOTEM_MOVE seconds since
+             they went down (or since the last bring), and it is ready
+    RECALL   Totemic Recall (25% of their mana back): lit out of a fight while they stand
+  WHAT STANDS IS OUR OWN CLOCK: the totem slots go secret in a fight (solved.md), so a Call / any "... Totem" of yours
+  starts RD.totemsUntil (RD.TOTEM_LIFE, Mana Tide its 12 s), a Recall ends it; out of a fight the slots are read plainly
+  (FB.TotemSlot, PLAYER_TOTEM_UPDATE) and correct it. Running is PLAYER_STARTED_MOVING / _STOPPED (plain, no numbers). ]]
+RD.CALLS = { "Call of the Elements", "Call of the Ancestors" }
+RD.TCALL, RD.RECALL = "Totemic Call", "Totemic Recall"
+RD.TOTEM_LIFE = 120                                 -- seconds most totems stand (Mana Tide: RD.WATER.tide)
+RD.TOTEM_MOVE = 4                                   -- seconds of running away from them before BRING lights
+RD.COOLS.tcall = 30
+RD.totemsUntil = 0
+RD.moveAcc, RD.moveFrom = 0, nil                    -- seconds run since the totems went down; when this run began
+
+local function knows(spell) local FM = NS.FM return FM and FM.Ranks and #FM.Ranks(spell) > 0 or false end
+
+--- Seconds run since the totems went down (or the last bring), the run going on now included.
+function RD.Moved(now)
+    now = now or (GetTime and GetTime()) or 0
+    return RD.moveAcc + (RD.moveFrom and (now - RD.moveFrom) or 0)
+end
+function RD.MoveReset(now)
+    RD.moveAcc = 0
+    if RD.moveFrom then RD.moveFrom = now or (GetTime and GetTime()) or 0 end
+end
+
+--- Do your totems stand, by our clock?
+function RD.TotemsUp(now) return RD.totemsUntil > (now or (GetTime and GetTime()) or 0) end
+
+--- Your cast, from RD.OnCast: the totem clock. Answers "call" / "tcall" / "recall" for the three buttons' spells.
+function RD.TotemCast(name, now)
+    if type(name) ~= "string" then return nil end
+    for _, c in ipairs(RD.CALLS) do
+        if name == c then
+            RD.totemsUntil = now + RD.TOTEM_LIFE
+            RD.MoveReset(now)
+            return "call"
+        end
+    end
+    if name == RD.TCALL then
+        RD.readyAt.tcall, RD.coolStart.tcall = now + RD.COOLS.tcall, now
+        RD.MoveReset(now)
+        return "tcall"
+    end
+    if name == RD.RECALL then RD.totemsUntil = 0 return "recall" end
+    if name:find("Totem$") then
+        local life = (name == RD.TIDE) and RD.WATER.tide or RD.TOTEM_LIFE
+        if not RD.TotemsUp(now) then RD.MoveReset(now) end   -- the first one down: the run counts from here
+        RD.totemsUntil = math.max(RD.totemsUntil, now + life)
+    end
+    return nil
+end
+
+--- Out of a fight the slots read plainly: none down = none stand; one down that our clock missed = they stand.
+function RD.ReadTotems()
+    local FB = NS.FB
+    if combat() or RD.inFight or not (FB and FB.TotemSlot) then return nil end
+    if NS.Blind and NS.Blind() then return nil end
+    local any, known = false, true
+    for slot = 1, 4 do
+        local have = FB.TotemSlot(slot)
+        if have == nil then known = false elseif have then any = true end
+    end
+    local now = (GetTime and GetTime()) or 0
+    if any and not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE
+    elseif known and not any then RD.totemsUntil = 0 end
+    return any
+end
+
+--- Arm the three (their clicks, out of a fight). Unknown spells: the button hides.
+function RD.ArmTotems()
+    if combat() then return false end
+    local function arm(b, spell1, spell2, tip)
+        if not b then return end
+        local m1 = spell1 and ("/cast " .. spell1) or nil
+        local m2 = spell2 and ("/cast " .. spell2) or m1
+        b:SetAttribute("*type1", m1 and "macro" or nil)
+        b:SetAttribute("*macrotext1", m1)
+        b:SetAttribute("*type2", m2 and "macro" or nil)
+        b:SetAttribute("*macrotext2", m2)
+        b.macro, b.spell = m1, spell1
+        local tex = nil
+        if spell1 and C_Spell and C_Spell.GetSpellTexture then
+            local ok, t = pcall(C_Spell.GetSpellTexture, spell1)
+            tex = ok and t or nil
+        end
+        if b.icon then pcall(b.icon.SetTexture, b.icon, tex) end
+        b:EnableMouse(m1 and true or false)
+        if m1 then b:Show() else b:Hide() end
+        b.tip = m1 and tip or nil
+    end
+    local e = knows(RD.CALLS[1]) and RD.CALLS[1] or nil
+    local a = knows(RD.CALLS[2]) and RD.CALLS[2] or nil
+    arm(RD.call, e or a, a or e, { "CALL", (e or a or "") .. (e and a and ("  -  right-click: " .. a) or "")
+        .. ".  Lights in a fight while none of your totems stand." })
+    arm(RD.tcall, knows(RD.TCALL) and RD.TCALL or nil, nil,
+        { "BRING", RD.TCALL .. " - your totems to you.  Lights once you have run away from them and it is ready." })
+    arm(RD.recall, knows(RD.RECALL) and RD.RECALL or nil, nil,
+        { "RECALL", RD.RECALL .. " - 25% of their mana back.  Lights after the fight while they still stand." })
+    RD.ReadTotems()
+    return true
+end
+
+--- The three lights. Plain booleans from our clock; a knob switches each off.
+function RD.TotemLights(fight, now)
+    now = now or (GetTime and GetTime()) or 0
+    local up = RD.TotemsUp(now)
+    local function on(b) return b and b.macro and not RD.KnobOff(b.kind) end
+    return on(RD.call) and fight and not up or false,
+           on(RD.tcall) and up and RD.Moved(now) >= RD.TOTEM_MOVE and RD.ToolReady("tcall", now) or false,
+           on(RD.recall) and not fight and up or false
+end
+function RD.PaintTotems(fight)
+    if fight == nil then fight = RD.inFight or combat() end
+    local c, t, r = RD.TotemLights(fight)
+    if RD.call then RD.call.face:SetAlpha(c and 1 or 0) end
+    if RD.tcall then RD.tcall.face:SetAlpha(t and 1 or 0) end
+    if RD.recall then RD.recall.face:SetAlpha(r and 1 or 0) end
+    RD.totemsWas = (c and 1 or 0) + (t and 2 or 0) + (r and 4 or 0)
+    return c, t, r
+end
+
+--- The ticker's watch: BRING lights on a clock (running, its cooldown), the totems run out on one. Repaint on a change.
+function RD.WatchTotems()
+    if not (RD.call or RD.tcall or RD.recall) then return false end
+    local c, t, r = RD.TotemLights(RD.inFight or combat())
+    if (c and 1 or 0) + (t and 2 or 0) + (r and 4 or 0) == RD.totemsWas then return false end
+    RD.PaintTotems()
+    return true
 end
 
 --[[ THE RES (10 Nov 2026, Arn: "Out of combat right rail let's put the resurrection module where it chooses the best
@@ -3415,6 +3591,8 @@ function RD.OnCast(unit, spellID)
     local ok, name = false, nil
     if getName then ok, name = pcall(getName, spellID) end
     name = ok and plain(name) or nil
+    local totem = RD.TotemCast(name, now)            -- the totem clock (CALL / BRING / RECALL)
+    if totem then RD.PaintTotems() return totem end
     if name == RD.TIDE then
         RD.readyAt.tide, RD.coolStart.tide = now + RD.COOLS.tide, now
         RD.PaintWaits(now)
@@ -3635,6 +3813,7 @@ function RD.PaintQuiet()
     if RD.seatFrame then RD.seatFrame:SetAlpha(fight and 0 or 1) end
     if RD.rations then RD.rations.face:SetAlpha((not fight and RD.rations.item) and 1 or 0) end
     RD.PaintTools(fight)
+    RD.PaintTotems(fight)
 end
 
 --- THE REGEN TOOLS' LIGHTS: each tool's own curve on your mana (lit once you miss what it restores), the client's
@@ -4024,6 +4203,7 @@ local function startTicker()
             if open ~= RD.reserveWas then RD.reserveWas = open RD.PaintQuiet() end
         end
         RD.WatchReady()
+        RD.WatchTotems()
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
         -- the res, out of a fight: re-picked when something changed, or every RD.RES_EVERY ticks while someone lies
@@ -4105,12 +4285,14 @@ function RD.Command(rest)
     elseif word == "knob" then
         -- `knob <tide|potion|reserve|drink|chaff> on|off` - the same switch as the knob on the rail
         local kind, state = arg:lower():match("^(%a+)%s*(%a*)$")
-        local known = { tide = true, potion = true, reserve = true, drink = true, chaff = true }
+        local names = { "tide", "potion", "reserve", "drink", "chaff", "call", "tcall", "recall" }
+        local known = {}
+        for _, k in ipairs(names) do known[k] = true end
         if kind and known[kind] and (state == "on" or state == "off") then
             RD.SetKnob(kind, state == "off")
         end
         local list = {}
-        for _, k in ipairs({ "tide", "potion", "reserve", "drink", "chaff" }) do
+        for _, k in ipairs(names) do
             list[#list + 1] = k .. (RD.KnobOff(k) and " |cffff3a4doff|r" or " on")
         end
         P("radar knobs: %s.  |cff968ead/bish alpha radar knob <name> on|off|r", table.concat(list, ", "))
@@ -4146,13 +4328,24 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_POWER_UPDATE", "UNIT_AURA", "SPELLS_CHANGED",
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
                      "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
-                     "PLAYER_LEVEL_UP", "UNIT_PET", "INCOMING_RESURRECT_CHANGED", "UNIT_CONNECTION" }) do
+                     "PLAYER_LEVEL_UP", "UNIT_PET", "INCOMING_RESURRECT_CHANGED", "UNIT_CONNECTION",
+                     "PLAYER_STARTED_MOVING", "PLAYER_STOPPED_MOVING", "PLAYER_TOTEM_UPDATE" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 -- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
 if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player") end
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
+    -- running away from the totems (BRING): plain events, no numbers; the ticker's watch lights it
+    if event == "PLAYER_STARTED_MOVING" then RD.moveFrom = RD.moveFrom or ((GetTime and GetTime()) or 0) return end
+    if event == "PLAYER_STOPPED_MOVING" then
+        if RD.moveFrom then RD.moveAcc = RD.Moved() RD.moveFrom = nil end
+        return
+    end
+    if event == "PLAYER_TOTEM_UPDATE" then
+        if RD.ReadTotems() ~= nil and RD.Active() then RD.PaintTotems() end   -- out of a fight only (plain slots)
+        return
+    end
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local kind = RD.OnCast(a1, a3)
         if kind and RD.Active() then RD.PaintQuiet() end

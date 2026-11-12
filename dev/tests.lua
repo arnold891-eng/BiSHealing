@@ -13045,6 +13045,98 @@ do
             NS.FM.BookChanged()
             RD.Arm()
         end
+        -- THE TOTEMS (Arn, 11 Nov: "cast them all then you bring them too you and recall to get mana back")
+        do
+            local keepName, keepFight, keepCombat = C_Spell.GetSpellName, RD.inFight, STATE.inCombat
+            local keepTotems = { TOTEMS[1], TOTEMS[2], TOTEMS[3], TOTEMS[4] }
+            for i = 1, 4 do TOTEMS[i] = false end
+            local function shows(b) return b:IsShown() and b.face:GetAlpha() == 1 end
+            ok(RD.call and not RD.call.macro and not RD.call:IsShown() and not RD.tcall:IsShown() and not RD.recall:IsShown(),
+               "no totem calls known: the three buttons stay hidden")
+            BOOK[48] = { name = "Call of the Elements", rank = "" }
+            BOOK[49] = { name = "Totemic Call", rank = "" }
+            BOOK[50] = { name = "Totemic Recall", rank = "" }
+            NS.FM.BookChanged()
+            RD.Arm()
+            ok(RD.call:IsShown() and RD.call:GetAttribute("*macrotext1") == "/cast Call of the Elements"
+               and RD.call:GetAttribute("*macrotext2") == "/cast Call of the Elements" and RD.call.tip[1] == "CALL",
+               "Call of the Elements known: CALL casts it on both clicks")
+            BOOK[51] = { name = "Call of the Ancestors", rank = "" }
+            NS.FM.BookChanged()
+            RD.Arm()
+            ok(RD.call:GetAttribute("*macrotext1") == "/cast Call of the Elements"
+               and RD.call:GetAttribute("*macrotext2") == "/cast Call of the Ancestors", "and Call of the Ancestors: on the right-click")
+            ok(RD.tcall:GetAttribute("*macrotext1") == "/cast Totemic Call" and RD.recall:GetAttribute("*macrotext1") == "/cast Totemic Recall"
+               and RD.tcall.rail == RD.defRail and RD.recall.knob, "BRING and RECALL armed, on the right rail, each with its knob")
+            RD.readyAt, RD.coolStart, RD.totemsUntil, RD.moveAcc, RD.moveFrom = {}, {}, 0, 0, nil
+            RD.ReadTotems()
+            RD.inFight = false
+            RD.PaintTotems(false)
+            ok(not shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "out of a fight, no totems: all three dark")
+            RD.inFight = true
+            RD.PaintTotems(true)
+            ok(shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "the pull, none down: CALL lights")
+            C_Spell.GetSpellName = function(id)
+                return ({ [66842] = "Call of the Elements", [66843] = "Call of the Ancestors", [437009] = "Totemic Call",
+                          [36936] = "Totemic Recall", [8071] = "Stoneskin Totem" })[id]
+            end
+            ok(RD.OnCast("player", 66842) == "call" and RD.totemsUntil == CLOCK + RD.TOTEM_LIFE, "you call them: they stand, by our clock")
+            ok(not shows(RD.call) and not shows(RD.tcall), "down: CALL goes dark, BRING waits (you have not moved)")
+            fire(RD.events, "PLAYER_STARTED_MOVING")
+            TICK(2)
+            ok(RD.WatchTotems() == false and not shows(RD.tcall), "two seconds of running: not yet")
+            TICK(RD.TOTEM_MOVE)
+            ok(RD.WatchTotems() == true and shows(RD.tcall), "run on past " .. RD.TOTEM_MOVE .. " s: BRING lights (the ticker's watch)")
+            fire(RD.events, "PLAYER_STOPPED_MOVING")
+            ok(RD.Moved() == 2 + RD.TOTEM_MOVE and RD.moveFrom == nil, "you stop: the run is kept", RD.Moved())
+            ok(RD.OnCast("player", 437009) == "tcall" and RD.readyAt.tcall == CLOCK + 30 and RD.Moved() == 0 and not shows(RD.tcall),
+               "you bring them: the run starts over, 30 s cooldown, dark")
+            fire(RD.events, "PLAYER_STARTED_MOVING")
+            TICK(10)
+            RD.WatchTotems()
+            ok(not shows(RD.tcall), "running away again while it cools: still dark")
+            TICK(25)
+            RD.WatchTotems()
+            ok(shows(RD.tcall), "cooled, and far: BRING again")
+            fire(RD.events, "PLAYER_STOPPED_MOVING")
+            RD.KnobOff("tcall")
+            RD.SetKnob("tcall", true)
+            ok(not shows(RD.tcall), "its knob off: never lights")
+            RD.SetKnob("tcall", false)
+            RD.inFight = false
+            RD.PaintTotems(false)
+            ok(shows(RD.recall) and not shows(RD.call), "the fight over, totems still standing: RECALL lights (mana back)")
+            ok(RD.OnCast("player", 36936) == "recall" and RD.totemsUntil == 0 and not shows(RD.recall), "recalled: gone, dark")
+            ok(RD.OnCast("player", 8071) == false and RD.TotemsUp(), "one totem dropped by hand: they stand too")
+            RD.totemsUntil = 0
+            TOTEMS[2] = true
+            ok(RD.ReadTotems() == true and RD.TotemsUp(), "out of a fight a slot reads down that our clock missed: they stand")
+            TOTEMS[2] = false
+            ok(RD.ReadTotems() == false and not RD.TotemsUp(), "every slot empty: none stand")
+            STATE.inCombat = true
+            ok(RD.ReadTotems() == nil, "in a fight the slots are never asked (secret)")
+            STATE.inCombat = false
+            local Cost = dofile("../_bisdev/dev/cost.lua")
+            RD.WatchTotems()                         -- settled first: the count is a quiet tick, nothing changed
+            local tc = Cost.Count(function() RD.WatchTotems() end)
+            ok(tc <= 3, "the watch is our own clock: a time read and the lockdown question, nothing else", tc)
+            -- the engineer's view: their own line under the tools, the console a line taller
+            local f = RD.frame
+            ok(RD.ToggleView() == "console", "the engineer's view")
+            local G = RD.conGrid
+            local cy = RD.call.points[1] and -RD.call.points[1][5]
+            ok(G and cy and cy > G.rows[5] and f:GetHeight() == G.H and RD.conSquares.totem3:IsShown(),
+               "the totems: a line of their own under the tools", cy)
+            RD.ToggleView()
+            ok(RD.call.points[1][2] == RD.defRail, "back on the radar: under the res on the right rail")
+            BOOK[48], BOOK[49], BOOK[50], BOOK[51] = nil, nil, nil, nil
+            NS.FM.BookChanged()
+            RD.Arm()
+            ok(not RD.call:IsShown() and not RD.call.macro, "forgotten: hidden again")
+            C_Spell.GetSpellName, RD.inFight, STATE.inCombat = keepName, keepFight, keepCombat
+            for i = 1, 4 do TOTEMS[i] = keepTotems[i] end
+            RD.readyAt, RD.coolStart, RD.totemsUntil, RD.moveAcc, RD.moveFrom = {}, {}, 0, 0, nil
+        end
         -- THE RAMJET'S DASHES (Arn 8 Nov: "somewhere on there the 5 second casting rule for 100% mana regen")
         do
             local g = RD.gauge

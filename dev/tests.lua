@@ -11975,6 +11975,44 @@ do
         local tx8, ty8 = c(RD.res)
         ok(ty1 == G.rows[5] and ty8 == G.rows[5] and tx1 < tx8, "row 5: the tools of both rails, the stabilizer to the res")
         ok(RD.spokes[2].heal:GetAttribute("unit") == "party1", "the same buttons: party1's pip still heals party1")
+        -- THE BOXES ARE HEALTH BARS (Arn, 12 Nov 2026: "get rid of the icons inside the box and make them actual health
+        -- bars class coded and figure out a over heal los range indicator")
+        do
+            local EN = NS.EN
+            local sp = RD.spokes[2]
+            local e = sp.en
+            ok(e and e.box.__shown and e.box:DoesClipChildren() and e.box:GetParent() == sp.heal,
+               "party1's box: a plain frame inside the pip (never the secure pip itself), clipping its bars")
+            local lo, hi = e.bar:GetMinMaxValues()
+            ok(lo == 0 and hi ~= nil and e.bar:GetValue() ~= nil, "a health bar, handed their max and health untouched")
+            local _, cls = UnitClass("party1")
+            local want = NS.FG.CLASS_COLOR[cls or ""] or EN.FALLBACK
+            local bc = e.bar.__color or {}
+            ok(bc[1] == want[1] and bc[2] == want[2] and bc[3] == want[3], "in the grid's class colour (" .. tostring(cls) .. ")")
+            ok(not sp.heal.beat.__shown and not sp.heal.redFace.__shown and not sp.heal.amberFace.__shown,
+               "the role glyphs inside the box are gone in the engineer's view")
+            local lp = sp.los.points[1]
+            ok(lp and lp[1] == "CENTER" and lp[2] == sp.heal, "LOS / RANGE on a failed click: in the middle of the box, as on the grid")
+            ok(EN.Range() >= 1, "range: the grid's own dimming, on the box")
+            -- the ghost: your heal after their health, cut at the box's edge
+            ok(EN.Ghost(sp, 500) and e.ghost.__shown and e.ghost:GetValue() == 500 and select(2, e.ghost:GetMinMaxValues()) ~= nil,
+               "hovering: your heal as a pale ghost, handed against their max")
+            local gp = e.ghost.points[1]
+            ok(gp and gp[2] == e.bar:GetStatusBarTexture() and gp[3] == "TOPRIGHT" and e.ghost:GetParent() == e.box,
+               "the ghost starts where their health ends, inside the box that clips it")
+            ok(EN.Ghost(sp, nil) == false and not e.ghost.__shown, "the mouse leaves: the ghost goes")
+            local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+            if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+            if okC then
+                local n, by = Cost.Count(function() for _ = 1, 10 do EN.Range() end end)
+                print(("   cost: engineer boxes' range, 10 ticks = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+                ok(n <= 300, "ten ticks of the boxes' range stay in budget", n)
+            end
+            -- back on the radar: nothing of this shows; the glyphs and the word under the pip come back
+            EN.Layout(false)
+            ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][1] == "TOP", "the radar: glyphs back, no bars, LOS under the pip")
+            EN.Layout(true)
+        end
         local e4 = RD.spokes[4]
         ok(e4.unit == nil and e4.heal:GetAttribute("unit") == RD.EMPTY_UNIT and e4.heal:IsMouseEnabled() ~= false
            and e4.heal:GetAttribute("type1") == nil and f:GetAttribute("unit") == RD.EMPTY_UNIT,

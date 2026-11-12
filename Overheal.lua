@@ -121,8 +121,8 @@ function OV.Build(sp)
     local o = {}
     local win = CreateFrame("Frame", nil, host)
     win:SetSize(OV.W, OV.H)
-    win:SetPoint("TOP", sp.los or sp.heal, "BOTTOM", 0, sp.los and 3 or -1)
     win:SetClipsChildren(true)
+    OV.Anchor(sp, win)
     if win.SetFrameLevel and sp.los and sp.los.GetFrameLevel then
         local lvl = sp.los:GetFrameLevel()
         if type(lvl) == "number" then win:SetFrameLevel(lvl) end
@@ -148,9 +148,20 @@ function OV.Build(sp)
     end
     win:Hide()
     bar:Hide()
-    o.win, o.bar, o.word = win, bar, word
+    o.win, o.bar, o.word, o.sp = win, bar, word, sp
     sp.over = o
     return o
+end
+
+--- Where the word sits: under the click word on the radar; under the BOX in the engineer's console, where the click word
+--- is in the middle of the box (Engineer.lua). Out of a fight (the layouts call it again).
+function OV.Anchor(sp, win)
+    win = win or (sp.over and sp.over.win)
+    if not win then return end
+    win:ClearAllPoints()
+    local con = NS.EN and NS.EN.Console and NS.EN.Console()
+    if con or not sp.los then win:SetPoint("TOP", sp.heal, "BOTTOM", 0, -1)
+    else win:SetPoint("TOP", sp.los, "BOTTOM", 0, 3) end
 end
 
 --- Hand the bar its two numbers: max = what the unit is missing (secret, incoming heals taken off), value = the share
@@ -171,6 +182,7 @@ local function hide(o)
     if o.fade then o.fade:Stop() end
     o.win:Hide()
     o.bar:Hide()
+    if o.sp and NS.EN then NS.EN.Ghost(o.sp, nil) end
 end
 local function show(o)
     o.win:SetAlpha(1)
@@ -209,6 +221,7 @@ function OV.PaintHover()
     o = OV.Build(sp)
     if not OV.Hand(o, sp.unit, heal) then hide(o) OV.Listen(nil) return false end
     show(o)
+    if NS.EN then NS.EN.Ghost(sp, heal) end              -- the engineer's box: your heal as a ghost after their health
     if OV.listening ~= sp.unit then OV.Listen(sp.unit) end
     return true
 end
@@ -222,6 +235,7 @@ function OV.Leave(sp)
     if OV.hover == sp then OV.hover = nil end
     OV.Listen(nil)
     if not flashing(sp and sp.over) then hide(sp and sp.over) end
+    if NS.EN and sp then NS.EN.Ghost(sp, nil) end
 end
 
 -- ------------------------------------------------------------------ the click

@@ -13215,6 +13215,8 @@ do
                "the pull with them down: they go through the fight; BRING lights (Arn: \"i can just be lit up during combat\")")
             ok(RD.OnCast("player", 437009) == "tcall" and RD.readyAt.tcall == CLOCK + 30 and not shows(RD.tcall),
                "you bring them: 30 s cooldown, dark")
+            ok(RD.tcall.cd.wait and RD.tcall.cd.__start == CLOCK and RD.tcall.cd.__dur == 30,
+               "BRING's disc is its OWN 30 s cooldown, from our clock (like Mana Tide's)", RD.tcall.cd.__dur)
             TICK(10)
             ok(RD.WatchTotems() == false and not shows(RD.tcall), "while it cools: still dark")
             TICK(25)
@@ -13275,20 +13277,20 @@ do
             STATE.inCombat, RD.inFight = true, true
             ok(RD.OnCast("player", 66842) == "call" and RD.slotUp[1] and RD.slotUp[4] and RD.TotemsUp(),
                "called mid-fight: all four slots down")
-            ok(RD.tcall.life and RD.tcall.life.__durObj and RD.tcall.life.__durObj.__totemDuration == RD.EARTH_SLOT
-               and RD.recall.life.__durObj and RD.recall.life.__durObj.__totemDuration == RD.EARTH_SLOT,
-               "the time left on BRING and RECALL: the game's own timer for the earth slot, handed untouched")
+            ok(RD.call.life and RD.call.life.__durObj and RD.call.life.__durObj.__totemDuration == RD.EARTH_SLOT
+               and RD.recall.life == nil and RD.tcall.life == nil,
+               "the time left on CALL (dark while they stand): the game's own timer for the earth slot, handed untouched; none on BRING or RECALL (Arn: \"recall has no cooldown\")")
             local okEv = pcall(fire, RD.events, "PLAYER_TOTEM_UPDATE", 2)
             ok(okEv and RD.slotUp[2] == true and RD.TotemsUp(), "the slot's update right after the cast: it went down (no slot read - that would throw)")
             TICK(10)
             fire(RD.events, "PLAYER_TOTEM_UPDATE", 2)
-            ok(RD.slotUp[2] == false and RD.TotemsUp() and RD.tcall.life.__durObj.__totemDuration == 1,
+            ok(RD.slotUp[2] == false and RD.TotemsUp() and RD.call.life.__durObj.__totemDuration == 1,
                "ten seconds on, the earth slot updates on its own: that totem died - the disc follows another slot")
             ok(shows(RD.tcall), "the others still stand: BRING still lit")
             fire(RD.events, "PLAYER_TOTEM_UPDATE", 1)
             fire(RD.events, "PLAYER_TOTEM_UPDATE", 3)
             fire(RD.events, "PLAYER_TOTEM_UPDATE", 4)
-            ok(not RD.TotemsUp() and not shows(RD.tcall) and RD.tcall.life.__durObj == nil,
+            ok(not RD.TotemsUp() and not shows(RD.tcall) and RD.call.life.__durObj == nil,
                "every one dead or run out mid-fight: none stand - BRING dark, the disc cleared")
             fire(RD.events, "PLAYER_TOTEM_UPDATE", 2)
             TICK(0.2)

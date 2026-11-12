@@ -13070,18 +13070,33 @@ do
                and RD.tcall.rail == RD.defRail and RD.recall.knob, "BRING and RECALL armed, on the right rail, each with its knob")
             RD.readyAt, RD.coolStart, RD.totemsUntil, RD.moveAcc, RD.moveFrom = {}, {}, 0, 0, nil
             RD.ReadTotems()
-            RD.inFight = false
-            RD.PaintTotems(false)
-            ok(not shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "out of a fight, no totems: all three dark")
-            RD.inFight = true
-            RD.PaintTotems(true)
-            ok(shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "the pull, none down: CALL lights")
+            RD.inFight, RD.totemsFought = false, false
             C_Spell.GetSpellName = function(id)
                 return ({ [66842] = "Call of the Elements", [66843] = "Call of the Ancestors", [437009] = "Totemic Call",
                           [36936] = "Totemic Recall", [8071] = "Stoneskin Totem" })[id]
             end
-            ok(RD.OnCast("player", 66842) == "call" and RD.totemsUntil == CLOCK + RD.TOTEM_LIFE, "you call them: they stand, by our clock")
-            ok(not shows(RD.call) and not shows(RD.tcall), "down: CALL goes dark, BRING waits (you have not moved)")
+            -- Arn, 11 Nov: "the call button should be lit if no totem are down, can be turned on before the fight i am not
+            -- pressing that during combat i have to heal, in combat bring, after combat if they are down the recall lights
+            -- up if recall is pressed call lights up"
+            RD.PaintTotems(false)
+            ok(shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "out of a fight, none down: CALL lights")
+            RD.inFight = true
+            RD.PaintTotems(true)
+            ok(not shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall), "in a fight, none down: CALL stays dark (you are healing)")
+            RD.inFight = false
+            ok(RD.OnCast("player", 66842) == "call" and RD.totemsUntil == CLOCK + RD.TOTEM_LIFE and not RD.totemsFought,
+               "you call them before the pull: they stand, by our clock")
+            ok(not shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall),
+               "down before the pull: CALL dark, and no RECALL straight after a call")
+            fire(RD.events, "PLAYER_STARTED_MOVING")
+            TICK(RD.TOTEM_MOVE + 1)
+            RD.WatchTotems()
+            ok(not shows(RD.tcall), "running out of a fight: BRING is for the fight only")
+            fire(RD.events, "PLAYER_STOPPED_MOVING")
+            RD.MoveReset()
+            STATE.inCombat = true
+            fire(RD.events, "PLAYER_REGEN_DISABLED")
+            ok(RD.totemsFought and not shows(RD.call) and not shows(RD.tcall), "the pull with them down: they go through the fight; BRING waits (you have not moved)")
             fire(RD.events, "PLAYER_STARTED_MOVING")
             TICK(2)
             ok(RD.WatchTotems() == false and not shows(RD.tcall), "two seconds of running: not yet")
@@ -13099,14 +13114,14 @@ do
             RD.WatchTotems()
             ok(shows(RD.tcall), "cooled, and far: BRING again")
             fire(RD.events, "PLAYER_STOPPED_MOVING")
-            RD.KnobOff("tcall")
             RD.SetKnob("tcall", true)
             ok(not shows(RD.tcall), "its knob off: never lights")
             RD.SetKnob("tcall", false)
-            RD.inFight = false
+            STATE.inCombat, RD.inFight = false, false
             RD.PaintTotems(false)
-            ok(shows(RD.recall) and not shows(RD.call), "the fight over, totems still standing: RECALL lights (mana back)")
-            ok(RD.OnCast("player", 36936) == "recall" and RD.totemsUntil == 0 and not shows(RD.recall), "recalled: gone, dark")
+            ok(shows(RD.recall) and not shows(RD.call) and not shows(RD.tcall), "the fight over, totems still standing: RECALL lights (mana back)")
+            ok(RD.OnCast("player", 36936) == "recall" and RD.totemsUntil == 0 and not shows(RD.recall) and shows(RD.call),
+               "recalled: gone, RECALL dark - and CALL lights again")
             ok(RD.OnCast("player", 8071) == false and RD.TotemsUp(), "one totem dropped by hand: they stand too")
             RD.totemsUntil = 0
             TOTEMS[2] = true

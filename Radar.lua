@@ -3214,10 +3214,12 @@ end
   how its always cast them all then you bring them too you and recall to get mana back"). Three buttons under the res on
   the right rail (the engineer's view: their own line under the tools), one per step of that loop:
     CALL     left = Call of the Elements, right = Call of the Ancestors (whichever you know on both when only one):
-             lit in a fight while none of your totems stand
-    BRING    Totemic Call (relocates them to you, 30 s): lit while they stand, you have run RD.TOTEM_MOVE seconds since
-             they went down (or since the last bring), and it is ready
-    RECALL   Totemic Recall (25% of their mana back): lit out of a fight while they stand
+             lit OUT OF A FIGHT while none of your totems stand (Arn, 11 Nov: "can be turned on before the fight i am
+             not pressing that during combat i have to heal")
+    BRING    Totemic Call (relocates them to you, 30 s): IN A FIGHT only, while they stand, you have run RD.TOTEM_MOVE
+             seconds since they went down (or since the last bring), and it is ready
+    RECALL   Totemic Recall (25% of their mana back): out of a fight while they stand AND they stood through a fight
+             (RD.totemsFought) - never straight after a CALL before the pull. A recall = none stand = CALL lights again
   WHAT STANDS IS OUR OWN CLOCK: the totem slots go secret in a fight (solved.md), so a Call / any "... Totem" of yours
   starts RD.totemsUntil (RD.TOTEM_LIFE, Mana Tide its 12 s), a Recall ends it; out of a fight the slots are read plainly
   (FB.TotemSlot, PLAYER_TOTEM_UPDATE) and correct it. Running is PLAYER_STARTED_MOVING / _STOPPED (plain, no numbers). ]]
@@ -3228,6 +3230,7 @@ RD.TOTEM_MOVE = 4                                   -- seconds of running away f
 RD.COOLS.tcall = 30
 RD.totemsUntil = 0
 RD.moveAcc, RD.moveFrom = 0, nil                    -- seconds run since the totems went down; when this run began
+RD.totemsFought = false                             -- the totems standing now stood through a fight (RECALL's gate)
 
 local function knows(spell) local FM = NS.FM return FM and FM.Ranks and #FM.Ranks(spell) > 0 or false end
 
@@ -3250,6 +3253,7 @@ function RD.TotemCast(name, now)
     for _, c in ipairs(RD.CALLS) do
         if name == c then
             RD.totemsUntil = now + RD.TOTEM_LIFE
+            RD.totemsFought = (RD.inFight or combat()) and true or false
             RD.MoveReset(now)
             return "call"
         end
@@ -3259,11 +3263,12 @@ function RD.TotemCast(name, now)
         RD.MoveReset(now)
         return "tcall"
     end
-    if name == RD.RECALL then RD.totemsUntil = 0 return "recall" end
+    if name == RD.RECALL then RD.totemsUntil, RD.totemsFought = 0, false return "recall" end
     if name:find("Totem$") then
         local life = (name == RD.TIDE) and RD.WATER.tide or RD.TOTEM_LIFE
         if not RD.TotemsUp(now) then RD.MoveReset(now) end   -- the first one down: the run counts from here
         RD.totemsUntil = math.max(RD.totemsUntil, now + life)
+        if RD.inFight or combat() then RD.totemsFought = true end
     end
     return nil
 end
@@ -3280,7 +3285,7 @@ function RD.ReadTotems()
     end
     local now = (GetTime and GetTime()) or 0
     if any and not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE
-    elseif known and not any then RD.totemsUntil = 0 end
+    elseif known and not any then RD.totemsUntil, RD.totemsFought = 0, false end
     return any
 end
 
@@ -3309,11 +3314,11 @@ function RD.ArmTotems()
     local e = knows(RD.CALLS[1]) and RD.CALLS[1] or nil
     local a = knows(RD.CALLS[2]) and RD.CALLS[2] or nil
     arm(RD.call, e or a, a or e, { "CALL", (e or a or "") .. (e and a and ("  -  right-click: " .. a) or "")
-        .. ".  Lights in a fight while none of your totems stand." })
+        .. ".  Lights before the pull while none of your totems are down." })
     arm(RD.tcall, knows(RD.TCALL) and RD.TCALL or nil, nil,
-        { "BRING", RD.TCALL .. " - your totems to you.  Lights once you have run away from them and it is ready." })
+        { "BRING", RD.TCALL .. " - your totems to you.  In a fight: lights once you have run away from them and it is ready." })
     arm(RD.recall, knows(RD.RECALL) and RD.RECALL or nil, nil,
-        { "RECALL", RD.RECALL .. " - 25% of their mana back.  Lights after the fight while they still stand." })
+        { "RECALL", RD.RECALL .. " - 25% of their mana back.  Lights after a fight while they still stand." })
     RD.ReadTotems()
     return true
 end
@@ -3323,9 +3328,9 @@ function RD.TotemLights(fight, now)
     now = now or (GetTime and GetTime()) or 0
     local up = RD.TotemsUp(now)
     local function on(b) return b and b.macro and not RD.KnobOff(b.kind) end
-    return on(RD.call) and fight and not up or false,
-           on(RD.tcall) and up and RD.Moved(now) >= RD.TOTEM_MOVE and RD.ToolReady("tcall", now) or false,
-           on(RD.recall) and not fight and up or false
+    return on(RD.call) and not fight and not up or false,
+           on(RD.tcall) and fight and up and RD.Moved(now) >= RD.TOTEM_MOVE and RD.ToolReady("tcall", now) or false,
+           on(RD.recall) and not fight and up and RD.totemsFought or false
 end
 function RD.PaintTotems(fight)
     if fight == nil then fight = RD.inFight or combat() end
@@ -4357,6 +4362,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
         if RD.frame then endDrag(RD.frame) end
         RD.ResOff()                        -- a res is out of a fight only: dark, and no click left armed
         RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
+        if RD.TotemsUp() then RD.totemsFought = true end   -- the totems standing go through this fight (RECALL after)
         if RD.Active() then RD.PaintQuiet() RD.PickFuel() RD.PaintFuel() end
         return
     end

@@ -12958,6 +12958,23 @@ do
         STATE.mana = 0.45
         RD.PaintQuiet()
         ok(lit(RD.tide) and lit(RD.potion) and lit(RD.fuel), "45%: Mana Tide's 680 is more than you have left - all three lit")
+        -- SPENT = DARK (Arn, 11 Nov, after a dungeon: "mana tide was on cooldown but it showed i can click it")
+        RD.readyAt.tide, RD.coolStart.tide = CLOCK + 200, CLOCK - 100
+        RD.PaintQuiet()
+        ok(not lit(RD.tide) and lit(RD.potion) and lit(RD.fuel), "45%, Mana Tide cooling by our clock: it stays dark, the rest lit")
+        RD.readyAt.potion, RD.coolStart.potion = CLOCK + 60, CLOCK - 60
+        RD.PaintQuiet()
+        ok(not lit(RD.potion) and lit(RD.fuel), "the potion cooling too: dark")
+        RD.readyAt.potion, RD.coolStart.potion = nil, nil
+        RD.PaintQuiet()
+        RD.readyAt.tide = CLOCK + 1                  -- a second of Mana Tide's cooldown left
+        RD.PaintQuiet()
+        RD.WatchReady()
+        ok(not lit(RD.tide) and RD.WatchReady() == false, "a second of cooldown left: still dark, the tick does nothing")
+        TICK(2)                                      -- the ticker runs on, nothing else happens (no mana change)
+        ok(RD.WatchReady() == true and lit(RD.tide) and lit(RD.potion),
+           "the cooldown runs out: the ticker's watch lights it again by itself")
+        RD.readyAt, RD.coolStart = {}, {}
         STATE.mana = 0.30
         STATE.inCombat = true
         fire(RD.events, "PLAYER_REGEN_DISABLED")

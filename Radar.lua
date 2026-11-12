@@ -2396,6 +2396,11 @@ function RD.Build()
     RD.tide.kind, RD.potion.kind, RD.reserve.kind, RD.fuel.kind = "tide", "potion", "reserve", "drink"
     RD.fuel.restOnly = true                          -- a drink is out of a fight only
     RD.reserve.gate = function(fight) return RD.ReserveOpen(fight) end
+    -- SPENT = DARK (11 Nov 2026, Arn after a dungeon: "mana tide was on cooldown but it showed i can click it"): Mana Tide
+    -- and the potion light only while OUR clock says they are ready; while cooling, the dim disc alone shows (the face
+    -- dark, as the disc was always meant to be seen)
+    RD.tide.gate = function() return RD.ToolReady("tide") end
+    RD.potion.gate = function() return RD.ToolReady("potion") end
     RD.TOOLS = { RD.tide, RD.potion, RD.reserve, RD.fuel }
     for _, b in ipairs(RD.TOOLS) do toolFace(b, b.kind) b.face:SetAlpha(0) end
     RD.fuel.drop = RD.fuel.pieces
@@ -3361,6 +3366,21 @@ function RD.PaintWaits(now)
     return n
 end
 
+--- Is a tool ready by our own clock (plain numbers)? Mana Tide's and the potion's gate: spent = dark.
+function RD.ToolReady(kind, now)
+    return (RD.readyAt[kind] or 0) <= (now or (GetTime and GetTime()) or 0)
+end
+
+--- The ticker's watch: Mana Tide and the potion come off cooldown on a clock, not an event - repainted only when one
+--- turns ready (or spent). Two plain comparisons a tick.
+function RD.WatchReady()
+    local readyNow = (RD.ToolReady("tide") and 1 or 0) + (RD.ToolReady("potion") and 2 or 0)
+    if readyNow == RD.toolsReadyWas then return false end
+    RD.toolsReadyWas = readyNow
+    RD.PaintQuiet()
+    return true
+end
+
 --- Is a tool spent right now? Not here at all counts as spent (nothing to reach for); else our clock.
 local function spent(b, kind, now)
     if not (b and b.macro) then return true end
@@ -4003,6 +4023,7 @@ local function startTicker()
             local open = RD.ReserveOpen(RD.inFight or combat())
             if open ~= RD.reserveWas then RD.reserveWas = open RD.PaintQuiet() end
         end
+        RD.WatchReady()
         -- the food goes due on BiS Tools' own clock (Well Fed running low): asked again every RD.FOOD_EVERY ticks, out
         -- of a fight - one API question, and a re-arm only when the answer changed
         -- the res, out of a fight: re-picked when something changed, or every RD.RES_EVERY ticks while someone lies

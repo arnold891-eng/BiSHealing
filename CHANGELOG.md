@@ -1,5 +1,13 @@
 # BiS Healing
 
+## 1.4.0
+
+- **OVER/H on the radar: is this heal wasted?** Rest your mouse on someone and **OVER/H** appears under them, in magenta, when your heal would be mostly wasted - and it flashes again the moment you start a heal on someone who doesn't need it. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button; what they miss is the game's own number, minus heals already on their way. Heals over time aren't judged.
+  - **overheal word** in the options: how much waste counts - **off / any / half / 75%** (half to start).
+  - **hover heal**: which mouse button's heal a hover judges - left, right, wheel, thumb1 or thumb2. A click always judges the button you pressed.
+- **The engineer's view: real health bars.** Its party boxes are now health bars in class colours instead of icons, **dimmed when someone is out of range**, with **LOS / RANGE** in the middle when a heal fails. While you hover, a pale piece after their health shows how much of your heal fits - whatever runs past the box would be wasted.
+- **BiS Tools' box docks around the radar** (needs the new BiS Tools too): shift-click walks it right, below, left and above the radar instead of on top of it.
+
 ## 1.3.0
 
 - **A new look: radar.** Next to classic and cockpit, **look: radar** in the options (or `/bish look radar`) turns the grid into a quiet radar: you in the middle, your group around you, tanks on top - and **only what needs a click lights up**. Who needs a heal (green, amber, red), a dispel (a diamond in the cure's colour), an interrupt (a red triangle on their target the moment it casts), your mana tools (shield, Mana Tide, a potion, Mana Spring, a drink, food - each only when it would keep you off empty, dark while it cools), the boss's health racing your mana across the top, a catch-all when your interrupt is cooling, the best person to res after a fight, and for shamans CALL / BRING / RECALL for your totems. In a fight everything else goes invisible. A button in its corner swaps to **the engineer's view** - the same buttons on a plain grid. Drag its bottom-right corner to resize, or use **size** in the options.

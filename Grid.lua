@@ -2926,6 +2926,7 @@ local CLASS_COLOR = {
     MAGE = { 0.41, 0.80, 0.94 }, WARLOCK = { 0.58, 0.51, 0.79 }, HUNTER = { 0.67, 0.83, 0.45 },
 }
 local DEAD = { 0.35, 0.10, 0.10 }
+FG.CLASS_COLOR, FG.DEAD_COLOR = CLASS_COLOR, DEAD     -- the radar's engineer boxes paint in the same colours (Engineer.lua)
 
 -- COLOUR BY HEALTH, when the player picks it over class colour. We may not compare someone's
 -- health to anything, so we cannot say "below 35%, go red" ourselves. The client can: handed a

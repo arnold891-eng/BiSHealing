@@ -4436,13 +4436,19 @@ for _, e in ipairs({ "PLAYER_LOGIN", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENAB
                      "BAG_UPDATE_DELAYED", "UI_ERROR_MESSAGE", "PLAYER_TARGET_CHANGED", "UNIT_TARGET",
                      "PLAYER_ROLES_ASSIGNED", "SPELL_UPDATE_COOLDOWN", "INSTANCE_ENCOUNTER_ENGAGE_UNIT", "UNIT_MAXPOWER",
                      "PLAYER_LEVEL_UP", "UNIT_PET", "INCOMING_RESURRECT_CHANGED", "UNIT_CONNECTION",
-                     "PLAYER_TOTEM_UPDATE" }) do
+                     "PLAYER_TOTEM_UPDATE", "PLAYER_ENTERING_WORLD" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 -- your own casts only (the reserve tank's clock): the client filters to you, so a raid's casts never reach us
 if ev.RegisterUnitEvent then pcall(ev.RegisterUnitEvent, ev, "UNIT_SPELLCAST_SUCCEEDED", "player") end
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_LOGIN" then RD.Apply() return end
+    -- THE LOADING WINDOW (11 Nov 2026): a /reload in a fight lets secure frames be armed while the loading events are
+    -- handed out, the lockdown back right after - armed NOW, never left for a later tick (Grid.lua, FG.Start)
+    if event == "PLAYER_ENTERING_WORLD" then
+        if RD.Active() and not combat() then RD.Arm() end
+        return
+    end
     if event == "PLAYER_TOTEM_UPDATE" and (RD.inFight or combat()) then
         if RD.TotemSlotChanged(a1) and RD.Active() then RD.PaintTotems() end   -- a fight: the slot number only
         return

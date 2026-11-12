@@ -2027,6 +2027,23 @@ do
     NS.SECRET = realSecret
 end
 
+-- A /RELOAD IN A FIGHT (Arn, 11 Nov 2026: "how is vuhdo able to redraw fine after a reload, and ellesmere ... in
+-- combat"). The client lets secure frames be laid out while the loading events are handed out; the lockdown is back
+-- before the first update tick. So the grid lays out INSIDE PLAYER_LOGIN (FG.Start) and PLAYER_ENTERING_WORLD.
+do
+    ok(FG.startLaidOut == true, "the grid's first layout happened inside the login itself, not on a later tick")
+    local keepLayout, keepCombat = FG.Layout, STATE.inCombat
+    local calls, laid = 0, nil
+    FG.Layout = function(a) calls = calls + 1 laid = keepLayout(a) return laid end
+    STATE.inCombat = false                   -- the loading window: the lockdown not back yet
+    fire(FG.events, "PLAYER_ENTERING_WORLD")
+    STATE.inCombat = true                    -- and back right after it
+    ok(calls == 1 and laid == true, "PLAYER_ENTERING_WORLD lays the grid out right then, while the window is open", calls)
+    local okFight = pcall(fire, FG.events, "PLAYER_ENTERING_WORLD")
+    ok(okFight and calls == 2 and laid == false, "the same event with the lockdown already on: refused quietly, left for the fight's end")
+    FG.Layout, STATE.inCombat = keepLayout, keepCombat
+end
+
 -- A BIND THAT SURVIVED THE RELOAD BUT DID NOTHING. Arn, 19 Sep 2026: "the binds saved and the
 -- window where the bind saved but they dont do anything on the frame, last time i had to drag the
 -- same spell again to the bind and then it worked." His one saved bind was `wheelup`.
@@ -13051,6 +13068,19 @@ do
             BOOK[47], C_Spell.GetSpellName = keepB47, keepName
             NS.FM.BookChanged()
             RD.Arm()
+        end
+        -- A /RELOAD IN A FIGHT (11 Nov): the radar arms inside PLAYER_ENTERING_WORLD while the loading window is open
+        do
+            local keepArm, keepCombat = RD.Arm, STATE.inCombat
+            local armed = 0
+            RD.Arm = function() armed = armed + 1 return keepArm() end
+            STATE.inCombat = false
+            fire(RD.events, "PLAYER_ENTERING_WORLD")
+            ok(armed == 1 and not RD.pending, "the loading window: the radar armed right then, nothing left pending")
+            STATE.inCombat = true
+            fire(RD.events, "PLAYER_ENTERING_WORLD")
+            ok(armed == 1, "with the lockdown on, not even tried (it waits for the fight's end)")
+            RD.Arm, STATE.inCombat = keepArm, keepCombat
         end
         -- THE TOTEMS (Arn, 11 Nov: "cast them all then you bring them too you and recall to get mana back")
         do

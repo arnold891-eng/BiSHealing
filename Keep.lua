@@ -593,4 +593,132 @@ function FK.Save(binds)
     return true, dropped
 end
 
+--[[ THE ROSTER KEPT (11 Nov 2026, Arn: "do the roster macro trick like vuhdo"; VuhDo's DC shield, learnt not copied).
+  A relog or a disconnect in a fight can come back before the game knows the group: the grid would lay out you alone,
+  and the lockdown forbids fixing it until the fight ends. So the group's shape is written down, out of a fight, when
+  it changes and at every pull (PLAYER_REGEN_DISABLED comes just before the lockdown):
+    where   this character's own macro BiSHealingRoster (saved on the server the moment it is edited - it survives a
+            disconnect) AND the saved variables (always there at a /reload, before the macro list is in)
+    what    "BiSR R <time> <40 digits>" - each raid index's group, 0 = nobody; "BiSR P <time> <n>" - n party members;
+            "BiSR S <time>" - alone. No names: the cells take them live (FG.Rename), the shape is all a layout needs.
+  At load the grid asks FK.RosterAtLoad() ONLY while the game says nobody is with you, and only for a shape written
+  in the last FK.ROSTER_FRESH seconds. The cells are on the client's unit watch, so each shows itself once the game
+  knows its person - mid-fight too. Never written in a fight; written only when it changed or at a pull. ]]
+FK.ROSTER_MACRO = "BiSHealingRoster"                -- 16 characters, the client's limit
+FK.ROSTER_FRESH = 15 * 60                           -- seconds: an older shape is not trusted
+
+local function wall() return (time and time()) or 0 end
+local function plainNum(v) v = NS.Plain and NS.Plain(v) return tonumber(v) end
+
+--- The group's shape now, as a macro body (and its part without the time, to tell a change from a refresh).
+function FK.RosterEncode(at)
+    at = at or wall()
+    if IsInRaid and IsInRaid() and GetRaidRosterInfo then
+        local subs = {}
+        -- raid indices run 1..members with no gaps: read only those (a 10-player raid is 10 reads, not 40)
+        local members = GetNumGroupMembers and plainNum(GetNumGroupMembers()) or nil
+        if not members or members < 1 or members > 40 then members = 40 end
+        for i = 1, 40 do
+            local name, g = nil, nil
+            if i <= members then
+                local ok, n, _, sub = pcall(GetRaidRosterInfo, i)
+                name = ok and n or nil              -- someone there (a hidden name still counts): no question asked
+                g = ok and plainNum(sub) or nil
+            end
+            subs[i] = (name ~= nil and g and g >= 1 and g <= 8) and tostring(g) or "0"
+        end
+        local shape = "R " .. table.concat(subs)
+        return "BiSR R " .. at .. " " .. table.concat(subs), shape
+    end
+    local n = 0
+    for i = 1, 4 do if UnitExists and UnitExists("party" .. i) then n = n + 1 end end
+    if n > 0 then return "BiSR P " .. at .. " " .. n, "P " .. n end
+    return "BiSR S " .. at, "S"
+end
+
+--- A body back into { kind = "R"|"P"|"S", at, subs (R), n (P) }, or nil for anything else.
+function FK.RosterDecode(body)
+    if type(body) ~= "string" then return nil end
+    local kind, at, rest = body:match("^BiSR (%u) (%d+)%s*(%S*)")
+    at = tonumber(at)
+    if not (kind and at) then return nil end
+    if kind == "R" then
+        if #rest ~= 40 or rest:find("[^0-8]") then return nil end
+        local subs = {}
+        for i = 1, 40 do subs[i] = tonumber(rest:sub(i, i)) end
+        return { kind = "R", at = at, subs = subs }
+    elseif kind == "P" then
+        local n = tonumber(rest)
+        if not n or n < 1 or n > 4 then return nil end
+        return { kind = "P", at = at, n = n }
+    elseif kind == "S" then
+        return { kind = "S", at = at }
+    end
+    return nil
+end
+
+--- This character's own roster macro index (its tab only, never General), or nil.
+function FK.FindRoster()
+    if type(GetMacroInfo) ~= "function" then return nil end
+    local acc, chr = FK.Limits()
+    for i = acc + 1, acc + chr do
+        local ok, name = pcall(GetMacroInfo, i)
+        if ok and name == FK.ROSTER_MACRO then return i end
+    end
+    return nil
+end
+
+--- Write the shape down: the saved variables always, the macro when the list is in and there is room. Out of a fight
+--- only; `force` = a pull (a fresh time even when nothing changed). Answers whether the macro was written.
+function FK.SaveRoster(force)
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local at = wall()
+    local body, shape = FK.RosterEncode(at)
+    if shape == FK.rosterShape and not force then return false end
+    FK.rosterShape = shape
+    local d = NS.DB and NS.DB()
+    if type(d) == "table" then d.rosterSnap = body end
+    if not (FK.Ready() and listIsIn() and type(EditMacro) == "function" and type(CreateMacro) == "function") then
+        return false
+    end
+    local idx = FK.FindRoster()
+    if idx then return pcall(EditMacro, idx, FK.ROSTER_MACRO, FK.ICON, body) and true or false end
+    if shape == "S" then return false end           -- alone and none yet: no slot spent on nothing
+    local _, chrLimit = FK.Limits()
+    local gok, _, perChar = pcall(GetNumMacros)
+    if gok and type(perChar) == "number" and perChar >= chrLimit then return false end   -- the player's slots first
+    if FK.landedShared then return false end
+    local made, where = pcall(CreateMacro, FK.ROSTER_MACRO, FK.ICON, body, true)
+    if made and type(where) == "number" and where <= (FK.Limits()) then
+        pcall(DeleteMacro, where)                   -- filed under General: shared by every character - never
+        FK.landedShared = true
+        return false
+    end
+    return made and true or false
+end
+
+--- The newest shape kept (the macro or the saved variables), if it is fresh. Nil otherwise.
+function FK.RosterAtLoad()
+    local best = nil
+    local d = NS.DB and NS.DB()
+    local fromDB = FK.RosterDecode(type(d) == "table" and d.rosterSnap or nil)
+    if fromDB then best = fromDB end
+    local idx = FK.Ready() and FK.FindRoster() or nil
+    if idx then
+        local ok, body = pcall(GetMacroBody, idx)
+        local fromMacro = ok and FK.RosterDecode(body) or nil
+        if fromMacro and (not best or fromMacro.at > best.at) then best = fromMacro end
+    end
+    if not best or wall() - best.at > FK.ROSTER_FRESH or best.at > wall() + 60 then return nil end
+    return best
+end
+
+-- written when the group changes (out of a fight) and at every pull, just before the lockdown
+local rosterEv = CreateFrame("Frame")
+FK.rosterEvents = rosterEv
+for _, e in ipairs({ "GROUP_ROSTER_UPDATE", "PLAYER_REGEN_DISABLED" }) do pcall(rosterEv.RegisterEvent, rosterEv, e) end
+rosterEv:SetScript("OnEvent", function(_, event)
+    FK.SaveRoster(event == "PLAYER_REGEN_DISABLED")
+end)
+
 NS.FK = FK

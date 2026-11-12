@@ -68,6 +68,17 @@
 --   BiSHealingAPI.UnregisterCallback(owner, event)
 --       -> true, or nil, "not registered".
 --
+-- SINCE VERSION 2 (11 Nov 2026 - the radar look; Arn: "when i try and shift click the bis tools it trys to send the
+-- window and anchor it to the radar but only the left side is right")
+--   BiSHealingAPI.Look()
+--       -> "classic", "cockpit" or "radar" - the look the player picked; or nil, "not ready".
+--   BiSHealingAPI.RadarEdge()
+--       -> while the radar look is on screen: a REGION to anchor to - the radar's whole outline,
+--          every rail included - then the soft edge's width in pixels beyond it, then the radar
+--          frame (hook its SetPoint / SetScale to follow it: it moves and resizes out of a fight
+--          only); nil, "not shown" otherwise. ONLY for SetPoint against it: never change it, show
+--          it, hide it or parent to it.
+--
 -- EVENTS (since version 1). Each callback is pcalled: a listener's error stays its own.
 --   "BiSHealing_BindsChanged"  fn(event) - the player changed a bind (dropped, cleared, stepped a
 --                              rank, ticked a trinket tab). Ask Binds() for the new ones.
@@ -77,7 +88,7 @@
 local _, NS = ...
 NS = NS or {}
 
-local API = { major = 1, version = 1 }
+local API = { major = 1, version = 2 }
 BiSHealingAPI = API
 
 local EVENTS = { BiSHealing_BindsChanged = true, BiSHealing_TankChanged = true, BiSHealing_Shown = true }
@@ -218,6 +229,23 @@ function API.Now()
         end
     end
     return { on = d.now == true, shown = shown, buttons = buttons, tank = tank(d) }
+end
+
+function API.Look()
+    local d, why = ready()
+    if not d then return nil, why end
+    local FG = NS.FG
+    local l = FG and try(FG.Look)
+    return type(l) == "string" and l or "classic"
+end
+
+function API.RadarEdge()
+    local d, why = ready()
+    if not d then return nil, why end
+    local RD = NS.RD
+    local f = RD and RD.frame
+    if not (RD and RD.hull and f and try(RD.Active) and try(f.IsShown, f)) then return nil, "not shown" end
+    return RD.hull, (RD.EDGE_N or 0) * (RD.EDGE_PX or 0), f
 end
 
 function API.Tank()

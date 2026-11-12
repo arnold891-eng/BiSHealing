@@ -1228,7 +1228,8 @@ end
 -- ready" - and nothing throws, and nothing is created by being asked.
 do
     local A = _G.BiSHealingAPI
-    ok(type(A) == "table" and A.major == 1 and A.version == 1, "BiSHealingAPI is there, major 1 version 1")
+    ok(type(A) == "table" and A.major == 1 and A.version == 2, "BiSHealingAPI is there, major 1 version 2")
+    ok(A.Look() == nil and A.RadarEdge() == nil, "version 2's Look and RadarEdge: nil before login too")
     ok(NS.FG and NS.FG.anchor == nil, "(the grid is not started yet, as before PLAYER_LOGIN)")
     local hadDB = _G.BiSHealingDB
     for _, name in ipairs({ "Ready", "Shown", "CliqueOn", "Slots", "Binds", "Bind", "Now", "Tank",
@@ -13252,6 +13253,11 @@ do
             ok(not RD.On() and not RD.Active() and not FG.Hidden(d), "the alpha off, classic: no radar, the grid shows")
             ok(NS.DO.look("radar") == "radar" and RD.On() and RD.Active() and RD.frame:IsShown() and FG.Hidden(d),
                "/bish look radar: the radar takes the grid's place - no alpha switch needed")
+            -- API version 2: what another addon (BiS Tools' box) docks against
+            local A = _G.BiSHealingAPI
+            local edge, margin, rf = A.RadarEdge()
+            ok(A.Look() == "radar" and edge == RD.hull and margin == RD.EDGE_N * RD.EDGE_PX and rf == RD.frame,
+               "BiSHealingAPI.RadarEdge: the radar's whole outline, its soft edge, its frame - while it shows")
             -- THE SIZE ROW, while the radar shows (Arn: "only the scale work on the rader and nothing else")
             local row
             for _, o in ipairs(NS.UI.Rows()) do if o.key == "scale" then row = o end end
@@ -13267,7 +13273,9 @@ do
             RD.frame:SetScale(RD.Scale())
             ok(RD.bbRail and RD.bbRail:IsShown() and RD.BBRail() == RD.bbRail and RD.hull.points[2][2] == RD.bbRail,
                "the black box rail along the bottom for everyone, the hull round it")
-            ok(NS.DO.look() == "classic" and not RD.Active() and not FG.Hidden(d), "no word walks on: dashboard -> classic, the grid back")
+            ok(NS.DO.look() == "classic" and not RD.Active() and not FG.Hidden(d), "no word walks on: radar -> classic, the grid back")
+            local e2, why2 = _G.BiSHealingAPI.RadarEdge()
+            ok(e2 == nil and why2 == "not shown" and _G.BiSHealingAPI.Look() == "classic", "classic: RadarEdge says not shown")
             ok(NS.DO.look() == "cockpit" and NS.DO.look() == "radar" and RD.Active(), "classic -> cockpit -> radar")
             STATE.inCombat = true
             ok(NS.DO.look("classic") == "classic" and RD.Active() and RD.pending, "in a fight: the radar stays till the fight's end (pending)")

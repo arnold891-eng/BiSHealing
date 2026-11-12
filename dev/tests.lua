@@ -5211,8 +5211,14 @@ _G.C_UnitAuras = { GetAuraDataByIndex = function(unit, i, filter)
 end }
 _G.GetTotemInfo = function(slot)
     if STATE.inCombat then error("attempt to compare a secret number value", 2) end
-    return TOTEMS[slot] and true or false, "Totem"
+    -- MEASURED 11 Nov 2026 (Arn's BiS? probe, out of a fight): an EMPTY slot answers true, "", 0, 0 - never false.
+    -- A down totem: true, its name, the GetTime() it went down, its length (300 s).
+    if TOTEMS[slot] then return true, "Totem", CLOCK, 300 end
+    return true, "", 0, 0
 end
+-- GetTotemDuration (in the 16001 census): the client's duration object for a slot, fight or not - an opaque thing to
+-- hand to a cooldown, never a number (ForeverAuras 1.3.9 drives its in-fight totem timers with it)
+_G.GetTotemDuration = function(slot) return { __totemDuration = slot } end
 local SAID = {}
 -- FORMATS LIKE THE REAL ONE. The stub used to take one argument and drop the rest - the same lie
 -- NS.Print itself was telling - so `Print("asking: %s", call)` looked fine here and printed a
@@ -8314,14 +8320,15 @@ do
     _G.GetTotemInfo = function(slot)
         if mode == "secret" then return secret() end
         if mode == "throw" then error("cannot be accessed", 2) end
-        return down[slot] and true or false, "Totem"
+        if down[slot] then return true, "Totem", 100, 300 end
+        return true, "", 0, 0                      -- an empty slot, as the client answers (measured 11 Nov)
     end
 
     -- no such question on this client: read and guard, the way it always did
     _G.C_Secrets = { HasSecretRestrictions = function() return true end }
     down[1] = true
     ok(FB.TotemSlot(1) == true, "a totem that is down reads as down")
-    ok(FB.TotemSlot(2) == false, "an empty slot reads as empty")
+    ok(FB.TotemSlot(2) == false, "an empty slot reads as empty - though the client answers it TRUE with no name and 0 s (11 Nov)")
 
     -- the client says this slot is secret: do not even read it
     local asked = {}
@@ -13147,6 +13154,35 @@ do
             RD.WatchTotems()                         -- settled first: the count is a quiet tick, nothing changed
             local tc = Cost.Count(function() RD.WatchTotems() end)
             ok(tc <= 3, "the watch is our own clock: a time read and the lockdown question, nothing else", tc)
+            -- IN A FIGHT (Arn, 11 Nov: "do the totem timers in combat"): the slot number of PLAYER_TOTEM_UPDATE, the
+            -- client's own duration object on the discs
+            RD.totemsUntil, RD.totemsFought, RD.totemsBrought, RD.lifeSlot, RD.readyAt = 0, false, false, nil, {}
+            RD.slotUp, RD.slotSeen = {}, {}
+            STATE.inCombat, RD.inFight = true, true
+            ok(RD.OnCast("player", 66842) == "call" and RD.slotUp[1] and RD.slotUp[4] and RD.TotemsUp(),
+               "called mid-fight: all four slots down")
+            ok(RD.tcall.life and RD.tcall.life.__durObj and RD.tcall.life.__durObj.__totemDuration == RD.EARTH_SLOT
+               and RD.recall.life.__durObj and RD.recall.life.__durObj.__totemDuration == RD.EARTH_SLOT,
+               "the time left on BRING and RECALL: the game's own timer for the earth slot, handed untouched")
+            local okEv = pcall(fire, RD.events, "PLAYER_TOTEM_UPDATE", 2)
+            ok(okEv and RD.slotUp[2] == true and RD.TotemsUp(), "the slot's update right after the cast: it went down (no slot read - that would throw)")
+            TICK(10)
+            fire(RD.events, "PLAYER_TOTEM_UPDATE", 2)
+            ok(RD.slotUp[2] == false and RD.TotemsUp() and RD.tcall.life.__durObj.__totemDuration == 1,
+               "ten seconds on, the earth slot updates on its own: that totem died - the disc follows another slot")
+            ok(shows(RD.tcall), "the others still stand: BRING still lit")
+            fire(RD.events, "PLAYER_TOTEM_UPDATE", 1)
+            fire(RD.events, "PLAYER_TOTEM_UPDATE", 3)
+            fire(RD.events, "PLAYER_TOTEM_UPDATE", 4)
+            ok(not RD.TotemsUp() and not shows(RD.tcall) and RD.tcall.life.__durObj == nil,
+               "every one dead or run out mid-fight: none stand - BRING dark, the disc cleared")
+            fire(RD.events, "PLAYER_TOTEM_UPDATE", 2)
+            TICK(0.2)
+            ok(RD.OnCast("player", 8071) == false and RD.slotUp[2] == true and RD.TotemsUp(),
+               "one dropped by hand, its slot's update a moment BEFORE the cast: that slot is down")
+            ok(RD.OnCast("player", 36936) == "recall" and not RD.TotemsUp() and RD.slotUp[2] == false, "recalled mid-fight: every slot empty")
+            STATE.inCombat, RD.inFight = false, false
+            RD.slotUp, RD.slotSeen, RD.lifeSlot = {}, {}, nil
             -- the engineer's view: their own line under the tools, the console a line taller
             local f = RD.frame
             ok(RD.ToggleView() == "console", "the engineer's view")

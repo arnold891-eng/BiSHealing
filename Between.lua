@@ -162,9 +162,13 @@ function FB.TotemSlot(slot)
         local plain = NS.Plain(secret)
         if plain == nil or plain == true then return nil end
     end
-    local ok, have = pcall(GetTotemInfo, slot)
+    local ok, have, name, _, dur = pcall(GetTotemInfo, slot)
     if not ok then return nil end
-    return NS.Plain(have)
+    have = NS.Plain(have)
+    -- AN EMPTY SLOT SAYS TRUE (measured 11 Nov 2026, Arn's BiS? probe: "T 4 true  0 0"): no name and no length is
+    -- empty. A secret name or length stays unknown-but-down (never guessed empty).
+    if have == true and NS.Plain(name) == "" and (NS.Plain(dur) or -1) <= 0 then return false end
+    return have
 end
 
 --- A name to write into a sentence, never a secret: the cell may paint a hidden name, a line of
@@ -319,9 +323,8 @@ function FB.Dump()
     end
     if GetTotemInfo then
         for slot = 1, TOTEM_SLOTS do
-            local ok, have, name = pcall(GetTotemInfo, slot)
-            local plainHave = nil
-            if ok then plainHave = NS.Plain(have) end
+            local ok, _, name = pcall(GetTotemInfo, slot)
+            local plainHave = FB.TotemSlot(slot)       -- an empty slot answers true with no name (11 Nov)
             local shown = plainHave == nil and "(hidden)"
                 or (plainHave and (NS.Plain(name) or "(hidden)")) or "empty"
             say(("  totem %d: %s"):format(slot, shown))

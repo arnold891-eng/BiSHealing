@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 1.2.2
+
+- **A /reload in the middle of a fight brings the grid straight back.** The game only lets an addon place its frames for a moment while it loads after a reload; the grid used to wait a beat too long, miss it, and stay empty until the fight ended. Now it lays out in that moment, and again on every loading screen.
+- **`/bish scan` sees empty totem slots.** On Forever an empty totem slot still answers "yes, a totem is here" - just with no name and no timer - so "no totems down" could never show. It does now.
+- **Behind the scenes.** More work on a feature that's still being tested and switched off for everyone. Nothing else changes on your grid, binds or options.
+
 ## 1.2.1
 
 - **Behind the scenes only.** More work on a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.

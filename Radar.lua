@@ -1138,8 +1138,113 @@ function RD.BuildRails(f)
     -- THE BLACK BOX'S RAIL along the bottom (BlackBox.lua, 10 Nov: "Build the bottom raid with the squawk box thing")
     if NS.BB and NS.BB.Build then RD.bbRail = NS.BB.Build(f, t, rail) end
     RD.BuildHull(f)
+    RD.BuildGrip(f)
     RD.ClampRails()
     return t, g
+end
+
+--[[ THE CORNER GRIP (11 Nov 2026, Arn: "instead of having a command to set the scale for the radar can we the corner drag
+  to resize for radar and engineer"). A small plain button on the hull's bottom-right corner - the whole instrument's,
+  radar or engineer's view alike (the hull is both). Drag = the scale (RD.SCALE_MIN..MAX), the top-left corner held
+  where it is; right-click = back to 100%. The radar is a secure frame, so OUT OF A FIGHT ONLY: nothing at all in one,
+  and a drag ends at PLAYER_REGEN_DISABLED (endDrag) and on hide. Saved as the scale and a TOPLEFT position. ]]
+RD.SCALE_MIN, RD.SCALE_MAX, RD.GRIP_PX = 0.5, 2, 14
+
+--- The scale a drag gives: the cursor's distance from the held top-left corner, against where the drag began (screen
+--- pixels, both axes added so a diagonal pull reads naturally). Clamped. Plain numbers only.
+function RD.GripScale(startScale, left, top, sx, sy, cx, cy)
+    local was = (sx - left) + (top - sy)
+    if type(was) ~= "number" or was <= 1 then return startScale end
+    local now = (cx - left) + (top - cy)
+    local s = startScale * now / was
+    return math.max(RD.SCALE_MIN, math.min(RD.SCALE_MAX, s))
+end
+
+--- Scale the radar to `s` with its top-left corner staying at (left, top) in screen pixels.
+function RD.ScaleAt(f, s, left, top)
+    if combat() then return false end
+    f:SetScale(s)
+    local k = f:GetEffectiveScale()
+    if type(k) ~= "number" or k <= 0 then return false end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / k, top / k)
+    return true
+end
+
+--- The grip's drag over: the scale and the corner saved.
+function RD.EndGrip()
+    local g, f = RD.grip, RD.frame
+    if not (g and g.sizing) then return false end
+    g.sizing = nil
+    g:SetScript("OnUpdate", nil)
+    if f then
+        db().scale = f:GetScale()
+        local ok, p, _, rp, x, y = pcall(f.GetPoint, f)
+        p, rp, x, y = plain(p), plain(rp), plain(x), plain(y)
+        if ok and type(p) == "string" and type(x) == "number" and type(y) == "number" then
+            db().pos = { p, type(rp) == "string" and rp or p, x, y }
+        end
+    end
+    return true
+end
+
+function RD.BuildGrip(f)
+    if RD.grip then return RD.grip end
+    local g = CreateFrame("Button", nil, f)
+    g:SetSize(RD.GRIP_PX, RD.GRIP_PX)
+    g:SetPoint("TOPLEFT", RD.hull or f, "BOTTOMRIGHT", -RD.GRIP_PX + 4, RD.GRIP_PX - 4)   -- on the corner, over the soft edge
+    g:SetFrameLevel((f:GetFrameLevel() or 0) + 30)
+    if g.RegisterForClicks then g:RegisterForClicks("RightButtonUp") end
+    -- three short strokes across the corner, the classic sizing mark, in the scope's green (brighter under the mouse)
+    local P = RD.PHOS
+    g.lines = {}
+    for k = 1, 3 do
+        local o = 2 + (k - 1) * 4
+        g.lines[k] = line(g, "OVERLAY", RD.GRIP_PX / 2 - o, -RD.GRIP_PX / 2 + 1, RD.GRIP_PX / 2 - 1, -RD.GRIP_PX / 2 + o,
+                          { P[1], P[2], P[3], 0.45 }, 1.5)
+    end
+    local function glow(a) for _, l in ipairs(g.lines) do l:SetVertexColor(P[1], P[2], P[3], a) end end
+    g:SetScript("OnEnter", function(self)
+        glow(1)
+        if not GameTooltip then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("RESIZE  " .. math.floor(f:GetScale() * 100 + 0.5) .. "%")
+        GameTooltip:AddLine("Drag to make it bigger or smaller.  Right-click: back to 100%.  Out of a fight.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    g:SetScript("OnLeave", function() glow(0.45) if GameTooltip then GameTooltip:Hide() end end)
+    g:SetScript("OnMouseDown", function(self, button)
+        if button ~= "LeftButton" or combat() then return end
+        local k = f:GetEffectiveScale()
+        local l, t = f:GetLeft(), f:GetTop()
+        if not (type(k) == "number" and type(l) == "number" and type(t) == "number") then return end
+        local sx, sy = GetCursorPosition()
+        self.sizing = { scale = f:GetScale(), left = l * k, top = t * k, sx = sx, sy = sy }
+        RD.ScaleAt(f, self.sizing.scale, self.sizing.left, self.sizing.top)   -- held by the top-left from here on
+        self:SetScript("OnUpdate", function()
+            local z = self.sizing
+            if not z or combat() then RD.EndGrip() return end
+            local cx, cy = GetCursorPosition()
+            RD.ScaleAt(f, RD.GripScale(z.scale, z.left, z.top, z.sx, z.sy, cx, cy), z.left, z.top)
+        end)
+    end)
+    g:SetScript("OnMouseUp", function() RD.EndGrip() end)
+    g:SetScript("OnHide", function() RD.EndGrip() end)
+    g:SetScript("OnClick", function(_, button)
+        if button ~= "RightButton" or combat() then return end
+        local k, l, t = f:GetEffectiveScale(), f:GetLeft(), f:GetTop()
+        if type(k) == "number" and type(l) == "number" and type(t) == "number" then
+            RD.ScaleAt(f, 1, l * k, t * k)
+        end
+        db().scale = 1
+        local ok, p, _, rp, x, y = pcall(f.GetPoint, f)
+        p, rp, x, y = plain(p), plain(rp), plain(x), plain(y)
+        if ok and type(p) == "string" and type(x) == "number" and type(y) == "number" then
+            db().pos = { p, type(rp) == "string" and rp or p, x, y }
+        end
+    end)
+    RD.grip = g
+    return g
 end
 
 --[[ ONE HULL, SOFT EDGES (10 Nov 2026, Arn: "complete the rails so there are no gaps and alpha the edges"). Behind every
@@ -4408,7 +4513,7 @@ function RD.Command(rest)
         P("radar knobs: %s.  |cff968ead/bish alpha radar knob <name> on|off|r", table.concat(list, ", "))
     else
         local h = RD.heal or RD.Heal()
-        P("radar: heal %s.  |cff968ead/bish alpha radar heal <spell> | scale <50-200> | center|r", h and h.cast or "none")
+        P("radar: heal %s.  |cff968ead/bish alpha radar heal <spell> | center|r  (resize: drag its corner)", h and h.cast or "none")
         -- THE FUEL GAUGE AND THE MANA COLUMN, SAID PLAINLY: what the tape races, and where each tool lights
         local function tool(b, name)
             if not (b and b.macro) then return name .. " none" end
@@ -4469,6 +4574,7 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "PLAYER_REGEN_DISABLED" then
         -- a fight: the drag ends first (before the lockdown takes the mouse), then everything goes quiet
         if RD.frame then endDrag(RD.frame) end
+        RD.EndGrip()                       -- and a resize by the corner grip, the same way
         RD.ResOff()                        -- a res is out of a fight only: dark, and no click left armed
         RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
         if RD.TotemsUp() then RD.totemsFought = true end   -- the totems standing go through this fight (BRING after)

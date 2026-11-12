@@ -13153,6 +13153,52 @@ do
             NS.FM.BookChanged()
             RD.Arm()
         end
+        -- THE CORNER GRIP (Arn, 11 Nov: "instead of having a command to set the scale for the radar can we the corner drag
+        -- to resize for radar and engineer"). The mock has no screen positions, so this frame is given the client's
+        -- GetLeft/GetTop: its top-left in its own units = screen pixels / its effective scale.
+        do
+            local f, g = RD.frame, RD.grip
+            local gp = g and g.points[1]
+            ok(g and gp and gp[2] == RD.hull and gp[3] == "BOTTOMRIGHT", "a grip on the hull's bottom-right corner (the radar's and the console's alike)")
+            ok(RD.GripScale(1, 100, 900, 400, 600, 460, 540) == 1.2 and RD.GripScale(1, 100, 900, 400, 600, 700, 300) == RD.SCALE_MAX
+               and RD.GripScale(1, 100, 900, 400, 600, 250, 750) == RD.SCALE_MIN,
+               "the scale follows the cursor's pull from the held top-left corner, 50% to 200%")
+            local keep = { cursor = _G.GetCursorPosition, combat = STATE.inCombat }
+            local d = NS.DB().radar
+            keep.scale, keep.pos, keep.fscale = d.scale, d.pos, f:GetScale()
+            f:SetScale(1)
+            local LEFT, TOP = 100, 900                     -- where its top-left sits on screen, in pixels
+            function f:GetLeft() return LEFT / self:GetEffectiveScale() end
+            function f:GetTop() return TOP / self:GetEffectiveScale() end
+            local cx, cy = 400, 600
+            _G.GetCursorPosition = function() return cx, cy end
+            STATE.inCombat = false
+            g.__scripts.OnMouseDown(g, "LeftButton")
+            ok(g.sizing and g.__scripts.OnUpdate, "pressed on the grip out of a fight: sizing")
+            cx, cy = 460, 540
+            g.__scripts.OnUpdate(g)
+            local p = f.points[1]
+            ok(math.abs(f:GetScale() - 1.2) < 1e-9 and p and p[1] == "TOPLEFT" and p[3] == "BOTTOMLEFT"
+               and math.abs(p[4] - LEFT / f:GetEffectiveScale()) < 1e-6 and math.abs(p[5] - TOP / f:GetEffectiveScale()) < 1e-6,
+               "dragged out: 120%, the top-left corner held where it was", f:GetScale())
+            g.__scripts.OnMouseUp(g)
+            ok(not g.sizing and math.abs(d.scale - 1.2) < 1e-9 and d.pos and d.pos[1] == "TOPLEFT", "let go: the scale and the corner saved")
+            STATE.inCombat = true
+            g.__scripts.OnMouseDown(g, "LeftButton")
+            ok(not g.sizing, "in a fight: the grip does nothing (the radar is a secure frame)")
+            STATE.inCombat = false
+            g.__scripts.OnMouseDown(g, "LeftButton")
+            STATE.inCombat = true
+            fire(RD.events, "PLAYER_REGEN_DISABLED")
+            ok(not g.sizing and not g.__scripts.OnUpdate, "a fight starts mid-drag: the drag ends before the lockdown")
+            STATE.inCombat, RD.inFight = false, nil
+            g.__scripts.OnClick(g, "RightButton")
+            ok(f:GetScale() == 1 and d.scale == 1, "right-click: back to 100%")
+            f.GetLeft, f.GetTop, _G.GetCursorPosition, STATE.inCombat = nil, nil, keep.cursor, keep.combat
+            d.scale, d.pos = keep.scale, keep.pos
+            f:SetScale(keep.fscale)
+            RD.Place()
+        end
         -- A /RELOAD IN A FIGHT (11 Nov): the radar arms inside PLAYER_ENTERING_WORLD while the loading window is open
         do
             local keepArm, keepCombat = RD.Arm, STATE.inCombat

@@ -3,8 +3,8 @@
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
 
-Changed since the 1.0.3 text (11 Nov, 1.3.0): a new "The dashboard look" section after "The cockpit look" - the
-radar, once a hidden test, is now the third look (classic / cockpit / dashboard): the quiet radar, the engineer's
+Changed since the 1.0.3 text (11 Nov, 1.3.0): a new "The radar look" section after "The cockpit look" - the
+radar, once a hidden test, is now the third look (classic / cockpit / radar): the quiet radar, the engineer's
 view, the mana tools, the right rail (catch-all, res, totems), the fuel gauge, ships, resize by the corner. The
 cockpit section no longer says it is the default: new installs start in classic with nothing on.
 
@@ -130,7 +130,7 @@ Every cell is drawn like one screen on an aircraft's instrument panel, with one 
 
 Prefer the plain grid? **look: classic** in the options (or `/bish look classic`) puts every cell back, at once. New installs start in classic.
 
-## The dashboard look
+## The radar look
 
 The third look turns the grid into **a quiet radar**: you in the middle, your group around you, tanks always on top. **Only what needs a click lights up** — in a fight everything else goes invisible, so your eyes go straight to the one thing to do.
 
@@ -146,7 +146,7 @@ The third look turns the grid into **a quiet radar**: you in the middle, your gr
 - **Resize** by dragging the bottom-right corner (right-click it for 100%). Drag the radar itself to move it. Both out of a fight.
 - **The black box** along the bottom is still being built: its keypad doesn't do anything yet.
 
-Turn it on with **look: dashboard** in the options, or `/bish look dashboard`.
+Turn it on with **look: radar** in the options, or `/bish look radar`.
 
 ## The cells
 

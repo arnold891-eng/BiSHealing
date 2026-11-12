@@ -488,14 +488,16 @@ FG.CLASSIC = { tile = { 0.08, 0.08, 0.08, 0.9 }, incoming = { 0.30, 0.85, 0.45, 
 -- healing they cannot take (a heal absorb): dark maroon in both looks - a piece of the bar gone dark, never a
 -- bright colour that could be read as health, a heal or the overheal
 FG.HEAL_ABSORB = { 0.28, 0.02, 0.07, 0.92 }
-FG.LOOKS = { cockpit = true, classic = true, dashboard = true }
+FG.LOOKS = { cockpit = true, classic = true, radar = true }
 
---- "cockpit", "classic" or "dashboard" (the radar in the grid's place - Radar.lua, RD.On; the cells keep the classic
+--- "cockpit", "classic" or "radar" (the radar in the grid's place - Radar.lua, RD.On; the cells keep the classic
 --- dress underneath). Nothing written reads as classic (Arn, 11 Nov 2026: "new installs start in classic with nothing
 --- on still").
 function FG.Look()
     local d = NS.DB and NS.DB()
     local v = type(d) == "table" and d.look or nil
+    -- "dashboard" was the radar look's name for one evening (11 Nov 2026): read as radar, and written so
+    if v == "dashboard" then v = "radar" d.look = v end
     return FG.LOOKS[v or ""] and v or "classic"
 end
 function FG.Cockpit() return FG.Look() == "cockpit" end

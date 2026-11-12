@@ -81,11 +81,26 @@ function CFG.Sections()
               set = function(_, on) if NS.MM then NS.MM.SetHidden(not on) end end },
             -- a STEPPER, not a slider: the family's options lib has none, on purpose - "230 px has
             -- no room for a track, and a stepper is exact" (Libs/BiSTheme/Options.lua)
-            { key = "scale", kind = "step", label = "size of the cells", help = "Scales every cell, bar and word together.",
-              min = 0.6, max = 1.6, step = 0.05,
-              get = function(db) return db.scale or 1 end,
-              set = function(_, v) if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end end,
-              show = function(db) return ("%d%%"):format(math.floor((db.scale or 1) * 100 + 0.5)) end },
+            -- WHATEVER SHOWS (11 Nov 2026, Arn: "people might try to reize from here" ... "only the scale work on the rader and
+            -- nothing else"): with the radar look this row is the radar's size - the corner grip's own setting - and
+            -- touches nothing else; otherwise the cells'. 50-200% for the radar; the cells' setter keeps theirs (60-160%).
+            { key = "scale", kind = "step", label = "size", help = "How big BiS Healing is on screen: every cell, bar and word together - or, with the radar look, the whole radar (the same as dragging its corner). Out of a fight for the radar.",
+              min = 0.5, max = 2, step = 0.05,
+              get = function(db)
+                  local RD = NS.RD
+                  if NS.FG and NS.FG.Look and NS.FG.Look() == "radar" and RD and RD.Scale then return RD.Scale() end
+                  return db.scale or 1
+              end,
+              set = function(_, v)
+                  local RD = NS.RD
+                  if NS.FG and NS.FG.Look and NS.FG.Look() == "radar" and RD and RD.SetScale then RD.SetScale(v) return end
+                  if NS.FG and NS.FG.SetScale then NS.FG.SetScale(v) end
+              end,
+              show = function(db)
+                  local RD = NS.RD
+                  local v = (NS.FG and NS.FG.Look and NS.FG.Look() == "radar" and RD and RD.Scale) and RD.Scale() or (db.scale or 1)
+                  return ("%d%%"):format(math.floor(v * 100 + 0.5))
+              end },
             { key = "center", kind = "button", label = "centre on screen", help = "Puts the cells back in the middle of the screen, if they were dragged out of reach.", button = "centre",
               action = function() if DO.center then DO.center() end end },
             -- FOREVER 1.0: off for a new install, so it needs a switch a player can find (it was a
@@ -123,8 +138,10 @@ function CFG.Sections()
             -- three answers, so segments rather than a switch: "lost" is what they still need
             -- after incoming heals, blank at full
             -- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit")
-            { key = "look", kind = "seg", label = "look", help = "classic - the plain grid. cockpit - a dark display: the name big on top behind a lamp in their class colour, the health a gauge tape along the bottom (green, amber, red by how hurt they are), the missing health in amber above it, your target in magenta. dashboard - the grid becomes a quiet radar: only what needs a click lights up (who needs a heal, a dispel, an interrupt, your mana tools), everything else invisible in a fight; its corner button switches to the engineer's view, the same buttons on a plain grid. Drag its corner to resize.",
-              values = { "classic", "cockpit", "dashboard" },
+            { key = "look", kind = "seg", label = "look", help = "classic - the plain grid. cockpit - a dark display: the name big on top behind a lamp in their class colour, the health a gauge tape along the bottom (green, amber, red by how hurt they are), the missing health in amber above it, your target in magenta. radar - the grid becomes a quiet radar: only what needs a click lights up (who needs a heal, a dispel, an interrupt, your mana tools), everything else invisible in a fight; its corner button switches to the engineer's view, the same buttons on a plain grid. Drag its corner to resize.",
+              -- "radar" (Arn, 11 Nov 2026: "can you not make it cut off pls" - "dashboard" ran out of the kit's fixed
+              -- segment width; then the look was named radar)
+              values = { "classic", "cockpit", "radar" },
               get = function() return (NS.FG and NS.FG.Look and NS.FG.Look()) or "classic" end,
               set = function(_, v) if DO.look then DO.look(v) end end },
             { key = "number", kind = "seg", label = "number", help = "The number on each cell: lost - the health they still need after heals on the way; % - their health; off - none.",

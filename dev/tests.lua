@@ -13068,7 +13068,7 @@ do
                and RD.call:GetAttribute("*macrotext2") == "/cast Call of the Ancestors", "and Call of the Ancestors: on the right-click")
             ok(RD.tcall:GetAttribute("*macrotext1") == "/cast Totemic Call" and RD.recall:GetAttribute("*macrotext1") == "/cast Totemic Recall"
                and RD.tcall.rail == RD.defRail and RD.recall.knob, "BRING and RECALL armed, on the right rail, each with its knob")
-            RD.readyAt, RD.coolStart, RD.totemsUntil, RD.moveAcc, RD.moveFrom = {}, {}, 0, 0, nil
+            RD.readyAt, RD.coolStart, RD.totemsUntil = {}, {}, 0
             RD.ReadTotems()
             RD.inFight, RD.totemsFought = false, false
             C_Spell.GetSpellName = function(id)
@@ -13088,32 +13088,16 @@ do
                "you call them before the pull: they stand, by our clock")
             ok(not shows(RD.call) and not shows(RD.tcall) and not shows(RD.recall),
                "down before the pull: CALL dark, and no RECALL straight after a call")
-            fire(RD.events, "PLAYER_STARTED_MOVING")
-            TICK(RD.TOTEM_MOVE + 1)
-            RD.WatchTotems()
-            ok(not shows(RD.tcall), "running out of a fight: BRING is for the fight only")
-            fire(RD.events, "PLAYER_STOPPED_MOVING")
-            RD.MoveReset()
             STATE.inCombat = true
             fire(RD.events, "PLAYER_REGEN_DISABLED")
-            ok(RD.totemsFought and not shows(RD.call) and not shows(RD.tcall), "the pull with them down: they go through the fight; BRING waits (you have not moved)")
-            fire(RD.events, "PLAYER_STARTED_MOVING")
-            TICK(2)
-            ok(RD.WatchTotems() == false and not shows(RD.tcall), "two seconds of running: not yet")
-            TICK(RD.TOTEM_MOVE)
-            ok(RD.WatchTotems() == true and shows(RD.tcall), "run on past " .. RD.TOTEM_MOVE .. " s: BRING lights (the ticker's watch)")
-            fire(RD.events, "PLAYER_STOPPED_MOVING")
-            ok(RD.Moved() == 2 + RD.TOTEM_MOVE and RD.moveFrom == nil, "you stop: the run is kept", RD.Moved())
-            ok(RD.OnCast("player", 437009) == "tcall" and RD.readyAt.tcall == CLOCK + 30 and RD.Moved() == 0 and not shows(RD.tcall),
-               "you bring them: the run starts over, 30 s cooldown, dark")
-            fire(RD.events, "PLAYER_STARTED_MOVING")
+            ok(RD.totemsFought and not shows(RD.call) and shows(RD.tcall),
+               "the pull with them down: they go through the fight; BRING lights (Arn: \"i can just be lit up during combat\")")
+            ok(RD.OnCast("player", 437009) == "tcall" and RD.readyAt.tcall == CLOCK + 30 and not shows(RD.tcall),
+               "you bring them: 30 s cooldown, dark")
             TICK(10)
-            RD.WatchTotems()
-            ok(not shows(RD.tcall), "running away again while it cools: still dark")
+            ok(RD.WatchTotems() == false and not shows(RD.tcall), "while it cools: still dark")
             TICK(25)
-            RD.WatchTotems()
-            ok(shows(RD.tcall), "cooled, and far: BRING again")
-            fire(RD.events, "PLAYER_STOPPED_MOVING")
+            ok(RD.WatchTotems() == true and shows(RD.tcall), "cooled: BRING again (the ticker's watch), for a long fight's second bring")
             RD.SetKnob("tcall", true)
             ok(not shows(RD.tcall), "its knob off: never lights")
             RD.SetKnob("tcall", false)
@@ -13150,7 +13134,7 @@ do
             ok(not RD.call:IsShown() and not RD.call.macro, "forgotten: hidden again")
             C_Spell.GetSpellName, RD.inFight, STATE.inCombat = keepName, keepFight, keepCombat
             for i = 1, 4 do TOTEMS[i] = keepTotems[i] end
-            RD.readyAt, RD.coolStart, RD.totemsUntil, RD.moveAcc, RD.moveFrom = {}, {}, 0, 0, nil
+            RD.readyAt, RD.coolStart, RD.totemsUntil = {}, {}, 0
         end
         -- THE RAMJET'S DASHES (Arn 8 Nov: "somewhere on there the 5 second casting rule for 100% mana regen")
         do

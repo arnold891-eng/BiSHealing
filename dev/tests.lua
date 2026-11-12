@@ -2044,6 +2044,90 @@ do
     FG.Layout, STATE.inCombat = keepLayout, keepCombat
 end
 
+-- THE ROSTER KEPT (Arn, 11 Nov 2026: "do the roster macro trick like vuhdo"). A relog in a fight can come back before
+-- the game knows the group; the shape written down at the pull lays the grid out, in the loading window only.
+do
+    local FK = NS.FK
+    local keep = { raid = _G.IsInRaid, info = _G.GetRaidRosterInfo, time = _G.time, macros = MACROS,
+                   combat = STATE.inCombat, members = _G.GetNumGroupMembers }
+    local WALL = 1762900000
+    _G.time = function() return WALL end
+    MACROS = { [121] = { name = "Heal Focus", body = "/cast [@focus] Healing Wave\n" } }   -- the player's own, untouched
+    STATE.inCombat = false
+    local groupOf = { 1, 1, 2, 2, 2, 3 }
+    _G.IsInRaid = function() return true end
+    _G.GetRaidRosterInfo = function(i) if groupOf[i] then return "n" .. i, 0, groupOf[i] end return nil end
+    _G.GetNumGroupMembers = function() return #groupOf end
+    FK.rosterShape = nil
+    ok(FK.SaveRoster() == true, "in a raid, out of a fight: the shape is written")
+    local idx = FK.FindRoster()
+    local body = idx and MACROS[idx].body
+    ok(idx and idx > 120 and body == "BiSR R " .. WALL .. " 112223" .. string.rep("0", 34) .. "\n" and MACROS[121].body:find("focus"),
+       "in this character's own macro BiSHealingRoster (the client's newline and all), the player's macro left alone", body)
+    local d = NS.DB()
+    ok(d.rosterSnap == "BiSR R " .. WALL .. " 112223" .. string.rep("0", 34), "and in the saved variables (there at a /reload before the macro list is)")
+    local snap = FK.RosterDecode(body)
+    ok(snap and snap.kind == "R" and snap.at == WALL and snap.subs[3] == 2 and snap.subs[6] == 3 and snap.subs[7] == 0,
+       "it reads back: each raid index's group (the trailing newline is no trouble)")
+    WALL = WALL + 30
+    ok(FK.SaveRoster() == false and MACROS[idx].body == body, "nothing changed: not written again (no macro edit a roster event)")
+    ok(FK.SaveRoster(true) == true and MACROS[idx].body:find(tostring(WALL), 1, true), "the pull: written fresh even unchanged")
+    STATE.inCombat = true
+    groupOf[7] = 4
+    ok(FK.SaveRoster(true) == false, "never in a fight")
+    local Cost = dofile("../_bisdev/dev/cost.lua")
+    local inFight = Cost.Count(function() FK.SaveRoster() end)
+    ok(inFight <= 1, "a roster event in a fight: one question (the lockdown) and out", inFight)
+    STATE.inCombat = false
+    local quiet = Cost.Count(function() FK.SaveRoster() end)
+    FK.rosterShape = nil
+    ok(quiet <= 22, "out of a fight, a 7-player raid that changed: its slots read once (the size asked first), then one macro edit", quiet)
+    -- the pull itself, through the event (it comes just before the lockdown)
+    WALL = WALL + 30
+    fire(FK.rosterEvents, "PLAYER_REGEN_DISABLED")
+    ok(MACROS[idx].body:find("1122234", 1, true) and MACROS[idx].body:find(tostring(WALL), 1, true), "PLAYER_REGEN_DISABLED writes it")
+    -- THE LOAD: the game says nobody is with you (no raid, no party member it knows yet)
+    keep.units = STATE.units
+    STATE.units = { player = keep.units.player or true }
+    _G.IsInRaid = function() return false end
+    _G.GetRaidRosterInfo = function() return nil end
+    WALL = WALL + 60
+    local r = FK.RosterAtLoad()
+    ok(r and r.kind == "R" and r.subs[7] == 4, "a minute later: the kept shape is fresh")
+    FG.loading = true
+    local roster = FG.Roster()
+    FG.loading = nil
+    ok(#roster == 7 and roster[1] == "raid1" and roster[7] == "raid7" and FG.snapSubs, "loading, and the game knows no group: the grid lays out the kept raid")
+    local units, place = FG.ByGroup(roster)
+    ok(units[1] == "raid1" and units[3] == "raid3" and place[3].col == 2 and place[7].col == 4 and place[7].row == 1,
+       "in their kept groups: a column per group, raid7 alone in group 4", place[7] and place[7].col)
+    local later = FG.Roster()
+    ok(#later == 1 and later[1] == "player" and FG.snapSubs == nil, "not loading: the game's answer only (you alone)")
+    WALL = WALL + FK.ROSTER_FRESH + 1
+    FG.loading = true
+    ok(#FG.Roster() == 1 and FK.RosterAtLoad() == nil, "a shape older than 15 minutes: not trusted")
+    FG.loading = nil
+    -- the macro newer than the saved variables wins (a disconnect: the macro was written, the save never was)
+    WALL = WALL + 10
+    d.rosterSnap = "BiSR P " .. (WALL - 500) .. " 2"
+    MACROS[idx].body = "BiSR P " .. (WALL - 5) .. " 4\n"
+    r = FK.RosterAtLoad()
+    ok(r and r.kind == "P" and r.n == 4, "the newer of the macro and the saved variables wins")
+    FG.loading = true
+    roster = FG.Roster()
+    FG.loading = nil
+    ok(#roster == 5 and roster[5] == "party4", "a kept party: you and four")
+    ok(FK.RosterDecode("BiSR R 1 12") == nil and FK.RosterDecode("hello") == nil, "anything else in the macro is ignored")
+    -- alone, with no macro yet: no character slot spent on nothing
+    MACROS = {}
+    FK.rosterShape = nil
+    ok(FK.SaveRoster() == false and FK.FindRoster() == nil and NS.DB().rosterSnap:find("^BiSR S"), "alone: saved, but no macro made for it")
+    _G.IsInRaid, _G.GetRaidRosterInfo, _G.time, MACROS, STATE.inCombat = keep.raid, keep.info, keep.time, keep.macros, keep.combat
+    _G.GetNumGroupMembers = keep.members
+    STATE.units = keep.units
+    NS.DB().rosterSnap, FK.rosterShape = nil, nil
+end
+
 -- A BIND THAT SURVIVED THE RELOAD BUT DID NOTHING. Arn, 19 Sep 2026: "the binds saved and the
 -- window where the bind saved but they dont do anything on the frame, last time i had to drag the
 -- same spell again to the bind and then it worked." His one saved bind was `wheelup`.

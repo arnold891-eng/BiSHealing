@@ -213,7 +213,7 @@ end
 --- Returns the units in order and, beside them, the column each belongs in and its row within it.
 --- Outside a raid it is one column: you, then your party.
 function FG.ByGroup(roster)
-    local inRaid = IsInRaid and IsInRaid()
+    local inRaid = (IsInRaid and IsInRaid()) or FG.snapSubs ~= nil   -- the kept shape stands in while loading
     local keyed = {}
     for i, u in ipairs(roster) do
         local sub = 1
@@ -226,6 +226,7 @@ function FG.ByGroup(roster)
             if idx then
                 local ok, _, _, g = pcall(GetRaidRosterInfo, idx)
                 g = ok and tonumber(NS.Plain(g)) or nil
+                if not g and FG.snapSubs then g = FG.snapSubs[idx] end   -- not known yet: the kept shape's group
                 sub = g or 9                      -- unknown groups go last, not first
             end
         end
@@ -297,6 +298,7 @@ FG.maxOK = true                         -- set false if the client refuses a sec
 --- Forever makes impossible, so the order is group order and the player's eyes do the rest.
 function FG.Roster()
     local out = {}
+    FG.snapSubs = nil
     local d = NS.DB and NS.DB()
     -- PETS, when asked for (Arn: "toggel to see pets"). Off by default: a raid with five hunters
     -- and three warlocks is eight more cells, and most healers heal pets by exception.
@@ -321,6 +323,21 @@ function FG.Roster()
     end
     if not mine then out[1] = "player" end
     for i = 1, 4 do add("party" .. i) end
+    -- THE ROSTER KEPT (11 Nov 2026, Keep.lua FK.RosterAtLoad): loading, and the game says nobody is with you - a relog in
+    -- a fight can come back before it knows the group. The shape written down at the pull lays the cells out; each is
+    -- on the client's unit watch, so it shows itself the moment the game knows its person.
+    if #out == 1 and FG.loading and NS.FK and NS.FK.RosterAtLoad then
+        local snap = NS.FK.RosterAtLoad()
+        if snap and snap.kind == "R" then
+            out = {}
+            for i, g in ipairs(snap.subs) do if g > 0 then out[#out + 1] = "raid" .. i end end
+            FG.snapSubs = snap.subs
+            return out
+        elseif snap and snap.kind == "P" then
+            for i = 1, snap.n do out[#out + 1] = "party" .. i end
+            return out
+        end
+    end
     if pets then
         add("pet")
         for i = 1, 4 do add("partypet" .. i) end
@@ -3943,7 +3960,9 @@ function FG.Start()
     -- PLAYER_LOGIN, VuhDo inside its loading events; this grid waited for its first update tick, the window already
     -- shut, and stayed empty until the fight ended. So: laid out HERE, now; the tick only retries what this refused.
     local since = 0
+    FG.loading = true                       -- the kept roster may stand in (FG.Roster), only now
     local pending = not FG.Layout(anchor)
+    FG.loading = nil
     FG.startLaidOut = not pending           -- kept for the suite: the first layout happened inside PLAYER_LOGIN
     local sweepIn, rangeIn = 0, 0
     anchor:SetScript("OnUpdate", function(_, dt)
@@ -4052,7 +4071,11 @@ function FG.Start()
         pending = true                      -- the update loop relays out when the lockdown lets it
         -- the loading window again (a zone change, a /reload in a fight): laid out NOW, while it is open - the
         -- next update tick comes after the lockdown is back
-        if event == "PLAYER_ENTERING_WORLD" and FG.Layout(anchor) then pending = false end
+        if event == "PLAYER_ENTERING_WORLD" then
+            FG.loading = true
+            if FG.Layout(anchor) then pending = false end
+            FG.loading = nil
+        end
         -- THE GROUP CHANGED MID-FIGHT (Arn, 19 Oct: "shaman are suppose to be blue but some are priest
         -- white might be bug when they leave during combat"): someone leaves, the client moves everyone
         -- up a slot (raid6 is now raid5), and a cell may not be re-pointed until the fight ends. Its

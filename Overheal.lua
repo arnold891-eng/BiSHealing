@@ -13,7 +13,8 @@
   (The trick is DoesItDie's, proven on our cells by the heal ghost probe, 23 Oct - memory: idea-heal-ghost.)
 
   WHICH HEAL:
-    * HOVER - the pip under the mouse: your LEFT-click heal for the modifier held now (shift / ctrl / alt switch it,
+    * HOVER - the pip under the mouse: the heal on the button picked in "hover heal" (`overButton`, left to start - Arn:
+      "some people might want something else other than left click") for the modifier held now (shift / ctrl / alt switch it,
       MODIFIER_STATE_CHANGED), followed while you hover (UNIT_HEALTH / UNIT_HEAL_PREDICTION for that one unit only).
     * CLICK - the heal on the button you pressed: measured AT the click (PostClick, before the cast starts - once it does,
       the client counts your own heal as incoming and every heal would look wasted), shown when the cast really starts
@@ -22,7 +23,8 @@
   learned out of a fight and remembered (OV.cache); a heal over time or a party heal is not judged. Nothing ticks:
   the word moves on events, and only the hovered unit is listened to.
 
-  Switches: the radar look (RD.On), the grid's click words (`flash`), and its own `overWord` (/bish overword on|off).
+  Switches: the radar look (RD.On) and its own setting, `overMode` off / any / half / 75% (the options' "overheal word"
+  row, /bish overword ...). OV.HELP is what the options tell a player decides it.
 ]]
 local ADDON, NS = ...
 NS = NS or {}
@@ -30,7 +32,16 @@ NS = NS or {}
 local OV = {}
 NS.OV = OV
 
-OV.SHARE = 0.5          -- "more than half": OVER when half the heal reaches what they are missing
+-- HOW MUCH HAS TO BE WASTED (Arn, 12 Nov: "add to options ... if they want to change what determines it"): the share of
+-- the heal that, reaching what they miss, says OVER/H. any = the whole heal (any overheal at all), half = more than half
+-- wasted (the default), 75% = three quarters or more. `overMode` on the account; `overWord = false` (older) = off.
+OV.MODES = { "off", "any", "half", "75%" }
+OV.SHARES = { any = 1.0, half = 0.5, ["75%"] = 0.25 }
+OV.HELP = "OVER/H shows under a teammate on the radar (under their box in the engineer view) when your heal would be "
+    .. "wasted. Your heal = the middle of its tooltip (\"heals for X to Y\") for the rank on that mouse button - on hover "
+    .. "the heal on the button you pick in 'hover heal' (hold shift, ctrl or alt for theirs), on a click the heal you started. What they miss = the "
+    .. "game's own number, minus heals already on their way. Heals over time are not judged. any - any overheal at all. "
+    .. "half - more than half the heal wasted. 75% - three quarters or more. off - never."
 OV.SPAN = 10000         -- the hidden bar: 1% short of full moves the word 100 px - wholly out of its window, never half
 OV.W, OV.H = 68, 14     -- the window under the pip the word shows in (OVER/H and its outline, with room)
 OV.FLASH_FOR = 1.2      -- the click's flash, the grid's own length (FG.FLASH_FOR)
@@ -43,11 +54,39 @@ local function secret(v) return NS.Secret and NS.Secret(v) or false end
 local function plain(v) if v == nil or secret(v) then return nil end return v end
 local function now() return (GetTime and GetTime()) or 0 end
 
---- On: the radar look is up, the click words are on, and this word is on.
-function OV.On()
+-- WHICH BUTTON'S HEAL A HOVER JUDGES (Arn, 12 Nov: "some people might want something else other than left click"):
+-- `overButton` on the account, a mouse slot key (FM.SLOTS); the options name them as below. Left to start.
+OV.BUTTONS = { { "left", "left" }, { "right", "right" }, { "wheel", "middle" }, { "thumb1", "button4" }, { "thumb2", "button5" } }
+
+--- The mouse slot a hover judges: "left", "right", "middle", "button4" or "button5".
+function OV.HoverSlot()
     local d = NS.DB and NS.DB() or {}
+    for _, b in ipairs(OV.BUTTONS) do if b[2] == d.overButton then return b[2] end end
+    return "left"
+end
+
+--- The same, as the options name it ("left", "right", "wheel", "thumb1", "thumb2").
+function OV.HoverWord()
+    local slot = OV.HoverSlot()
+    for _, b in ipairs(OV.BUTTONS) do if b[2] == slot then return b[1] end end
+    return "left"
+end
+
+--- The setting: "off", "any", "half" or "75%".
+function OV.Mode()
+    local d = NS.DB and NS.DB() or {}
+    if d.overWord == false then return "off" end
+    local m = d.overMode
+    return OV.SHARES[m or ""] and m or "half"
+end
+
+--- The share of the heal compared with what they miss (1 = any overheal, 0.5 = more than half, 0.25 = 75%).
+function OV.Share() return OV.SHARES[OV.Mode()] or 0.5 end
+
+--- On: the radar look is up and the word is not off (its own setting - no longer the grid's LOS flash).
+function OV.On()
     local RD = NS.RD
-    return (RD and RD.On and RD.On()) and d.flash ~= false and d.overWord ~= false or false
+    return (RD and RD.On and RD.On()) and OV.Mode() ~= "off" or false
 end
 
 -- ------------------------------------------------------------------ the heal a click would cast
@@ -173,7 +212,7 @@ function OV.Hand(o, unit, heal)
     if not secret(miss) and miss == nil then return false end
     -- the low end just under 0: a full-health teammate (missing 0) is a full bar, never an empty range
     if not pcall(o.bar.SetMinMaxValues, o.bar, -1, miss) then return false end
-    if not pcall(o.bar.SetValue, o.bar, heal * OV.SHARE) then return false end
+    if not pcall(o.bar.SetValue, o.bar, heal * OV.Share()) then return false end
     return true
 end
 
@@ -216,7 +255,7 @@ function OV.PaintHover()
     if not sp then return false end
     local o = sp.over
     if flashing(o) or OV.casting then return false end    -- a flash, or your own cast in the air, holds the word still
-    local heal = OV.On() and sp.unit and OV.HealOf(OV.BindFor("left", OV.Mod()))
+    local heal = OV.On() and sp.unit and OV.HealOf(OV.BindFor(OV.HoverSlot(), OV.Mod()))
     if not heal then hide(o) OV.Listen(nil) return false end
     o = OV.Build(sp)
     if not OV.Hand(o, sp.unit, heal) then hide(o) OV.Listen(nil) return false end

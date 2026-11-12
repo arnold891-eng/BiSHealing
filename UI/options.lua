@@ -108,6 +108,17 @@ function CFG.Sections()
             { key = "flash", kind = "toggle", label = "LOS flash", help = "Flashes LOS in the middle of a cell when your heal could not see that player (line of sight).",
               get = function(db) return db.flash ~= false end,
               set = function(_, on) if DO.flash then DO.flash(on) end end },
+            -- THE RADAR'S OVERHEAL WORD (Arn, 12 Nov 2026: "lets determine how we let the people know what determines
+            -- overheal, and add to options ... if they want to change what determines it in radar and engineer")
+            { key = "overword", kind = "seg", label = "overheal word", values = { "off", "any", "half", "75%" },
+              help = (NS.OV and NS.OV.HELP) or "",
+              get = function() return (NS.OV and NS.OV.Mode()) or "half" end,
+              set = function(_, v) if DO.overword then DO.overword(v) end end },
+            { key = "overbutton", kind = "seg", label = "hover heal", values = { "left", "right", "wheel", "thumb1", "thumb2" },
+              help = "Which mouse button's heal the overheal word judges while your mouse is on someone (radar and "
+                  .. "engineer view). A click always judges the button you pressed.",
+              get = function() return (NS.OV and NS.OV.HoverWord()) or "left" end,
+              set = function(_, v) if DO.overbutton then DO.overbutton(v) end end },
         } },
         -- THE BUFF YOU KEEP FORGETTING (Arn, 23 Sep: "i am always forgetting about watershield").
         -- The header names it out of combat; the client makes a NOISE when it drops, which is the

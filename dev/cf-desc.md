@@ -138,11 +138,12 @@ The third look turns the grid into **a quiet radar**: you in the middle, your gr
 - **Dispels:** a diamond in the cure's colour on whoever carries something you can remove.
 - **Interrupts:** a red triangle on someone's target the moment it casts — click it to kick.
 - **LOS / RANGE:** when a heal fails, the word appears under that person, so you know to move.
+- **OVER/H:** appears under someone when your heal would be **wasted** — as your mouse rests on them, and again the moment you start the heal. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button; what they miss is the game's own number, minus heals already on their way. How much waste counts is yours: **overheal word: off / any / half / 75%** (half to start), and which button a hover judges: **hover heal: left / right / wheel / thumb1 / thumb2**.
 - **Your mana tools on the left:** your shield, Mana Tide, a mana potion, Mana Spring as the last resort, a drink and food — each lights only when it would keep you off empty, and goes dark while it cools.
 - **The fuel gauge across the top:** the boss's health racing your mana. When the boss is well ahead of you, a warning band says slow down.
 - **The right rail:** a catch-all (Grounding Totem, Psychic Scream) when your interrupt is cooling; after a fight, the best person to res — healers first; and for shamans **CALL, BRING and RECALL**: call your totems before the pull, bring them along in the fight, and after it bring them or recall them for mana back, whichever is cheaper.
 - **Ships:** the colours change with your group's size, from a fighter for a party to a capital ship for a raid.
-- **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar.
+- **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar. Its party boxes are **health bars in class colours**, dimmed when someone is out of range, LOS / RANGE in the middle when a heal fails, and while you hover, a pale piece after their health shows how much of your heal fits.
 - **Resize** by dragging the bottom-right corner (right-click it for 100%). Drag the radar itself to move it. Both out of a fight.
 - **The black box** along the bottom is still being built: its keypad doesn't do anything yet.
 

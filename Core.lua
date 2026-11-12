@@ -1948,20 +1948,38 @@ function NS.DO.flash(how)
     return on
 end
 
---- /bish overword [on|off] - the radar's OVER under a pip: more than half the heal would be wasted, on hover and on the
---- click (Overheal.lua, 12 Nov 2026). Rides the click words (`flash`): with those off it is off too. Stored true / false;
---- nil = on (it only ever shows with `flash` on, which a new install starts without).
+--- /bish overword [off|any|half|75%|on] - the radar's OVER/H under a pip (and the engineer's box): how much of a heal has to
+--- be wasted (Overheal.lua, 12 Nov 2026). Its own setting (`overMode`); bare = says what decides it. on = half.
 function NS.DO.overword(how)
     local d = DB()
-    local on
-    if how == "on" or how == true then on = true
-    elseif how == "off" or how == false then on = false
-    else on = d.overWord == false end
-    d.overWord = on and true or false
+    local OV = NS.OV
+    if how == "on" or how == true then how = "half" elseif how == false then how = "off" end
+    if how == "75" then how = "75%" end
+    if how == "off" then
+        d.overWord, d.overMode = false, nil
+    elseif OV and OV.SHARES[how or ""] then
+        d.overWord, d.overMode = nil, how
+    end
     remember()
-    Print(on and "the radar says OVER when more than half a heal would be wasted (needs /bish flash on)"
-        or "no OVER on the radar")
-    return on
+    local mode = OV and OV.Mode() or "half"
+    Print(("overheal word: %s"):format(mode))
+    if not how and OV then Print(OV.HELP) end
+    return mode
+end
+
+--- /bish overbutton [left|right|wheel|thumb1|thumb2] - which mouse button's heal the radar's OVER/H judges on HOVER (the
+--- click itself always judges the button pressed). Arn, 12 Nov 2026: "some people might want something else other than
+--- left click".
+function NS.DO.overbutton(word)
+    local d = DB()
+    local OV = NS.OV
+    for _, b in ipairs(OV and OV.BUTTONS or {}) do
+        if word == b[1] or word == b[2] then d.overButton = b[2] end
+    end
+    remember()
+    local w = OV and OV.HoverWord() or "left"
+    Print(("overheal word, on hover: your %s heal"):format(w))
+    return w
 end
 
 --- /bish dim 40 - how bright an out-of-range cell stays, as a percentage, 20 to 90.
@@ -2047,6 +2065,7 @@ function NS.DO.help()
     Print("  |cffb980ffefficiency|r which heal, mana for mana   |cffb980ffheals|r the probe behind it")
     Print("  |cffb980ffbuffs|r BiS> now's buff buttons   |cffb980fftrinkets|r trinkets first, per modifier")
     Print("  |cffb980ffcures|r |cffb980ffhover|r |cffb980ffflash|r |cffb980ffoverword|r |cffb980ffbetween|r  on or off")
+    Print("  |cffb980ffoverword|r off / any / half / 75%   |cffb980ffoverbutton|r left / right / wheel / thumb1 / thumb2")
     Print("  |cffb980ffrange|r |cffb980ffoverheal|r |cffb980ffhealabsorb|r  measurements  |cffb980ffhits reset|r|cff968ead/rst|r  count again")
     Print("  the grey word after a command is the short way to type it")
 end
@@ -2077,7 +2096,7 @@ NS.SHORT = {
     targetoftarget = "tot", heals = "heal", efficiency = "hpm", range = "rng", overheal = "over",
     curve = "curv", control = "fear", holds = "hold", watch = "wtch", between = "btw",
     buffsound = "bsnd", buffs = "bufs", markers = "mark", cures = "cure", trinkets = "trin",
-    hover = "hov", flash = "flsh", overword = "ovw", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
+    hover = "hov", flash = "flsh", overword = "ovw", overbutton = "ovb", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
     across = "rows", saved = "db", macro = "keep",
     pvpmode = "pvp", healabsorb = "habs",
 }
@@ -2321,7 +2340,9 @@ SlashCmdList.BISHEALING = function(input)
     elseif msg == "flash" or msg:match("^flash%s") then
         NS.DO.flash(msg:match("^flash%s+(%a+)"))
     elseif msg == "overword" or msg:match("^overword%s") then
-        NS.DO.overword(msg:match("^overword%s+(%a+)"))
+        NS.DO.overword(msg:match("^overword%s+(%S+)"))
+    elseif msg == "overbutton" or msg:match("^overbutton%s") then
+        NS.DO.overbutton(msg:match("^overbutton%s+(%S+)"))
     elseif msg == "dim" or msg:match("^dim%s") then
         NS.DO.dim(msg:match("^dim%s+([%d%.]+)"))
     elseif msg == "clique" then

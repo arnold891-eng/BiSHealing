@@ -7066,14 +7066,18 @@ do
         -- SIXTEEN (8 Nov 2026, same night): the PvP cast alert - glow, bounce or both - which Arn asked to be a
         -- player's pick ("lets make it an option for them glow or bounce"), under PvP mode
         -- SEVENTEEN (8 Nov 2026, later): the look - cockpit or classic - Arn's cockpit redesign, one switch to go back
-        ok(tall[1] <= 14 and tall[2] <= 17, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
+        -- SIXTEEN ON THE LEFT (12 Nov 2026): the radar's overheal word - what decides it (off / any / half / 75%) and which
+        -- button's heal a hover judges; Arn: "add to options ... if they want to change what determines it". Still shorter
+        -- than the right column, so the window does not grow
+        ok(tall[1] <= 16 and tall[2] <= 17, ("each column stays short: %d and %d"):format(tall[1], tall[2]))
         -- TWENTY-ONE (19 Oct): Arn asked for the mana-for-mana window "in the option", by name - a
         -- door, not a setting, under the mouse binds where a healer's first look already goes
         -- TWENTY-THREE (7 Nov, Forever 1.0): a new install starts with the crosshair, the LOS flash, the
         -- buff sound and the buff reminder OFF, and Arn's rule is that whatever starts off has a switch a
         -- player can find - so the LOS flash and the buff reminder got rows
         -- TWENTY-FOUR (8 Nov 2026): the PvP mode row, above; TWENTY-FIVE: its cast alert; TWENTY-SIX: the look
-        ok(#NS.UI.Rows() <= 26, "and the whole window has no more than twenty-six rows: " .. #NS.UI.Rows())
+        -- TWENTY-EIGHT (12 Nov 2026): the overheal word and its hover heal, above
+        ok(#NS.UI.Rows() <= 28, "and the whole window has no more than twenty-eight rows: " .. #NS.UI.Rows())
         -- THE HELP STRIP (Arn, 14 Oct: "yes do the help strip"): every setting says what it does
         local undocumented = {}
         for _, o in ipairs(NS.UI.Rows()) do if not o.help then undocumented[#undocumented + 1] = o.label end end
@@ -12478,15 +12482,48 @@ do
         ok(sp2.heal.__scripts.PostClick(sp2.heal, "RightButton", true) == nil and OV.pending == nil,
            "a right-click on Renew (a heal over time): not judged, no word")
         -- switches
-        ok(NS.DO.overword("off") == false and d.overWord == false, "/bish overword off is saved")
+        ok(NS.DO.overword("off") == "off" and d.overWord == false, "/bish overword off is saved")
         sp2.heal.__scripts.OnEnter(sp2.heal)
         ok(not o.win.__shown, "/bish overword off: no word")
         sp2.heal.__scripts.OnLeave(sp2.heal)
-        d.overWord, d.flash = nil, false
+        -- ITS OWN SETTING (Arn, 12 Nov: "add to options ... if they want to change what determines it"): the grid's LOS
+        -- flash no longer switches it
+        ok(NS.DO.overword("half") == "half" and d.overWord == nil and d.overMode == "half", "back on: half")
+        d.flash = false
         sp2.heal.__scripts.OnEnter(sp2.heal)
-        ok(not o.win.__shown, "the grid's click words off: off here too")
+        ok(o.win.__shown, "the grid's LOS flash off: the overheal word has its own setting, still on")
         sp2.heal.__scripts.OnLeave(sp2.heal)
         d.flash = true
+        -- WHAT DECIDES IT, CHANGEABLE: any = the whole heal, half, 75% = a quarter of it against what they miss
+        NS.DO.overword("any")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(o.bar:GetValue() == 1100, "any overheal: the whole heal against what they miss", o.bar:GetValue())
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        NS.DO.overword("75%")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(o.bar:GetValue() == 275, "75%: a quarter of the heal against what they miss", o.bar:GetValue())
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        NS.DO.overword("half")
+        local row
+        for _, r in ipairs(NS.UI.Rows()) do if r.key == "overword" then row = r end end
+        ok(row and table.concat(row.values, ",") == "off,any,half,75%" and row.get() == "half" and row.help == OV.HELP
+           and row.help:find("tooltip", 1, true) and row.help:find("heals already on their way", 1, true),
+           "the options: an 'overheal word' row, off / any / half / 75%, its help saying what decides it")
+        if row then row.set(nil, "any") end
+        ok(d.overMode == "any", "the row sets it")
+        NS.DO.overword("half")
+        -- WHICH BUTTON A HOVER JUDGES (Arn: "some people might want something else other than left click")
+        FM.Set("", "middle", "Healing Wave(Rank 1)")
+        local brow
+        for _, r in ipairs(NS.UI.Rows()) do if r.key == "overbutton" then brow = r end end
+        ok(brow and table.concat(brow.values, ",") == "left,right,wheel,thumb1,thumb2" and brow.get() == "left",
+           "a 'hover heal' row: left to start")
+        brow.set(nil, "wheel")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(d.overButton == "middle" and o.bar:GetValue() == 20.75, "wheel: a hover judges the wheel click's heal", o.bar:GetValue())
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        ok(NS.DO.overbutton("left") == "left" and d.overButton == "left", "/bish overbutton left")
+        FM.Clear("", "middle")
         TEXT[8005] = secretString()
         OV.Forget()
         ok(OV.HealOf("Healing Wave(Rank 7)") == nil, "a secret tooltip is never read: no size, no word")

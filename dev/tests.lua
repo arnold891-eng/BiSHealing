@@ -13101,11 +13101,39 @@ do
             RD.SetKnob("tcall", true)
             ok(not shows(RD.tcall), "its knob off: never lights")
             RD.SetKnob("tcall", false)
+            -- OUT OF A FIGHT, BRING OR RECALL (Arn, 11 Nov: "if i just dropped them its cheaper to bring them and if they
+            -- are about to run out a recall them to get mana back")
             STATE.inCombat, RD.inFight = false, false
+            RD.totemsUntil = CLOCK + 80
             RD.PaintTotems(false)
-            ok(shows(RD.recall) and not shows(RD.call) and not shows(RD.tcall), "the fight over, totems still standing: RECALL lights (mana back)")
+            ok(shows(RD.tcall) and not shows(RD.recall) and not shows(RD.call),
+               "the fight over, 80 s left on them: BRING (cheaper than calling again), not RECALL")
+            ok(RD.OnCast("player", 437009) == "tcall" and RD.totemsBrought and not shows(RD.tcall), "brought along: dark")
+            TICK(35)
+            RD.WatchTotems()
+            ok(not shows(RD.tcall) and not shows(RD.recall), "its cooldown over, 45 s left: no second bring before the next fight, no recall yet")
+            TICK(20)
+            ok(RD.WatchTotems() == true and shows(RD.recall) and not shows(RD.tcall), "25 s left: about to run out - RECALL (the ticker's watch)")
             ok(RD.OnCast("player", 36936) == "recall" and RD.totemsUntil == 0 and not shows(RD.recall) and shows(RD.call),
                "recalled: gone, RECALL dark - and CALL lights again")
+            ok(RD.OnCast("player", 66842) == "call" and not RD.totemsBrought and not shows(RD.tcall) and not shows(RD.recall),
+               "called before the next pull: no BRING (not through a fight yet), no RECALL")
+            TICK(RD.TOTEM_LIFE - RD.TOTEM_LOW + 5)          -- 25 s left
+            RD.WatchTotems()
+            ok(shows(RD.recall), "no pull came and they are about to run out: RECALL (mana back), fight or not")
+            -- the real timers, out of a fight: the earliest end among the long-lived ones (a short fire totem does not decide)
+            local keepInfo = _G.GetTotemInfo
+            _G.GetTotemInfo = function(slot)
+                if slot == 1 then return true, "Stoneskin Totem", CLOCK - 100, 120 end
+                if slot == 2 then return true, "Searing Totem", CLOCK - 25, 30 end
+                if slot == 3 then return true, "Mana Spring Totem", CLOCK - 10, 300 end
+                return false
+            end
+            for i = 1, 3 do TOTEMS[i] = true end
+            ok(RD.ReadTotems() == true and RD.totemsUntil == CLOCK + 20, "out of a fight: the plain timers - Stoneskin ends first (the Searing skipped)", RD.totemsUntil - CLOCK)
+            _G.GetTotemInfo = keepInfo
+            for i = 1, 4 do TOTEMS[i] = false end
+            RD.totemsUntil, RD.totemsFought, RD.totemsBrought = 0, false, false
             ok(RD.OnCast("player", 8071) == false and RD.TotemsUp(), "one totem dropped by hand: they stand too")
             RD.totemsUntil = 0
             TOTEMS[2] = true

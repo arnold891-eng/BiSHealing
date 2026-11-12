@@ -3218,17 +3218,25 @@ end
              not pressing that during combat i have to heal")
     BRING    Totemic Call (relocates them to you, 30 s): IN A FIGHT only, while they stand and it is ready
              (Arn, 11 Nov: "does not nevessarly have to be when i move i can just be lit up during combat")
-    RECALL   Totemic Recall (25% of their mana back): out of a fight while they stand AND they stood through a fight
-             (RD.totemsFought) - never straight after a CALL before the pull. A recall = none stand = CALL lights again
+    OUT OF A FIGHT, BRING OR RECALL (Arn, 11 Nov: "if i just dropped them its cheaper to bring them and if they are about
+    to run out a recall them to get mana back"): after a fight they stood through (RD.totemsFought), with more than
+    RD.TOTEM_LOW seconds left BRING lights (once - a bring out of a fight puts it out till the next fight, and never
+    straight after a CALL before the pull); with RD.TOTEM_LOW or less left RECALL lights (fought or not - mana back
+    before they run out). A recall = none stand = CALL lights again. What is left: the plain totem timers out of a
+    fight (the earliest end among totems that last RD.TOTEM_SHORT+ s - a short fire totem does not decide), else our
+    clock from the Call
   WHAT STANDS IS OUR OWN CLOCK: the totem slots go secret in a fight (solved.md), so a Call / any "... Totem" of yours
   starts RD.totemsUntil (RD.TOTEM_LIFE, Mana Tide its 12 s), a Recall ends it; out of a fight the slots are read plainly
   (FB.TotemSlot, PLAYER_TOTEM_UPDATE) and correct it. ]]
 RD.CALLS = { "Call of the Elements", "Call of the Ancestors" }
 RD.TCALL, RD.RECALL = "Totemic Call", "Totemic Recall"
-RD.TOTEM_LIFE = 120                                 -- seconds most totems stand (Mana Tide: RD.WATER.tide)
+RD.TOTEM_LIFE = 300                                 -- seconds a totem stands (Arn, 11 Nov: "totems last 5 min"; Mana Tide: RD.WATER.tide)
 RD.COOLS.tcall = 30
 RD.totemsUntil = 0
-RD.totemsFought = false                             -- the totems standing now stood through a fight (RECALL's gate)
+RD.totemsFought = false                             -- the totems standing now stood through a fight (BRING's gate after it)
+RD.totemsBrought = false                            -- brought along out of a fight since the last one (BRING out till the next)
+RD.TOTEM_LOW = 30                                   -- seconds left: at or under = RECALL, over = BRING (out of a fight)
+RD.TOTEM_SHORT = 60                                 -- a totem lasting less (a fire totem) does not decide when they run out
 
 local function knows(spell) local FM = NS.FM return FM and FM.Ranks and #FM.Ranks(spell) > 0 or false end
 
@@ -3242,11 +3250,13 @@ function RD.TotemCast(name, now)
         if name == c then
             RD.totemsUntil = now + RD.TOTEM_LIFE
             RD.totemsFought = (RD.inFight or combat()) and true or false
+            RD.totemsBrought = false
             return "call"
         end
     end
     if name == RD.TCALL then
         RD.readyAt.tcall, RD.coolStart.tcall = now + RD.COOLS.tcall, now
+        if not (RD.inFight or combat()) then RD.totemsBrought = true end
         return "tcall"
     end
     if name == RD.RECALL then RD.totemsUntil, RD.totemsFought = 0, false return "recall" end
@@ -3263,13 +3273,28 @@ function RD.ReadTotems()
     local FB = NS.FB
     if combat() or RD.inFight or not (FB and FB.TotemSlot) then return nil end
     if NS.Blind and NS.Blind() then return nil end
-    local any, known = false, true
+    local any, known, ends = false, true, nil
     for slot = 1, 4 do
         local have = FB.TotemSlot(slot)
-        if have == nil then known = false elseif have then any = true end
+        if have == nil then known = false
+        elseif have then
+            any = true
+            -- its timer, plain out of a fight: the earliest end among the long-lived ones is when they run out
+            local ok, _, _, start, dur = pcall(GetTotemInfo, slot)
+            if ok then
+                start = plain(start)
+                dur = plain(dur)
+            else
+                start, dur = nil, nil
+            end
+            if type(start) == "number" and type(dur) == "number" and dur >= RD.TOTEM_SHORT then
+                ends = math.min(ends or math.huge, start + dur)
+            end
+        end
     end
     local now = (GetTime and GetTime()) or 0
-    if any and not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE
+    if any and ends then RD.totemsUntil = ends
+    elseif any and not RD.TotemsUp(now) then RD.totemsUntil = now + RD.TOTEM_LIFE
     elseif known and not any then RD.totemsUntil, RD.totemsFought = 0, false end
     return any
 end
@@ -3301,9 +3326,10 @@ function RD.ArmTotems()
     arm(RD.call, e or a, a or e, { "CALL", (e or a or "") .. (e and a and ("  -  right-click: " .. a) or "")
         .. ".  Lights before the pull while none of your totems are down." })
     arm(RD.tcall, knows(RD.TCALL) and RD.TCALL or nil, nil,
-        { "BRING", RD.TCALL .. " - your totems to you.  Lights in a fight while they stand and it is ready." })
+        { "BRING", RD.TCALL .. " - your totems to you.  Lights in a fight while they stand and it is ready; after one, "
+          .. "while they still have plenty of time left (cheaper than calling again)." })
     arm(RD.recall, knows(RD.RECALL) and RD.RECALL or nil, nil,
-        { "RECALL", RD.RECALL .. " - 25% of their mana back.  Lights after a fight while they still stand." })
+        { "RECALL", RD.RECALL .. " - 25% of their mana back.  Lights out of a fight when they are about to run out." })
     RD.ReadTotems()
     return true
 end
@@ -3313,9 +3339,11 @@ function RD.TotemLights(fight, now)
     now = now or (GetTime and GetTime()) or 0
     local up = RD.TotemsUp(now)
     local function on(b) return b and b.macro and not RD.KnobOff(b.kind) end
+    local low = up and (RD.totemsUntil - now) <= RD.TOTEM_LOW
+    local bringAfter = not fight and up and not low and RD.totemsFought and not RD.totemsBrought
     return on(RD.call) and not fight and not up or false,
-           on(RD.tcall) and fight and up and RD.ToolReady("tcall", now) or false,
-           on(RD.recall) and not fight and up and RD.totemsFought or false
+           on(RD.tcall) and (fight and up or bringAfter) and RD.ToolReady("tcall", now) or false,
+           on(RD.recall) and not fight and low or false
 end
 function RD.PaintTotems(fight)
     if fight == nil then fight = RD.inFight or combat() end
@@ -4341,7 +4369,8 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
         if RD.frame then endDrag(RD.frame) end
         RD.ResOff()                        -- a res is out of a fight only: dark, and no click left armed
         RD.inFight = true                  -- the lockdown starts just after this event: the paints ask this too
-        if RD.TotemsUp() then RD.totemsFought = true end   -- the totems standing go through this fight (RECALL after)
+        if RD.TotemsUp() then RD.totemsFought = true end   -- the totems standing go through this fight (BRING after)
+        RD.totemsBrought = false
         if RD.Active() then RD.PaintQuiet() RD.PickFuel() RD.PaintFuel() end
         return
     end

@@ -3937,7 +3937,14 @@ function FG.Start()
     FG.RestorePos()
     makeHeader(anchor)
 
-    local since, pending = 0, true
+    -- THE LOADING WINDOW (11 Nov 2026, Arn: "how is vuhdo able to redraw fine after a reload ... in combat"). A /reload
+    -- in a fight lets an addon lay out secure frames while the loading events are being handed out (PLAYER_LOGIN,
+    -- PLAYER_ENTERING_WORLD) - the lockdown comes back right after them. EllesmereUI builds its frames inside
+    -- PLAYER_LOGIN, VuhDo inside its loading events; this grid waited for its first update tick, the window already
+    -- shut, and stayed empty until the fight ended. So: laid out HERE, now; the tick only retries what this refused.
+    local since = 0
+    local pending = not FG.Layout(anchor)
+    FG.startLaidOut = not pending           -- kept for the suite: the first layout happened inside PLAYER_LOGIN
     local sweepIn, rangeIn = 0, 0
     anchor:SetScript("OnUpdate", function(_, dt)
         since = since + dt
@@ -4043,6 +4050,9 @@ function FG.Start()
     end
     ev:SetScript("OnEvent", function(_, event)
         pending = true                      -- the update loop relays out when the lockdown lets it
+        -- the loading window again (a zone change, a /reload in a fight): laid out NOW, while it is open - the
+        -- next update tick comes after the lockdown is back
+        if event == "PLAYER_ENTERING_WORLD" and FG.Layout(anchor) then pending = false end
         -- THE GROUP CHANGED MID-FIGHT (Arn, 19 Oct: "shaman are suppose to be blue but some are priest
         -- white might be bug when they leave during combat"): someone leaves, the client moves everyone
         -- up a slot (raid6 is now raid5), and a cell may not be re-pointed until the fight ends. Its

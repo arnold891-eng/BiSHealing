@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 1.3.0
+
+- **A new look: radar.** Next to classic and cockpit, **look: radar** in the options (or `/bish look radar`) turns the grid into a quiet radar: you in the middle, your group around you, tanks on top - and **only what needs a click lights up**. Who needs a heal (green, amber, red), a dispel (a diamond in the cure's colour), an interrupt (a red triangle on their target the moment it casts), your mana tools (shield, Mana Tide, a potion, Mana Spring, a drink, food - each only when it would keep you off empty, dark while it cools), the boss's health racing your mana across the top, a catch-all when your interrupt is cooling, the best person to res after a fight, and for shamans CALL / BRING / RECALL for your totems. In a fight everything else goes invisible. A button in its corner swaps to **the engineer's view** - the same buttons on a plain grid. Drag its bottom-right corner to resize, or use **size** in the options.
+- **New installs start in classic** with every extra off. Your own look and settings stay as they are.
+- **The options' size row** is now just **size**, and with the radar look it sizes the radar.
+
 ## 1.2.4
 
 - **Behind the scenes only.** More work on a feature that's still being tested and switched off for everyone. Nothing changes on your grid, binds or options.

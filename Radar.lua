@@ -2456,8 +2456,11 @@ function RD.Build()
         local G = RD.COL.cyan
         for _, l in ipairs(b.ring or {}) do l:SetVertexColor(G[1], G[2], G[3], 1) end
         b.pulse = RD.Pulse(b.beat, RD.PULSE_SOFT)
-        b.cd = RD.Sweep(b.face)
-        if name ~= "call" then b.life = RD.WaitSweep(b) end   -- the totems' time left, seen lit or dark (RD.ShowLife)
+        -- THE DISCS (11 Nov 2026, Arn: "recall has the same cool down as bring but recall has no cooldown"): BRING carries
+        -- its OWN 30 s cooldown (our clock, RD.PaintWaits, like Mana Tide); CALL the totems' time left - dark while they
+        -- stand, its disc runs down to the moment it lights (RD.ShowLife); RECALL has no cooldown and carries none
+        if name == "tcall" then b.cd = RD.WaitSweep(b) else b.cd = RD.Sweep(b.face) end
+        if name == "call" then b.life = RD.WaitSweep(b) end
         RD[name] = b
     end
     RD.TOTEMS = { RD.call, RD.tcall, RD.recall }
@@ -3243,7 +3246,7 @@ RD.TOTEM_SHORT = 60                                 -- a totem lasting less (a f
   yours (before or after it) = that slot went down; any other = that slot's totem died or ran out. Every slot known
   empty = none stand (RD.totemsUntil 0: BRING goes dark mid-fight). THE TIMER: `GetTotemDuration(slot)` hands the
   client's own duration object for the deciding slot (RD.lifeSlot - the earliest-ending long-lived one, picked out of
-  a fight; earth until then) - handed untouched to a cooling disc on BRING and RECALL (SetCooldownFromDurationObject),
+  a fight; earth until then) - handed untouched to a cooling disc on CALL (SetCooldownFromDurationObject) - dark while they stand,
   so the time left is the game's, fight or not. Lua never reads it. ]]
 RD.TOTEM_CAST_WINDOW = 0.5
 RD.EARTH_SLOT = 2
@@ -3351,11 +3354,11 @@ function RD.TotemSlotChanged(slot, now)
     return true
 end
 
---- THE TIME LEFT, the game's own: the deciding slot's duration object (GetTotemDuration) on BRING's and RECALL's cooling
+--- THE TIME LEFT, the game's own: the deciding slot's duration object (GetTotemDuration) on CALL's (dark meanwhile) cooling
 --- disc, handed untouched; out of a fight the plain start/length do the same. Nothing standing: cleared.
 function RD.ShowLife()
     local discs = {}
-    for _, b in ipairs({ RD.tcall, RD.recall }) do if b and b.life and b.macro then discs[#discs + 1] = b.life end end
+    for _, b in ipairs({ RD.call }) do if b and b.life and b.macro then discs[#discs + 1] = b.life end end
     if #discs == 0 then return false end
     local slot = RD.lifeSlot
     if not slot then
@@ -3635,7 +3638,7 @@ end
 function RD.PaintWaits(now)
     now = now or (GetTime and GetTime()) or 0
     local n = 0
-    for kind, b in pairs({ tide = RD.tide, potion = RD.potion }) do
+    for kind, b in pairs({ tide = RD.tide, potion = RD.potion, tcall = RD.tcall }) do
         local cd = b and b.cd
         if cd and cd.wait then
             local s, r = RD.coolStart[kind], RD.readyAt[kind]
@@ -3699,7 +3702,7 @@ function RD.OnCast(unit, spellID)
     if getName then ok, name = pcall(getName, spellID) end
     name = ok and plain(name) or nil
     local totem = RD.TotemCast(name, now)            -- the totem clock (CALL / BRING / RECALL)
-    if totem then RD.PaintTotems() return totem end
+    if totem then RD.PaintTotems() RD.PaintWaits(now) return totem end
     if name == RD.TIDE then
         RD.readyAt.tide, RD.coolStart.tide = now + RD.COOLS.tide, now
         RD.PaintWaits(now)

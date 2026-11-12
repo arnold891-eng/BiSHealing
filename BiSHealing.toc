@@ -36,6 +36,8 @@ Buffs.lua
 # the heals probe (`/bish heals`), read only
 Heals.lua
 Radar.lua
+# the radar's OVER word (more than half the heal wasted), on hover and on the click
+Overheal.lua
 TestCam.lua
 # the radar's bottom rail; its code lives only in a private key addon (BiSBlackBox), never here
 BlackBox.lua

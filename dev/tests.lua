@@ -12357,6 +12357,121 @@ do
         d.flash = keepFlash
     end
 
+    -- THE OVER WORD (Arn, 12 Nov 2026: "an overheal for the radar like the los and range" - "more than half, both"):
+    -- the client compares, through a bar: max = what they miss (secret), value = half the heal. Full = OVER.
+    do
+        local OV = NS.OV
+        local FM = NS.FM
+        local keep = { ranks = FM.Ranks, desc = C_Spell.GetSpellDescription, name = C_Spell.GetSpellName,
+                       miss = _G.UnitHealthMissing, flash = d.flash, over = d.overWord,
+                       left = FM.Get("", "left"), sleft = FM.Get("shift-", "left"), right = FM.Get("", "right") }
+        FM.Ranks = function(n)
+            if n == "Healing Wave" then return { { rank = "Rank 1", spell = 331 }, { rank = "Rank 7", spell = 8005 } } end
+            if n == "Renew" then return { { rank = "Rank 1", spell = 139 } } end
+            return keep.ranks(n)
+        end
+        local TEXT = { [8005] = "Heals a friendly target for 1,000 to 1,200.", [331] = "Heals a friendly target for 36 to 47.",
+                       [139] = "Heals the target for 45 over 15 sec." }
+        C_Spell.GetSpellDescription = function(id) return TEXT[id] end
+        C_Spell.GetSpellName = function(id) return (id == 8005 or id == 331) and "Healing Wave" or "Lightning Bolt" end
+        local MISS = secret()
+        local asked = {}
+        _G.UnitHealthMissing = function(u, predicted) asked[#asked + 1] = { u, predicted } return MISS end
+        d.flash, d.overWord = true, nil
+        FM.Set("", "left", "Healing Wave(Rank 7)")
+        FM.Set("shift-", "left", "Healing Wave(Rank 1)")
+        FM.Set("", "right", "Renew")
+        OV.Forget()
+        ok(OV.HealOf("Healing Wave(Rank 7)") == 1100 and OV.HealOf("Healing Wave(Rank 1)") == 41.5
+           and OV.HealOf("Healing Wave") == 1100 and OV.HealOf("Renew") == nil,
+           "a heal's size: the middle of its tooltip's range, by the bind's rank (bare = the highest); a HoT is not judged")
+        -- HOVER: your left-click heal
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        local o = sp2.over
+        ok(o and o.win.__shown and o.bar.__shown, "the mouse on party1's pip: the word is armed under it")
+        local lo, hi = o.bar:GetMinMaxValues()
+        ok(lo == -1 and hi == MISS and o.bar:GetValue() == 550,
+           "the bar: max = what they miss (handed SECRET, never read), value = half your left-click heal (550)")
+        ok(asked[#asked][1] == "party1" and asked[#asked][2] == true, "missing health with incoming heals taken off")
+        local wpt = o.word.points and o.word.points[1] or {}      -- a mock font string keeps its anchors in `points`
+        local wp, wrel, wrp = wpt[1], wpt[2], wpt[3]
+        local bp, brel, brp = o.bar:GetPoint(1)
+        ok(wp == "LEFT" and wrel == o.bar:GetStatusBarTexture() and wrp == "RIGHT" and bp == "RIGHT" and brel == o.win
+           and brp == "LEFT" and o.win:DoesClipChildren() and o.bar:GetWidth() == OV.SPAN and o.bar:GetAlpha() == 0,
+           "OVER hangs off the fill's end; the bar (never seen, " .. OV.SPAN .. " px) ends at a CLIPPING window: only a full bar shows it")
+        ok(o.word.__text == "OVER", "the word")
+        ok(OV.listening == "party1", "only the hovered unit is listened to")
+        STATE.shift = true
+        fire(OV.events, "MODIFIER_STATE_CHANGED")
+        ok(o.bar:GetValue() == 20.75, "holding shift: shift-left's heal instead (Rank 1, half of 41.5)")
+        STATE.shift = false
+        fire(OV.events, "MODIFIER_STATE_CHANGED")
+        local MISS2 = secret()
+        MISS = MISS2
+        fire(OV.events, "UNIT_HEALTH", "party1")
+        ok(select(2, o.bar:GetMinMaxValues()) == MISS2, "their health moves while you hover: handed again")
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        ok(not o.win.__shown and OV.listening == nil, "the mouse leaves: the word goes, nobody listened to")
+        -- THE CLICK: measured at the click, shown when the cast starts, held still
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        local CLICKED = secret()
+        MISS = CLICKED
+        sp2.heal.__scripts.PostClick(sp2.heal, "LeftButton", true)
+        ok(OV.pending and OV.pending.sp == sp2 and select(2, o.bar:GetMinMaxValues()) == CLICKED,
+           "a click: measured NOW, before the cast starts (once it does, your own heal counts as incoming)")
+        MISS = secret()                                      -- the client now counts your cast as incoming
+        fire(OV.events, "UNIT_SPELLCAST_START", "player", "cast-1", 8005)
+        ok(o.flashUntil and o.fade and o.fade.playing and o.win.__shown and OV.casting,
+           "the cast starts: the word shows, fading by itself (the grid's flash length)")
+        fire(OV.events, "UNIT_HEALTH", "party1")
+        ok(select(2, o.bar:GetMinMaxValues()) == CLICKED, "held still while it flashes: the heal landing never flips it")
+        fire(OV.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-1", 8005)
+        ok(OV.casting == nil and OV.pending == nil, "the cast lands: nothing left waiting")
+        o.flashUntil = nil
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        -- a click whose cast never comes, or comes late, or is another spell: no flash
+        sp2.heal.__scripts.PostClick(sp2.heal, "LeftButton", true)
+        TICK(OV.MATCH_FOR + 0.2)
+        ok(OV.CastBegan(8005) == false, "a cast long after the click is not the click's")
+        sp2.heal.__scripts.PostClick(sp2.heal, "LeftButton", true)
+        ok(OV.CastBegan(403) == false, "another spell started (a key, a macro): not the click's")
+        ok(sp2.heal.__scripts.PostClick(sp2.heal, "RightButton", true) == nil and OV.pending == nil,
+           "a right-click on Renew (a heal over time): not judged, no word")
+        -- switches
+        ok(NS.DO.overword("off") == false and d.overWord == false, "/bish overword off is saved")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(not o.win.__shown, "/bish overword off: no word")
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        d.overWord, d.flash = nil, false
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(not o.win.__shown, "the grid's click words off: off here too")
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        d.flash = true
+        TEXT[8005] = secretString()
+        OV.Forget()
+        ok(OV.HealOf("Healing Wave(Rank 7)") == nil, "a secret tooltip is never read: no size, no word")
+        TEXT[8005] = "Heals a friendly target for 1,000 to 1,200."
+        OV.Forget()
+        -- LEAN: hovering, ten health changes on that unit; nothing at all for anyone else
+        local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
+        if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
+        if okC then
+            sp2.heal.__scripts.OnEnter(sp2.heal)
+            local n, by = Cost.Count(function() for _ = 1, 10 do fire(OV.events, "UNIT_HEALTH", "party1") end end)
+            print(("   cost: OVER word, hovering, 10 health changes = %d calls (%s)"):format(n, Cost.Top(by, 3)))
+            ok(n <= 60, "hovering a pip through 10 health changes: a few calls each", n)
+            sp2.heal.__scripts.OnLeave(sp2.heal)
+            local n2 = Cost.Count(function() for _ = 1, 10 do fire(OV.events, "UNIT_HEALTH", "party2") end end)
+            ok(n2 == 0, "nobody hovered: other units' health costs nothing", n2)
+        end
+        FM.Ranks, C_Spell.GetSpellDescription, C_Spell.GetSpellName, _G.UnitHealthMissing = keep.ranks, keep.desc, keep.name, keep.miss
+        d.flash, d.overWord = keep.flash, keep.over
+        for _, b in ipairs({ { "", "left", keep.left }, { "shift-", "left", keep.sleft }, { "", "right", keep.right } }) do
+            if b[3] then FM.Set(b[1], b[2], b[3]) else FM.Clear(b[1], b[2]) end
+        end
+        OV.Forget()
+    end
+
     -- the pip's colour: the client's, from their health through our curve - hidden full, green, amber, red
     local function shade(sp)
         RD.PaintHeal(sp)

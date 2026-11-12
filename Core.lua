@@ -1948,6 +1948,22 @@ function NS.DO.flash(how)
     return on
 end
 
+--- /bish overword [on|off] - the radar's OVER under a pip: more than half the heal would be wasted, on hover and on the
+--- click (Overheal.lua, 12 Nov 2026). Rides the click words (`flash`): with those off it is off too. Stored true / false;
+--- nil = on (it only ever shows with `flash` on, which a new install starts without).
+function NS.DO.overword(how)
+    local d = DB()
+    local on
+    if how == "on" or how == true then on = true
+    elseif how == "off" or how == false then on = false
+    else on = d.overWord == false end
+    d.overWord = on and true or false
+    remember()
+    Print(on and "the radar says OVER when more than half a heal would be wasted (needs /bish flash on)"
+        or "no OVER on the radar")
+    return on
+end
+
 --- /bish dim 40 - how bright an out-of-range cell stays, as a percentage, 20 to 90.
 function NS.DO.dim(pct)
     local d = DB()
@@ -2030,7 +2046,7 @@ function NS.DO.help()
         .. " |cffb980ffcolumns|r |cffb980ffacross|r |cffb980ffpyramid|r")
     Print("  |cffb980ffefficiency|r which heal, mana for mana   |cffb980ffheals|r the probe behind it")
     Print("  |cffb980ffbuffs|r BiS> now's buff buttons   |cffb980fftrinkets|r trinkets first, per modifier")
-    Print("  |cffb980ffcures|r |cffb980ffhover|r |cffb980ffflash|r |cffb980ffbetween|r  on or off")
+    Print("  |cffb980ffcures|r |cffb980ffhover|r |cffb980ffflash|r |cffb980ffoverword|r |cffb980ffbetween|r  on or off")
     Print("  |cffb980ffrange|r |cffb980ffoverheal|r |cffb980ffhealabsorb|r  measurements  |cffb980ffhits reset|r|cff968ead/rst|r  count again")
     Print("  the grey word after a command is the short way to type it")
 end
@@ -2061,7 +2077,7 @@ NS.SHORT = {
     targetoftarget = "tot", heals = "heal", efficiency = "hpm", range = "rng", overheal = "over",
     curve = "curv", control = "fear", holds = "hold", watch = "wtch", between = "btw",
     buffsound = "bsnd", buffs = "bufs", markers = "mark", cures = "cure", trinkets = "trin",
-    hover = "hov", flash = "flsh", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
+    hover = "hov", flash = "flsh", overword = "ovw", clique = "clq", layout = "lay", pyramid = "pyr", columns = "cols",
     across = "rows", saved = "db", macro = "keep",
     pvpmode = "pvp", healabsorb = "habs",
 }
@@ -2304,6 +2320,8 @@ SlashCmdList.BISHEALING = function(input)
         NS.DO.hover(msg:match("^hover%s+(%a+)"))
     elseif msg == "flash" or msg:match("^flash%s") then
         NS.DO.flash(msg:match("^flash%s+(%a+)"))
+    elseif msg == "overword" or msg:match("^overword%s") then
+        NS.DO.overword(msg:match("^overword%s+(%a+)"))
     elseif msg == "dim" or msg:match("^dim%s") then
         NS.DO.dim(msg:match("^dim%s+([%d%.]+)"))
     elseif msg == "clique" then

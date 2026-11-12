@@ -665,8 +665,13 @@ local function buildSpoke(f, i)
     sp.amberPulse = RD.Pulse(b.amberFace, RD.PULSE_MID)
     -- the GCD's sweep, its swipe dark only while the pip is lit (RD.SwipeCurve on their health, RD.PaintHeal)
     sp.cd = RD.Sweep(b.face)
-    b:HookScript("OnEnter", function() RD.over = sp end)
-    b:HookScript("OnLeave", function() if RD.over == sp then RD.over = nil end end)
+    b:HookScript("OnEnter", function() RD.over = sp if NS.OV then NS.OV.Enter(sp) end end)
+    b:HookScript("OnLeave", function()
+        if RD.over == sp then RD.over = nil end
+        if NS.OV then NS.OV.Leave(sp) end
+    end)
+    -- THE OVER WORD (Overheal.lua, 12 Nov 2026): the click is measured here, before the cast starts
+    b:HookScript("PostClick", function(_, button) if NS.OV then NS.OV.Click(sp, button) end end)
     sp.heal = b
     -- BOGEY: their target, a red triangle only while it casts; a click is your interrupt (enemies only)
     local k = CreateFrame("Button", "BiSHealingRadarBogey" .. i, f, "SecureActionButtonTemplate")

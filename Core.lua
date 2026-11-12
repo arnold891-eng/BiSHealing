@@ -1616,16 +1616,24 @@ local PVP_SAID = {
     on  = "PvP mode everywhere: beside each player their target - click it to cast on it",
 }
 
---- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit"): "cockpit" or "classic". No
---- argument walks the two. Every cell is dressed again at once and repainted - paint only, so it is safe in a fight.
+--- THE LOOK (Arn, 8 Nov 2026: "reimage the cells and frames as if its on a cockpit"): "cockpit", "classic" or, since
+--- 11 Nov 2026, "dashboard" - the radar in the grid's place (Arn: "take this alpha and add it to the look of bis
+--- healing"). No argument walks the three. The cells are dressed again at once (paint only, safe in a fight); the
+--- dashboard comes and goes through RD.Apply, which waits for the fight's end when it must.
+NS.LOOK_ORDER = { "classic", "cockpit", "dashboard" }
 function NS.DO.look(how)
     local d = DB()
     if not (NS.FG and NS.FG.LOOKS and NS.FG.LOOKS[how or ""]) then
-        how = (NS.FG and NS.FG.Look and NS.FG.Look() == "cockpit") and "classic" or "cockpit"
+        local cur = NS.FG and NS.FG.Look and NS.FG.Look() or "classic"
+        how = NS.LOOK_ORDER[1]
+        for i, v in ipairs(NS.LOOK_ORDER) do if v == cur then how = NS.LOOK_ORDER[i % #NS.LOOK_ORDER + 1] end end
     end
     d.look = how
     if NS.FG and NS.FG.RedressAll then NS.FG.RedressAll() end
-    Print("look: " .. how)
+    -- the radar only when this turns it on or off (a re-apply re-lays the grid out)
+    local RD = NS.RD
+    if RD and RD.Apply and RD.On and RD.Active and RD.On() ~= RD.Active() then RD.Apply() end
+    Print("look: " .. how .. ((how == "dashboard" and InCombatLockdown and InCombatLockdown()) and "  (after this fight)" or ""))
     return how
 end
 
@@ -2482,7 +2490,7 @@ function NS.Forever10(listIn)
     else
         for k, v in pairs(NS.QUIET) do db[k] = v end
         db.selfBuffs = { none = true }                      -- no buff watched: no header word, no sound
-        db.look = db.look or "cockpit"                      -- the new look is for new installs
+        db.look = db.look or "classic"                      -- new installs: classic, nothing on (Arn, 11 Nov 2026)
         was = "new"
     end
     db.forever10 = true

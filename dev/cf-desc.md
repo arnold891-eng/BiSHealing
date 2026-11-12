@@ -1,7 +1,12 @@
-# BiS Healing — CurseForge page text (1.0.3)
+# BiS Healing — CurseForge page text (1.3.0)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 1.0.3 text (11 Nov, 1.3.0): a new "The dashboard look" section after "The cockpit look" - the
+radar, once a hidden test, is now the third look (classic / cockpit / dashboard): the quiet radar, the engineer's
+view, the mana tools, the right rail (catch-all, res, totems), the fuel gauge, ships, resize by the corner. The
+cockpit section no longer says it is the default: new installs start in classic with nothing on.
 
 Changed since the 1.0.1 text (8 Nov, 1.0.3): a new "The cockpit look" section before "The cells" (the default look:
 dark tile, name and class lamp, health as a gauge tape, amber readout, cyan / white / orange bands, magenta target;
@@ -123,7 +128,25 @@ Every cell is drawn like one screen on an aircraft's instrument panel, with one 
 - **Heals on their way in cyan, a shield in white, overheal in orange** — all riding the tape.
 - **Your target in magenta**; **DEAD** in red, **OFFLINE** in amber.
 
-Prefer the look from before? **look: classic** in the options (or `/bish look classic`) puts every cell back, at once.
+Prefer the plain grid? **look: classic** in the options (or `/bish look classic`) puts every cell back, at once. New installs start in classic.
+
+## The dashboard look
+
+The third look turns the grid into **a quiet radar**: you in the middle, your group around you, tanks always on top. **Only what needs a click lights up** — in a fight everything else goes invisible, so your eyes go straight to the one thing to do.
+
+- **Who needs a heal:** each person is a pip that appears **green, amber, then red** as they get hurt, and is gone when they're fine. Click to heal; your other binds still work on it. Pets are small paws beside their owner.
+- **Dispels:** a diamond in the cure's colour on whoever carries something you can remove.
+- **Interrupts:** a red triangle on someone's target the moment it casts — click it to kick.
+- **LOS / RANGE:** when a heal fails, the word appears under that person, so you know to move.
+- **Your mana tools on the left:** your shield, Mana Tide, a mana potion, Mana Spring as the last resort, a drink and food — each lights only when it would keep you off empty, and goes dark while it cools.
+- **The fuel gauge across the top:** the boss's health racing your mana. When the boss is well ahead of you, a warning band says slow down.
+- **The right rail:** a catch-all (Grounding Totem, Psychic Scream) when your interrupt is cooling; after a fight, the best person to res — healers first; and for shamans **CALL, BRING and RECALL**: call your totems before the pull, bring them along in the fight, and after it bring them or recall them for mana back, whichever is cheaper.
+- **Ships:** the colours change with your group's size, from a fighter for a party to a capital ship for a raid.
+- **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar.
+- **Resize** by dragging the bottom-right corner (right-click it for 100%). Drag the radar itself to move it. Both out of a fight.
+- **The black box** along the bottom is still being built: its keypad doesn't do anything yet.
+
+Turn it on with **look: dashboard** in the options, or `/bish look dashboard`.
 
 ## The cells
 

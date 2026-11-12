@@ -10448,7 +10448,7 @@ do
         noMacro()
         FK.read = true
         d = login(nil, nil)
-        ok(d.look == "cockpit" and FG.Look() == "cockpit", "a new install starts in the cockpit", tostring(d.look))
+        ok(d.look == "classic" and FG.Look() == "classic", "a new install starts in classic, nothing on (Arn, 11 Nov 2026)", tostring(d.look))
         d = login({ dbver = 1, owner = NS.Me(), savedAt = 1, shown = true }, nil)
         ok(d.look == "classic", "an existing save from before 1.0 keeps classic", tostring(d.look))
         -- THE COUSIN: stamped at 1.0.0, never picked a look, 1.0.3 read his nil as the cockpit
@@ -10777,7 +10777,7 @@ do
     local function near(c, want) return c and math.abs(c[1] - want[1]) < 0.01 and math.abs(c[2] - want[2]) < 0.01
                                       and math.abs(c[3] - want[3]) < 0.01 end
     d.look = nil
-    ok(FG.Look() == "cockpit", "a player who never picked: the cockpit")
+    ok(FG.Look() == "classic", "nothing written reads as classic (Arn, 11 Nov 2026: \"new installs start in classic\")")
     ok(NS.DO.look("cockpit") == "cockpit" and d.look == "cockpit", "/bish look cockpit")
     local K = FG.COCKPIT
     local f
@@ -10847,8 +10847,9 @@ do
     -- ONE SWITCH BACK
     local row
     for _, o in ipairs(NS.UI.Rows()) do if o.key == "look" then row = o end end
-    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "cockpit,classic" and row.help,
-       "the options window has a look row: cockpit, classic")
+    ok(row and row.kind == "seg" and table.concat(row.values, ",") == "classic,cockpit,dashboard" and row.help
+       and row.help:find("dashboard", 1, true),
+       "the options window has a look row: classic, cockpit, dashboard (Arn, 11 Nov 2026)")
     row.set(d, "classic")
     ok(d.look == "classic" and f.__look == "classic", "classic picked: every cell back at once")
     ok(not f.band.__shown and not f.bezel.top.__shown and not f.lamp.__shown and not f.readoutBox.__shown,
@@ -13211,6 +13212,34 @@ do
             fire(RD.events, "PLAYER_ENTERING_WORLD")
             ok(armed == 1, "with the lockdown on, not even tried (it waits for the fight's end)")
             RD.Arm, STATE.inCombat = keepArm, keepCombat
+        end
+        -- THE DASHBOARD LOOK (Arn, 11 Nov 2026: "take this alpha and add it to the look of bis healing, cockpit classic and
+        -- dashboard"): the radar is a public look, black box rail and all ("bottom rail is not hidden everyone sees it")
+        do
+            local d = NS.DB()
+            local keep = { alpha = d.alpha, look = d.look, combat = STATE.inCombat }
+            STATE.inCombat = false
+            d.alpha, d.look = false, "classic"
+            RD.Apply()
+            ok(not RD.On() and not RD.Active() and not FG.Hidden(d), "the alpha off, classic: no radar, the grid shows")
+            ok(NS.DO.look("dashboard") == "dashboard" and RD.On() and RD.Active() and RD.frame:IsShown() and FG.Hidden(d),
+               "/bish look dashboard: the radar takes the grid's place - no alpha switch needed")
+            ok(RD.bbRail and RD.bbRail:IsShown() and RD.BBRail() == RD.bbRail and RD.hull.points[2][2] == RD.bbRail,
+               "the black box rail along the bottom for everyone, the hull round it")
+            ok(NS.DO.look() == "classic" and not RD.Active() and not FG.Hidden(d), "no word walks on: dashboard -> classic, the grid back")
+            ok(NS.DO.look() == "cockpit" and NS.DO.look() == "dashboard" and RD.Active(), "classic -> cockpit -> dashboard")
+            STATE.inCombat = true
+            ok(NS.DO.look("classic") == "classic" and RD.Active() and RD.pending, "in a fight: the radar stays till the fight's end (pending)")
+            STATE.inCombat = false
+            fire(RD.events, "PLAYER_REGEN_ENABLED")
+            ok(not RD.Active() and not FG.Hidden(d), "the fight over: the grid back")
+            d.alpha = true
+            d.look = "classic"
+            RD.Apply()
+            ok(RD.Active(), "the alpha's radar switch still turns the radar on whatever the look")
+            d.alpha, d.look = keep.alpha, keep.look
+            STATE.inCombat = keep.combat
+            RD.Apply()
         end
         -- THE TOTEMS (Arn, 11 Nov: "cast them all then you bring them too you and recall to get mana back")
         do

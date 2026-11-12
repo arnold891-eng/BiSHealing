@@ -187,7 +187,21 @@ local function db()
 end
 
 --- Is the radar on now (the alpha, and this feature)?
-function RD.On() return NS.AlphaOn and NS.AlphaOn(RD.KEY) or false end
+-- THE DASHBOARD LOOK (11 Nov 2026, Arn: "we are ready to take this alpha and add it to the look of bis healing, cockpit
+-- classic and dashboard"): the radar is a public look now - `look = "dashboard"` (NS.DO.look, the options' look row).
+-- The secret alpha's radar switch still turns it on too. The black box rail along the bottom shows for everyone (Arn:
+-- "bottom rail is not hidden everyone sees it"); its codes need the key addon either way. The brains need the private
+-- key addon; the test camera is its own alpha feature.
+function RD.On()
+    if NS.AlphaOn and NS.AlphaOn(RD.KEY) then return true end
+    local FG = NS.FG
+    return (FG and FG.Look and FG.Look() == "dashboard") or false
+end
+--- The black box rail, while it is part of the instrument (the extras, out of the engineer's view).
+function RD.BBRail()
+    local b = RD.bbRail
+    return (b and b:IsShown()) and b or nil
+end
 --- Is it standing in for the grid now? (What the grid asks: FG.Hidden.)
 function RD.Active() return RD.shownFor == true end
 
@@ -2156,7 +2170,7 @@ function RD.FitHull()
     end
     local top = RD.gaugeRail or f
     -- the bottom rail spans the whole width already (RD.FitWide); without one, the square's corner or the right rail's
-    local corner = RD.bbRail or ((RD.defRail and RD.defRail:IsShown()) and RD.defRail) or f
+    local corner = RD.BBRail() or ((RD.defRail and RD.defRail:IsShown()) and RD.defRail) or f
     h:ClearAllPoints()
     h:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
     h:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
@@ -2200,7 +2214,7 @@ function RD.ClampRails()
     if RD.Console and RD.Console() then pcall(f.SetClampRectInsets, f, 0, 0, 0, 0) return end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
-    local bottom = (RD.bbRail and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
+    local bottom = (RD.BBRail() and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
     pcall(f.SetClampRectInsets, f, -(RD.TOOL_RAIL_W + gap), right, RD.GAUGE_RAIL_H + gap, bottom)
 end
 
@@ -4649,5 +4663,5 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
 end)
 
 NS.AlphaFeature{ key = RD.KEY, name = "the radar",
-                 desc = "the grid as a quiet radar: only what needs a click lights up (in a fight everything else is invisible)",
+                 desc = "the radar whatever the look - it is the dashboard look for everyone now",
                  apply = function() RD.Apply() end, cmd = function(rest) return RD.Command(rest) end }

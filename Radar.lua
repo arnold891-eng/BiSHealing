@@ -1320,6 +1320,12 @@ function RD.BuildHull(f)
         for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side] = plateTex() end
         RD.edges[k] = ring
     end
+    -- A FRAME over the plate, for other addons to dock against (BiSHealingAPI v2 RadarEdge). 12 Nov 2026, Arn's BugSack:
+    -- "Cannot anchor protected frames to regions" - the BiS Tools box holds secure buttons, and the client refuses to pin
+    -- such a frame to a texture. A plain frame with the plate's corners is allowed.
+    -- Pinned to the SAME FRAMES as the plate, never to the plate: the client checks the whole chain (12 Nov, second
+    -- BugSack - a frame SetAllPoints'd to the texture was refused the same way). Placed by RD.FitHull.
+    RD.edgeFrame = CreateFrame("Frame", nil, f)
     RD.FitHull()
     RD.PaintHull()
     return RD.hull
@@ -2202,6 +2208,7 @@ function RD.FitHull()
         h:ClearAllPoints()
         h:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
         h:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 0, 0)
+        RD.FitEdgeFrame(f, f)
         RD.FitEdges(h)
         return
     end
@@ -2211,7 +2218,18 @@ function RD.FitHull()
     h:ClearAllPoints()
     h:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
     h:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
+    RD.FitEdgeFrame(top, corner)
     RD.FitEdges(h)
+end
+
+--- The dock frame (BiSHealingAPI RadarEdge) on the plate's two corners - pinned to the rails / the radar, which are
+--- FRAMES: a box holding secure buttons may be pinned to it only if no texture is anywhere in the chain.
+function RD.FitEdgeFrame(top, corner)
+    local e = RD.edgeFrame
+    if not e then return end
+    e:ClearAllPoints()
+    e:SetPoint("TOPLEFT", top, "TOPLEFT", 0, 0)
+    e:SetPoint("BOTTOMRIGHT", corner, "BOTTOMRIGHT", 0, 0)
 end
 
 --- The soft rings round the hull, wherever it is.

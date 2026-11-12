@@ -1320,6 +1320,11 @@ function RD.BuildHull(f)
         for _, side in ipairs({ "top", "bottom", "left", "right" }) do ring[side] = plateTex() end
         RD.edges[k] = ring
     end
+    -- A FRAME over the plate, for other addons to dock against (BiSHealingAPI v2 RadarEdge). 12 Nov 2026, Arn's BugSack:
+    -- "Cannot anchor protected frames to regions" - the BiS Tools box holds secure buttons, and the client refuses to pin
+    -- such a frame to a texture. A plain frame with the plate's corners is allowed.
+    RD.edgeFrame = CreateFrame("Frame", nil, f)
+    RD.edgeFrame:SetAllPoints(RD.hull)
     RD.FitHull()
     RD.PaintHull()
     return RD.hull

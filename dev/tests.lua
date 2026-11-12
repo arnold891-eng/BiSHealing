@@ -13256,8 +13256,10 @@ do
             -- API version 2: what another addon (BiS Tools' box) docks against
             local A = _G.BiSHealingAPI
             local edge, margin, rf = A.RadarEdge()
-            ok(A.Look() == "radar" and edge == RD.hull and margin == RD.EDGE_N * RD.EDGE_PX and rf == RD.frame,
+            ok(A.Look() == "radar" and edge == RD.edgeFrame and margin == RD.EDGE_N * RD.EDGE_PX and rf == RD.frame,
                "BiSHealingAPI.RadarEdge: the radar's whole outline, its soft edge, its frame - while it shows")
+            -- 12 Nov 2026, Arn's BugSack: "Cannot anchor protected frames to regions" - the edge must be a FRAME
+            ok(edge ~= RD.hull and edge.CreateTexture ~= nil, "RadarEdge hands a frame (secure boxes may be pinned to it), not the hull texture")
             -- THE SIZE ROW, while the radar shows (Arn: "only the scale work on the rader and nothing else")
             local row
             for _, o in ipairs(NS.UI.Rows()) do if o.key == "scale" then row = o end end

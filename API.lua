@@ -73,7 +73,8 @@
 --   BiSHealingAPI.Look()
 --       -> "classic", "cockpit" or "radar" - the look the player picked; or nil, "not ready".
 --   BiSHealingAPI.RadarEdge()
---       -> while the radar look is on screen: a REGION to anchor to - the radar's whole outline,
+--       -> while the radar look is on screen: a FRAME to anchor to (never a texture: a box holding
+--          secure buttons may only be pinned to a frame) - the radar's whole outline,
 --          every rail included - then the soft edge's width in pixels beyond it, then the radar
 --          frame (hook its SetPoint / SetScale to follow it: it moves and resizes out of a fight
 --          only); nil, "not shown" otherwise. ONLY for SetPoint against it: never change it, show
@@ -245,7 +246,8 @@ function API.RadarEdge()
     local RD = NS.RD
     local f = RD and RD.frame
     if not (RD and RD.hull and f and try(RD.Active) and try(f.IsShown, f)) then return nil, "not shown" end
-    return RD.hull, (RD.EDGE_N or 0) * (RD.EDGE_PX or 0), f
+    -- a FRAME, never the hull texture: a frame holding secure buttons may not be pinned to a texture (12 Nov 2026)
+    return RD.edgeFrame or f, (RD.EDGE_N or 0) * (RD.EDGE_PX or 0), f
 end
 
 function API.Tank()

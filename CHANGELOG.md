@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.2.3
+
+- **A relog or disconnect in the middle of a fight brings your whole group back.** The game sometimes loads before it knows who you're grouped with, and the grid would show only you until the fight ended. Now BiS Healing keeps a small note of your group's shape - which raid group everyone is in, no names - in a character macro called **BiSHealingRoster** and in its saved settings, updated when the group changes and at every pull, never in a fight. When you come back mid-fight it lays the grid out from that note and the names fill in as the game catches up. It never takes your last free character macro slot and never touches your other macros.
+
 ## 1.2.2
 
 - **A /reload in the middle of a fight brings the grid straight back.** The game only lets an addon place its frames for a moment while it loads after a reload; the grid used to wait a beat too long, miss it, and stay empty until the fight ended. Now it lays out in that moment, and again on every loading screen.

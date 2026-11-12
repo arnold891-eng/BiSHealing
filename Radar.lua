@@ -2926,7 +2926,11 @@ local function armCures(sp, unit)
             local ok, container = pcall(CreateFrame, "AuraContainer", nil, c.holder or f, "CustomAuraContainerTemplate")
             if ok and container then
                 container:SetSize(1, 1)
-                container:SetPoint("CENTER", f, "CENTER", cx, cy)
+                -- ON ITS BOX, and the marker on the container (11 Nov 2026, Arn: "when my cousin tries to click this on the
+                -- engineer view to dispel the poison it does not dispel"): the marker was placed at the radar spot on the
+                -- frame itself, so in the engineer's view the box moved to its square and the diamond stayed behind, over
+                -- nothing clickable. Now wherever the box goes - radar, console, a bigger class - the diamond goes too.
+                container:SetPoint("CENTER", c.box, "CENTER")
                 container:SetUnit(unit)
                 local first
                 for t in pairs(cure.types or {}) do first = first or t end
@@ -2951,7 +2955,7 @@ local function armCures(sp, unit)
                         if button.SetMouseClickEnabled then pcall(button.SetMouseClickEnabled, button, false) end
                         -- the GCD sweep on the marker: drawn only while the client draws the marker
                         if not button.bisSweep then button.bisSweep = RD.Sweep(button) c.sweep = button.bisSweep end
-                    end, px, "CENTER", f, cx, cy),
+                    end, px, "CENTER", container, 0, 0),
                 })
             end
         end

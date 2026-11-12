@@ -11933,6 +11933,15 @@ do
         local cb = RD.spokes[2].cures[1] and RD.spokes[2].cures[1].box
         local cx, cy = c(cb)
         ok(cb and cy == G.rows[2] and math.abs(cx - G.cols[2]) < RD.CON.colW / 2, "row 2: their cures under them")
+        -- THE DIAMOND GOES WITH ITS BOX (Arn, 11 Nov: "when my cousin tries to click this on the engineer view to dispel
+        -- the poison it does not dispel"): the marker hangs off its container, the container off the clickable box
+        local cc = RD.spokes[2].cures[1].container
+        local mark
+        for _, sl in pairs(cc and cc.slots or {}) do mark = sl end
+        local mp = mark and mark.points[1]
+        ok(cc and cc.points[1] and cc.points[1][2] == cb and mp and mp[2] == cc and mp[4] == 0 and mp[5] == 0,
+           "the dispel diamond sits on its clickable box in the engineer's view (it stayed at the radar spot before)",
+           mp and tostring(mp[2]))
         local bx, by = c(RD.spokes[2].bogey)
         ok(bx == G.cols[2] and by == G.rows[3], "row 3: the kick on their target")
         local px, py = c(RD.spokes[2].pet)

@@ -189,13 +189,24 @@ end
 --- Is the radar on now (the alpha, and this feature)?
 -- THE DASHBOARD LOOK (11 Nov 2026, Arn: "we are ready to take this alpha and add it to the look of bis healing, cockpit
 -- classic and dashboard"): the radar is a public look now - `look = "dashboard"` (NS.DO.look, the options' look row).
--- The secret alpha's radar switch still turns it on too. The black box rail along the bottom shows for everyone (Arn:
--- "bottom rail is not hidden everyone sees it"); its codes need the key addon either way. The brains need the private
--- key addon; the test camera is its own alpha feature.
+-- THE LOOK ALONE DECIDES (11 Nov 2026, Arn: "in the options when i toggel between class cockpit and dash it does
+-- nothing" - the old alpha switch kept the radar up whatever the look, and the grid behind it hidden). Whoever had the
+-- alpha radar on is moved to the dashboard ONCE (RD.DashStamp), so nobody loses the radar they had; from then on the
+-- look is the only switch. The black box rail along the bottom shows for everyone (Arn: "bottom rail is not hidden
+-- everyone sees it"); its codes need the key addon either way. The brains need the private key addon; the test
+-- camera is its own alpha feature.
 function RD.On()
-    if NS.AlphaOn and NS.AlphaOn(RD.KEY) then return true end
     local FG = NS.FG
     return (FG and FG.Look and FG.Look() == "dashboard") or false
+end
+--- Once: the alpha radar on = the dashboard look (written down, `dash1` on the account). Answers true when it moved one.
+function RD.DashStamp()
+    local d = NS.DB()
+    if d.dash1 or not (NS.AlphaOn and NS.AlphaOn(RD.KEY)) then return false end
+    d.dash1 = true
+    if d.look == "dashboard" then return false end
+    d.look = "dashboard"
+    return true
 end
 --- The black box rail, while it is part of the instrument (the extras, out of the engineer's view).
 function RD.BBRail()
@@ -4465,6 +4476,7 @@ end
 
 --- Bring the radar in or out to match the switch. Out of a fight only; asked in one, it waits.
 function RD.Apply()
+    RD.DashStamp()                                   -- the old alpha switch, once, into the look
     local want = RD.On()
     if combat() then
         if want ~= RD.Active() then RD.pending = true end
@@ -4666,6 +4678,6 @@ ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     end
 end)
 
-NS.AlphaFeature{ key = RD.KEY, name = "the radar",
-                 desc = "the radar whatever the look - it is the dashboard look for everyone now",
+NS.AlphaFeature{ key = RD.KEY, name = "the radar's words",
+                 desc = "the dashboard's hidden words (heal, center, knob) - the radar itself is the dashboard look now",
                  apply = function() RD.Apply() end, cmd = function(rest) return RD.Command(rest) end }

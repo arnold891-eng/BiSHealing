@@ -11753,10 +11753,15 @@ do
     local keepShown = d.shown
     d.shown = true                                   -- the grid ON, so its giving way is seen
     local shownBefore = d.shown
-    ok(RD and not RD.Active() and NS.ALPHA.radar, "the radar is a test feature, off while the alpha is")
+    -- THE LOOK ALONE DECIDES (11 Nov 2026): classic = no radar; the old alpha switch moves a player to the dashboard ONCE
+    SlashCmdList.BISHEALING("alpha off")
+    d.look, d.dash1 = "classic", nil
+    RD.Apply()
+    ok(RD and not RD.Active() and NS.ALPHA.radar, "the classic look: no radar")
     SlashCmdList.BISHEALING("alpha on")
     local f = _G.BiSHealingRadar
-    ok(RD.Active() and f and f:IsShown(), "/bish alpha on: the radar comes up")
+    ok(RD.Active() and f and f:IsShown() and d.look == "dashboard" and d.dash1 == true,
+       "the old alpha radar switch, the first time: moved to the dashboard look once - the radar comes up")
     -- THE WHEEL STAYS ARMED WITH THE GRID HIDDEN (Arn 8 Nov, radar on: "when i tried to do my heals on the ellesmere
     -- frames my binds used to work on that"): the wheel is a mouseover BINDING over any addon's frames; a layout with the
     -- grid hidden used to return before arming it, so a reload left it dead
@@ -13242,10 +13247,10 @@ do
             STATE.inCombat = false
             fire(RD.events, "PLAYER_REGEN_ENABLED")
             ok(not RD.Active() and not FG.Hidden(d), "the fight over: the grid back")
-            d.alpha = true
+            d.alpha, d.dash1 = true, true
             d.look = "classic"
             RD.Apply()
-            ok(RD.Active(), "the alpha's radar switch still turns the radar on whatever the look")
+            ok(not RD.Active() and not FG.Hidden(d), "once moved, the alpha switch no longer holds the radar up: classic means the grid")
             d.alpha, d.look = keep.alpha, keep.look
             STATE.inCombat = keep.combat
             RD.Apply()
@@ -13652,9 +13657,12 @@ do
         ok(not RD.tide.macro and not RD.potion.macro and RD.tide.face:GetAlpha() == 0, "no Mana Tide, no potions: their places stay dark")
     end
 
-    -- off: the grid comes back exactly as it was
+    -- off: the grid comes back exactly as it was - by the look now (Arn, 11 Nov: "when i toggel between class cockpit and
+    -- dash it does nothing"), the alpha switch no longer holds the radar up
     SlashCmdList.BISHEALING("alpha off")
-    ok(not RD.Active() and not f:IsShown() and NS.FG.Hidden() == (shownBefore == false), "/bish alpha off: the radar goes, the grid is as it was")
+    ok(RD.Active(), "/bish alpha off: the radar stays - it is the dashboard look now, not the alpha")
+    NS.DO.look("classic")
+    ok(not RD.Active() and not f:IsShown() and NS.FG.Hidden() == (shownBefore == false), "look: classic - the radar goes, the grid is as it was")
 
     STATE.units.party1, STATE.units.party2 = true, true
     BOOK[43], BOOK[44], BOOK[45] = keep.b43, keep.b44, keep.b45

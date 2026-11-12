@@ -32,10 +32,11 @@ NS.OV = OV
 
 OV.SHARE = 0.5          -- "more than half": OVER when half the heal reaches what they are missing
 OV.SPAN = 10000         -- the hidden bar: 1% short of full moves the word 100 px - wholly out of its window, never half
-OV.W, OV.H = 48, 14     -- the window under the pip the word shows in
+OV.W, OV.H = 68, 14     -- the window under the pip the word shows in (OVER/H and its outline, with room)
 OV.FLASH_FOR = 1.2      -- the click's flash, the grid's own length (FG.FLASH_FOR)
 OV.MATCH_FOR = 0.6      -- a cast that starts this long after the click is the click's
-OV.COLOUR = { 1.00, 0.72, 0.20 }
+OV.COLOUR = { 1.00, 0.24, 0.92 }    -- the cockpit's magenta, as your target's crosshair (Arn, 12 Nov: "magenta")
+OV.WORD = "OVER/H"                   -- Arn, 12 Nov: "Over/H" - overheal, short
 OV.SLOT = { LeftButton = "left", RightButton = "right", MiddleButton = "middle", Button4 = "button4", Button5 = "button5" }
 
 local function secret(v) return NS.Secret and NS.Secret(v) or false end
@@ -134,7 +135,7 @@ function OV.Build(sp)
     local word = win:CreateFontString(nil, "OVERLAY")
     if word.SetFont then word:SetFont(STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF", 12, "THICKOUTLINE") end
     word:SetPoint("LEFT", bar:GetStatusBarTexture(), "RIGHT", 4, 0)
-    word:SetText("OVER")
+    word:SetText(OV.WORD)
     word:SetTextColor(OV.COLOUR[1], OV.COLOUR[2], OV.COLOUR[3], 1)
     if win.CreateAnimationGroup then
         local ok, g = pcall(win.CreateAnimationGroup, win)

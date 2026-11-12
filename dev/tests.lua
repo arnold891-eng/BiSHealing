@@ -12399,7 +12399,9 @@ do
         ok(wp == "LEFT" and wrel == o.bar:GetStatusBarTexture() and wrp == "RIGHT" and bp == "RIGHT" and brel == o.win
            and brp == "LEFT" and o.win:DoesClipChildren() and o.bar:GetWidth() == OV.SPAN and o.bar:GetAlpha() == 0,
            "OVER hangs off the fill's end; the bar (never seen, " .. OV.SPAN .. " px) ends at a CLIPPING window: only a full bar shows it")
-        ok(o.word.__text == "OVER", "the word")
+        local wc = o.word.__color or {}
+        ok(o.word.__text == "OVER/H" and wc[1] == 1.00 and wc[2] == 0.24 and wc[3] == 0.92,
+           "the word: OVER/H, in the cockpit's magenta (Arn: \"magenta\", \"Over/H\")", tostring(o.word.__text))
         ok(OV.listening == "party1", "only the hovered unit is listened to")
         STATE.shift = true
         fire(OV.events, "MODIFIER_STATE_CHANGED")

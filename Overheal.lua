@@ -15,7 +15,9 @@
   WHICH HEAL:
     * HOVER - the pip under the mouse: the heal on the button picked in "hover heal" (`overButton`, left to start - Arn:
       "some people might want something else other than left click") for the modifier held now (shift / ctrl / alt switch it,
-      MODIFIER_STATE_CHANGED), followed while you hover (UNIT_HEALTH / UNIT_HEAL_PREDICTION for that one unit only).
+      MODIFIER_STATE_CHANGED) - and when that button holds no heal (Nature's Swiftness on the left, Arn's cousin, 12 Nov)
+      the next button that does (OV.HoverHeal); a macro bind counts the first heal its /cast lines name (OV.MacroHeal) -
+      followed while you hover (UNIT_HEALTH / UNIT_HEAL_PREDICTION for that one unit only).
     * CLICK - the heal on the button you pressed: measured AT the click (PostClick, before the cast starts - once it does,
       the client counts your own heal as incoming and every heal would look wasted), shown when the cast really starts
       (UNIT_SPELLCAST_START, or _SUCCEEDED for an instant), held still and faded by itself in OV.FLASH_FOR.
@@ -44,7 +46,9 @@ OV.HELP = "OVER/H under a teammate (radar, engineer view) when your heal would b
     .. "than half wasted. 75% - three quarters. HoTs not judged."
 OV.HELP_LONG = "OVER/H shows under a teammate on the radar (under their box in the engineer view) when your heal would be "
     .. "wasted. Your heal = the middle of its tooltip (\"heals for X to Y\") for the rank on that mouse button - on hover "
-    .. "the heal on the button you pick in 'hover heal' (hold shift, ctrl or alt for theirs), on a click the heal you started. "
+    .. "the heal on the button you pick in 'hover heal' (hold shift, ctrl or alt for theirs; when that button holds no "
+    .. "heal - Nature's Swiftness, a res - the next button that does), on a click the heal you started. A macro bind "
+    .. "counts the first heal it casts (/cast Nature's Swiftness then /cast Healing Wave = the Healing Wave). "
     .. "What they miss = the game's own number, minus heals already on their way. Heals over time are not judged. any - "
     .. "any overheal at all. half - more than half the heal wasted. 75% - three quarters or more. off - never."
 OV.SPAN = 10000         -- the hidden bar: 1% short of full moves the word 100 px - wholly out of its window, never half
@@ -130,9 +134,45 @@ function OV.SpellOf(cast)
     return type(pick.spell) == "number" and pick.spell or nil
 end
 
+--- A macro bind's heal (Arn, 12 Nov: his cousin keeps Nature's Swiftness "over his heal" on the left): the first spell
+--- its /cast (or /use) lines name that is a heal we can judge - "/cast Nature's Swiftness" then "/cast Healing Wave"
+--- judges the Healing Wave. Conditions ([@mouseover] ...) and "; " options are read past; a "!" in front is dropped.
+--- Answers amount, spell name. The body is asked every time (he may edit it); the spells' sizes are cached.
+function OV.MacroHeal(name)
+    if type(name) ~= "string" or name == "" or not (GetMacroBody and GetMacroIndexByName) then return nil end
+    local okI, idx = pcall(GetMacroIndexByName, name)
+    if not okI or type(idx) ~= "number" or idx <= 0 then return nil end
+    local ok, body = pcall(GetMacroBody, idx)
+    if not ok or type(body) ~= "string" or secret(body) then return nil end
+    for line in body:gmatch("[^\r\n]+") do
+        local rest = line:match("^%s*/cast%s+(.*)$") or line:match("^%s*/use%s+(.*)$")
+        if rest then
+            for part in (rest .. ";"):gmatch("([^;]*);") do
+                local spell = part:gsub("%b[]", ""):gsub("^%s+", ""):gsub("%s+$", ""):gsub("^!", "")
+                if spell ~= "" and not spell:match("^%d+$") then
+                    local amount = OV.HealOf(spell)
+                    if amount then return amount, (spell:match("^(.-)%(") or spell) end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+--- A bind's heal and the spell's name: a spell bind, or the heal inside a macro bind. nil when there is none to judge.
+function OV.Judge(cast)
+    if type(cast) ~= "string" or cast == "" then return nil end
+    local m = cast:match("^macro:(.+)$")
+    if m then return OV.MacroHeal(m) end
+    local amount = OV.HealOf(cast)
+    if amount then return amount, (cast:match("^(.-)%(") or cast) end
+    return nil
+end
+
 --- The middle of a heal's "for X to Y", or nil (not a heal we can judge, or its text is not loaded yet).
 function OV.HealOf(cast)
     if type(cast) ~= "string" or cast == "" then return nil end
+    if cast:match("^macro:") then return (OV.MacroHeal(cast:match("^macro:(.+)$"))) end
     local c = OV.cache[cast]
     if c ~= nil then return c or nil end
     local id = OV.SpellOf(cast)
@@ -167,6 +207,22 @@ function OV.BindFor(slotKey, mod)
     if type(cast) ~= "string" or cast == "" then return nil end
     if FM.PingOf and FM.PingOf(cast) then return nil end
     return cast
+end
+
+--- The heal a HOVER judges, for the modifier held: the "hover heal" button's first; when that button holds no heal we
+--- can judge (Nature's Swiftness, a res, a buff - Arn's cousin, 12 Nov), the next button that does, in the options'
+--- order (left, right, wheel, thumb1, thumb2). Answers amount, slot.
+function OV.HoverHeal(mod)
+    local first = OV.HoverSlot()
+    local amount = OV.Judge(OV.BindFor(first, mod))
+    if amount then return amount, first end
+    for _, b in ipairs(OV.BUTTONS) do
+        if b[2] ~= first then
+            amount = OV.Judge(OV.BindFor(b[2], mod))
+            if amount then return amount, b[2] end
+        end
+    end
+    return nil
 end
 
 -- ------------------------------------------------------------------ the word under a pip
@@ -274,7 +330,7 @@ function OV.PaintHover()
     if not sp then return false end
     local o = sp.over
     if flashing(o) or OV.casting then return false end    -- a flash, or your own cast in the air, holds the word still
-    local heal = OV.On() and sp.unit and OV.HealOf(OV.BindFor(OV.HoverSlot(), OV.Mod()))
+    local heal = OV.On() and sp.unit and OV.HoverHeal(OV.Mod())
     if not heal then hide(o) OV.Listen(nil) return false end
     o = OV.Build(sp)
     if not OV.Hand(o, sp.unit, heal) then hide(o) OV.Listen(nil) return false end
@@ -302,26 +358,26 @@ end
 function OV.Click(sp, button)
     OV.pending = nil
     if not (OV.On() and sp and sp.unit) then return false end
-    local cast = OV.BindFor(OV.SLOT[button or "LeftButton"] or "left", OV.Mod())
-    local heal = OV.HealOf(cast)
+    local heal, name = OV.Judge(OV.BindFor(OV.SLOT[button or "LeftButton"] or "left", OV.Mod()))
     if not heal then return false end
     local o = OV.Build(sp)
     if not OV.Hand(o, sp.unit, heal) then return false end
-    OV.pending = { sp = sp, at = now(), name = (cast:match("^(.-)%(") or cast) }
+    OV.pending = { sp = sp, at = now(), name = name }
     return true
 end
 
 --- Your cast started (or an instant went off): the click's word, held still, fading by itself.
 function OV.CastBegan(spellID)
     local p = OV.pending
-    OV.pending = nil
-    if not p or now() - p.at > OV.MATCH_FOR then return false end
+    if not p or now() - p.at > OV.MATCH_FOR then OV.pending = nil return false end
     local name
     if C_Spell and C_Spell.GetSpellName then
         local ok, n = pcall(C_Spell.GetSpellName, spellID)
         if ok then name = plain(n) end
     end
-    if name and name ~= p.name then return false end     -- some other spell (a macro, a key): not this click's
+    -- some other spell: not this click's - but the click still waits (a macro casts Nature's Swiftness first, then the heal)
+    if name and name ~= p.name then return false end
+    OV.pending = nil
     local sp, o = p.sp, p.sp.over
     if not o then return false end
     o.flashUntil = now() + OV.FLASH_FOR

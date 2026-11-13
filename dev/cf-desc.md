@@ -1,7 +1,12 @@
-# BiS Healing — CurseForge page text (1.3.0)
+# BiS Healing — CurseForge page text (1.4.3)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 1.3.0 text (12 Nov, 1.4.3): the engineer's view line says what 1.4.0-1.4.3 gave it (heals on
+their way, the magenta overheal and your hover's waste, LOS / RANGE / OVER/H in three header boxes, the small fuel
+gauge on top); "The cells" gains the hover preview; OVER/H says a macro counts its first heal (1.4.1); the drink
+reaches for mage water first.
 
 Changed since the 1.0.3 text (11 Nov, 1.3.0): a new "The radar look" section after "The cockpit look" - the
 radar, once a hidden test, is now the third look (classic / cockpit / radar): the quiet radar, the engineer's
@@ -138,12 +143,12 @@ The third look turns the grid into **a quiet radar**: you in the middle, your gr
 - **Dispels:** a diamond in the cure's colour on whoever carries something you can remove.
 - **Interrupts:** a red triangle on someone's target the moment it casts — click it to kick.
 - **LOS / RANGE:** when a heal fails, the word appears under that person, so you know to move.
-- **OVER/H:** appears under someone when your heal would be **wasted** — as your mouse rests on them, and again the moment you start the heal. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button; what they miss is the game's own number, minus heals already on their way. How much waste counts is yours: **overheal word: off / any / half / 75%** (half to start), and which button a hover judges: **hover heal: left / right / wheel / thumb1 / thumb2**.
-- **Your mana tools on the left:** your shield, Mana Tide, a mana potion, Mana Spring as the last resort, a drink and food — each lights only when it would keep you off empty, and goes dark while it cools.
+- **OVER/H:** appears under someone when your heal would be **wasted** — as your mouse rests on them, and again the moment you start the heal. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button (a macro counts the first heal in it, so Nature's Swiftness + Healing Wave judges the Healing Wave); what they miss is the game's own number, minus heals already on their way. How much waste counts is yours: **overheal word: off / any / half / 75%** (half to start), and which button a hover judges: **hover heal: left / right / wheel / thumb1 / thumb2**.
+- **Your mana tools on the left:** your shield, Mana Tide, a mana potion, Mana Spring as the last resort, a drink (mage water first) and food — each lights only when it would keep you off empty, and goes dark while it cools.
 - **The fuel gauge across the top:** the boss's health racing your mana. When the boss is well ahead of you, a warning band says slow down.
 - **The right rail:** a catch-all (Grounding Totem, Psychic Scream) when your interrupt is cooling; after a fight, the best person to res — healers first; and for shamans **CALL, BRING and RECALL**: call your totems before the pull, bring them along in the fight, and after it bring them or recall them for mana back, whichever is cheaper.
 - **Ships:** the colours change with your group's size, from a fighter for a party to a capital ship for a raid.
-- **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar. Its party boxes are **health bars in class colours**, dimmed when someone is out of range, LOS / RANGE in the middle when a heal fails, and while you hover, a pale piece after their health shows how much of your heal fits.
+- **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar. Its party boxes are **health bars in class colours**, dimmed when someone is out of range, with **heals on their way in cyan** and the part that would land on nobody in **magenta**. While you hover, a fainter band shows how much your heal would add, and a fainter magenta what it would waste. **LOS, RANGE and OVER/H** light three small boxes across its top for whichever square you clicked or hovered, and a **small fuel gauge** sits over it: your mana, the boss's health past it, BINGO, your regen % and the five second rule.
 - **Resize** by dragging the bottom-right corner (right-click it for 100%). Drag the radar itself to move it. Both out of a fight.
 - **The black box** along the bottom is still being built: its keypad doesn't do anything yet.
 
@@ -156,6 +161,7 @@ One per person, and the groups can run **down or across**. Options: **groups: do
 - **The first name on the top line** — "Kumlust", not "Kumlust Surname".
 - **A number on the bottom line: what they still need.** It counts heals already on their way, so two healers stop filling the same gap. Shortened (`3.2K`), and **blank at full health**. Prefer a **percentage**? Or nothing? Your choice.
 - **Heals on their way, and the overheal.** Incoming heals fill the missing health (cyan in the cockpit look, green in classic) and stop at the cell's edge. The part of a heal that would land on nobody shows as a bold band over the end of their health (orange in the cockpit look, magenta in classic), with a white tick where it starts — that is how much damage they can take before your heal stops being wasted. Mid-cast, cancel and re-cast until there is no magenta left - then every point of it lands.
+- **See your heal before you cast it.** Rest your mouse on someone and a fainter copy of the incoming colour shows how much your heal would add; if it runs into the cell's edge, that part would be overheal. Hold Shift, Ctrl or Alt to see that heal instead.
 - **Coloured by health**: green, amber below 70%, red below 35% — always in the cockpit look; in classic, class colour or by health, your pick.
 - **Cure boxes, down the left edge.** One small box per cure you know: Cure Poison and Cure Disease for a shaman, Dispel Magic and Cure Disease for a priest, Remove Curse and Cure Poison for a druid, Cleanse for a paladin. Click the box to cure that person, mid-fight too. When they pick up something that box can remove, the game draws its icon in the box and the box pulses teal, with the stack count in the corner. On Forever a cure takes one stack off, so the number is how many clicks are left. Each box lights only for its own kind, so the one lit is the one to click. Your mouse buttons stay free for heals. `/bish cures off` puts back a single marker instead.
 - **Your heals over time, with a countdown**: Renew for priests, Rejuvenation and Regrowth for druids, and **Riptide for shamans** — only your own casts, every rank. Each is found by name in your own spellbook, so it appears the day you train it and never before.

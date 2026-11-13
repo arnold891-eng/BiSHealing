@@ -112,7 +112,24 @@ function EN.HeadBoxes()
         q:SetPoint("CENTER", f, "TOPLEFT", x0 + h.x + h.w / 2, y)
         q:Show()
     end
+    if not con then EN.TintRadarHeads() end
     return set
+end
+
+-- THE RADAR'S BOXES IN THE SHIP'S COLOURS (Arn, 12 Nov, a screenshot of green boxes on the purple radar: "same color theme
+-- please"): edged like the readout box beside the tape - the ship's accent - a little dimmer, as empty boxes are. The
+-- console keeps its own green (its squares are green). Repainted when the ship changes (RD.ApplyShip).
+EN.RADAR_HEAD_A = 0.55
+
+--- The radar's alert boxes edged in the ship's accent.
+function EN.TintRadarHeads()
+    local RD = NS.RD
+    local A = (RD and RD.ship and RD.ship.accent) or (RD and RD.SHIPS and RD.SHIPS[1] and RD.SHIPS[1].accent)
+    if not (A and EN.radarHeads) then return false end
+    for _, q in pairs(EN.radarHeads) do
+        for _, t in ipairs(q.edges or {}) do t:SetColorTexture(A[1], A[2], A[3], EN.RADAR_HEAD_A) end
+    end
+    return true
 end
 
 --- A click word on a pip (RD.HeardError): into its own box - LOS or RANGE - on whichever surface shows.
@@ -445,6 +462,9 @@ local function wrap()
         end
     end
     if look then RD.Look = function(...) local r = look(...) EN.Range() return r end end
+    -- a new ship (the group grew or shrank): the radar's alert boxes take its colours
+    local ship = RD.ApplyShip
+    if ship then RD.ApplyShip = function(...) local r = ship(...) EN.TintRadarHeads() return r end end
     -- the view switch: after it has hidden or shown the radar's pieces, the fuel strip moves (and the clamp follows)
     local apply = RD.ApplyView
     if apply then

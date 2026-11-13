@@ -12547,6 +12547,16 @@ do
         local H = EN.radarHeads or {}
         ok(H.los and H.range and H.over and H.los:GetParent() == RD.gaugeRail and H.los.__shown,
            "three dim boxes on the radar's top rail: LOS, RANGE, OVER/H")
+        -- THE SHIP'S COLOURS (Arn: "same color theme please" - they were the console's green on the purple radar)
+        local A = RD.ship and RD.ship.accent
+        local ec = H.los.edges[1].__color or H.los.edges[1].__vertex or {}
+        ok(A and ec[1] == A[1] and ec[2] == A[2] and ec[3] == A[3] and ec[4] == EN.RADAR_HEAD_A,
+           "edged in the ship's accent, like the readout box (never the console's green)", tostring(ec[1]))
+        local keepShip = RD.ship
+        RD.ApplyShip(RD.SHIPS[4])
+        local ec4 = H.los.edges[1].__color or H.los.edges[1].__vertex or {}
+        ok(ec4[1] == RD.SHIPS[4].accent[1] and ec4[3] == RD.SHIPS[4].accent[3], "a new ship: the boxes take its colours")
+        RD.ApplyShip(keepShip or RD.SHIPS[1])
         ok(RD.GAUGE_RAIL_H == 44 + RD.ALERT_H and RD.gaugeRail:GetHeight() == RD.GAUGE_RAIL_H
            and RD.gauge.role.points[1][5] == -5 - RD.ALERT_H,
            "the rail one row taller (still one rail per side), the placard moved down under the row")

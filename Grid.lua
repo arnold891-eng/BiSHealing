@@ -2829,6 +2829,8 @@ function FG.PaintPvPCell(c)
         c.kick:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM))
         -- the WHOLE pair (icons, sweeps, glow) on the frame's alpha - allowed in a fight, unlike Show/Hide on a secure button
         if c.kickFx then c.kickFx:SetAlpha(friend and 0 or (lit and 1 or FG.KICK_DIM)) end
+        -- a cast you cannot interrupt wears a shield (Guard.lua, Arn 12 Nov)
+        if lit and c.kickFx and NS.KG then NS.KG.Paint(c.kickFx, tok) end
         -- the glow and the bounce change only when the answer does: a repaint mid-cast never restarts the bounce
         if lit ~= c.kickLit then
             c.kickLit = lit

@@ -8,8 +8,13 @@
   code it reloads the game" ... "Build the bottom raid with the squawk box thing".
 
   THE RAIL: under the tool rail and the square, the hull's dark. Left, ONE LAMP with a soft glow; beside it the words
-  BLACK BOX, the status, and a small screen (the scratchpad) where the code you type shows. Right, a keypad: the squawk
-  digits 1-7 and 0, an A, CLR and EXEC (the mockup's keys).
+  BLACK BOX and the status. Right, a keypad: 2 x 2, the digits 1-4 (12 Nov 2026, Arn: "the 1234567890A lets just do a 2x2
+  1234" - "to save space"); a code is four of them and the FOURTH key sends it - no CLR, no EXEC (a wrong code is simply
+  turned down and the pad empties). THE BOTTOM ROW, between the lamp and the keypad, is shared (Arn, same night: "find a
+  better place for the overheal los and range bars, the black box has a huge chat bot for the code mayeb we can use that
+  space the code is only 4 long anyways"): normally the radar's three alert boxes (LOS / RANGE / OVER/H, Engineer.lua
+  EN.HeadBoxes); while you type a code or a reply shows - out of a fight only - the screen (the scratchpad) comes up over
+  them (BB.ScreenUp).
 
   THE LAMP (Arn: "red all the time, green when it's safe to reload, yellow when it's close to a log read, red no
   reload. Soft glow"). Red is the resting state, not an alarm.
@@ -49,7 +54,7 @@ local ADDON, NS = ...
 local BB = {}
 NS.BB = BB
 
-BB.MIN, BB.MAX = 4, 6         -- a code's length
+BB.MIN, BB.MAX = 4, 4         -- a code's length: four keys, the fourth sends it
 BB.WAIT = 15                  -- seconds after a fight before it is safe to reload
 BB.MINUTES = 120              -- a recording stops itself after this
 BB.SAY = 3                    -- seconds a reply stays on the screen
@@ -58,7 +63,7 @@ BB.RAIL_H = 46
 BB.KW, BB.KH, BB.KGAP = 18, 17, 2
 BB.SOUND = {}                 -- click / deny / arm: Arn's picks from the sound explorer (11 Nov)
 -- the keypad, two rows (the mockup's keys: squawk digits 0-7, an A, CLR, EXEC)
-BB.ROWS = { { "1", "2", "3", "4", "5", "CLR" }, { "6", "7", "0", "A", "EXEC" } }
+BB.ROWS = { { "1", "2" }, { "3", "4" } }
 BB.WIDE = { CLR = 32, EXEC = 52 }
 
 BB.COL = { lilac = { 0.79, 0.72, 1.00 }, dim = { 0.44, 0.42, 0.53 }, green = { 0.36, 1.00, 0.61 },
@@ -206,9 +211,16 @@ function BB.Press(k)
     elseif #BB.pad < BB.MAX then
         BB.pad = BB.pad .. k
         BB.sayUntil = nil
+        -- the fourth key sends it (no EXEC key on the 2 x 2 pad)
+        if #BB.pad >= BB.MAX then return BB.Exec() end
     end
     BB.Paint()
     return k
+end
+
+--- Is the screen up over the bottom row (a code being typed, or a reply showing)? Otherwise the alert boxes have it.
+function BB.ScreenUp()
+    return (BB.pad ~= "" or BB.sayUntil) and true or false
 end
 
 -- ------------------------------------------------------------------ painting
@@ -251,6 +263,13 @@ function BB.Paint()
         setText(r.screen, hex(BB.COL[BB.saidCol] or BB.COL.red) .. BB.said .. "|r")
     else
         setText(r.screen, hex(BB.COL.lilac) .. "[" .. BB.pad .. "|r" .. hex(BB.COL.dim) .. "_|r" .. hex(BB.COL.lilac) .. "]|r")
+    end
+    -- the bottom row: the screen while a code is typed or a reply shows, the radar's alert boxes otherwise
+    local up = BB.ScreenUp()
+    if r.scrUp ~= up then
+        r.scrUp = up
+        if up then r.scr:SetAlpha(1) else r.scr:SetAlpha(0) end
+        if NS.EN and NS.EN.ShowRadarHeads then NS.EN.ShowRadarHeads(not up) end
     end
     if not (BB.Recording() or BB.sayUntil) then BB.Wake() end
 end
@@ -341,8 +360,13 @@ function BB.Build(f, toolRail, makeRail)
 
     -- the keypad, right
     local pad = CreateFrame("Frame", nil, r)
-    local padW = BB.KW * 5 + BB.KGAP * 5 + BB.WIDE.CLR
-    pad:SetSize(padW, BB.KH * 2 + BB.KGAP)
+    local padW = 0
+    for _, keys in ipairs(BB.ROWS) do
+        local w = 0
+        for j, label in ipairs(keys) do w = w + (BB.WIDE[label] or BB.KW) + (j > 1 and BB.KGAP or 0) end
+        padW = math.max(padW, w)
+    end
+    pad:SetSize(padW, BB.KH * #BB.ROWS + BB.KGAP * (#BB.ROWS - 1))
     pad:SetPoint("RIGHT", r, "RIGHT", -6, 0)
     pad:SetFrameLevel(L + 2)
     r.keys = {}
@@ -375,6 +399,8 @@ function BB.Build(f, toolRail, makeRail)
     r.screen = text(scr, 9, "LEFT")
     r.screen:SetPoint("LEFT", scr, "LEFT", 5, 0)
     r.scr = scr
+    -- the bottom row's other tenant: the radar's alert boxes sit where the screen is, over it while it is down
+    r.row = scr
 
     BB.Paint()
     BB.Wake()

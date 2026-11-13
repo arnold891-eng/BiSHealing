@@ -4213,7 +4213,12 @@ RD.BogeyAlpha = bogeyAlpha
 local function paintContact(sp, lit)
     local k = sp.bogey
     local col = lit and RD.COL.bogey or RD.CONTACT
-    if lit then bogeyAlpha(k, 1, col) return true end
+    if lit then
+        bogeyAlpha(k, 1, col)
+        -- a cast you cannot interrupt wears a shield (Guard.lua, Arn 12 Nov)
+        if NS.KG then NS.KG.Paint(k.face, sp.tok, k.GetWidth and k:GetWidth()) end
+        return true
+    end
     bogeyAlpha(k, 0, col)
     -- ONLY WHEN IT CASTS (Arn, 8 Nov, four green triangles over a party on one mob: "why is it showing interrupt buttons
     -- when its not casting" - picked "only when casting"). The quiet green contact below is kept, switched off by

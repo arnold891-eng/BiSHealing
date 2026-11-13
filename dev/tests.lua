@@ -13369,6 +13369,17 @@ do
         ok(RD.potion.item == 6149 and RD.potion:GetAttribute("*macrotext1") == "/use item:6149",
            "the best mana potion in the bags (by the level it needs): a click drinks it", RD.potion.item)
         ok(RD.fuel.item == 1205 and RD.fuel:GetAttribute("*macrotext1") == "/use item:1205", "the best drink: a click drinks it")
+        -- MAGE WATER FIRST (Arn, 12 Nov: "can you proioritize mage water first on the drink button too")
+        BAG[#BAG + 1] = 5350                                   -- Conjured Water: needs level 5, under the melon juice's 15
+        ITEM[5350] = { "Drink", 430, 5 }
+        RD.ArmTools()
+        ok(RD.fuel.item == 5350 and RD.fuel:GetAttribute("*macrotext1") == "/use item:5350",
+           "a mage's water in the bags: the drink button reaches for it first, whatever level the bought one needs", RD.fuel.item)
+        ok(RD.IsConjured(99999, "Conjured Glacier Water") and not RD.IsConjured(1205, "Melon Juice"),
+           "conjured by id, else by a name starting 'Conjured '")
+        BAG[#BAG], ITEM[5350] = nil, nil
+        RD.ArmTools()
+        ok(RD.fuel.item == 1205, "the mage water drunk up: back to the best bought drink")
         ok(RD.RestoreAmount(WORDS[1135]) == 835.2 and RD.RestoreAmount(WORDS[2023]) == 800
            and RD.RestoreAmount(WORDS["Mana Tide Totem"]) == 680 and RD.RestoreAmount("Heals for 5.") == nil,
            "what each restores, read off its own words (a decimal read whole; a totem's ticks added up)")

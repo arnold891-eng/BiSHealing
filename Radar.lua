@@ -66,10 +66,7 @@ RD.GAUGE = { w = 7, left = 56, right = 64, base = 19, flag = 5 }
 -- same dark) melts into its rail.
 RD.RAIL_GAP = 3                                    -- between the rails, and between the tool rail and the square
 RD.TOOL_RAIL_W = 22 + 8                            -- a system pip and a margin
--- THE ALERT ROW (12 Nov 2026, Arn: "how can we bring radar up to speed" - the engineer's three header boxes, LOS / RANGE /
--- OVER/H, on the radar too): one row along the TOP of the gauge's rail, so it stays one rail per side (Arn, 9 Nov)
-RD.ALERT_H = 18
-RD.GAUGE_RAIL_H = 44 + RD.ALERT_H                  -- the alert row, the readout box, the tape, the scale under it
+RD.GAUGE_RAIL_H = 44                               -- the readout box, the tape, the scale's ticks and numbers under it
 -- THE SHIPS (9 Nov 2026, Arn: "lean to the ryan gosling in the spirit of star wars imperial purple and white accents like
 -- a fighter and the more the group gets we change the color to finally ending in star destroyer theam"). The radar's
 -- chrome takes the look of a bigger ship as the group grows: night-drive neon on a small fighter, cooling through a
@@ -1128,12 +1125,12 @@ local function buildGauge(f)
     end
     -- each line at its own fixed spot, so an empty role (the game said none) leaves the ship and FUEL where they are
     g.role = word("")
-    g.role:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -5 - RD.ALERT_H)
+    g.role:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -5)
     g.role:SetTextColor(1, 1, 1)
     g.ship = word(RD.SHIPS[1].name)
-    g.ship:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -17 - RD.ALERT_H)
+    g.ship:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -17)
     g.fuelWord = word("FUEL")
-    g.fuelWord:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -29 - RD.ALERT_H)
+    g.fuelWord:SetPoint("TOPLEFT", P, "TOPLEFT", 6, -29)
     RD.SizeGauge(RD.SIZE)
     return g
 end

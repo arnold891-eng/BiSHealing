@@ -12111,8 +12111,8 @@ do
             RD.Console = function() return false end          -- the view really on the radar, as the switch leaves it
             EN.Layout(false)
             RD.Console = keepConL
-            ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][2] == RD.gaugeRail,
-               "the radar: glyphs back, no bars, LOS in the radar's own alert row (12 Nov: \"bring radar up to speed\")")
+            ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][2] == NS.BB.rail.row,
+               "the radar: glyphs back, no bars, LOS in the black box's bottom row (12 Nov)")
             ok(not EN.events.__events.UNIT_HEAL_PREDICTION, "back on the radar: heal predictions no longer heard")
             EN.Layout(true)
         end
@@ -12479,8 +12479,9 @@ do
         ok(sp2.los:GetAlpha() == 1 and sp2.los.word.__text == "LOS" and sp2.losFade and sp2.losFade.playing,
            "line of sight: LOS under that pip, fading by itself", sp2.los.word.__text)
         local pt, rel, rp = sp2.los:GetPoint(1)
-        -- since 12 Nov (Arn: "bring radar up to speed"): in the LOS box of the alert row along the top rail, as in the console
-        ok(pt == "CENTER" and rel == RD.gaugeRail and rp == "TOPLEFT", "in the LOS box on the radar's top rail", tostring(pt) .. " " .. tostring(rp))
+        -- since 12 Nov (Arn: "the black box has a huge chat bot for the code mayeb we can use that space"): the LOS box in
+        -- the black box's bottom row
+        ok(pt == "CENTER" and rel == NS.BB.rail.row and rp == "TOPLEFT", "in the LOS box in the black box's bottom row", tostring(pt) .. " " .. tostring(rp))
         local c = sp2.los.word.__color
         ok(c and c[1] == NS.FG.FLASH_RED[1] and c[2] == NS.FG.FLASH_RED[2] and c[3] == NS.FG.FLASH_RED[3],
            "in the grid's flash red")
@@ -12502,72 +12503,78 @@ do
     end
 
     -- THE RADAR UP TO SPEED (Arn, 12 Nov 2026: "we made engineer better than radar now i find my self using engineer more
-    -- how can we bring radar up to speed" - "all three"): tanks in the pips, the alert row, the kick shield
+    -- how can we bring radar up to speed" - "all three"; then "i dont like it, i think go mini heal bars to make it easier,
+    -- and lets not do like engineer up and down lets go left and right ... the black box has a huge chat bot for the code
+    -- mayeb we can use that space")
     do
-        local TK, EN, KG = NS.TK, NS.EN, NS.KG
+        local MB, EN, KG = NS.MB, NS.EN, NS.KG
         local keepInc = _G.UnitGetIncomingHeals
         local INC = secret()
         _G.UnitGetIncomingHeals = function(u) return u == "party1" and INC or 0 end
         RD.PaintHeal(sp2)
-        local t = sp2.tank
-        -- 1. EVERY PIP A SMALL TANK
-        ok(t and t.box.__shown and t.box:GetParent() == sp2.heal and t.box:DoesClipChildren(),
-           "party1's pip carries a tank: a plain frame inside the secure pip, clipping its bands")
-        ok(t.bar:GetOrientation() == "VERTICAL" and select(2, t.bar:GetMinMaxValues()) ~= nil and t.bar:GetValue() ~= nil,
-           "it fills from the bottom with their health, handed untouched")
-        local ip = t.inc.points[1]
-        ok(t.inc:GetOrientation() == "VERTICAL" and ip and ip[1] == "BOTTOMLEFT" and ip[2] == t.bar:GetStatusBarTexture()
-           and ip[3] == "TOPLEFT" and t.inc:GetValue() == INC, "heals on their way on top of it (a secret, untouched)")
+        local m = sp2.mini
+        -- 1. A MINI HEALTH BAR UNDER EVERY PIP, LEFT TO RIGHT
+        local bp = m and m.box.points[1]
+        ok(m and m.box.__shown and m.box:GetParent() == sp2.heal and m.box:DoesClipChildren()
+           and bp[1] == "TOP" and bp[2] == sp2.heal and bp[3] == "BOTTOM",
+           "party1's pip has a mini bar hung UNDER it (its child: it hides with the pip)")
+        ok(m.bar:GetOrientation() == "HORIZONTAL" and m.box:GetHeight() == MB.H and m.box:GetWidth() == sp2.heal:GetWidth() + MB.WIDER,
+           "left to right, " .. MB.H .. " px tall, a little wider than the pip")
+        ok(select(2, m.bar:GetMinMaxValues()) ~= nil and m.bar:GetValue() ~= nil, "their health, handed untouched")
+        local ip = m.inc.points[1]
+        ok(ip and ip[1] == "TOPLEFT" and ip[2] == m.bar:GetStatusBarTexture() and ip[3] == "TOPRIGHT" and m.inc:GetValue() == INC,
+           "heals on their way after the fill (a secret, untouched)")
         local masked = false
-        for _, m in ipairs(t.over:GetStatusBarTexture().__masks or {}) do if m == t.mask then masked = true end end
-        ok(t.over:GetReverseFill() and t.over:GetValue() == INC and masked and t.over.points[1][1] == "TOPLEFT",
-           "the overheal from the top down, masked to their health: only the waste shows (magenta)")
-        local fv = t.bar:GetStatusBarTexture().__vertex
-        local iv = t.inc:GetStatusBarTexture().__vertex
-        ok(fv and iv and t.over:GetStatusBarTexture().__vertex and t.track == nil and t.tick == nil,
-           "every band coloured by the client from their health (gone at 90%, like the pip); no track, no tick (no box)")
-        ok(TK.Gate(TK.INCOMING) and TK.FillCurve(sp2.amber), "the curves exist (the client evaluates them)")
-        ok(sp2.heal.beat:GetFrameLevel() > t.over:GetFrameLevel(), "the role glyph stays on top of the tank")
-        ok(TK.events.__events and TK.events.__events.UNIT_HEAL_PREDICTION, "heal predictions heard while the radar shows")
+        for _, mk in ipairs(m.over:GetStatusBarTexture().__masks or {}) do if mk == m.mask then masked = true end end
+        ok(m.over:GetReverseFill() and m.over:GetValue() == INC and masked and m.over.points[1][1] == "TOPRIGHT",
+           "the overheal from the right edge leftwards, masked to their health: only the waste shows (magenta)")
+        ok(m.bar:GetStatusBarTexture().__vertex and m.inc:GetStatusBarTexture().__vertex and m.track.__vertex
+           and m.over:GetStatusBarTexture().__vertex,
+           "every band and the track coloured by the client from their health (gone at 90%, like the pip)")
+        ok(MB.Gate(MB.INCOMING) and MB.FillCurve(sp2.amber), "the curves exist (the client evaluates them)")
+        ok(MB.events.__events and MB.events.__events.UNIT_HEAL_PREDICTION, "heal predictions heard while the radar shows")
         local INC2 = secret()
         INC = INC2
-        fire(TK.events, "UNIT_HEAL_PREDICTION", "party1")
-        ok(t.inc:GetValue() == INC2, "a heal starts on party1: the tank's cyan moves")
-        ok(EN.Ghost(sp2, 400) and false or (t.prev.__shown and t.prev:GetValue() == 400 and t.overPrev.__shown
-           and t.prev.points[1][2] == t.inc:GetStatusBarTexture()),
+        fire(MB.events, "UNIT_HEAL_PREDICTION", "party1")
+        ok(m.inc:GetValue() == INC2, "a heal starts on party1: the bar's cyan moves")
+        EN.Ghost(sp2, 400)
+        ok(m.prev.__shown and m.prev:GetValue() == 400 and m.overPrev.__shown and m.prev.points[1][2] == m.inc:GetStatusBarTexture(),
            "hovering: your heal fainter on from the incoming, and its waste in fainter magenta")
         EN.Ghost(sp2, nil)
-        ok(not t.prev.__shown and not t.overPrev.__shown, "the mouse leaves: gone")
+        ok(not m.prev.__shown and not m.overPrev.__shown, "the mouse leaves: gone")
         STATE.dead.party1 = true
-        ok(TK.Paint(sp2) == false and not t.box.__shown, "dead: no tank")
+        ok(MB.Paint(sp2) == false and not m.box.__shown, "dead: no bar")
         STATE.dead.party1 = nil
-        TK.Paint(sp2)
+        MB.Paint(sp2)
         _G.UnitGetIncomingHeals = keepInc
-        -- 2. THE ALERT ROW along the top rail
+        -- 2. THE ALERTS IN THE BLACK BOX'S BOTTOM ROW (where the code screen sat)
+        local BB = NS.BB
+        local row = BB.rail.row
         local H = EN.radarHeads or {}
-        ok(H.los and H.range and H.over and H.los:GetParent() == RD.gaugeRail and H.los.__shown,
-           "three dim boxes on the radar's top rail: LOS, RANGE, OVER/H")
-        -- THE SHIP'S COLOURS (Arn: "same color theme please" - they were the console's green on the purple radar)
+        ok(H.los and H.range and H.over and H.los:GetParent() == BB.rail and H.los.points[1][2] == row,
+           "three boxes in the black box's bottom row: LOS, RANGE, OVER/H")
+        ok(RD.GAUGE_RAIL_H == 44 and RD.gauge.role.points[1][5] == -5, "the top rail back as it was (no extra row)")
+        -- the row runs from the lamp (4 + 24 + 2) to the keypad (6 + its width + 6) on a party's rail
+        local avail = (RD.TOOL_RAIL_W + RD.RAIL_GAP + RD.PARTY.size) - (4 + 24 + 2) - (6 + BB.rail.pad:GetWidth() + 6)
+        local last = H.over.points[1][4] + H.over:GetWidth() / 2
+        ok(last <= avail, "all three fit the row on a party's rail", last .. " of " .. avail)
         local A = RD.ship and RD.ship.accent
         local ec = H.los.edges[1].__color or H.los.edges[1].__vertex or {}
-        ok(A and ec[1] == A[1] and ec[2] == A[2] and ec[3] == A[3] and ec[4] == EN.RADAR_HEAD_A,
-           "edged in the ship's accent, like the readout box (never the console's green)", tostring(ec[1]))
-        local keepShip = RD.ship
-        RD.ApplyShip(RD.SHIPS[4])
-        local ec4 = H.los.edges[1].__color or H.los.edges[1].__vertex or {}
-        ok(ec4[1] == RD.SHIPS[4].accent[1] and ec4[3] == RD.SHIPS[4].accent[3], "a new ship: the boxes take its colours")
-        RD.ApplyShip(keepShip or RD.SHIPS[1])
-        ok(RD.GAUGE_RAIL_H == 44 + RD.ALERT_H and RD.gaugeRail:GetHeight() == RD.GAUGE_RAIL_H
-           and RD.gauge.role.points[1][5] == -5 - RD.ALERT_H,
-           "the rail one row taller (still one rail per side), the placard moved down under the row")
-        local hp = H.los.points[1]
-        ok(hp[2] == RD.gaugeRail and hp[5] == -(RD.ALERT_H / 2 + 1) and hp[4] - 17 == RD.GAUGE.left,
-           "the row along the rail's top, starting where the tape starts")
+        ok(A and ec[1] == A[1] and ec[3] == A[3] and ec[4] == EN.RADAR_HEAD_A, "edged in the ship's accent (Arn: \"same color theme\")")
         EN.PlaceWord(sp2, "RANGE")
-        ok(sp2.los.points[1][2] == RD.gaugeRail and sp2.los.points[1][4] == H.range.points[1][4], "RANGE lights its own box")
+        ok(sp2.los.points[1][2] == row and sp2.los.points[1][4] == H.range.points[1][4], "RANGE lights its own box")
         local o = NS.OV.Build(sp2)
         NS.OV.Anchor(sp2)
-        ok(o.win.points[1][2] == RD.gaugeRail and o.win.points[1][1] == "LEFT", "OVER/H in its box on the rail")
+        ok(o.win.points[1][2] == row and o.win.points[1][1] == "LEFT", "OVER/H in its box")
+        -- the screen takes the row only while a code is typed or a reply shows
+        BB.pad, BB.sayUntil = "", nil
+        BB.Paint()
+        ok(H.los.__shown and BB.rail.scr:GetAlpha() == 0, "nothing typed: the boxes show, the screen is down")
+        BB.Press("1")
+        ok(not H.los.__shown and BB.rail.scr:GetAlpha() == 1, "a key pressed: the screen comes up over the row")
+        BB.pad, BB.sayUntil = "", nil
+        BB.Paint()
+        ok(H.los.__shown, "and goes back down")
         -- 3. THE KICK SHIELD
         local keepCI, keepCH = _G.UnitCastingInfo, _G.UnitChannelInfo
         local NI
@@ -14414,8 +14421,10 @@ do
     local r = BB.rail
     ok(r and RD.bbRail == r, "the radar has a bottom rail (RD.bbRail)")
     local k1 = r and r.keys and r.keys["1"]
-    ok(k1 and r.keys.A and r.keys["0"] and r.keys.CLR and r.keys.EXEC and not r.keys["8"] and not r.keys["9"],
-       "the keypad: squawk digits 0-7, an A, CLR and EXEC (no 8 or 9)")
+    -- 2 x 2 (Arn, 12 Nov: "the 1234567890A lets just do a 2x2 1234" - "to save space")
+    ok(k1 and r.keys["2"] and r.keys["3"] and r.keys["4"] and not r.keys["5"] and not r.keys["0"] and not r.keys.A
+       and not r.keys.CLR and not r.keys.EXEC and r.pad:GetWidth() == 2 * BB.KW + BB.KGAP,
+       "the keypad: 2 x 2, the digits 1-4 - no CLR, no EXEC", r.pad:GetWidth())
     ok(plain(r.status) == "REC OFF" and r.lampState == "off", "at rest: REC OFF, the lamp red", plain(r.status))
     ok(r.__scripts.OnUpdate == nil, "no key, nothing typed: no OnUpdate at all")
     heard = {}
@@ -14428,35 +14437,29 @@ do
     k1.__scripts.OnClick(k1)
     press("2", "3")
     ok(BB.pad == "123" and plain(r.screen) == "[123_]", "keys type into the scratchpad", plain(r.screen))
-    press("4", "5", "6", "7")
-    ok(BB.pad == "123456", "six at most", BB.pad)
-    press("CLR")
-    ok(BB.pad == "12345", "CLR takes the last one back")
 
-    -- NO KEY: every code is refused, nothing else happens
+    -- NO KEY: every code is refused, nothing else happens - and the FOURTH key sends it
     math.random = function(a, b) return a end          -- roll 1: a rare one
-    ok(BB.Press("EXEC") == "denied" and reloads == 0 and logSets == 0 and not BB.Recording(), "no key: refused, never a reload or the log")
+    ok(press("4") == "denied" and BB.pad == "" and reloads == 0 and logSets == 0 and not BB.Recording(),
+       "the fourth key sends the code; no key: refused, never a reload or the log")
     local rare = plain(r.screen)
     ok(rare == BB.DENY_RARE[1], "a rare refusal on the screen", rare)
     ok(r.__scripts.OnUpdate ~= nil, "a reply clears itself: the tick runs while it shows")
     math.random = function(a, b) return b end          -- roll RARE: a common one
-    press("7", "7", "0", "0")
-    ok(BB.Press("EXEC") == "denied" and plain(r.screen) == BB.DENY[#BB.DENY], "and a common one", plain(r.screen))
+    ok(press("3", "3", "4", "4") == "denied" and plain(r.screen) == BB.DENY[#BB.DENY], "and a common one", plain(r.screen))
     TICK(BB.SAY + 0.5) BB.OnUpdate(r, 1.1)
     ok(plain(r.screen) == "[_]" and r.__scripts.OnUpdate == nil, "the reply goes after a few seconds, and so does the tick", plain(r.screen))
     press("1", "2")
-    ok(BB.Press("EXEC") == "short" and reloads == 0, "too short: told so, nothing else")
+    ok(BB.pad == "12" and reloads == 0, "two keys: nothing sent yet")
+    BB.pad = ""
 
     -- THE KEY: only its code is right
-    _G.BiSBlackBoxKey = { Check = function(c) return c == "4721" end }
-    press("1", "1", "1", "1")
-    ok(BB.Press("EXEC") == "denied" and reloads == 0, "the key installed, a wrong code: refused")
+    _G.BiSBlackBoxKey = { Check = function(c) return c == "4321" end }
+        ok(press("1", "1", "1", "1") == "denied" and reloads == 0, "the key installed, a wrong code: refused")
     fighting = true
-    press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "combat" and reloads == 0 and not BB.Recording(), "the right code in a fight: not now")
+        ok(press("4", "3", "2", "1") == "combat" and reloads == 0 and not BB.Recording(), "the right code in a fight: not now")
     fighting = false
-    press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "start", "the right code out of a fight: START")
+        ok(press("4", "3", "2", "1") == "start", "the right code out of a fight: START")
     local b = BB.DB()
     ok(BB.Recording() and b.run == 1 and b.at == WALL and b.untilAt == WALL + BB.MINUTES * 60, "recording: the run written to the save")
     ok(logOn and b.logOurs == true and reloads == 1, "the combat log on (ours), then the game reloads (the save reaches the disk)")
@@ -14495,8 +14498,7 @@ do
     end
 
     -- STOP: the code again
-    press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "stop" and not BB.Recording() and logOn and reloads == 2,
+        ok(press("4", "3", "2", "1") == "stop" and not BB.Recording() and logOn and reloads == 2,
        "the code again: STOP and a reload - the combat log LEFT ON (Arn, 11 Nov: never turned off by us)")
     ok(b.stopWhy == "code" and b.stoppedAt == WALL and not CAM.Armed(), "the stop written down, the camera disarmed")
 
@@ -14515,24 +14517,23 @@ do
     end
     -- courtesy: someone else's log stays on
     logOn = true
-    press("4", "7", "2", "1") BB.Press("EXEC")
+    press("4", "3", "2", "1")
     ok(BB.Recording() and not b.logOurs, "the log already on: not ours")
-    press("4", "7", "2", "1") BB.Press("EXEC")
+    press("4", "3", "2", "1")
     ok(logOn, "so our stop leaves it on")
 
     -- it stops by itself; and the key gone stops it at the next login
-    press("4", "7", "2", "1") BB.Press("EXEC")
+    press("4", "3", "2", "1")
     WALL = b.untilAt + 1
     BB.Paint()
     ok(not BB.Recording() and b.stopWhy == "time" and r.lampState == "off", "after its time: stopped by itself, red, REC OFF")
     WALL = WALL + 10
-    press("4", "7", "2", "1") BB.Press("EXEC")
+    press("4", "3", "2", "1")
     _G.BiSBlackBoxKey = nil
     fire(BB.events, "PLAYER_LOGIN")
     ok(not BB.Recording() and b.stopWhy == "key gone", "the key addon gone: the next login stops it")
     _G.BiSBlackBoxKey = { Check = function() error("boom") end }
-    press("4", "7", "2", "1")
-    ok(BB.Press("EXEC") == "denied", "a key that breaks: refused, never a reload")
+        ok(press("4", "3", "2", "1") == "denied", "a key that breaks: refused, never a reload")
 
     math.random = keep.rand
     _G.BiSBlackBoxKey, _G.LoggingCombat, _G.ReloadUI, _G.time = keep.key, keep.log, keep.reload, keep.time

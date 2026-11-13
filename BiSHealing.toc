@@ -40,7 +40,7 @@ Radar.lua
 Overheal.lua
 # the engineer's boxes as health bars (class colour, range dim, the heal ghost)
 Engineer.lua
-Tanks.lua
+MiniBars.lua
 Guard.lua
 TestCam.lua
 # the radar's bottom rail; its code lives only in a private key addon (BiSBlackBox), never here

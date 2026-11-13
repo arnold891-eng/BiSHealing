@@ -55,8 +55,10 @@ local function headSlot(kind)
     return EN.HEAD[1]
 end
 
---- Where the alerts live now: the console's top strip, or (the radar, 12 Nov: "bring radar up to speed") the alert row
---- along the top of the gauge's rail (RD.ALERT_H). Answers the frame, the boxes' left edge and their middle's y.
+--- Where the alerts live now: the console's top strip, or on the radar the BLACK BOX's bottom row (Arn, 12 Nov: "find a
+--- better place for the overheal los and range bars, the black box has a huge chat bot for the code mayeb we can use that
+--- space" - the row the code screen sat in; BlackBox.lua puts the screen up over them only while a code is typed).
+--- With no black box rail, the radar square's top-left corner. Answers the frame, the boxes' left edge, their middle's y.
 function EN.Where()
     local RD = NS.RD
     if not RD then return UIParent, 8, -11 end
@@ -65,7 +67,14 @@ function EN.Where()
         local pad = C.pad or 8
         return RD.frame or UIParent, pad, -((pad + (C.head or 14)) / 2)
     end
-    return RD.gaugeRail or RD.frame or UIParent, (RD.GAUGE and RD.GAUGE.left) or 56, -(((RD.ALERT_H or 18)) / 2 + 1)
+    -- the rail itself, shown or not yet: the radar's layout runs just before the view switch shows it
+    local bb = RD.bbRail
+    local row = bb and bb.row
+    if row then
+        local h = row.GetHeight and row:GetHeight()
+        return row, 0, -((type(h) == "number" and h > 0 and h or 18) / 2)
+    end
+    return RD.frame or UIParent, 8, -11
 end
 
 --- An alert's spot ("los", "range" or "over"): point, relative frame, relative point, x, y. LOS and RANGE are centred in
@@ -83,7 +92,8 @@ function EN.HeadBoxes()
     local RD = NS.RD
     if not RD then return nil end
     local con = RD.Console and RD.Console()
-    local parent = con and RD.conLayer or (not con and RD.gaugeRail) or nil
+    local bb = RD.bbRail
+    local parent = con and RD.conLayer or (not con and (bb or RD.frame)) or nil
     if not parent then return nil end
     local key = con and "heads" or "radarHeads"
     EN[key] = EN[key] or {}
@@ -112,8 +122,18 @@ function EN.HeadBoxes()
         q:SetPoint("CENTER", f, "TOPLEFT", x0 + h.x + h.w / 2, y)
         q:Show()
     end
-    if not con then EN.TintRadarHeads() end
+    if not con then
+        EN.TintRadarHeads()
+        -- the black box's screen may be up (a code being typed): the boxes wait under it
+        local NB = NS.BB
+        EN.ShowRadarHeads(not (NB and NB.ScreenUp and NB.ScreenUp()))
+    end
     return set
+end
+
+--- The radar's boxes shown or put away (the black box's screen takes their row while a code is typed).
+function EN.ShowRadarHeads(show)
+    for _, q in pairs(EN.radarHeads or {}) do if show then q:Show() else q:Hide() end end
 end
 
 -- THE RADAR'S BOXES IN THE SHIP'S COLOURS (Arn, 12 Nov, a screenshot of green boxes on the purple radar: "same color theme
@@ -318,8 +338,8 @@ end
 --- The ghost: your heal after the heals on their way, as long as the heal is against their max (a secret, the client's sum).
 --- nil heal = gone.
 function EN.Ghost(sp, heal)
-    -- the radar's tanks take the same heal (Tanks.lua): one road from Overheal.lua for both views
-    if NS.TK and NS.TK.Ghost then NS.TK.Ghost(sp, heal) end
+    -- the radar's mini bars take the same heal (MiniBars.lua): one road from Overheal.lua for both views
+    if NS.MB and NS.MB.Ghost then NS.MB.Ghost(sp, heal) end
     local e = sp and sp.en
     if not e then return false end
     if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() e.overHover:Hide() return false end

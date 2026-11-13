@@ -1,5 +1,9 @@
 # BiS Healing
 
+## 1.4.1
+
+- **OVER/H reads past Nature's Swiftness.** A macro on a mouse button (say Nature's Swiftness then Healing Wave) is judged by the first real heal in it, and a click still flashes the word after the instant heal. If your hover button holds no heal at all, the next button that does is used.
+
 ## 1.4.0
 
 - **OVER/H on the radar: is this heal wasted?** Rest your mouse on someone and **OVER/H** appears under them, in magenta, when your heal would be mostly wasted - and it flashes again the moment you start a heal on someone who doesn't need it. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button; what they miss is the game's own number, minus heals already on their way. Heals over time aren't judged.

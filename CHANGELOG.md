@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 1.4.2
+
+- **See your heal before you cast it.** Rest your mouse on someone on the grid and a faint band after their health shows how much your heal would add - the same colour as heals on their way, only fainter. If it runs into the edge of the cell, that part would be overheal. Hold shift, ctrl or alt to see that heal instead. It steps aside once you start casting, when the real incoming band takes over.
+- **The engineer's view shows heals on their way** in each box, like the grid, and the same hover preview after them.
+- **The radar's drink button reaches for mage water first**, before anything bought.
+
 ## 1.4.1
 
 - **OVER/H reads past Nature's Swiftness.** A macro on a mouse button (say Nature's Swiftness then Healing Wave) is judged by the first real heal in it, and a click still flashes the word after the instant heal. If your hover button holds no heal at all, the next button that does is used.

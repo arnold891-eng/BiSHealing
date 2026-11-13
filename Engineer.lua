@@ -30,6 +30,14 @@ NS.EN = EN
 EN.BG = { 0.04, 0.05, 0.06, 0.92 }       -- the empty part of a box
 EN.INCOMING = { 0.22, 0.80, 1.00, 0.60 } -- heals on their way: the cockpit grid's own cyan (FG.COCKPIT.incoming)
 EN.GHOST = { 0.22, 0.80, 1.00, 0.28 }    -- your hover heal: the same cyan, fainter - "this is what it would add"
+-- THE OVERHEAL IN THE BOX (Arn, 12 Nov, with a screenshot of the grid's magenta: "in this grid this is the overheal can we
+-- show that and the overheal word on the engineer?"): the grid's own band (Grid.lua, f.overheal) - a bar as wide as the
+-- box filling LEFTWARDS from its right edge by the heals on their way, masked to their filled health, so only the part
+-- over their health shows: the heal that lands on nobody. A second, fainter one carries on leftwards from it by your
+-- hover heal: what YOUR heal would waste on top. Nothing compared; the client does the geometry. A MASK, not a clip:
+-- a clip anchored to a secret-sized fill draws nothing (the grid's 8 Oct lesson).
+EN.OVER = { 1.00, 0.12, 0.85, 0.95 }      -- the grid's classic overheal magenta (FG.OVERHEAL), the colour Arn showed
+EN.OVER_HOVER = { 1.00, 0.12, 0.85, 0.45 }
 EN.FALLBACK = { 0.20, 0.70, 0.30 }       -- a class the client will not say
 EN.TEX = "Interface\\Buttons\\WHITE8X8"
 
@@ -79,7 +87,44 @@ function EN.Box(sp)
     ghost:SetStatusBarColor(EN.GHOST[1], EN.GHOST[2], EN.GHOST[3], EN.GHOST[4])
     ghost:Hide()
     box:Hide()
+    -- the overheal: the filled health is a mask's shape; the bands fill leftwards from the box's right edge
+    local cur = CreateFrame("Frame", nil, box)
+    cur:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
+    cur:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
+    local mask = bar.CreateMaskTexture and bar:CreateMaskTexture() or nil
+    if mask then
+        mask:SetAllPoints(cur)
+        mask:SetTexture(EN.TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+    end
+    local function band(c, anchor, point)
+        local o = CreateFrame("StatusBar", nil, bar)
+        o:SetPoint("TOPRIGHT", anchor, point, 0, 0)
+        o:SetStatusBarTexture(EN.TEX)
+        o:SetStatusBarColor(c[1], c[2], c[3], c[4])
+        if o.SetReverseFill then o:SetReverseFill(true) end
+        o:SetMinMaxValues(0, 1)
+        o:SetValue(0)
+        if o.SetFrameLevel and bar.GetFrameLevel then
+            local lvl = bar:GetFrameLevel()
+            if type(lvl) == "number" then o:SetFrameLevel(lvl + 3) end
+        end
+        local t = o.GetStatusBarTexture and o:GetStatusBarTexture()
+        if mask and t and t.AddMaskTexture then t:AddMaskTexture(mask) end
+        return o
+    end
+    local over = band(EN.OVER, box, "TOPRIGHT")
+    -- a white tick where the waste begins (the grid's overTick), masked the same way: drawn only when there IS an overheal
+    local overFill = over:GetStatusBarTexture()
+    local tick = over:CreateTexture(nil, "OVERLAY")
+    tick:SetColorTexture(1, 1, 1, 0.95)
+    tick:SetWidth(2)
+    tick:SetPoint("TOPLEFT", overFill, "TOPLEFT", 0, 0)
+    tick:SetPoint("BOTTOMLEFT", overFill, "BOTTOMLEFT", 0, 0)
+    if mask and tick.AddMaskTexture then tick:AddMaskTexture(mask) end
+    local overHover = band(EN.OVER_HOVER, overFill, "TOPLEFT")
+    overHover:Hide()
     e.box, e.bar, e.inc, e.ghost = box, bar, inc, ghost
+    e.cur, e.mask, e.over, e.overTick, e.overHover = cur, mask, over, tick, overHover
     sp.en = e
     return e
 end
@@ -90,6 +135,11 @@ function EN.Size(sp)
     if not (e and b and b.GetWidth) then return end
     local w = b:GetWidth()
     if type(w) == "number" and w > 2 then e.inc:SetWidth(w - 2) e.ghost:SetWidth(w - 2) end
+    local h = b.GetHeight and b:GetHeight()
+    if type(w) == "number" and w > 2 and type(h) == "number" and h > 2 then
+        e.over:SetSize(w - 2, h - 2)
+        e.overHover:SetSize(w - 2, h - 2)
+    end
 end
 
 --- Their health into the bar, untouched, in their class colour. Answers true when painted.
@@ -138,6 +188,9 @@ function EN.Incoming(sp, mx)
     if v == nil then v = 0 end
     pcall(e.inc.SetMinMaxValues, e.inc, 0, mx)
     pcall(e.inc.SetValue, e.inc, v)
+    -- the overheal is the SAME value on the same scale, filling from the other end (the grid's bargain)
+    pcall(e.over.SetMinMaxValues, e.over, 0, mx)
+    pcall(e.over.SetValue, e.over, v)
     return true
 end
 
@@ -167,11 +220,15 @@ end
 function EN.Ghost(sp, heal)
     local e = sp and sp.en
     if not e then return false end
-    if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() return false end
+    if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() e.overHover:Hide() return false end
     local okM, mx = pcall(UnitHealthMax, sp.unit)
-    if not okM or not pcall(e.ghost.SetMinMaxValues, e.ghost, 0, mx) then e.ghost:Hide() return false end
+    if not okM or not pcall(e.ghost.SetMinMaxValues, e.ghost, 0, mx) then e.ghost:Hide() e.overHover:Hide() return false end
     pcall(e.ghost.SetValue, e.ghost, heal)
     e.ghost:Show()
+    -- what your heal would waste on top of the heals already coming: the fainter band, on from the first one's end
+    pcall(e.overHover.SetMinMaxValues, e.overHover, 0, mx)
+    pcall(e.overHover.SetValue, e.overHover, heal)
+    e.overHover:Show()
     return true
 end
 
@@ -197,6 +254,7 @@ function EN.Layout(con)
             elseif sp.en then
                 sp.en.box:Hide()
                 sp.en.ghost:Hide()
+                sp.en.overHover:Hide()
             end
         end
     end

@@ -12019,6 +12019,35 @@ do
             INC = INC2
             fire(EN.events, "UNIT_HEAL_PREDICTION", "party1")
             ok(e.inc:GetValue() == INC2, "a heal starts on party1: the bar moves")
+            -- THE OVERHEAL IN THE BOX (Arn, 12 Nov, the grid's magenta: "can we show that and the overheal word on the
+            -- engineer?"): the grid's band - from the box's right edge leftwards by the incoming, masked to their health
+            local op = e.over.points[1]
+            local oft = e.over:GetStatusBarTexture()
+            ok(op and op[1] == "TOPRIGHT" and op[2] == e.box and op[3] == "TOPRIGHT" and e.over:GetReverseFill()
+               and e.over:GetValue() == INC2 and select(2, e.over:GetMinMaxValues()) ~= nil,
+               "an overheal band: the incoming again, filling leftwards from the box's right edge, on their max", tostring(op and op[2]))
+            local masked = false
+            for _, m in ipairs(oft.__masks or {}) do if m == e.mask then masked = true end end
+            local cp = e.cur.points
+            ok(masked and e.mask and cp[2] and cp[2][2] == e.bar:GetStatusBarTexture(),
+               "masked to their filled health (a MASK - a clip on a secret-sized fill draws nothing): only the waste shows")
+            local oc = e.over.__color or {}
+            ok(oc[1] == EN.OVER[1] and oc[2] == EN.OVER[2] and oc[3] == EN.OVER[3], "in the grid's overheal magenta")
+            ok(e.overTick and e.overTick.points[1][2] == oft, "a white tick where the waste begins")
+            ok(EN.Ghost(sp, 500) and e.overHover.__shown and e.overHover:GetValue() == 500 and e.overHover:GetReverseFill()
+               and e.overHover.points[1][2] == oft and e.overHover.points[1][3] == "TOPLEFT",
+               "hovering: what YOUR heal would waste on top, a fainter band on from the incoming's")
+            EN.Ghost(sp, nil)
+            ok(not e.overHover.__shown, "the mouse leaves: that band goes too")
+            -- the OVER/H word: IN the box in the console (under it, the dispel row sat right below)
+            local o = NS.OV.Build(sp)
+            NS.OV.Anchor(sp)
+            local wp = o.win.points[1]
+            ok(wp and wp[1] == "CENTER" and wp[2] == sp.heal and o.win:GetFrameLevel() > e.over:GetFrameLevel(),
+               "OVER/H sits in the middle of the box, over its bars", tostring(wp and wp[1]))
+            o.word:SetText("")                -- built only for this check: the scope's no-words count comes later
+            o.win:Hide()
+            sp.over = nil
             _G.UnitGetIncomingHeals = keepInc
             local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
             if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end

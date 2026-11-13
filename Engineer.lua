@@ -41,6 +41,20 @@ EN.OVER_HOVER = { 1.00, 0.12, 0.85, 0.45 }
 EN.FALLBACK = { 0.20, 0.70, 0.30 }       -- a class the client will not say
 EN.TEX = "Interface\\Buttons\\WHITE8X8"
 
+-- ONE PLACE FOR EVERY ALERT (Arn, 12 Nov: "for the engineering since we are cramped for space, we can move all the alerts
+-- for all players to the same space in the header?" - "so all stacked in the header LOS RANGE OVERHEAL"): whoever they are
+-- about, they show in the console's top strip (RD.CON.pad + head, where only the class and view buttons sit, at the
+-- right), side by side: LOS / RANGE (one word, it changes) then OVER/H - so the two never print over each other. Only
+-- one box is under the mouse at a time, so the box you are on is whose it is.
+EN.HEAD_X = { los = -50, over = 26 }      -- from the middle: clear of each other and of the buttons at the right
+
+--- An alert's spot in the console's header ("los" or "over"): point, relative frame, relative point, x, y.
+function EN.HeadSpot(kind)
+    local RD = NS.RD
+    local C = RD and RD.CON or {}
+    return "CENTER", RD and RD.frame or UIParent, "TOP", EN.HEAD_X[kind] or 0, -(((C.pad or 8) + (C.head or 14)) / 2)
+end
+
 local function secret(v) return NS.Secret and NS.Secret(v) or false end
 local function plain(v) if v == nil or secret(v) then return nil end return v end
 local function console()
@@ -243,7 +257,7 @@ function EN.Layout(con)
             end
             if sp.los then
                 sp.los:ClearAllPoints()
-                if con then sp.los:SetPoint("CENTER", b, "CENTER", 0, 0)       -- in the box, as on the grid
+                if con then sp.los:SetPoint(EN.HeadSpot("los"))                    -- the console's header: one spot for all
                 else sp.los:SetPoint("TOP", b, "BOTTOM", 0, -1) end            -- under the pip, as the radar had it
             end
             if NS.OV and NS.OV.Anchor and sp.over then NS.OV.Anchor(sp) end

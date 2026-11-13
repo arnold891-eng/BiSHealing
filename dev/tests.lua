@@ -11996,7 +11996,12 @@ do
             ok(not sp.heal.beat.__shown and not sp.heal.redFace.__shown and not sp.heal.amberFace.__shown,
                "the role glyphs inside the box are gone in the engineer's view")
             local lp = sp.los.points[1]
-            ok(lp and lp[1] == "CENTER" and lp[2] == sp.heal, "LOS / RANGE on a failed click: in the middle of the box, as on the grid")
+            -- ONE PLACE FOR EVERY ALERT (Arn, 12 Nov: "move all the alerts for all players to the same space in the header" -
+            -- "so all stacked in the header LOS RANGE OVERHEAL" - "we light it up when any square is clicked")
+            local lp2 = RD.spokes[3].los and RD.spokes[3].los.points[1]
+            ok(lp and lp[1] == "CENTER" and lp[2] == RD.frame and lp[3] == "TOP" and lp[4] == EN.HEAD_X.los
+               and lp[5] == -((RD.CON.pad + RD.CON.head) / 2) and lp2 and lp2[2] == RD.frame and lp2[4] == lp[4],
+               "LOS / RANGE on a failed click: in the console's header, the same spot for every player")
             ok(EN.Range() >= 1, "range: the grid's own dimming, on the box")
             -- the ghost: your heal after their health, cut at the box's edge
             ok(EN.Ghost(sp, 500) and e.ghost.__shown and e.ghost:GetValue() == 500 and select(2, e.ghost:GetMinMaxValues()) ~= nil,
@@ -12043,8 +12048,11 @@ do
             local o = NS.OV.Build(sp)
             NS.OV.Anchor(sp)
             local wp = o.win.points[1]
-            ok(wp and wp[1] == "CENTER" and wp[2] == sp.heal and o.win:GetFrameLevel() > e.over:GetFrameLevel(),
-               "OVER/H sits in the middle of the box, over its bars", tostring(wp and wp[1]))
+            ok(wp and wp[1] == "CENTER" and wp[2] == RD.frame and wp[3] == "TOP" and wp[4] == EN.HEAD_X.over
+               and wp[5] == lp[5] and o.win:GetFrameLevel() > e.over:GetFrameLevel(),
+               "OVER/H in the header too, beside LOS / RANGE (never on top of it)", tostring(wp and wp[2]))
+            ok(EN.HEAD_X.los + 30 < EN.HEAD_X.over - NS.OV.W / 2 + 4 + 1 or EN.HEAD_X.los < EN.HEAD_X.over,
+               "LOS / RANGE left, OVER/H right")
             o.word:SetText("")                -- built only for this check: the scope's no-words count comes later
             o.win:Hide()
             sp.over = nil

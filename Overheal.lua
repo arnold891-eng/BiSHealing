@@ -274,10 +274,10 @@ function OV.Anchor(sp, win)
     if not win then return end
     win:ClearAllPoints()
     local con = NS.EN and NS.EN.Console and NS.EN.Console()
-    -- the console: IN the box, over its bars (Arn, 12 Nov: "the overheal word on the engineer" - under the box the
-    -- dispel row sits right below it); the radar: under the click word, as before
+    -- the console: the header's one spot for every alert (Arn, 12 Nov: "move all the alerts for all players to the same
+    -- space in the header", EN.HeadSpot); the radar: under the click word, as before
     if con then
-        win:SetPoint("CENTER", sp.heal, "CENTER", 0, 0)
+        win:SetPoint(NS.EN.HeadSpot("over"))
         local lvl = sp.heal.GetFrameLevel and sp.heal:GetFrameLevel()
         if type(lvl) == "number" and win.SetFrameLevel then win:SetFrameLevel(lvl + 8) end
     elseif not sp.los then win:SetPoint("TOP", sp.heal, "BOTTOM", 0, -1)

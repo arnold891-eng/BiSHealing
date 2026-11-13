@@ -12107,8 +12107,12 @@ do
                 ok(n <= 300, "ten ticks of the boxes' range stay in budget", n)
             end
             -- back on the radar: nothing of this shows; the glyphs and the word under the pip come back
+            local keepConL = RD.Console
+            RD.Console = function() return false end          -- the view really on the radar, as the switch leaves it
             EN.Layout(false)
-            ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][1] == "TOP", "the radar: glyphs back, no bars, LOS under the pip")
+            RD.Console = keepConL
+            ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][2] == RD.gaugeRail,
+               "the radar: glyphs back, no bars, LOS in the radar's own alert row (12 Nov: \"bring radar up to speed\")")
             ok(not EN.events.__events.UNIT_HEAL_PREDICTION, "back on the radar: heal predictions no longer heard")
             EN.Layout(true)
         end
@@ -12475,7 +12479,8 @@ do
         ok(sp2.los:GetAlpha() == 1 and sp2.los.word.__text == "LOS" and sp2.losFade and sp2.losFade.playing,
            "line of sight: LOS under that pip, fading by itself", sp2.los.word.__text)
         local pt, rel, rp = sp2.los:GetPoint(1)
-        ok(pt == "TOP" and rel == sp2.heal and rp == "BOTTOM", "UNDER the pip, anchored to it", tostring(pt) .. " " .. tostring(rp))
+        -- since 12 Nov (Arn: "bring radar up to speed"): in the LOS box of the alert row along the top rail, as in the console
+        ok(pt == "CENTER" and rel == RD.gaugeRail and rp == "TOPLEFT", "in the LOS box on the radar's top rail", tostring(pt) .. " " .. tostring(rp))
         local c = sp2.los.word.__color
         ok(c and c[1] == NS.FG.FLASH_RED[1] and c[2] == NS.FG.FLASH_RED[2] and c[3] == NS.FG.FLASH_RED[3],
            "in the grid's flash red")
@@ -12494,6 +12499,103 @@ do
         RD.spokes[4].heal.__scripts.OnLeave(RD.spokes[4].heal)
         sp2.los:SetAlpha(0)
         d.flash = keepFlash
+    end
+
+    -- THE RADAR UP TO SPEED (Arn, 12 Nov 2026: "we made engineer better than radar now i find my self using engineer more
+    -- how can we bring radar up to speed" - "all three"): tanks in the pips, the alert row, the kick shield
+    do
+        local TK, EN, KG = NS.TK, NS.EN, NS.KG
+        local keepInc = _G.UnitGetIncomingHeals
+        local INC = secret()
+        _G.UnitGetIncomingHeals = function(u) return u == "party1" and INC or 0 end
+        RD.PaintHeal(sp2)
+        local t = sp2.tank
+        -- 1. EVERY PIP A SMALL TANK
+        ok(t and t.box.__shown and t.box:GetParent() == sp2.heal and t.box:DoesClipChildren(),
+           "party1's pip carries a tank: a plain frame inside the secure pip, clipping its bands")
+        ok(t.bar:GetOrientation() == "VERTICAL" and select(2, t.bar:GetMinMaxValues()) ~= nil and t.bar:GetValue() ~= nil,
+           "it fills from the bottom with their health, handed untouched")
+        local ip = t.inc.points[1]
+        ok(t.inc:GetOrientation() == "VERTICAL" and ip and ip[1] == "BOTTOMLEFT" and ip[2] == t.bar:GetStatusBarTexture()
+           and ip[3] == "TOPLEFT" and t.inc:GetValue() == INC, "heals on their way on top of it (a secret, untouched)")
+        local masked = false
+        for _, m in ipairs(t.over:GetStatusBarTexture().__masks or {}) do if m == t.mask then masked = true end end
+        ok(t.over:GetReverseFill() and t.over:GetValue() == INC and masked and t.over.points[1][1] == "TOPLEFT",
+           "the overheal from the top down, masked to their health: only the waste shows (magenta)")
+        local fv = t.bar:GetStatusBarTexture().__vertex
+        local iv = t.inc:GetStatusBarTexture().__vertex
+        ok(fv and iv and t.over:GetStatusBarTexture().__vertex and t.track == nil and t.tick == nil,
+           "every band coloured by the client from their health (gone at 90%, like the pip); no track, no tick (no box)")
+        ok(TK.Gate(TK.INCOMING) and TK.FillCurve(sp2.amber), "the curves exist (the client evaluates them)")
+        ok(sp2.heal.beat:GetFrameLevel() > t.over:GetFrameLevel(), "the role glyph stays on top of the tank")
+        ok(TK.events.__events and TK.events.__events.UNIT_HEAL_PREDICTION, "heal predictions heard while the radar shows")
+        local INC2 = secret()
+        INC = INC2
+        fire(TK.events, "UNIT_HEAL_PREDICTION", "party1")
+        ok(t.inc:GetValue() == INC2, "a heal starts on party1: the tank's cyan moves")
+        ok(EN.Ghost(sp2, 400) and false or (t.prev.__shown and t.prev:GetValue() == 400 and t.overPrev.__shown
+           and t.prev.points[1][2] == t.inc:GetStatusBarTexture()),
+           "hovering: your heal fainter on from the incoming, and its waste in fainter magenta")
+        EN.Ghost(sp2, nil)
+        ok(not t.prev.__shown and not t.overPrev.__shown, "the mouse leaves: gone")
+        STATE.dead.party1 = true
+        ok(TK.Paint(sp2) == false and not t.box.__shown, "dead: no tank")
+        STATE.dead.party1 = nil
+        TK.Paint(sp2)
+        _G.UnitGetIncomingHeals = keepInc
+        -- 2. THE ALERT ROW along the top rail
+        local H = EN.radarHeads or {}
+        ok(H.los and H.range and H.over and H.los:GetParent() == RD.gaugeRail and H.los.__shown,
+           "three dim boxes on the radar's top rail: LOS, RANGE, OVER/H")
+        ok(RD.GAUGE_RAIL_H == 44 + RD.ALERT_H and RD.gaugeRail:GetHeight() == RD.GAUGE_RAIL_H
+           and RD.gauge.role.points[1][5] == -5 - RD.ALERT_H,
+           "the rail one row taller (still one rail per side), the placard moved down under the row")
+        local hp = H.los.points[1]
+        ok(hp[2] == RD.gaugeRail and hp[5] == -(RD.ALERT_H / 2 + 1) and hp[4] - 17 == RD.GAUGE.left,
+           "the row along the rail's top, starting where the tape starts")
+        EN.PlaceWord(sp2, "RANGE")
+        ok(sp2.los.points[1][2] == RD.gaugeRail and sp2.los.points[1][4] == H.range.points[1][4], "RANGE lights its own box")
+        local o = NS.OV.Build(sp2)
+        NS.OV.Anchor(sp2)
+        ok(o.win.points[1][2] == RD.gaugeRail and o.win.points[1][1] == "LEFT", "OVER/H in its box on the rail")
+        -- 3. THE KICK SHIELD
+        local keepCI, keepCH = _G.UnitCastingInfo, _G.UnitChannelInfo
+        local NI
+        _G.UnitCastingInfo = function(u) if u == "party1target" and NI ~= "none" then return "Fireball", "", 0, 0, 1, false, "x", NI, 133 end end
+        _G.UnitChannelInfo = function() return nil end
+        local face = sp2.bogey.face
+        NI = true
+        ok(KG.Paint(face, "party1target") == true and face.guard:GetAlpha() == 1 and #face.guard.lines == 5,
+           "a cast the game marks not interruptible: a grey shield over the interrupt")
+        NI = false
+        ok(KG.Paint(face, "party1target") == false and face.guard:GetAlpha() == 0, "an interruptible cast: no shield")
+        NI = secret()
+        ok(KG.Paint(face, "party1target") == "secret" and face.guard.__alphaFromSecret,
+           "in a fight the flag is secret: handed to SetAlphaFromBoolean, never tested")
+        NI = "none"
+        ok(KG.Paint(face, "party1target") == nil and face.guard:GetAlpha() == 0, "no cast: nothing")
+        _G.UnitCastingInfo = function() return nil end
+        _G.UnitChannelInfo = function(u) if u == "party1target" then return "Drain", "", 0, 0, 1, false, true end end
+        ok(KG.Paint(face, "party1target") == true, "a channel: its seventh answer")
+        ok(face.guard:GetParent() == face, "a child of the face lit only while a cast is on")
+        -- through the radar's own look, and the game's mid-cast signal
+        local keepCast, keepAtk, keepKick, keepT = NS.FG.Casting, _G.UnitCanAttack, sp2.kick, STATE.units[sp2.tok]
+        STATE.units[sp2.tok] = true
+        NS.FG.Casting = function() return true end
+        _G.UnitCanAttack = function() return true end
+        sp2.kick = sp2.kick or "Earth Shock"
+        _G.UnitChannelInfo = function() return nil end
+        NI = true
+        _G.UnitCastingInfo = function(u) if u == sp2.tok then return "Fireball", "", 0, 0, 1, false, "x", NI, 133 end end
+        face.guard:SetAlpha(0)
+        RD.Look()
+        ok(face:GetAlpha() == 1 and face.guard:GetAlpha() == 1, "the radar's look lights the bogey and its shield")
+        NI = false
+        fire(KG.events, "UNIT_SPELLCAST_INTERRUPTIBLE", sp2.tok)
+        ok(face.guard:GetAlpha() == 0, "the game says it can be interrupted now: the shield goes")
+        NS.FG.Casting, _G.UnitCanAttack, sp2.kick, STATE.units[sp2.tok] = keepCast, keepAtk, keepKick, keepT
+        _G.UnitCastingInfo, _G.UnitChannelInfo = keepCI, keepCH
+        RD.Look()
     end
 
     -- THE OVER WORD (Arn, 12 Nov 2026: "an overheal for the radar like the los and range" - "more than half, both"):
@@ -13214,7 +13316,8 @@ do
     -- a 40-man repaint pass, and a look
     local paint = Cost.Count(function() RD.Paint() end)
     print(("   cost: radar, a 40-man repaint pass = %d calls"):format(paint))
-    ok(paint <= 900, "a 40-man repaint stays in its budget", paint)
+    -- 12 Nov: the pips' tanks (Tanks.lua) add ~8 calls a person (349 -> 669); the budget tightened round that
+    ok(paint <= 760, "a 40-man repaint stays in its budget", paint)
     STATE.inCombat = true
     fire(RD.events, "PLAYER_REGEN_DISABLED")
     local look40 = Cost.Count(function() RD.Look() end)

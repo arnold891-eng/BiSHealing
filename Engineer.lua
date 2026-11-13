@@ -55,30 +55,45 @@ local function headSlot(kind)
     return EN.HEAD[1]
 end
 
---- An alert's spot in the console's header ("los", "range" or "over"): point, relative frame, relative point, x, y.
---- LOS and RANGE are centred in their box; OVER/H's clipping window starts at its box's left edge (the word hangs 4 px in).
-function EN.HeadSpot(kind)
+--- Where the alerts live now: the console's top strip, or (the radar, 12 Nov: "bring radar up to speed") the alert row
+--- along the top of the gauge's rail (RD.ALERT_H). Answers the frame, the boxes' left edge and their middle's y.
+function EN.Where()
     local RD = NS.RD
-    local C = RD and RD.CON or {}
-    local pad = C.pad or 8
-    local h = headSlot(kind)
-    local y = -((pad + (C.head or 14)) / 2)
-    local f = RD and RD.frame or UIParent
-    if kind == "over" then return "LEFT", f, "TOPLEFT", pad + h.x, y end
-    return "CENTER", f, "TOPLEFT", pad + h.x + h.w / 2, y
+    if not RD then return UIParent, 8, -11 end
+    if RD.Console and RD.Console() then
+        local C = RD.CON or {}
+        local pad = C.pad or 8
+        return RD.frame or UIParent, pad, -((pad + (C.head or 14)) / 2)
+    end
+    return RD.gaugeRail or RD.frame or UIParent, (RD.GAUGE and RD.GAUGE.left) or 56, -(((RD.ALERT_H or 18)) / 2 + 1)
 end
 
---- The three empty boxes in the header, on the console's own layer (hidden with it on the radar).
+--- An alert's spot ("los", "range" or "over"): point, relative frame, relative point, x, y. LOS and RANGE are centred in
+--- their box; OVER/H's clipping window starts at its box's left edge (the word hangs 4 px in).
+function EN.HeadSpot(kind)
+    local f, x0, y = EN.Where()
+    local h = headSlot(kind)
+    if kind == "over" then return "LEFT", f, "TOPLEFT", x0 + h.x, y end
+    return "CENTER", f, "TOPLEFT", x0 + h.x + h.w / 2, y
+end
+
+--- The three empty boxes, on the surface showing now: the console's own layer, or the radar's gauge rail (each hides
+--- with its surface). Answers that surface's boxes.
 function EN.HeadBoxes()
     local RD = NS.RD
-    if not (RD and RD.conLayer) then return nil end
-    EN.heads = EN.heads or {}
-    local C = RD.CON or {}
+    if not RD then return nil end
+    local con = RD.Console and RD.Console()
+    local parent = con and RD.conLayer or (not con and RD.gaugeRail) or nil
+    if not parent then return nil end
+    local key = con and "heads" or "radarHeads"
+    EN[key] = EN[key] or {}
+    local set = EN[key]
+    local f, x0, y = EN.Where()
     local dim = RD.DIM or { 0.22, 1.00, 0.53, 0.4 }
     for _, h in ipairs(EN.HEAD) do
-        local q = EN.heads[h.key]
+        local q = set[h.key]
         if not q then
-            q = CreateFrame("Frame", nil, RD.conLayer)
+            q = CreateFrame("Frame", nil, parent)
             q.edges = {}
             for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
                 local t = q:CreateTexture(nil, "BORDER")
@@ -90,19 +105,20 @@ function EN.HeadBoxes()
                 end
                 q.edges[#q.edges + 1] = t
             end
-            EN.heads[h.key] = q
+            set[h.key] = q
         end
         q:SetSize(h.w, EN.HEAD_H)
         q:ClearAllPoints()
-        q:SetPoint("CENTER", RD.frame, "TOPLEFT", (C.pad or 8) + h.x + h.w / 2, -(((C.pad or 8) + (C.head or 14)) / 2))
+        q:SetPoint("CENTER", f, "TOPLEFT", x0 + h.x + h.w / 2, y)
         q:Show()
     end
-    return EN.heads
+    return set
 end
 
---- A click word on a pip (RD.HeardError): in the console, into its own box - LOS or RANGE.
+--- A click word on a pip (RD.HeardError): into its own box - LOS or RANGE - on whichever surface shows.
 function EN.PlaceWord(sp, word)
-    if not (EN.Console and EN.Console() and sp and sp.los) then return false end
+    local RD = NS.RD
+    if not (RD and RD.On and RD.On() and sp and sp.los) then return false end
     sp.los:ClearAllPoints()
     sp.los:SetPoint(EN.HeadSpot(word == "RANGE" and "range" or "los"))
     return true
@@ -285,6 +301,8 @@ end
 --- The ghost: your heal after the heals on their way, as long as the heal is against their max (a secret, the client's sum).
 --- nil heal = gone.
 function EN.Ghost(sp, heal)
+    -- the radar's tanks take the same heal (Tanks.lua): one road from Overheal.lua for both views
+    if NS.TK and NS.TK.Ghost then NS.TK.Ghost(sp, heal) end
     local e = sp and sp.en
     if not e then return false end
     if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() e.overHover:Hide() return false end
@@ -310,8 +328,7 @@ function EN.Layout(con)
             end
             if sp.los then
                 sp.los:ClearAllPoints()
-                if con then sp.los:SetPoint(EN.HeadSpot("los"))                    -- the console's header: one spot for all
-                else sp.los:SetPoint("TOP", b, "BOTTOM", 0, -1) end            -- under the pip, as the radar had it
+                sp.los:SetPoint(EN.HeadSpot("los"))    -- the header's LOS box, the console's or the radar's alert row
             end
             if NS.OV and NS.OV.Anchor and sp.over then NS.OV.Anchor(sp) end
             if con then
@@ -325,7 +342,8 @@ function EN.Layout(con)
             end
         end
     end
-    if con then EN.Range() EN.HeadBoxes() end
+    if con then EN.Range() end
+    EN.HeadBoxes()                                                      -- the three boxes on the surface showing now
     -- heals on their way: heard only while the console shows (a raid's predictions cost nothing on the radar)
     if EN.events and EN.events.UnregisterEvent then
         if con then pcall(EN.events.RegisterEvent, EN.events, "UNIT_HEAL_PREDICTION")

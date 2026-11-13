@@ -12526,7 +12526,52 @@ do
         ok(d.overButton == "middle" and o.bar:GetValue() == 20.75, "wheel: a hover judges the wheel click's heal", o.bar:GetValue())
         sp2.heal.__scripts.OnLeave(sp2.heal)
         ok(NS.DO.overbutton("left") == "left" and d.overButton == "left", "/bish overbutton left")
+        -- NATURE'S SWIFTNESS ON THE LEFT (Arn, 12 Nov: "my cousin has nature swiftness over his heal on his left so its not
+        -- showing overheal"): the hover button holds no heal -> the next button that does
+        local ranksNoNS = FM.Ranks
+        FM.Ranks = function(n)
+            if n == "Nature's Swiftness" then return { { rank = "", spell = 16188 } } end
+            return ranksNoNS(n)
+        end
+        TEXT[16188] = "When activated, your next Nature spell with a casting time less than 10 sec. becomes an instant cast spell."
+        FM.Set("", "left", "Nature's Swiftness")
+        OV.Forget()
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(o.win.__shown and o.bar:GetValue() == 20.75,
+           "Nature's Swiftness on the left: a hover judges the next button with a heal (right = Renew, a HoT, skipped; the wheel's Rank 1)",
+           o.bar:GetValue())
+        sp2.heal.__scripts.OnLeave(sp2.heal)
         FM.Clear("", "middle")
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(not o.win.__shown, "no button holds a heal we can judge: no word")
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        -- A MACRO: "/cast Nature's Swiftness" then "/cast Healing Wave" = the Healing Wave; the cast that comes first (NS,
+        -- instant) does not cancel the click
+        local mi = CreateMacro("NSWave", 134400,
+            "#showtooltip\n/cast [@mouseover,help] Nature's Swiftness\n/cast [@mouseover,help][] !Healing Wave(Rank 7)", false)
+        FM.Set("", "left", "macro:NSWave")
+        local mh, mn = OV.Judge("macro:NSWave")
+        ok(mh == 1100 and mn == "Healing Wave" and OV.HealOf("macro:NSWave") == 1100,
+           "a macro bind: the first heal its /cast lines name (conditions and ! read past)", tostring(mh) .. " " .. tostring(mn))
+        sp2.heal.__scripts.OnEnter(sp2.heal)
+        ok(o.win.__shown and o.bar:GetValue() == 550, "hovering with the macro on the left: the Healing Wave's half", o.bar:GetValue())
+        local nsName = C_Spell.GetSpellName
+        C_Spell.GetSpellName = function(id) if id == 16188 then return "Nature's Swiftness" end return nsName(id) end
+        sp2.heal.__scripts.PostClick(sp2.heal, "LeftButton", true)
+        fire(OV.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-ns", 16188)
+        ok(OV.pending and not o.flashUntil, "the macro's Nature's Swiftness goes off first: the click still waits for its heal")
+        fire(OV.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-hw", 8005)
+        ok(o.flashUntil and OV.pending == nil, "then the instant Healing Wave: the click's word flashes")
+        o.flashUntil = nil
+        sp2.heal.__scripts.OnLeave(sp2.heal)
+        C_Spell.GetSpellName = nsName
+        EditMacro(mi, "NSWave", 134400, "/cast Nature's Swiftness")
+        ok(OV.Judge("macro:NSWave") == nil, "a macro with no heal in it: nothing judged (its body is read again each time)")
+        MACROS[mi] = nil
+        ok(OV.Judge("macro:NSWave") == nil, "a macro that is gone: nothing")
+        FM.Ranks = ranksNoNS
+        FM.Set("", "left", "Healing Wave(Rank 7)")
+        OV.Forget()
         TEXT[8005] = secretString()
         OV.Forget()
         ok(OV.HealOf("Healing Wave(Rank 7)") == nil, "a secret tooltip is never read: no size, no word")

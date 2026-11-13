@@ -1,7 +1,12 @@
-# BiS Healing — CurseForge page text (1.4.3)
+# BiS Healing — CurseForge page text (1.4.4)
 
 Paste everything below the line into the project description
 (CurseForge → BiS Healing, project 1703250 → Edit → Description).
+
+Changed since the 1.4.3 text (12 Nov, 1.4.4): the radar's pips carry a mini health bar on top (cyan incoming,
+magenta overheal, your hover's heal); LOS / RANGE / OVER/H light three boxes in the black box's bottom row instead of
+under the person; an interrupt you can't use on that cast wears a grey shield (radar and PvP); the black box line no
+longer says the keypad does nothing (it is a private tool, still not described).
 
 Changed since the 1.3.0 text (12 Nov, 1.4.3): the engineer's view line says what 1.4.0-1.4.3 gave it (heals on
 their way, the magenta overheal and your hover's waste, LOS / RANGE / OVER/H in three header boxes, the small fuel
@@ -140,17 +145,18 @@ Prefer the plain grid? **look: classic** in the options (or `/bish look classic`
 The third look turns the grid into **a quiet radar**: you in the middle, your group around you, tanks always on top. **Only what needs a click lights up** — in a fight everything else goes invisible, so your eyes go straight to the one thing to do.
 
 - **Who needs a heal:** each person is a pip that appears **green, amber, then red** as they get hurt, and is gone when they're fine. Click to heal; your other binds still work on it. Pets are small paws beside their owner.
+- **A mini health bar on top of each pip**, filling left to right in the same colours, with **heals on their way in cyan** and the part that would land on nobody in **magenta**. Rest your mouse on someone and a fainter cyan shows how much your heal adds, a fainter magenta what it would waste. Like the pip, it only shows when someone is hurt.
 - **Dispels:** a diamond in the cure's colour on whoever carries something you can remove.
-- **Interrupts:** a red triangle on someone's target the moment it casts — click it to kick.
-- **LOS / RANGE:** when a heal fails, the word appears under that person, so you know to move.
-- **OVER/H:** appears under someone when your heal would be **wasted** — as your mouse rests on them, and again the moment you start the heal. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button (a macro counts the first heal in it, so Nature's Swiftness + Healing Wave judges the Healing Wave); what they miss is the game's own number, minus heals already on their way. How much waste counts is yours: **overheal word: off / any / half / 75%** (half to start), and which button a hover judges: **hover heal: left / right / wheel / thumb1 / thumb2**.
+- **Interrupts:** a red triangle on someone's target the moment it casts — click it to kick. If the game marks that cast as one you **can't interrupt**, a grey shield covers the triangle.
+- **LOS / RANGE:** when a heal fails, the word lights its box in the bar along the bottom (the black box), so you know to move.
+- **OVER/H:** lights its box beside LOS and RANGE when your heal would be **wasted** — as your mouse rests on them, and again the moment you start the heal. Your heal is the middle of its tooltip ("heals for X to Y") for the rank on that mouse button (a macro counts the first heal in it, so Nature's Swiftness + Healing Wave judges the Healing Wave); what they miss is the game's own number, minus heals already on their way. How much waste counts is yours: **overheal word: off / any / half / 75%** (half to start), and which button a hover judges: **hover heal: left / right / wheel / thumb1 / thumb2**.
 - **Your mana tools on the left:** your shield, Mana Tide, a mana potion, Mana Spring as the last resort, a drink (mage water first) and food — each lights only when it would keep you off empty, and goes dark while it cools.
 - **The fuel gauge across the top:** the boss's health racing your mana. When the boss is well ahead of you, a warning band says slow down.
 - **The right rail:** a catch-all (Grounding Totem, Psychic Scream) when your interrupt is cooling; after a fight, the best person to res — healers first; and for shamans **CALL, BRING and RECALL**: call your totems before the pull, bring them along in the fight, and after it bring them or recall them for mana back, whichever is cheaper.
 - **Ships:** the colours change with your group's size, from a fighter for a party to a capital ship for a raid.
 - **The engineer's view:** a button in the corner swaps the radar for the same buttons on a plain grid — party, dispels, interrupts, pets, tools — for anyone who'd rather not have the radar. Its party boxes are **health bars in class colours**, dimmed when someone is out of range, with **heals on their way in cyan** and the part that would land on nobody in **magenta**. While you hover, a fainter band shows how much your heal would add, and a fainter magenta what it would waste. **LOS, RANGE and OVER/H** light three small boxes across its top for whichever square you clicked or hovered, and a **small fuel gauge** sits over it: your mana, the boss's health past it, BINGO, your regen % and the five second rule.
 - **Resize** by dragging the bottom-right corner (right-click it for 100%). Drag the radar itself to move it. Both out of a fight.
-- **The black box** along the bottom is still being built: its keypad doesn't do anything yet.
+- **The black box** along the bottom holds the LOS / RANGE / OVER/H boxes.
 
 Turn it on with **look: radar** in the options, or `/bish look radar`.
 
@@ -202,7 +208,7 @@ Beside each player's cell sits a small one with whoever **they** are targeting. 
 - **Click it and your binds cast on that target**, so you can hit what your team is hitting — your hostile binds on an enemy, your heals on a friend.
 - **Red for an enemy, green for a friend**, with the target's health on the bar. Hover it for the full name.
 - **The focus gets a gold edge.** When two or more of your team are on the same enemy, and more than on any other, that enemy's cells are edged in gold.
-- **Your interrupt, ready to press.** Each target cell carries your class's interrupt icon — Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot. It sits dim, and **lights up the moment that target starts casting or channelling** — with a gold glow, a bounce, or both (your pick: "cast alert" in the options). **Click the icon** and it casts your interrupt, at its cheapest rank, at that target — no bind needed. After you use it, a **cooldown sweep** runs over the icon until it's ready again. It only appears on enemies; a teammate targeting a friend keeps a plain cell. The game keeps the spell itself hidden from addons; this only tells you a cast is happening.
+- **Your interrupt, ready to press.** Each target cell carries your class's interrupt icon — Earth Shock, Kick, Pummel, Counterspell, Hammer of Justice, Silence, Bash, Spell Lock or Scatter Shot. It sits dim, and **lights up the moment that target starts casting or channelling** — with a gold glow, a bounce, or both (your pick: "cast alert" in the options). **Click the icon** and it casts your interrupt, at its cheapest rank, at that target — no bind needed. After you use it, a **cooldown sweep** runs over the icon until it's ready again. A cast the game marks as one you **can't interrupt** gets a grey shield over the icon. It only appears on enemies; a teammate targeting a friend keeps a plain cell. The game keeps the spell itself hidden from addons; this only tells you a cast is happening.
 
 Off by default for everyone. `/bish pvp off` turns it off.
 

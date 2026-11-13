@@ -12516,8 +12516,8 @@ do
         -- 1. A MINI HEALTH BAR UNDER EVERY PIP, LEFT TO RIGHT
         local bp = m and m.box.points[1]
         ok(m and m.box.__shown and m.box:GetParent() == sp2.heal and m.box:DoesClipChildren()
-           and bp[1] == "TOP" and bp[2] == sp2.heal and bp[3] == "BOTTOM",
-           "party1's pip has a mini bar hung UNDER it (its child: it hides with the pip)")
+           and bp[1] == "BOTTOM" and bp[2] == sp2.heal and bp[3] == "TOP" and bp[5] == MB.GAP,
+           "party1's pip has a mini bar ON TOP of it (Arn: \"the mouse blocks it\" under; its child: it hides with the pip)")
         ok(m.bar:GetOrientation() == "HORIZONTAL" and m.box:GetHeight() == MB.H and m.box:GetWidth() == sp2.heal:GetWidth() + MB.WIDER,
            "left to right, " .. MB.H .. " px tall, a little wider than the pip")
         ok(select(2, m.bar:GetMinMaxValues()) ~= nil and m.bar:GetValue() ~= nil, "their health, handed untouched")

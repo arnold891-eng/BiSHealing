@@ -5,7 +5,8 @@
   each pip, filling up and down. Arn: "hmm i dont like it, i think go mini heal bars to make it easier, and lets not do
   like engineer up and down lets go left and right".
 
-  So each pip gets a small bar UNDER it, filling LEFT TO RIGHT - the engineer's box, small:
+  So each pip gets a small bar OVER it, filling LEFT TO RIGHT - the engineer's box, small (on top since the same night,
+  Arn: "put the health bar on top of the pip the mouse blocks it"):
     * the FILL: their health (UnitHealthMax / UnitHealth handed untouched), red / amber / green by its own curve;
     * a dark TRACK behind it, so how much is missing reads at a glance;
     * HEALS ON THEIR WAY in cyan after the fill (UnitGetIncomingHeals, untouched), and the part that would land on nobody
@@ -26,7 +27,7 @@ NS.MB = MB
 MB.TEX = "Interface\\Buttons\\WHITE8X8"
 MB.H = 4                                    -- the bar's height
 MB.WIDER = 8                                -- this much wider than the pip
-MB.GAP = 2                                  -- under the pip by this much
+MB.GAP = 2                                  -- over the pip by this much
 MB.TRACK = { 0.03, 0.04, 0.06, 0.85 }       -- the empty part
 MB.FILL_A = 1
 MB.INCOMING = { 0.22, 0.80, 1.00, 0.85 }    -- the engineer's cyan
@@ -115,14 +116,15 @@ local function hbar(parent, level)
     return s
 end
 
---- A pip's mini bar: a plain frame hung under the secure pip (its child, so it hides with it), clipping its bands.
+--- A pip's mini bar: a plain frame sat on top of the secure pip (its child, so it hides with it), clipping its bands.
+--- Above, not below: the mouse pointer hangs down-right from the hot spot and hid a bar under the pip.
 function MB.Build(sp)
     if sp.mini then return sp.mini end
     local b = sp.heal
     if not b then return nil end
     local m = {}
     local box = CreateFrame("Frame", nil, b)
-    box:SetPoint("TOP", b, "BOTTOM", 0, -MB.GAP)
+    box:SetPoint("BOTTOM", b, "TOP", 0, MB.GAP)
     box:SetHeight(MB.H)
     box:SetClipsChildren(true)
     local lvl = b.GetFrameLevel and b:GetFrameLevel()

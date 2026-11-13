@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 1.4.4
+
+- **The radar catches up with the engineer's view.** Every pip gets a mini health bar on top, filling left to right in its green, amber or red, with heals on their way in cyan and the overheal in magenta. Hover someone and a fainter cyan shows your heal, a fainter magenta what it would waste. Like the pip, the bar only shows when someone is hurt.
+- **LOS, RANGE and OVER/H on the radar** now light three small boxes in the black box's bottom row.
+- **A cast you can't interrupt wears a grey shield** over the interrupt - on the radar, the engineer's view and the PvP target cells.
+
 ## 1.4.3
 
 - **The engineer's view shows the overheal.** Heals on their way that would go past full show as magenta at the right end of the box, with a white line where the waste starts. Hover someone and a fainter magenta shows how much your own heal would waste on top.

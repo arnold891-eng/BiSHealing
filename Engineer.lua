@@ -333,6 +333,78 @@ function EN.Layout(con)
     end
 end
 
+--[[ THE FUEL STRIP ON TOP (Arn, 12 Nov: "all engineering can get a barebones mana guage on top from the rader its own
+  version" - "with the bingo and mana regen 5 second rule but much smaller"). Not a second gauge: the radar's own tape
+  (RD.gauge - your mana, the boss's red past it, BINGO's hot band, the magenta caret, the quarter ticks), moved onto a
+  thin plate over the console and shaped to its width (RD.ShapeTape). Barebones: no placard, no scale numbers, no
+  readout box riding the fill, no chevron - the regen % small at the right end with the five second rule's dashes under
+  it. Every number is still painted by the radar's own functions (RD.PaintFuel); this only moves pieces, out of a fight
+  (the view switch). Back on the radar everything goes home (RD.SizeGauge). ]]
+EN.GAUGE = { h = 20, pad = 6, right = 44, font = 8 }
+
+--- How far the strip reaches over the console's top (the clamp keeps it on the screen); 0 when it is not there.
+function EN.GaugeTop()
+    local RD = NS.RD
+    if not (EN.rail and EN.rail:IsShown()) then return 0 end
+    return EN.GAUGE.h + ((RD and RD.RAIL_GAP) or 2)
+end
+
+--- Into the console (true) or back to the radar: the tape moves, its extras hide or come back. Out of a fight.
+function EN.Gauge(con)
+    local RD = NS.RD
+    local g, f = RD and RD.gauge, RD and RD.frame
+    if not (g and f) then return false end
+    local E, gap = EN.GAUGE, RD.RAIL_GAP or 2
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    if con then
+        if not EN.rail then
+            local r = CreateFrame("Frame", nil, f)
+            r:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+            r.bg = r:CreateTexture(nil, "BACKGROUND")
+            r.bg:SetAllPoints(r)
+            local P = RD.PLATE or { 0.05, 0.04, 0.09 }
+            r.bg:SetColorTexture(P[1], P[2], P[3], 1)
+            EN.rail = r
+        end
+        local r = EN.rail
+        r:ClearAllPoints()
+        r:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, gap)
+        r:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, gap)
+        r:SetHeight(E.h)
+        r:Show()
+        local fw = f:GetWidth()
+        local w = (type(fw) == "number" and fw or 200) - E.pad - E.right
+        g:ClearAllPoints()
+        g:SetPoint("LEFT", r, "LEFT", E.pad, 0)
+        RD.ShapeTape(w)
+        g:Show()
+        if g.hud then g.hud:Hide() end
+        if g.readout then g.readout:Hide() end
+        if g.chev then g.chev:Hide() end
+        if g.regen then
+            if g.regen.SetFont then g.regen:SetFont(font, E.font, "") end
+            g.regen:ClearAllPoints()
+            g.regen:SetPoint("CENTER", r, "RIGHT", -E.right / 2, 3)
+            g.regen:Show()
+        end
+        if g.fsr then g.fsr:Show() end                       -- it hangs under the regen %, wherever that goes
+    else
+        -- only when coming back from the console: the radar's own sizing is left alone otherwise
+        if not (EN.rail and EN.rail:IsShown()) then return false end
+        EN.rail:Hide()
+        if g.hud then g.hud:Show() end
+        if g.readout then g.readout:Show() end
+        if g.regen then
+            if g.regen.SetFont then g.regen:SetFont(font, 10, "") end
+            g.regen:ClearAllPoints()
+            g.regen:SetPoint("CENTER", RD.gaugeRail or f, "RIGHT", -math.floor(RD.GAUGE.right / 2) - 4, 4)
+        end
+        -- the tape home, on the radar's rail, as wide as the radar is now (a raid's square is bigger)
+        if RD.FitWide then RD.FitWide() elseif RD.SizeGauge then RD.SizeGauge(RD.SIZE) end
+    end
+    return true
+end
+
 -- the radar's own functions, wrapped (they are called through RD, so the wrap is what runs)
 local function wrap()
     local RD = NS.RD
@@ -355,6 +427,17 @@ local function wrap()
         end
     end
     if look then RD.Look = function(...) local r = look(...) EN.Range() return r end end
+    -- the view switch: after it has hidden or shown the radar's pieces, the fuel strip moves (and the clamp follows)
+    local apply = RD.ApplyView
+    if apply then
+        RD.ApplyView = function(...)
+            local r = apply(...)
+            local con = console()
+            EN.Gauge(con)
+            if con and RD.ClampRails then RD.ClampRails() end
+            return r
+        end
+    end
 end
 wrap()
 

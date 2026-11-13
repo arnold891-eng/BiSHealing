@@ -12066,6 +12066,35 @@ do
             ok(wp and wp[1] == "LEFT" and wp[2] == RD.frame and wp[4] == ho2[4] - EN.heads.over:GetWidth() / 2
                and wp[5] == ho2[5] and o.win:GetFrameLevel() > e.over:GetFrameLevel(),
                "OVER/H in its own header box (the word hangs 4 px in from its left edge)", tostring(wp and wp[4]))
+            -- THE FUEL STRIP ON TOP (Arn, 12 Nov: "all engineering can get a barebones mana guage on top from the rader
+            -- its own version" - "with the bingo and mana regen 5 second rule but much smaller")
+            RD.ApplyView()
+            local g, r = RD.gauge, EN.rail
+            local rp = r and r.points or {}
+            ok(r and r.__shown and rp[1] and rp[1][1] == "BOTTOMLEFT" and rp[1][2] == RD.frame and rp[1][3] == "TOPLEFT"
+               and r:GetHeight() == EN.GAUGE.h and r:GetHeight() < RD.GAUGE_RAIL_H,
+               "a thin plate over the console (" .. EN.GAUGE.h .. " px; the radar's rail is " .. RD.GAUGE_RAIL_H .. ")")
+            local gp = g.points[1]
+            local want = RD.frame:GetWidth() - EN.GAUGE.pad - EN.GAUGE.right
+            ok(g.__shown and gp and gp[2] == r and g.len == want and g:GetWidth() == want,
+               "the radar's OWN tape on it, shaped to the console's width (the same bars, BINGO, ticks)", g.len)
+            local hp = g.hotClip.points
+            local roof
+            for _, pt in ipairs(hp) do if pt[1] == "TOPRIGHT" then roof = pt end end
+            ok(roof and roof[4] == RD.BINGO * want + 2, "BINGO's window sized to the short tape")
+            ok(not g.hud.__shown and not g.readout.__shown and not g.chev.__shown,
+               "barebones: no scale numbers, no readout box, no chevron")
+            ok(g.regen.__shown and g.regen.__size == EN.GAUGE.font and g.regen.points[1][2] == r and g.fsr.__shown,
+               "the regen % small at its right end, the five second rule's dashes under it")
+            ok(EN.GaugeTop() == EN.GAUGE.h + RD.RAIL_GAP, "the clamp keeps the strip on the screen")
+            ok(RD.PaintMana() ~= false, "painted by the radar's own functions")
+            local keepCon = RD.Console
+            RD.Console = function() return false end          -- the view really back on the radar, as the switch leaves it
+            EN.Gauge(false)
+            RD.Console = keepCon
+            ok(not r.__shown and g.hud.__shown and g.readout.__shown and g.points[1][2] == RD.gaugeRail and g.regen.__size == 10,
+               "back on the radar: the tape home on its rail, its scale and readout back")
+            EN.Gauge(true)
             o.word:SetText("")                -- built only for this check: the scope's no-words count comes later
             o.win:Hide()
             sp.over = nil
@@ -12088,7 +12117,9 @@ do
            and e4.heal:GetAttribute("type1") == nil and f:GetAttribute("unit") == RD.EMPTY_UNIT,
            "an empty square and the background name nobody: the wheel over them heals no one (Arn, 10 Nov)")
         ok(not RD.scope:IsShown() and not RD.toolRail:IsShown() and not RD.gaugeRail:IsShown() and not RD.defRail:IsShown()
-           and not RD.gauge:IsShown() and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails, the tape and the black box step aside")
+           and not (RD.bbRail and RD.bbRail:IsShown()), "the scope, the rails and the black box step aside")
+        ok(RD.gauge:IsShown() and NS.EN.rail and NS.EN.rail:IsShown() and RD.gauge.points[1][2] == NS.EN.rail,
+           "the tape moves to the engineer's own small strip on top (Arn, 12 Nov) - never left floating")
         -- the tools re-armed on their own (max mana changed, a fight ended): the right rail stays away (Arn, 11 Nov:
         -- "why does his engineer 2 have a right rail")
         local wConsole = f:GetWidth()
@@ -12096,8 +12127,8 @@ do
         ok(not RD.defRail:IsShown() and f:GetWidth() == wConsole and RD.hull.points[2][2] == f,
            "the tools re-armed in the console: no right rail beside it, the hull still the console's square")
         ok(RD.conSquares.heal1 and RD.conSquares.heal1:IsShown() and RD.conSquares.tool8:IsShown(), "an empty square where each one lives")
-        ok(not RD.gauge.regen:IsShown() and not RD.gauge.chev:IsShown() and not RD.gauge.fsr:IsShown(),
-           "the tape's pieces on the radar frame step aside too (the 100% Arn saw floating over the console)")
+        ok(not RD.gauge.chev:IsShown() and RD.gauge.regen.points[1][2] == NS.EN.rail and RD.gauge.fsr.points[1][2] == RD.gauge.regen,
+           "the tape's pieces go WITH it: the regen % and the dashes on the strip (never the 100% Arn saw floating over the console), no chevron")
         local hp = RD.hull.points
         ok(hp[1][2] == f and hp[2][2] == f, "the hull is the console's own square")
         bp = b.points[1]

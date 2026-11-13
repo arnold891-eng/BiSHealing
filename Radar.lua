@@ -4290,6 +4290,7 @@ function RD.HeardError(msg)
     local sp = RD.over
     if not (word and sp and sp.los and sp.unit) then return nil end
     sp.los.word:SetText(word)
+    if NS.EN and NS.EN.PlaceWord then NS.EN.PlaceWord(sp, word) end   -- the console: into its own header box
     sp.los:SetAlpha(1)
     if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
     RD.lastLos = sp.i

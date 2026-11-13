@@ -44,15 +44,68 @@ EN.TEX = "Interface\\Buttons\\WHITE8X8"
 -- ONE PLACE FOR EVERY ALERT (Arn, 12 Nov: "for the engineering since we are cramped for space, we can move all the alerts
 -- for all players to the same space in the header?" - "so all stacked in the header LOS RANGE OVERHEAL"): whoever they are
 -- about, they show in the console's top strip (RD.CON.pad + head, where only the class and view buttons sit, at the
--- right), side by side: LOS / RANGE (one word, it changes) then OVER/H - so the two never print over each other. Only
--- one box is under the mouse at a time, so the box you are on is whose it is.
-EN.HEAD_X = { los = -50, over = 26 }      -- from the middle: clear of each other and of the buttons at the right
+-- right), in THREE BOXES (Arn: "oh thats right we can have 3 boxes" - "because a hover can show a los and overheal at
+-- the same time"): LOS, RANGE, OVER/H, each its own dim empty box (the console's own look), lit by its word. Only one box
+-- is under the mouse at a time, so the box you are on is whose it is.
+EN.HEAD = { { key = "los", x = 0, w = 34 }, { key = "range", x = 38, w = 58 }, { key = "over", x = 100, w = 62 } }
+EN.HEAD_H = 16
 
---- An alert's spot in the console's header ("los" or "over"): point, relative frame, relative point, x, y.
+local function headSlot(kind)
+    for _, h in ipairs(EN.HEAD) do if h.key == kind then return h end end
+    return EN.HEAD[1]
+end
+
+--- An alert's spot in the console's header ("los", "range" or "over"): point, relative frame, relative point, x, y.
+--- LOS and RANGE are centred in their box; OVER/H's clipping window starts at its box's left edge (the word hangs 4 px in).
 function EN.HeadSpot(kind)
     local RD = NS.RD
     local C = RD and RD.CON or {}
-    return "CENTER", RD and RD.frame or UIParent, "TOP", EN.HEAD_X[kind] or 0, -(((C.pad or 8) + (C.head or 14)) / 2)
+    local pad = C.pad or 8
+    local h = headSlot(kind)
+    local y = -((pad + (C.head or 14)) / 2)
+    local f = RD and RD.frame or UIParent
+    if kind == "over" then return "LEFT", f, "TOPLEFT", pad + h.x, y end
+    return "CENTER", f, "TOPLEFT", pad + h.x + h.w / 2, y
+end
+
+--- The three empty boxes in the header, on the console's own layer (hidden with it on the radar).
+function EN.HeadBoxes()
+    local RD = NS.RD
+    if not (RD and RD.conLayer) then return nil end
+    EN.heads = EN.heads or {}
+    local C = RD.CON or {}
+    local dim = RD.DIM or { 0.22, 1.00, 0.53, 0.4 }
+    for _, h in ipairs(EN.HEAD) do
+        local q = EN.heads[h.key]
+        if not q then
+            q = CreateFrame("Frame", nil, RD.conLayer)
+            q.edges = {}
+            for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+                local t = q:CreateTexture(nil, "BORDER")
+                t:SetColorTexture(dim[1], dim[2], dim[3], dim[4] or 1)
+                if side == "TOP" or side == "BOTTOM" then
+                    t:SetPoint(side .. "LEFT", q, side .. "LEFT") t:SetPoint(side .. "RIGHT", q, side .. "RIGHT") t:SetHeight(1)
+                else
+                    t:SetPoint("TOP" .. side, q, "TOP" .. side) t:SetPoint("BOTTOM" .. side, q, "BOTTOM" .. side) t:SetWidth(1)
+                end
+                q.edges[#q.edges + 1] = t
+            end
+            EN.heads[h.key] = q
+        end
+        q:SetSize(h.w, EN.HEAD_H)
+        q:ClearAllPoints()
+        q:SetPoint("CENTER", RD.frame, "TOPLEFT", (C.pad or 8) + h.x + h.w / 2, -(((C.pad or 8) + (C.head or 14)) / 2))
+        q:Show()
+    end
+    return EN.heads
+end
+
+--- A click word on a pip (RD.HeardError): in the console, into its own box - LOS or RANGE.
+function EN.PlaceWord(sp, word)
+    if not (EN.Console and EN.Console() and sp and sp.los) then return false end
+    sp.los:ClearAllPoints()
+    sp.los:SetPoint(EN.HeadSpot(word == "RANGE" and "range" or "los"))
+    return true
 end
 
 local function secret(v) return NS.Secret and NS.Secret(v) or false end
@@ -272,7 +325,7 @@ function EN.Layout(con)
             end
         end
     end
-    if con then EN.Range() end
+    if con then EN.Range() EN.HeadBoxes() end
     -- heals on their way: heard only while the console shows (a raid's predictions cost nothing on the radar)
     if EN.events and EN.events.UnregisterEvent then
         if con then pcall(EN.events.RegisterEvent, EN.events, "UNIT_HEAL_PREDICTION")

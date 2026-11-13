@@ -1,5 +1,11 @@
 # BiS Healing
 
+## 1.4.3
+
+- **The engineer's view shows the overheal.** Heals on their way that would go past full show as magenta at the right end of the box, with a white line where the waste starts. Hover someone and a fainter magenta shows how much your own heal would waste on top.
+- **Alerts in the header.** LOS, RANGE and OVER/H now light three small boxes across the top of the engineer's view, for whichever square you clicked or hovered, so the squares keep their room for the health bars.
+- **A small fuel gauge over the engineer's view**: the radar's own gauge, pared down - your mana, the boss's health past it, BINGO when the boss pulls more than 30% ahead, your regen % and the five second rule's dashes.
+
 ## 1.4.2
 
 - **See your heal before you cast it.** Rest your mouse on someone on the grid and a faint band after their health shows how much your heal would add - the same colour as heals on their way, only fainter. If it runs into the edge of the cell, that part would be overheal. Hold shift, ctrl or alt to see that heal instead. It steps aside once you start casting, when the real incoming band takes over.

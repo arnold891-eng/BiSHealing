@@ -291,11 +291,15 @@ function OV.Hand(o, unit, heal)
     return true
 end
 
-local function hide(o)
+local function hideWord(o)
     if not o then return end
     if o.fade then o.fade:Stop() end
     o.win:Hide()
     o.bar:Hide()
+end
+local function hide(o)
+    if not o then return end
+    hideWord(o)
     if o.sp and NS.EN then NS.EN.Ghost(o.sp, nil) end
 end
 local function show(o)
@@ -324,20 +328,53 @@ end
 
 local function flashing(o) return o and o.flashUntil and now() < o.flashUntil end
 
---- The hovered pip's word, for your left-click heal now. Answers true when the word is armed.
+--- The hovered pip's word, for your hover heal now. Answers true when the word is armed.
+--- The engineer's ghost (your heal after the heals on their way) is its own thing (Arn, 12 Nov: "hovering will show how
+--- much the heal is going to heal"): it shows with the word off too.
 function OV.PaintHover()
     local sp = OV.hover
     if not sp then return false end
     local o = sp.over
     if flashing(o) or OV.casting then return false end    -- a flash, or your own cast in the air, holds the word still
-    local heal = OV.On() and sp.unit and OV.HoverHeal(OV.Mod())
-    if not heal then hide(o) OV.Listen(nil) return false end
+    local RD = NS.RD
+    local heal = RD and RD.On and RD.On() and sp.unit and OV.HoverHeal(OV.Mod()) or nil
+    if NS.EN then NS.EN.Ghost(sp, heal) end              -- the engineer's box: your heal as a ghost after the incoming
+    if not heal or OV.Mode() == "off" then hideWord(o) OV.Listen(nil) return false end
     o = OV.Build(sp)
-    if not OV.Hand(o, sp.unit, heal) then hide(o) OV.Listen(nil) return false end
+    if not OV.Hand(o, sp.unit, heal) then hideWord(o) OV.Listen(nil) return false end
     show(o)
-    if NS.EN then NS.EN.Ghost(sp, heal) end              -- the engineer's box: your heal as a ghost after their health
     if OV.listening ~= sp.unit then OV.Listen(sp.unit) end
     return true
+end
+
+-- ------------------------------------------------------------------ the grid's hover preview
+
+--- THE GRID CELL UNDER THE MOUSE (Arn, 12 Nov: "when we send a heal it shows the incoming heal so we can guage how much
+--- its going to heal, can we add that to hover as well"): your hover heal as a fainter copy of the incoming band, right
+--- after it (f.preview, Grid.lua), handed against their max (a secret). Nothing is compared and nothing ticks: the
+--- client moves it with their health; it is asked again on a modifier change and after your own cast.
+--- Gone while your own cast is in the air (the incoming band carries it then).
+function OV.PaintCell()
+    local f = OV.cell
+    if not (f and f.preview) then return false end
+    local FG = NS.FG
+    local heal = not OV.casting and f.unit and not (FG and FG.maxOK == false) and OV.HoverHeal(OV.Mod()) or nil
+    if not heal or not UnitHealthMax then f.preview:Hide() return false end
+    local okM, mx = pcall(UnitHealthMax, f.unit)
+    if not okM or not pcall(f.preview.SetMinMaxValues, f.preview, 0, mx) then f.preview:Hide() return false end
+    pcall(f.preview.SetValue, f.preview, heal)
+    f.preview:Show()
+    return true
+end
+
+function OV.CellEnter(f)
+    OV.cell = f
+    return OV.PaintCell()
+end
+
+function OV.CellLeave(f)
+    if f and f.preview then f.preview:Hide() end
+    if OV.cell == f then OV.cell = nil end
 end
 
 function OV.Enter(sp)
@@ -409,20 +446,26 @@ end
 ev:SetScript("OnEvent", function(_, event, a1, a2, a3)
     if event == "MODIFIER_STATE_CHANGED" then
         if OV.hover then OV.PaintHover() end
+        if OV.cell then OV.PaintCell() end
     elseif event == "UNIT_HEALTH" or event == "UNIT_HEAL_PREDICTION" then
         if OV.hover and a1 == OV.listening then OV.PaintHover() end
     elseif event == "UNIT_SPELLCAST_START" then
         OV.casting = true
         OV.CastBegan(a3)
+        -- your heal is incoming now: the previews step aside so it is not counted twice
+        if OV.hover and NS.EN then NS.EN.Ghost(OV.hover, nil) end
+        if OV.cell and OV.cell.preview then OV.cell.preview:Hide() end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         local wasCasting = OV.casting
         OV.casting = nil
         if OV.pending then OV.CastBegan(a3) end           -- an instant: no START came first
         if wasCasting and OV.hover then OV.PaintHover() end
+        if wasCasting and OV.cell then OV.PaintCell() end
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
         OV.casting = nil
         if event ~= "UNIT_SPELLCAST_STOP" then OV.pending = nil end
         if OV.hover then OV.PaintHover() end
+        if OV.cell then OV.PaintCell() end
     elseif event == "SPELLS_CHANGED" or event == "PLAYER_REGEN_ENABLED" then
         OV.Forget()                                       -- ranks, talents or +healing may have moved: read again
     end

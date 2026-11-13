@@ -3210,8 +3210,19 @@ local function armShield()
     if container.UpdateAllAuras then pcall(container.UpdateAllAuras, container) end
 end
 
+-- MAGE WATER FIRST (Arn, 12 Nov: "can you proioritize mage water first on the drink button too"): conjured water is free
+-- and goes away anyway, so the drink button reaches for it before anything bought, whatever level each needs. Known by
+-- its item id (the classic conjured waters, Conjured Water to Conjured Crystal Water), else a name starting "Conjured ".
+RD.CONJURED = { [5350] = true, [2288] = true, [2136] = true, [3772] = true, [8077] = true, [8078] = true, [8079] = true }
+
+--- True when an item is conjured (a mage made it).
+function RD.IsConjured(id, name)
+    if RD.CONJURED[id] then return true end
+    return type(name) == "string" and name:find("^Conjured ") ~= nil
+end
+
 --- The best item in your bags whose use is `spellName` ("Drink" / "Food"; `needWords` in its use text), by the level it
---- needs - out of a fight only. Answers an item id or nil.
+--- needs - out of a fight only. A drink: conjured (mage) water first, then by level. Answers an item id or nil.
 function RD.BestItem(spellName, needWords)
     if combat() then return nil end
     local getSpell = (C_Item and C_Item.GetItemSpell) or GetItemSpell
@@ -3239,12 +3250,16 @@ function RD.BestItem(spellName, needWords)
                         text = okD and plain(text) or nil
                         fits = type(text) == "string" and text:lower():find(needWords, 1, true) ~= nil
                     end
-                    local need = 0
+                    local need, iname = 0, nil
                     if fits and info then
-                        local okF, _, _, _, _, minLvl = pcall(info, id)
+                        local okF, n1, _, _, _, minLvl = pcall(info, id)
                         need = okF and tonumber(plain(minLvl)) or 0
+                        iname = okF and plain(n1) or nil
                     end
-                    if fits and need <= (lvl or 60) and (not bestLvl or need > bestLvl) then best, bestLvl = id, need end
+                    -- the rank: the level it needs, and a mage's water above everything bought
+                    local rank = need
+                    if spellName == "Drink" and RD.IsConjured(id, iname) then rank = need + 1000 end
+                    if fits and need <= (lvl or 60) and (not bestLvl or rank > bestLvl) then best, bestLvl = id, rank end
                 end
             end
         end

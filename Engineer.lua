@@ -12,9 +12,12 @@
     * RANGE: the grid's own dimming (FG.PaintRange on the box - a plain answer, else the client's ternary on a secret one),
       every radar tick while the console shows (RD.Look), and when a unit crosses the line (UNIT_IN_RANGE_UPDATE);
     * LOS / RANGE on a failed click: the click word (RD.HeardError) in the MIDDLE of the box, as on the grid;
-    * OVERHEAL: while you hover, your left-click heal as a pale GHOST right after their health - as long as the heal is,
+    * INCOMING (Arn, 12 Nov: "engineer still missing the incoming heal mechanic"): heals on their way, as on the grid -
+      UnitGetIncomingHeals handed untouched to a bar that starts where their health ends, in the cockpit's incoming cyan,
+      on the health events and UNIT_HEAL_PREDICTION (heard only while the console shows);
+    * OVERHEAL: while you hover, your hover heal as a paler GHOST right after the incoming - as long as the heal is,
       cut off at the box's edge (the client draws the heal against their max, a secret) - and OVER/H under the box when
-      more than half would be wasted (Overheal.lua).
+      more than half would be wasted (Overheal.lua). Gone while your own cast is in the air (it is incoming then).
   On the radar nothing changes: the bars hide, the glyphs come back, the click word goes back under the pip.
   Cost: health on its events (one unit), range on the radar's half-second tick while the console shows.
 ]]
@@ -25,7 +28,8 @@ local EN = {}
 NS.EN = EN
 
 EN.BG = { 0.04, 0.05, 0.06, 0.92 }       -- the empty part of a box
-EN.GHOST = { 0.62, 0.88, 1.00, 0.55 }    -- your heal, pale, after their health
+EN.INCOMING = { 0.22, 0.80, 1.00, 0.60 } -- heals on their way: the cockpit grid's own cyan (FG.COCKPIT.incoming)
+EN.GHOST = { 0.22, 0.80, 1.00, 0.28 }    -- your hover heal: the same cyan, fainter - "this is what it would add"
 EN.FALLBACK = { 0.20, 0.70, 0.30 }       -- a class the client will not say
 EN.TEX = "Interface\\Buttons\\WHITE8X8"
 
@@ -57,16 +61,25 @@ function EN.Box(sp)
     local bar = CreateFrame("StatusBar", nil, box)
     bar:SetAllPoints(box)
     bar:SetStatusBarTexture(EN.TEX)
-    -- the ghost: as wide as the box, starting where their health ends; the box clips what runs past its edge
-    local ghost = CreateFrame("StatusBar", nil, box)
+    -- heals on their way: as wide as the box, starting where their health ends; the box clips what runs past its edge
+    local inc = CreateFrame("StatusBar", nil, box)
     local fill = bar:GetStatusBarTexture()
-    ghost:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
-    ghost:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+    inc:SetPoint("TOPLEFT", fill, "TOPRIGHT", 0, 0)
+    inc:SetPoint("BOTTOMLEFT", fill, "BOTTOMRIGHT", 0, 0)
+    inc:SetStatusBarTexture(EN.TEX)
+    inc:SetStatusBarColor(EN.INCOMING[1], EN.INCOMING[2], EN.INCOMING[3], EN.INCOMING[4])
+    inc:SetMinMaxValues(0, 1)
+    inc:SetValue(0)
+    -- the ghost: the same, starting where the heals on their way end
+    local ghost = CreateFrame("StatusBar", nil, box)
+    local incFill = inc:GetStatusBarTexture()
+    ghost:SetPoint("TOPLEFT", incFill, "TOPRIGHT", 0, 0)
+    ghost:SetPoint("BOTTOMLEFT", incFill, "BOTTOMRIGHT", 0, 0)
     ghost:SetStatusBarTexture(EN.TEX)
     ghost:SetStatusBarColor(EN.GHOST[1], EN.GHOST[2], EN.GHOST[3], EN.GHOST[4])
     ghost:Hide()
     box:Hide()
-    e.box, e.bar, e.ghost = box, bar, ghost
+    e.box, e.bar, e.inc, e.ghost = box, bar, inc, ghost
     sp.en = e
     return e
 end
@@ -76,7 +89,7 @@ function EN.Size(sp)
     local e, b = sp.en, sp.heal
     if not (e and b and b.GetWidth) then return end
     local w = b:GetWidth()
-    if type(w) == "number" and w > 2 then e.ghost:SetWidth(w - 2) end
+    if type(w) == "number" and w > 2 then e.inc:SetWidth(w - 2) e.ghost:SetWidth(w - 2) end
 end
 
 --- Their health into the bar, untouched, in their class colour. Answers true when painted.
@@ -94,6 +107,7 @@ function EN.Paint(sp)
         pcall(e.bar.SetMinMaxValues, e.bar, 0, mx)
         pcall(e.bar.SetValue, e.bar, v)
     end
+    EN.Incoming(sp, okM and mx or nil)
     local FG = NS.FG
     local cls
     if UnitClass then
@@ -107,6 +121,23 @@ function EN.Paint(sp)
     end
     e.bar:SetStatusBarColor(c[1], c[2], c[3], 1)
     e.box:Show()
+    return true
+end
+
+--- Heals on their way into the box's incoming bar, untouched, on their max (asked here when not handed). True = drawn.
+function EN.Incoming(sp, mx)
+    local e = sp and sp.en
+    if not (e and sp.unit and UnitGetIncomingHeals) then return false end
+    if mx == nil then
+        local okM, m = pcall(UnitHealthMax, sp.unit)
+        if not okM then return false end
+        mx = m
+    end
+    local ok, v = pcall(UnitGetIncomingHeals, sp.unit)
+    if not ok then return false end
+    if v == nil then v = 0 end
+    pcall(e.inc.SetMinMaxValues, e.inc, 0, mx)
+    pcall(e.inc.SetValue, e.inc, v)
     return true
 end
 
@@ -131,7 +162,7 @@ function EN.Range()
     return n
 end
 
---- The ghost: your heal after their health, as long as the heal is against their max (a secret, the client's sum).
+--- The ghost: your heal after the heals on their way, as long as the heal is against their max (a secret, the client's sum).
 --- nil heal = gone.
 function EN.Ghost(sp, heal)
     local e = sp and sp.en
@@ -170,6 +201,11 @@ function EN.Layout(con)
         end
     end
     if con then EN.Range() end
+    -- heals on their way: heard only while the console shows (a raid's predictions cost nothing on the radar)
+    if EN.events and EN.events.UnregisterEvent then
+        if con then pcall(EN.events.RegisterEvent, EN.events, "UNIT_HEAL_PREDICTION")
+        else EN.events:UnregisterEvent("UNIT_HEAL_PREDICTION") end
+    end
 end
 
 -- the radar's own functions, wrapped (they are called through RD, so the wrap is what runs)
@@ -201,7 +237,14 @@ local ev = CreateFrame("Frame")
 EN.events = ev
 pcall(ev.RegisterEvent, ev, "UNIT_IN_RANGE_UPDATE")
 ev:SetScript("OnEvent", function(_, event, unit)
-    if event ~= "UNIT_IN_RANGE_UPDATE" or not console() or secret(unit) then return end
+    if not console() or secret(unit) then return end
+    if event == "UNIT_HEAL_PREDICTION" then
+        for _, sp in ipairs((NS.RD and NS.RD.spokes) or {}) do
+            if sp.unit == unit and sp.en and sp.en.box:IsShown() then EN.Incoming(sp) end
+        end
+        return
+    end
+    if event ~= "UNIT_IN_RANGE_UPDATE" then return end
     local FG = NS.FG
     for _, sp in ipairs((NS.RD and NS.RD.spokes) or {}) do
         if sp.unit == unit and sp.en and FG and FG.PaintRange then pcall(FG.PaintRange, sp.en.box, unit) end

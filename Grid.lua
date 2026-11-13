@@ -520,8 +520,12 @@ function FG.Make(i, parent)
     f:RegisterForClicks("AnyDown")      -- bare "LeftButtonDown" silently no-ops on secure buttons
     -- the cell the mouse is on (FG.HeardError flashes it). A hook chains onto the template's own
     -- OnEnter rather than replacing it, and hooking is allowed in a fight
-    f:HookScript("OnEnter", function(self) FG.over = self end)
-    f:HookScript("OnLeave", function(self) if FG.over == self then FG.over = nil end end)
+    -- and the hover preview of your heal (Overheal.lua, OV.CellEnter): f.preview after the incoming band
+    f:HookScript("OnEnter", function(self) FG.over = self if NS.OV and NS.OV.CellEnter then NS.OV.CellEnter(self) end end)
+    f:HookScript("OnLeave", function(self)
+        if FG.over == self then FG.over = nil end
+        if NS.OV and NS.OV.CellLeave then NS.OV.CellLeave(self) end
+    end)
 
     f.bg = f:CreateTexture(nil, "BACKGROUND")
     f.bg:SetAllPoints()
@@ -660,6 +664,23 @@ function FG.Make(i, parent)
         local lvl = f:GetFrameLevel()
         if type(lvl) == "number" then f.incoming:SetFrameLevel(lvl + 1) end
     end
+
+    -- THE HOVER PREVIEW (12 Nov 2026, Arn: "when we send a heal it shows the incoming heal so we can guage how much its
+    -- going to heal, can we add that to hover as well"): your hover heal, a fainter copy of the incoming band, starting
+    -- where the heals on their way end, inside the same clip (it stops at the cell's edge - what runs into the edge is
+    -- the overheal). Overheal.lua hands it the heal on hover (OV.PaintCell); hidden otherwise.
+    f.preview = CreateFrame("StatusBar", nil, f.healClip)
+    f.preview:SetPoint("TOPLEFT", f.incoming:GetStatusBarTexture(), "TOPRIGHT", 0, 0)
+    f.preview:SetSize(FRAME_W - 2, FRAME_H - 2)
+    f.preview:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    f.preview:SetStatusBarColor(0.30, 0.85, 0.45, FG.PREVIEW_ALPHA)
+    f.preview:SetMinMaxValues(0, 1)
+    f.preview:SetValue(0)
+    if f.preview.SetFrameLevel and f.GetFrameLevel then
+        local lvl = f:GetFrameLevel()
+        if type(lvl) == "number" then f.preview:SetFrameLevel(lvl + 1) end
+    end
+    f.preview:Hide()
 
     -- THE SHIELD, drawn the same way as the heals on their way: anchored to the health bar's
     -- TEXTURE, so it starts where the fill ends and the two read as one line. A fixed anchor would
@@ -899,13 +920,14 @@ end
 
 --- The heal, shield and overheal bands sized to the health bar they ride: the whole cell in classic, the tape in the
 --- cockpit. They MUST match the bar - the overheal fills from the bar's right edge by the heal coming, over its own width.
+FG.PREVIEW_ALPHA = 0.28     -- the hover preview: the incoming band's colour, fainter ("what it would add")
 function FG.SizeBands(f, w, h)
     if not f then return end
     local bw, bh = (tonumber(w) or FRAME_W) - 2, (tonumber(h) or FRAME_H) - 2
     if f.__look == "cockpit" then
         bw, bh = (tonumber(w) or FRAME_W) - 2 * FG.COCKPIT.tapeIn, FG.COCKPIT.tapeH
     end
-    for _, b in ipairs({ f.incoming, f.absorb, f.overheal, f.healAbsorb }) do
+    for _, b in ipairs({ f.incoming, f.preview, f.absorb, f.overheal, f.healAbsorb }) do
         if b and b.SetSize then b:SetSize(bw, bh) end
     end
 end
@@ -981,6 +1003,7 @@ function FG.ApplyLook(f)
     if f.readoutBox then f.readoutBox:Hide() end
     local inc, abs = cockpit and K.incoming or C.incoming, cockpit and K.absorb or C.absorb
     if f.incoming then f.incoming:SetStatusBarColor(inc[1], inc[2], inc[3], inc[4]) end
+    if f.preview then f.preview:SetStatusBarColor(inc[1], inc[2], inc[3], FG.PREVIEW_ALPHA) end
     if f.absorb then f.absorb:SetStatusBarColor(abs[1], abs[2], abs[3], abs[4]) end
     local oh = cockpit and K.overheal or FG.OVERHEAL
     if f.overheal then f.overheal:SetStatusBarColor(oh[1], oh[2], oh[3], oh[4]) end

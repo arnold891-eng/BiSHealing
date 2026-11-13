@@ -334,7 +334,7 @@ local function newFrame(kind, name, parent)
     -- a secret stays a secret
     function f:GetValue() return self.__value end
     function f:GetMinMaxValues() return self.__min, self.__max end
-    function f:SetStatusBarColor(r, g, b) self.__color = { r, g, b } end
+    function f:SetStatusBarColor(r, g, b, a) self.__color = { r, g, b, a } end   -- the client keeps the alpha too
     -- A STATUS BAR HAS A FILL TEXTURE, and hands back the same one every time (7 Oct 2026). This was
     -- an auto no-op answering nil, so every "anchored to the end of the fill" in the suite was
     -- anchored to nil - and the overheal's tick, which is built only when the fill answers, was
@@ -12002,9 +12002,24 @@ do
             ok(EN.Ghost(sp, 500) and e.ghost.__shown and e.ghost:GetValue() == 500 and select(2, e.ghost:GetMinMaxValues()) ~= nil,
                "hovering: your heal as a pale ghost, handed against their max")
             local gp = e.ghost.points[1]
-            ok(gp and gp[2] == e.bar:GetStatusBarTexture() and gp[3] == "TOPRIGHT" and e.ghost:GetParent() == e.box,
-               "the ghost starts where their health ends, inside the box that clips it")
+            ok(gp and gp[2] == e.inc:GetStatusBarTexture() and gp[3] == "TOPRIGHT" and e.ghost:GetParent() == e.box,
+               "the ghost starts where the heals on their way end, inside the box that clips it")
             ok(EN.Ghost(sp, nil) == false and not e.ghost.__shown, "the mouse leaves: the ghost goes")
+            -- HEALS ON THEIR WAY (Arn, 12 Nov: "engineer still missing the incoming heal mechanic")
+            local ip = e.inc.points[1]
+            ok(ip and ip[2] == e.bar:GetStatusBarTexture() and ip[3] == "TOPRIGHT" and e.inc:GetParent() == e.box,
+               "an incoming bar starts where their health ends, inside the box")
+            local keepInc = _G.UnitGetIncomingHeals
+            local INC = secret()
+            _G.UnitGetIncomingHeals = function(u) return u == "party1" and INC or 0 end
+            ok(EN.Incoming(sp) and e.inc:GetValue() == INC and select(2, e.inc:GetMinMaxValues()) ~= nil,
+               "heals on their way handed to it untouched (a secret), on their max")
+            ok(EN.events.__events and EN.events.__events.UNIT_HEAL_PREDICTION, "it listens for heal predictions while the console shows")
+            local INC2 = secret()
+            INC = INC2
+            fire(EN.events, "UNIT_HEAL_PREDICTION", "party1")
+            ok(e.inc:GetValue() == INC2, "a heal starts on party1: the bar moves")
+            _G.UnitGetIncomingHeals = keepInc
             local okC, Cost = pcall(dofile, "../_bisdev/dev/cost.lua")
             if not okC then okC, Cost = pcall(dofile, "../../_bisdev/dev/cost.lua") end
             if okC then
@@ -12015,6 +12030,7 @@ do
             -- back on the radar: nothing of this shows; the glyphs and the word under the pip come back
             EN.Layout(false)
             ok(not e.box.__shown and sp.heal.beat.__shown and sp.los.points[1][1] == "TOP", "the radar: glyphs back, no bars, LOS under the pip")
+            ok(not EN.events.__events.UNIT_HEAL_PREDICTION, "back on the radar: heal predictions no longer heard")
             EN.Layout(true)
         end
         local e4 = RD.spokes[4]
@@ -12572,6 +12588,43 @@ do
         FM.Ranks = ranksNoNS
         FM.Set("", "left", "Healing Wave(Rank 7)")
         OV.Forget()
+        -- THE GRID'S HOVER PREVIEW (Arn, 12 Nov: "when we send a heal it shows the incoming heal so we can guage how much
+        -- its going to heal, can we add that to hover as well"): your hover heal after the incoming band, fainter
+        do
+            local FG = NS.FG
+            local cell
+            for _, c in ipairs(FG.frames) do if c.unit == "party1" then cell = c end end
+            cell = cell or FG.frames[2]
+            local keepUnit = cell.unit
+            cell.unit = cell.unit or "party1"
+            ok(cell.preview and not cell.preview.__shown, "a grid cell has a hover preview band, hidden")
+            local pp = cell.preview.points[1]
+            ok(pp and pp[2] == cell.incoming:GetStatusBarTexture() and pp[3] == "TOPRIGHT" and cell.preview:GetParent() == cell.healClip,
+               "it starts where the heals on their way end, in the same clip (stops at the cell's edge)")
+            cell.__scripts.OnEnter(cell)
+            ok(cell.preview.__shown and cell.preview:GetValue() == 1100 and select(2, cell.preview:GetMinMaxValues()) ~= nil,
+               "the mouse on a cell: your hover heal (Healing Wave Rank 7, 1100) against their max", cell.preview:GetValue())
+            local pc, ic = cell.preview.__color or {}, cell.incoming.__color or {}
+            ok(pc[1] == ic[1] and pc[2] == ic[2] and pc[3] == ic[3] and pc[4] == FG.PREVIEW_ALPHA and (ic[4] or 1) > pc[4],
+               "the incoming band's colour, fainter")
+            STATE.shift = true
+            fire(OV.events, "MODIFIER_STATE_CHANGED")
+            ok(cell.preview:GetValue() == 41.5, "holding shift: shift-left's heal", cell.preview:GetValue())
+            STATE.shift = false
+            fire(OV.events, "MODIFIER_STATE_CHANGED")
+            fire(OV.events, "UNIT_SPELLCAST_START", "player", "cast-g", 8005)
+            ok(not cell.preview.__shown, "your cast starts: the preview steps aside (the incoming band carries it now)")
+            fire(OV.events, "UNIT_SPELLCAST_SUCCEEDED", "player", "cast-g", 8005)
+            ok(cell.preview.__shown, "it lands: the preview is back while you still hover")
+            cell.__scripts.OnLeave(cell)
+            ok(not cell.preview.__shown and OV.cell == nil, "the mouse leaves: gone")
+            NS.DO.overword("off")
+            cell.__scripts.OnEnter(cell)
+            ok(cell.preview.__shown, "the OVER/H word switched off: the preview still shows (its own thing)")
+            cell.__scripts.OnLeave(cell)
+            NS.DO.overword("half")
+            cell.unit = keepUnit
+        end
         TEXT[8005] = secretString()
         OV.Forget()
         ok(OV.HealOf("Healing Wave(Rank 7)") == nil, "a secret tooltip is never read: no size, no word")

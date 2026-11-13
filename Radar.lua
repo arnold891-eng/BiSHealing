@@ -2196,7 +2196,9 @@ function RD.FitWide()
     local f = RD.frame
     if not f then return end
     local w = f.GetWidth and f:GetWidth()
-    if RD.gauge and type(w) == "number" and w > 0 then RD.SizeGauge(w) end
+    -- the console: the tape lives on the engineer's own small strip (Engineer.lua, EN.Gauge), shaped there
+    if RD.Console and RD.Console() and NS.EN and NS.EN.Gauge then NS.EN.Gauge(true)
+    elseif RD.gauge and type(w) == "number" and w > 0 then RD.SizeGauge(w) end
     local b = RD.bbRail
     if b and RD.toolRail then
         local gap = RD.RAIL_GAP
@@ -2271,7 +2273,12 @@ function RD.ClampRails()
     RD.FitHull()                                     -- and the hull follows them
     local f = RD.frame
     if not (f and f.SetClampRectInsets) then return end
-    if RD.Console and RD.Console() then pcall(f.SetClampRectInsets, f, 0, 0, 0, 0) return end
+    if RD.Console and RD.Console() then
+        -- the engineer's small fuel strip on top (Engineer.lua) stays on the screen too
+        local top = NS.EN and NS.EN.GaugeTop and NS.EN.GaugeTop() or 0
+        pcall(f.SetClampRectInsets, f, 0, 0, top, 0)
+        return
+    end
     local gap = RD.RAIL_GAP
     local right = (RD.defRail and RD.defRail:IsShown()) and (RD.TOOL_RAIL_W + gap) or 0
     local bottom = (RD.BBRail() and NS.BB) and -(NS.BB.RAIL_H + gap) or 0
@@ -2358,6 +2365,14 @@ function RD.SizeGauge(size)
     local w = railW - G.left - G.right
     g:ClearAllPoints()
     g:SetPoint("BOTTOMLEFT", RD.gaugeRail or RD.frame, "BOTTOMLEFT", G.left, G.base)
+    return RD.ShapeTape(w)
+end
+
+--- The tape `w` long wherever it was just anchored: its size, the scale, the ticks, the 30% lift and BINGO's window.
+--- The radar's rail (RD.SizeGauge) and the engineer's small strip on top (Engineer.lua, EN.Gauge) both shape it here.
+function RD.ShapeTape(w)
+    local g, G = RD.gauge, RD.GAUGE
+    if not g then return nil end
     g:SetSize(w, G.w)
     RD.SizeHUD(w)
     for q, l in ipairs(g.ticks) do
@@ -4290,6 +4305,7 @@ function RD.HeardError(msg)
     local sp = RD.over
     if not (word and sp and sp.los and sp.unit) then return nil end
     sp.los.word:SetText(word)
+    if NS.EN and NS.EN.PlaceWord then NS.EN.PlaceWord(sp, word) end   -- the console: into its own header box
     sp.los:SetAlpha(1)
     if sp.losFade then sp.losFade:Stop() sp.losFade:Play() end
     RD.lastLos = sp.i

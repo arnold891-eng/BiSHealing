@@ -274,8 +274,18 @@ function OV.Anchor(sp, win)
     if not win then return end
     win:ClearAllPoints()
     local con = NS.EN and NS.EN.Console and NS.EN.Console()
-    if con or not sp.los then win:SetPoint("TOP", sp.heal, "BOTTOM", 0, -1)
-    else win:SetPoint("TOP", sp.los, "BOTTOM", 0, 3) end
+    -- the console: the header's one spot for every alert (Arn, 12 Nov: "move all the alerts for all players to the same
+    -- space in the header", EN.HeadSpot); the radar: under the click word, as before
+    if con then
+        win:SetPoint(NS.EN.HeadSpot("over"))
+        local lvl = sp.heal.GetFrameLevel and sp.heal:GetFrameLevel()
+        if type(lvl) == "number" and win.SetFrameLevel then win:SetFrameLevel(lvl + 8) end
+    elseif not sp.los then win:SetPoint("TOP", sp.heal, "BOTTOM", 0, -1)
+    else
+        win:SetPoint("TOP", sp.los, "BOTTOM", 0, 3)
+        local lvl = sp.los.GetFrameLevel and sp.los:GetFrameLevel()
+        if type(lvl) == "number" and win.SetFrameLevel then win:SetFrameLevel(lvl) end
+    end
 end
 
 --- Hand the bar its two numbers: max = what the unit is missing (secret, incoming heals taken off), value = the share

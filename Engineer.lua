@@ -30,8 +30,83 @@ NS.EN = EN
 EN.BG = { 0.04, 0.05, 0.06, 0.92 }       -- the empty part of a box
 EN.INCOMING = { 0.22, 0.80, 1.00, 0.60 } -- heals on their way: the cockpit grid's own cyan (FG.COCKPIT.incoming)
 EN.GHOST = { 0.22, 0.80, 1.00, 0.28 }    -- your hover heal: the same cyan, fainter - "this is what it would add"
+-- THE OVERHEAL IN THE BOX (Arn, 12 Nov, with a screenshot of the grid's magenta: "in this grid this is the overheal can we
+-- show that and the overheal word on the engineer?"): the grid's own band (Grid.lua, f.overheal) - a bar as wide as the
+-- box filling LEFTWARDS from its right edge by the heals on their way, masked to their filled health, so only the part
+-- over their health shows: the heal that lands on nobody. A second, fainter one carries on leftwards from it by your
+-- hover heal: what YOUR heal would waste on top. Nothing compared; the client does the geometry. A MASK, not a clip:
+-- a clip anchored to a secret-sized fill draws nothing (the grid's 8 Oct lesson).
+EN.OVER = { 1.00, 0.12, 0.85, 0.95 }      -- the grid's classic overheal magenta (FG.OVERHEAL), the colour Arn showed
+EN.OVER_HOVER = { 1.00, 0.12, 0.85, 0.45 }
 EN.FALLBACK = { 0.20, 0.70, 0.30 }       -- a class the client will not say
 EN.TEX = "Interface\\Buttons\\WHITE8X8"
+
+-- ONE PLACE FOR EVERY ALERT (Arn, 12 Nov: "for the engineering since we are cramped for space, we can move all the alerts
+-- for all players to the same space in the header?" - "so all stacked in the header LOS RANGE OVERHEAL"): whoever they are
+-- about, they show in the console's top strip (RD.CON.pad + head, where only the class and view buttons sit, at the
+-- right), in THREE BOXES (Arn: "oh thats right we can have 3 boxes" - "because a hover can show a los and overheal at
+-- the same time"): LOS, RANGE, OVER/H, each its own dim empty box (the console's own look), lit by its word. Only one box
+-- is under the mouse at a time, so the box you are on is whose it is.
+EN.HEAD = { { key = "los", x = 0, w = 34 }, { key = "range", x = 38, w = 58 }, { key = "over", x = 100, w = 62 } }
+EN.HEAD_H = 16
+
+local function headSlot(kind)
+    for _, h in ipairs(EN.HEAD) do if h.key == kind then return h end end
+    return EN.HEAD[1]
+end
+
+--- An alert's spot in the console's header ("los", "range" or "over"): point, relative frame, relative point, x, y.
+--- LOS and RANGE are centred in their box; OVER/H's clipping window starts at its box's left edge (the word hangs 4 px in).
+function EN.HeadSpot(kind)
+    local RD = NS.RD
+    local C = RD and RD.CON or {}
+    local pad = C.pad or 8
+    local h = headSlot(kind)
+    local y = -((pad + (C.head or 14)) / 2)
+    local f = RD and RD.frame or UIParent
+    if kind == "over" then return "LEFT", f, "TOPLEFT", pad + h.x, y end
+    return "CENTER", f, "TOPLEFT", pad + h.x + h.w / 2, y
+end
+
+--- The three empty boxes in the header, on the console's own layer (hidden with it on the radar).
+function EN.HeadBoxes()
+    local RD = NS.RD
+    if not (RD and RD.conLayer) then return nil end
+    EN.heads = EN.heads or {}
+    local C = RD.CON or {}
+    local dim = RD.DIM or { 0.22, 1.00, 0.53, 0.4 }
+    for _, h in ipairs(EN.HEAD) do
+        local q = EN.heads[h.key]
+        if not q then
+            q = CreateFrame("Frame", nil, RD.conLayer)
+            q.edges = {}
+            for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+                local t = q:CreateTexture(nil, "BORDER")
+                t:SetColorTexture(dim[1], dim[2], dim[3], dim[4] or 1)
+                if side == "TOP" or side == "BOTTOM" then
+                    t:SetPoint(side .. "LEFT", q, side .. "LEFT") t:SetPoint(side .. "RIGHT", q, side .. "RIGHT") t:SetHeight(1)
+                else
+                    t:SetPoint("TOP" .. side, q, "TOP" .. side) t:SetPoint("BOTTOM" .. side, q, "BOTTOM" .. side) t:SetWidth(1)
+                end
+                q.edges[#q.edges + 1] = t
+            end
+            EN.heads[h.key] = q
+        end
+        q:SetSize(h.w, EN.HEAD_H)
+        q:ClearAllPoints()
+        q:SetPoint("CENTER", RD.frame, "TOPLEFT", (C.pad or 8) + h.x + h.w / 2, -(((C.pad or 8) + (C.head or 14)) / 2))
+        q:Show()
+    end
+    return EN.heads
+end
+
+--- A click word on a pip (RD.HeardError): in the console, into its own box - LOS or RANGE.
+function EN.PlaceWord(sp, word)
+    if not (EN.Console and EN.Console() and sp and sp.los) then return false end
+    sp.los:ClearAllPoints()
+    sp.los:SetPoint(EN.HeadSpot(word == "RANGE" and "range" or "los"))
+    return true
+end
 
 local function secret(v) return NS.Secret and NS.Secret(v) or false end
 local function plain(v) if v == nil or secret(v) then return nil end return v end
@@ -79,7 +154,44 @@ function EN.Box(sp)
     ghost:SetStatusBarColor(EN.GHOST[1], EN.GHOST[2], EN.GHOST[3], EN.GHOST[4])
     ghost:Hide()
     box:Hide()
+    -- the overheal: the filled health is a mask's shape; the bands fill leftwards from the box's right edge
+    local cur = CreateFrame("Frame", nil, box)
+    cur:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
+    cur:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
+    local mask = bar.CreateMaskTexture and bar:CreateMaskTexture() or nil
+    if mask then
+        mask:SetAllPoints(cur)
+        mask:SetTexture(EN.TEX, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE", "NEAREST")
+    end
+    local function band(c, anchor, point)
+        local o = CreateFrame("StatusBar", nil, bar)
+        o:SetPoint("TOPRIGHT", anchor, point, 0, 0)
+        o:SetStatusBarTexture(EN.TEX)
+        o:SetStatusBarColor(c[1], c[2], c[3], c[4])
+        if o.SetReverseFill then o:SetReverseFill(true) end
+        o:SetMinMaxValues(0, 1)
+        o:SetValue(0)
+        if o.SetFrameLevel and bar.GetFrameLevel then
+            local lvl = bar:GetFrameLevel()
+            if type(lvl) == "number" then o:SetFrameLevel(lvl + 3) end
+        end
+        local t = o.GetStatusBarTexture and o:GetStatusBarTexture()
+        if mask and t and t.AddMaskTexture then t:AddMaskTexture(mask) end
+        return o
+    end
+    local over = band(EN.OVER, box, "TOPRIGHT")
+    -- a white tick where the waste begins (the grid's overTick), masked the same way: drawn only when there IS an overheal
+    local overFill = over:GetStatusBarTexture()
+    local tick = over:CreateTexture(nil, "OVERLAY")
+    tick:SetColorTexture(1, 1, 1, 0.95)
+    tick:SetWidth(2)
+    tick:SetPoint("TOPLEFT", overFill, "TOPLEFT", 0, 0)
+    tick:SetPoint("BOTTOMLEFT", overFill, "BOTTOMLEFT", 0, 0)
+    if mask and tick.AddMaskTexture then tick:AddMaskTexture(mask) end
+    local overHover = band(EN.OVER_HOVER, overFill, "TOPLEFT")
+    overHover:Hide()
     e.box, e.bar, e.inc, e.ghost = box, bar, inc, ghost
+    e.cur, e.mask, e.over, e.overTick, e.overHover = cur, mask, over, tick, overHover
     sp.en = e
     return e
 end
@@ -90,6 +202,11 @@ function EN.Size(sp)
     if not (e and b and b.GetWidth) then return end
     local w = b:GetWidth()
     if type(w) == "number" and w > 2 then e.inc:SetWidth(w - 2) e.ghost:SetWidth(w - 2) end
+    local h = b.GetHeight and b:GetHeight()
+    if type(w) == "number" and w > 2 and type(h) == "number" and h > 2 then
+        e.over:SetSize(w - 2, h - 2)
+        e.overHover:SetSize(w - 2, h - 2)
+    end
 end
 
 --- Their health into the bar, untouched, in their class colour. Answers true when painted.
@@ -138,6 +255,9 @@ function EN.Incoming(sp, mx)
     if v == nil then v = 0 end
     pcall(e.inc.SetMinMaxValues, e.inc, 0, mx)
     pcall(e.inc.SetValue, e.inc, v)
+    -- the overheal is the SAME value on the same scale, filling from the other end (the grid's bargain)
+    pcall(e.over.SetMinMaxValues, e.over, 0, mx)
+    pcall(e.over.SetValue, e.over, v)
     return true
 end
 
@@ -167,11 +287,15 @@ end
 function EN.Ghost(sp, heal)
     local e = sp and sp.en
     if not e then return false end
-    if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() return false end
+    if not (heal and console() and sp.unit and e.box:IsShown()) then e.ghost:Hide() e.overHover:Hide() return false end
     local okM, mx = pcall(UnitHealthMax, sp.unit)
-    if not okM or not pcall(e.ghost.SetMinMaxValues, e.ghost, 0, mx) then e.ghost:Hide() return false end
+    if not okM or not pcall(e.ghost.SetMinMaxValues, e.ghost, 0, mx) then e.ghost:Hide() e.overHover:Hide() return false end
     pcall(e.ghost.SetValue, e.ghost, heal)
     e.ghost:Show()
+    -- what your heal would waste on top of the heals already coming: the fainter band, on from the first one's end
+    pcall(e.overHover.SetMinMaxValues, e.overHover, 0, mx)
+    pcall(e.overHover.SetValue, e.overHover, heal)
+    e.overHover:Show()
     return true
 end
 
@@ -186,7 +310,7 @@ function EN.Layout(con)
             end
             if sp.los then
                 sp.los:ClearAllPoints()
-                if con then sp.los:SetPoint("CENTER", b, "CENTER", 0, 0)       -- in the box, as on the grid
+                if con then sp.los:SetPoint(EN.HeadSpot("los"))                    -- the console's header: one spot for all
                 else sp.los:SetPoint("TOP", b, "BOTTOM", 0, -1) end            -- under the pip, as the radar had it
             end
             if NS.OV and NS.OV.Anchor and sp.over then NS.OV.Anchor(sp) end
@@ -197,15 +321,88 @@ function EN.Layout(con)
             elseif sp.en then
                 sp.en.box:Hide()
                 sp.en.ghost:Hide()
+                sp.en.overHover:Hide()
             end
         end
     end
-    if con then EN.Range() end
+    if con then EN.Range() EN.HeadBoxes() end
     -- heals on their way: heard only while the console shows (a raid's predictions cost nothing on the radar)
     if EN.events and EN.events.UnregisterEvent then
         if con then pcall(EN.events.RegisterEvent, EN.events, "UNIT_HEAL_PREDICTION")
         else EN.events:UnregisterEvent("UNIT_HEAL_PREDICTION") end
     end
+end
+
+--[[ THE FUEL STRIP ON TOP (Arn, 12 Nov: "all engineering can get a barebones mana guage on top from the rader its own
+  version" - "with the bingo and mana regen 5 second rule but much smaller"). Not a second gauge: the radar's own tape
+  (RD.gauge - your mana, the boss's red past it, BINGO's hot band, the magenta caret, the quarter ticks), moved onto a
+  thin plate over the console and shaped to its width (RD.ShapeTape). Barebones: no placard, no scale numbers, no
+  readout box riding the fill, no chevron - the regen % small at the right end with the five second rule's dashes under
+  it. Every number is still painted by the radar's own functions (RD.PaintFuel); this only moves pieces, out of a fight
+  (the view switch). Back on the radar everything goes home (RD.SizeGauge). ]]
+EN.GAUGE = { h = 20, pad = 6, right = 44, font = 8 }
+
+--- How far the strip reaches over the console's top (the clamp keeps it on the screen); 0 when it is not there.
+function EN.GaugeTop()
+    local RD = NS.RD
+    if not (EN.rail and EN.rail:IsShown()) then return 0 end
+    return EN.GAUGE.h + ((RD and RD.RAIL_GAP) or 2)
+end
+
+--- Into the console (true) or back to the radar: the tape moves, its extras hide or come back. Out of a fight.
+function EN.Gauge(con)
+    local RD = NS.RD
+    local g, f = RD and RD.gauge, RD and RD.frame
+    if not (g and f) then return false end
+    local E, gap = EN.GAUGE, RD.RAIL_GAP or 2
+    local font = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
+    if con then
+        if not EN.rail then
+            local r = CreateFrame("Frame", nil, f)
+            r:SetFrameLevel(math.max(0, f:GetFrameLevel()))
+            r.bg = r:CreateTexture(nil, "BACKGROUND")
+            r.bg:SetAllPoints(r)
+            local P = RD.PLATE or { 0.05, 0.04, 0.09 }
+            r.bg:SetColorTexture(P[1], P[2], P[3], 1)
+            EN.rail = r
+        end
+        local r = EN.rail
+        r:ClearAllPoints()
+        r:SetPoint("BOTTOMLEFT", f, "TOPLEFT", 0, gap)
+        r:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT", 0, gap)
+        r:SetHeight(E.h)
+        r:Show()
+        local fw = f:GetWidth()
+        local w = (type(fw) == "number" and fw or 200) - E.pad - E.right
+        g:ClearAllPoints()
+        g:SetPoint("LEFT", r, "LEFT", E.pad, 0)
+        RD.ShapeTape(w)
+        g:Show()
+        if g.hud then g.hud:Hide() end
+        if g.readout then g.readout:Hide() end
+        if g.chev then g.chev:Hide() end
+        if g.regen then
+            if g.regen.SetFont then g.regen:SetFont(font, E.font, "") end
+            g.regen:ClearAllPoints()
+            g.regen:SetPoint("CENTER", r, "RIGHT", -E.right / 2, 3)
+            g.regen:Show()
+        end
+        if g.fsr then g.fsr:Show() end                       -- it hangs under the regen %, wherever that goes
+    else
+        -- only when coming back from the console: the radar's own sizing is left alone otherwise
+        if not (EN.rail and EN.rail:IsShown()) then return false end
+        EN.rail:Hide()
+        if g.hud then g.hud:Show() end
+        if g.readout then g.readout:Show() end
+        if g.regen then
+            if g.regen.SetFont then g.regen:SetFont(font, 10, "") end
+            g.regen:ClearAllPoints()
+            g.regen:SetPoint("CENTER", RD.gaugeRail or f, "RIGHT", -math.floor(RD.GAUGE.right / 2) - 4, 4)
+        end
+        -- the tape home, on the radar's rail, as wide as the radar is now (a raid's square is bigger)
+        if RD.FitWide then RD.FitWide() elseif RD.SizeGauge then RD.SizeGauge(RD.SIZE) end
+    end
+    return true
 end
 
 -- the radar's own functions, wrapped (they are called through RD, so the wrap is what runs)
@@ -230,6 +427,17 @@ local function wrap()
         end
     end
     if look then RD.Look = function(...) local r = look(...) EN.Range() return r end end
+    -- the view switch: after it has hidden or shown the radar's pieces, the fuel strip moves (and the clamp follows)
+    local apply = RD.ApplyView
+    if apply then
+        RD.ApplyView = function(...)
+            local r = apply(...)
+            local con = console()
+            EN.Gauge(con)
+            if con and RD.ClampRails then RD.ClampRails() end
+            return r
+        end
+    end
 end
 wrap()
 
